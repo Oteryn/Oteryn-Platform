@@ -96,7 +96,7 @@ fn labels(en: bool) -> Vec<String> {
     })
     .collect()
 }
-async fn render(state: App, uri: axum::http::Uri, raw: Option<String>) -> Response {
+async fn render(state: App, raw: Option<String>, language: oteryn_web::Language) -> Response {
     if !state.config.enabled {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -164,10 +164,10 @@ async fn render(state: App, uri: axum::http::Uri, raw: Option<String>) -> Respon
         Ok::<_, Error>(cards)
     }
     .await;
-    let en = uri.path().starts_with("/en/");
+    let en = language == oteryn_web::Language::En;
     let unavailable = result.is_err();
     let page = Page {
-        lang: if en { "en" } else { "pl" },
+        lang: language.code(),
         labels: labels(en),
         unavailable,
         cards: result.unwrap_or_default(),
@@ -189,8 +189,10 @@ async fn page(
     State(state): State<App>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
+    headers: axum::http::HeaderMap,
 ) -> Response {
-    let mut response = render(state, uri, raw).await;
+    let language = oteryn_web::Language::for_path(uri.path(), &headers);
+    let mut response = render(state, raw, language).await;
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("private, no-store"),

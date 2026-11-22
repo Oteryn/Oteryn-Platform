@@ -6,6 +6,73 @@ use axum::{
 };
 use tower::ServiceExt;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+#[tokio::test]
+async fn cold_community_pages_use_preferred_language_unless_prefixed() -> TestResult {
+    let database = crate::audit06_test_db::Database::new().await?;
+    let pool = &database.db;
+    let authority = "oteryn:game:primary".to_owned();
+    let app = router(
+        pool.clone(),
+        Arc::new(pages::FailClosed),
+        Config {
+            enabled: true,
+            source_authority: authority.clone(),
+        },
+    )
+    .merge(crate::deaths::router(
+        pool.clone(),
+        Arc::new(crate::deaths::FailClosed),
+        crate::deaths::Config {
+            enabled: true,
+            source_authority: authority,
+        },
+    ))
+    .merge(crate::online::router(
+        pool.clone(),
+        Arc::new(crate::online::FailClosed),
+        crate::online::Config {
+            enabled: true,
+            ..Default::default()
+        },
+    ))
+    .merge(crate::houses::router(
+        pool.clone(),
+        Arc::new(IdentityMap::new(Vec::new())?),
+        Arc::new(crate::houses::DenyOwners),
+        crate::houses::Config {
+            serving_enabled: true,
+            ..Default::default()
+        },
+    ));
+    for path in [
+        "/guilds",
+        "/guilds/Aldric",
+        "/deaths",
+        "/characters/Aldric/deaths",
+        "/online",
+        "/houses",
+    ] {
+        for (prefix, lang) in [("", "en"), ("/pl", "pl")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("{prefix}{path}"))
+                        .header("accept-language", "en-GB,pl;q=0.5")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE, "{path}");
+            let body = to_bytes(response.into_body(), 100_000).await?;
+            assert!(
+                std::str::from_utf8(&body)?.contains(&format!("lang=\"{lang}\"")),
+                "{prefix}{path}"
+            );
+        }
+    }
+    database.close().await
+}
+
 // SOURCE: G-4 contract guild vector, adapted with a hidden second member.
 const GOLDEN: &str = r#"{"contract_version":2,"operation":"PublishGuildV2","source_authority":"oteryn:game:primary","guild_id":"01934f10-7c06-7001-805b-3b1122334401","projection_epoch":"1","projection_revision":"5","source_observed_at":"1790000000","guild":[{"world_id":"01934f10-7c02-7001-805b-3b1122334401","name":"Red Rose","state":"ACTIVE","founded_at":"1789000000","ranks":[{"level":1,"name":"Leader"},{"level":2,"name":"Vice Leader"},{"level":3,"name":"Member"}],"members":[{"character_id":"01934f10-7c04-7001-805b-3b1122334401","name":"Aldric","rank_level":1,"joined_at":"1789000000"},{"character_id":"01934f10-7c04-7001-805b-3b1122334402","name":"Hidden Member","rank_level":3,"joined_at":"1789000000"}]}]}"#;
 fn publication(raw: &str, watermark: bool) -> Publication {

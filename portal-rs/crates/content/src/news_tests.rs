@@ -516,6 +516,26 @@ async fn postgres_pagination_language_and_caps() {
 
     sqlx::query("INSERT INTO news(slug,title,body,published_at) SELECT 'pagination-'||n,'English news','English body',now() FROM generate_series(1,26) n").execute(&pool).await.unwrap();
     let app = public_router(pool.clone());
+    for (path, lang) in [("/news", "en"), ("/news?lang=pl", "pl")] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(path)
+                    .header("accept-language", "en")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-language"], lang);
+        let body = to_bytes(response.into_body(), 100000).await.unwrap();
+        assert!(
+            std::str::from_utf8(&body)
+                .unwrap()
+                .contains(&format!("lang=\"{lang}\""))
+        );
+    }
     let response = app
         .clone()
         .oneshot(Request::get("/news?lang=en").body(Body::empty()).unwrap())
@@ -558,11 +578,17 @@ async fn postgres_pagination_language_and_caps() {
         };
         assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
         assert!(
-            !admin_index(State(pool.clone()), Extension(context), Query(q))
-                .await
-                .unwrap()
-                .0
-                .contains("?page=")
+            !admin_index(
+                State(pool.clone()),
+                Extension(context),
+                Query(q),
+                HeaderMap::new()
+            )
+            .await
+            .unwrap()
+            .1
+            .0
+            .contains("?page=")
         );
     }
     pool.close().await;

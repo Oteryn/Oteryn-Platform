@@ -3,7 +3,7 @@
 use axum::{
     Extension, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -247,12 +247,13 @@ async fn index(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Query(options): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
     use askama::Template;
-    let lang = if options.lang.as_deref() == Some("en") {
-        "en"
-    } else {
-        "pl"
+    let lang = match options.lang.as_deref() {
+        Some("en") => "en",
+        Some("pl") => "pl",
+        _ => oteryn_web::Language::for_headers(&headers).code(),
     };
     let rows = sqlx::query(
         "SELECT id,alt_text FROM media ORDER BY created_at DESC,id DESC LIMIT 100 OFFSET $1",
@@ -276,7 +277,14 @@ async fn index(
             .map(|r| (r.get("id"), r.get("alt_text")))
             .collect(),
     };
-    Ok(Html(page.render().map_err(unavailable)?))
+    Ok((
+        [
+            (header::CONTENT_LANGUAGE, lang),
+            (header::VARY, "Accept-Language, Cookie"),
+        ],
+        Html(page.render().map_err(unavailable)?),
+    )
+        .into_response())
 }
 async fn record(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

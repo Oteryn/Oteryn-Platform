@@ -250,6 +250,19 @@ async fn browser_lifecycle(pool: &PgPool) {
     let actor = Uuid::now_v7();
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(pool).await.unwrap();
     let app = test_app(pool.clone(), actor);
+    let preferred = app
+        .clone()
+        .oneshot(
+            Request::get("/admin/media")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preferred.status(), StatusCode::OK);
+    assert_eq!(preferred.headers()[header::CONTENT_LANGUAGE], "en");
     let page = app
         .clone()
         .oneshot(
@@ -261,6 +274,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap();
     assert_eq!(page.status(), StatusCode::OK);
+    assert_eq!(page.headers()[header::CONTENT_LANGUAGE], "en");
     let cookie = page.headers()[header::SET_COOKIE]
         .to_str()
         .unwrap()

@@ -80,14 +80,19 @@ async fn http_success_refusal_bad_input_and_localization() -> Result {
     };
     use tower::ServiceExt;
     let db = PgPool::connect_lazy("postgres://unused@localhost:1/unused")?;
-    for lang in ["pl", "en"] {
+    for (path, lang) in [
+        ("/pl/stats/guilds", "pl"),
+        ("/en/stats/guilds", "en"),
+        ("/stats/guilds", "en"),
+    ] {
         let source = fixture();
         let hidden = source.hidden.to_string();
         let app = http::router::<()>(db.clone(), Config { enabled: true }, Arc::new(source));
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri(format!("/{lang}/stats/guilds"))
+                    .uri(path)
+                    .header("accept-language", "en")
                     .body(Body::empty())?,
             )
             .await?;

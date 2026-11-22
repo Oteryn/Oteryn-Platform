@@ -2,7 +2,7 @@
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -62,6 +62,17 @@ fn page(lang: &str, title: &str, body: String) -> Html<String> {
     use askama::Template;
     Html(NewsPage { lang, title, body }.render().unwrap_or_default())
 }
+type LocalizedHtml = ([(header::HeaderName, &'static str); 2], Html<String>);
+
+fn localized_html(lang: &'static str, html: Html<String>) -> LocalizedHtml {
+    (
+        [
+            (header::CONTENT_LANGUAGE, lang),
+            (header::VARY, "Accept-Language, Cookie"),
+        ],
+        html,
+    )
+}
 const MAX_PAGE: i64 = 100000;
 
 #[derive(Debug, Default, Deserialize)]
@@ -70,11 +81,11 @@ struct Options {
     page: Option<i64>,
 }
 impl Options {
-    fn lang(&self) -> &str {
-        if self.lang.as_deref() == Some("en") {
-            "en"
-        } else {
-            "pl"
+    fn lang(&self, headers: &HeaderMap) -> &'static str {
+        match self.lang.as_deref() {
+            Some("en") => "en",
+            Some("pl") => "pl",
+            _ => oteryn_web::Language::for_headers(headers).code(),
         }
     }
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
@@ -163,8 +174,10 @@ fn language(lang: &str) -> Result<(), StatusCode> {
 async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(), &q).await
+    headers: HeaderMap,
+) -> Result<LocalizedHtml, StatusCode> {
+    let lang = q.lang(&headers);
+    Ok(localized_html(lang, listing(&pool, lang, &q).await?))
 }
 async fn local_index(
     State(pool): State<PgPool>,
@@ -244,8 +257,10 @@ async fn show(
     State(pool): State<PgPool>,
     Path(slug): Path<String>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    article(&pool, q.lang(), &slug).await
+    headers: HeaderMap,
+) -> Result<LocalizedHtml, StatusCode> {
+    let lang = q.lang(&headers);
+    Ok(localized_html(lang, article(&pool, lang, &slug).await?))
 }
 async fn local_show(
     State(pool): State<PgPool>,
@@ -272,7 +287,8 @@ async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+    headers: HeaderMap,
+) -> Result<LocalizedHtml, StatusCode> {
     let rows = sqlx::query(
         "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
@@ -280,7 +296,7 @@ async fn admin_index(
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.lang();
+    let lang = q.lang(&headers);
     let mut html = format!(
         "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
         label(lang, "new")
@@ -300,19 +316,22 @@ async fn admin_index(
             label(lang, "next")
         ));
     }
-    Ok(page(lang, &label(lang, "news"), html))
+    Ok(localized_html(lang, page(lang, &label(lang, "news"), html)))
 }
 async fn new(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    Ok(form(
-        q.lang(),
+    headers: HeaderMap,
+) -> Result<LocalizedHtml, StatusCode> {
+    let lang = q.lang(&headers);
+    let html = form(
+        lang,
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
-    ))
+    );
+    Ok(localized_html(lang, html))
 }
 async fn edit(
     State(pool): State<PgPool>,
@@ -320,10 +339,12 @@ async fn edit(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+    headers: HeaderMap,
+) -> Result<LocalizedHtml, StatusCode> {
     let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
-    Ok(form(
-        q.lang(),
+    let lang = q.lang(&headers);
+    let html = form(
+        lang,
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),
@@ -336,7 +357,8 @@ async fn edit(
             translation_published_at: row.get("translation_published_at"),
         },
         session.csrf_token().await.map_err(unavailable)?,
-    ))
+    );
+    Ok(localized_html(lang, html))
 }
 fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String> {
     let action = id.map_or_else(

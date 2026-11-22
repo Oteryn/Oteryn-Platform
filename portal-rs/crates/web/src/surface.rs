@@ -74,6 +74,11 @@ impl Language {
         negotiate(headers)
     }
 
+    /// A locale prefix takes precedence over the browser's language preference.
+    pub fn for_path(path: &str, headers: &HeaderMap) -> Self {
+        path_language(path).unwrap_or_else(|| Self::for_headers(headers))
+    }
+
     /// BCP 47 language code for templates and response headers.
     pub fn code(self) -> &'static str {
         match self {

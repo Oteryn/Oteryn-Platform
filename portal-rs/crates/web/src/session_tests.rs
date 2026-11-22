@@ -484,6 +484,37 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
 }
 
 #[tokio::test]
+async fn chrome_uses_the_document_language_for_its_navigation() -> TestResult {
+    let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    let app = Router::new()
+        .route("/news", get(|| async {
+            ([(header::CONTENT_LANGUAGE, "pl")], axum::response::Html(
+                r#"<html lang="pl"><head><title>Aktualności</title></head><body><main><h1>Aktualności</h1></main></body></html>"#,
+            ))
+        }))
+        .layer(axum::middleware::from_fn_with_state(
+            crate::chrome::Shell {
+                registry: oteryn_ui::Registry::default(),
+                sessions: SessionLayer::new(pool),
+            },
+            crate::chrome::middleware,
+        ));
+    let response = app
+        .oneshot(
+            HttpRequest::get("/news?lang=pl")
+                .header(header::ACCEPT_LANGUAGE, "en")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "pl");
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(r#"<html lang="pl""#));
+    assert!(html.contains("Przejdź do treści"));
+    assert!(!html.contains("Skip to content"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestResult {
     let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     let layer = crate::public_sessions(db.clone(), Some("https://portal.test".into()));

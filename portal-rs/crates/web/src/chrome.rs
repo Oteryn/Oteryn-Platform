@@ -18,9 +18,7 @@ pub struct Shell {
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
-    let lang = crate::surface::path_language(request.uri().path())
-        .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
-        .code();
+    let lang = crate::surface::Language::for_path(request.uri().path(), request.headers()).code();
     let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
     let path = request.uri().path();
     let local = path
@@ -41,7 +39,8 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    let uri = request.uri().clone();
+    let chrome = shell.registry.chrome(lang, uri.path(), account);
     request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
@@ -108,7 +107,17 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             response = replacement;
         }
     }
-    let mut response = wrap_document(response, &chrome).await;
+    let document_chrome = response
+        .headers()
+        .get(header::CONTENT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .filter(|&language| matches!(language, "pl" | "en") && language != lang)
+        .map(|language| {
+            shell
+                .registry
+                .chrome(language, uri.path(), chrome.account.clone())
+        });
+    let mut response = wrap_document(response, document_chrome.as_ref().unwrap_or(&chrome)).await;
     if response
         .headers()
         .get(header::CONTENT_TYPE)

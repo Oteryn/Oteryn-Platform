@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Router,
     extract::{OriginalUri, Path, RawQuery, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -159,19 +159,21 @@ async fn world(
     State(s): State<StateData>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
-    page(s, uri.path(), raw, None).await
+    page(s, uri.path(), &headers, raw, None).await
 }
 async fn character(
     State(s): State<StateData>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
     Path(name): Path<String>,
+    headers: HeaderMap,
 ) -> Response {
     if !wire::name(&name) {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    page(s, uri.path(), raw, Some(name)).await
+    page(s, uri.path(), &headers, raw, Some(name)).await
 }
 fn fresh(through: i64, now: u64) -> bool {
     u64::try_from(through)
@@ -369,6 +371,7 @@ async fn load_inner(
 async fn page(
     s: StateData,
     path: &str,
+    headers: &HeaderMap,
     raw: Option<String>,
     character: Option<String>,
 ) -> Response {
@@ -385,14 +388,15 @@ async fn page(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let en = path.starts_with("/en/");
+    let language = oteryn_web::Language::for_path(path, headers);
+    let en = language == oteryn_web::Language::En;
     let result = load(&s, &query, character.as_deref(), en).await;
     if matches!(result, Ok(None)) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let unavailable = result.is_err();
     let page = Page {
-        lang: if en { "en" } else { "pl" },
+        lang: language.code(),
         labels: labels(en),
         unavailable,
         entries: result.ok().flatten().unwrap_or_default(),
