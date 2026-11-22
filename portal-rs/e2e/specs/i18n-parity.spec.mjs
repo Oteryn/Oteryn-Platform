@@ -18,7 +18,7 @@ const announcementEdit = /^\/admin\/announcements\/[0-9a-f]{8}(?:-[0-9a-f]{4}){3
 const characterProfile = /^\/account\/characters\/[^/]+\/profile$/u;
 const normalize = (value) => value.normalize('NFC').replace(/\s+/gu, ' ').trim();
 const catalogs = Object.fromEntries(['pl', 'en'].map((locale) => [locale, new Map()]));
-const catalogKeys = new Map();
+const catalogKeys = new Set();
 
 function readCatalogs(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -29,10 +29,8 @@ function readCatalogs(directory) {
     }
     const locale = /(?:^|[._])(pl|en)\.ftl$/u.exec(entry.name)?.[1];
     if (!locale) continue;
-    const keys = new Set();
-    catalogKeys.set(url.href.slice(workspace.href.length), keys);
     for (const [, key, text] of fs.readFileSync(url, 'utf8').matchAll(/^([a-z][\w-]*)\s*=[ \t]*([^\r\n]*)/gmu)) {
-      keys.add(key);
+      catalogKeys.add(key);
       const value = normalize(text);
       if (value && !/[{}]/u.test(value)) {
         const names = catalogs[locale].get(value) ?? [];
@@ -44,50 +42,18 @@ function readCatalogs(directory) {
 }
 for (const path of ['crates/', 'templates/']) readCatalogs(new URL(path, workspace));
 
-const pageRoutes = [...inventory.routes, ...expectations].map(({ route, crate }) => {
-  const segments = route.split('/');
-  const pattern = segments.map((segment) => {
-    if (segment.startsWith('{*')) return '.*';
-    if (segment.startsWith('{')) return '[^/]+';
-    return segment.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-  }).join('/');
-  return {
-    crate,
-    pattern: new RegExp(`^${pattern}$`, 'u'),
-    specificity: segments.filter((segment) => !segment.startsWith('{')).length,
-  };
-}).sort((a, b) => b.specificity - a.specificity);
+// A translation can legitimately contain a word that is a key in another
+// catalog. Approve the exact rendered prose on its own route.
+const signInProse = new Map([
+  ['/en/account/passkeys', 'Adding or removing a passkey signs out all browser sessions. Your password remains available for sign-in.'],
+  ['/oauth/authorize', 'Authorize game sign-in'],
+]);
 
-function keysForPage(pathname) {
-  const own = pageRoutes.find(({ pattern }) => pattern.test(pathname))?.crate;
-  const page = pathname.replace(/^\/(?:pl|en)(?=\/|$)/u, '');
-  const [family] = page.split('/').filter(Boolean);
-  const roots = ['crates/ui/'];
-  if (page === '/account/passkeys') {
-    // The passkeys renderer uses this catalog. Atlas owns the separate
-    // "sign-in" key, which is ordinary English prose on the passkeys page.
-    roots.push('templates/account/passkeys/');
-  } else {
-    if (own) roots.push(`crates/${own}/`);
-    if (family) roots.push(`templates/${family}/`);
-  }
-  if (family === 'native-account') roots.push('crates/payments/templates/coin/');
-  if (page === '/login') roots.push('templates/account/login/', 'templates/account/mfa/');
-  if (family === 'mfa') roots.push('templates/account/mfa/');
-  if (page.startsWith(announcementsPath)) roots.push('crates/content/');
-  if (characterProfile.test(page)) roots.push('templates/profile/');
-  if (page === '' || page === '/' || ['legal', 'help', 'rules', 'server-information'].includes(family)) {
-    roots.push('templates/pages/');
-  }
-  return new Set([...catalogKeys].flatMap(([file, keys]) =>
-    roots.some((root) => file.startsWith(root)) ? [...keys] : []));
-}
-
-function rawKeysIn(text, keys) {
+function rawKeysIn(text, pathname) {
   const tokens = text.match(/(?<![\w/-])[a-z][\w]*(?:-[\w]+)+(?![\w/-])/gu) ?? [];
-  return tokens.filter((token) => keys.has(token));
+  return tokens.filter((token) =>
+    catalogKeys.has(token) && !(token === 'sign-in' && text === signInProse.get(pathname)));
 }
-
 
 // Exact labels and longer diagnostic phrases are deliberately chosen to avoid
 // flagging words shared by both languages, proper names or editorial content.
@@ -126,9 +92,9 @@ function catalogText(path, key) {
   return value;
 }
 
-function assertText(value, locale, scope, keys, title = false) {
+function assertText(value, locale, scope, pathname, title = false) {
   const text = normalize(value);
-  expect.soft(rawKeysIn(text, keys), `${scope}: rendered Fluent keys`).toEqual([]);
+  expect.soft(rawKeysIn(text, pathname), `${scope}: rendered Fluent keys`).toEqual([]);
   expect.soft(/\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text), `${scope}: unresolved interpolation`).toBe(false);
   expect.soft(wrongLocale(text, locale, title), `${scope}: opposite-locale catalog marker`).toBeUndefined();
 }
@@ -138,8 +104,8 @@ async function assertDocument(page, locale, target) {
   const title = await page.title();
   const titleLabel = normalize(title).replace(/\s*[·|–—]\s*Oteryn$/u, '').trim();
   expect.soft(titleLabel.length, `${target}: localized document title`).toBeGreaterThan(0);
-  const keys = keysForPage(new URL(page.url()).pathname);
-  assertText(titleLabel, locale, `${target}: title`, keys, true);
+  const pathname = new URL(page.url()).pathname;
+  assertText(titleLabel, locale, `${target}: title`, pathname, true);
   // Text nodes preserve boundaries between labels and include closed menus.
   const values = await page.locator('body').evaluate((body, locale) => {
     const values = [];
@@ -168,7 +134,7 @@ async function assertDocument(page, locale, target) {
   for (const { value, label, checkLocale } of values) {
     const text = normalize(value);
     const wholeLabel = normalize(label);
-    for (const token of [...rawKeysIn(text, keys), ...rawKeysIn(wholeLabel, keys)]) rawKeys.add(token);
+    for (const token of [...rawKeysIn(text, pathname), ...rawKeysIn(wholeLabel, pathname)]) rawKeys.add(token);
     const leak = checkLocale && wrongLocale(text, locale);
     if (leak) leaks.add(leak);
     interpolation ||= /\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text);
@@ -176,6 +142,183 @@ async function assertDocument(page, locale, target) {
   expect.soft([...rawKeys], `${target}: rendered Fluent keys`).toEqual([]);
   expect.soft([...leaks], `${target}: opposite-locale catalog markers`).toEqual([]);
   expect.soft(interpolation, `${target}: unresolved interpolation`).toBe(false);
+  await assertShellCopy(page, locale, target);
+}
+
+// The shell and checkout expectations are pinned independently of the catalogs.
+const shellCopy = {
+  "home-link": ["Strona główna", "Home"],
+  "navigation": ["Nawigacja główna", "Main navigation"],
+  "shell-abuse-reports": ["Zgłoszenia naruszeń", "Abuse reports"],
+  "shell-account-bazaar": ["Moje aukcje", "My auctions"],
+  "shell-account-notifications": ["Powiadomienia", "Notifications"],
+  "shell-account-overview": ["Przegląd konta", "Account overview"],
+  "shell-account-passkeys": ["Klucze dostępu", "Passkeys"],
+  "shell-account-privacy": ["Prywatność konta", "Account privacy"],
+  "shell-account-recovery-key": ["Klucz odzyskiwania", "Recovery key"],
+  "shell-account-sessions": ["Sesje konta", "Account sessions"],
+  "shell-account-wizard": ["Kreator bezpieczeństwa", "Security wizard"],
+  "shell-atlas": ["Atlas", "Atlas"],
+  "shell-bazaar": ["Bazar postaci", "Character bazaar"],
+  "shell-calculators": ["Kalkulatory", "Calculators"],
+  "shell-collection": ["Kolekcja", "Collection"],
+  "shell-community": ["Społeczność", "Community"],
+  "shell-compare": ["Porównaj postacie", "Compare characters"],
+  "shell-create-character": ["Utwórz postać", "Create a character"],
+  "shell-deaths": ["Ostatnie zgony", "Recent deaths"],
+  "shell-delivery": ["Trasy dostaw", "Delivery routes"],
+  "shell-events": ["Wydarzenia", "Events"],
+  "shell-growth-rankings": ["Rankingi rozwoju", "Growth rankings"],
+  "shell-guild-stats": ["Statystyki gildii", "Guild statistics"],
+  "shell-guilds": ["Gildie", "Guilds"],
+  "shell-hirelings": ["Pomocnicy", "Hirelings"],
+  "shell-houses": ["Domy", "Houses"],
+  "shell-hunts": ["Polowania", "Hunts"],
+  "shell-league": ["Rozgrywki", "Leagues"],
+  "shell-logout": ["Wyloguj", "Sign out"],
+  "shell-menu": ["Menu", "Menu"],
+  "shell-news": ["Aktualności", "News"],
+  "shell-online": ["Gracze online", "Online players"],
+  "shell-party": ["Znajdź drużynę", "Find a party"],
+  "shell-pass": ["Przepustka sezonowa", "Season pass"],
+  "shell-payments": ["Płatności", "Payments"],
+  "shell-places": ["Miejsca", "Places"],
+  "shell-premium": ["Premium", "Premium"],
+  "shell-privacy": ["Polityka prywatności", "Privacy policy"],
+  "shell-puzzles": ["Codzienne zagadki", "Daily puzzles"],
+  "shell-reports": ["Raporty dziennika", "Journal reports"],
+  "shell-rules": ["Zasady gry", "Game rules"],
+  "shell-server": ["Informacje o serwerze", "Server information"],
+  "shell-shop": ["Sklep", "Shop"],
+  "shell-support": ["Pomoc", "Support"],
+  "shell-terms": ["Regulamin", "Terms of service"],
+  "shell-tickets": ["Zgłoszenia pomocy", "Support tickets"],
+  "shell-wiki": ["Wiki", "Wiki"],
+  "shell-world-stats": ["Statystyki świata", "World statistics"],
+  "shell-worlds": ["Światy", "Worlds"],
+  "skip": ["Przejdź do treści", "Skip to content"],
+  "stage-login": ["Zaloguj się", "Log in"],
+  "stage-my-account": ["Moje konto", "My account"],
+  "thais-account-close": ["Zamknij menu konta", "Close account menu"],
+  "thais-account-game-logins": ["Historia logowań do gry", "Game login history"],
+  "thais-account-nav": ["Nawigacja konta", "Account navigation"],
+  "thais-account-password": ["Zmień hasło", "Change password"],
+  "thais-account-play": ["Postacie i gra", "Characters and gameplay"],
+  "thais-account-requests": ["Moje zgłoszenia", "My requests"],
+  "thais-account-security": ["Bezpieczeństwo", "Security"],
+  "thais-account-settings": ["Ustawienia", "Settings"],
+  "thais-foot-discord-unavailable": ["Discord · zaproszenie niedostępne", "Discord · invitation unavailable"],
+  "thais-foot-external": ["Serwisy zewnętrzne", "External resources"],
+  "thais-foot-language": ["Język portalu", "Portal language"],
+  "thais-foot-legal": ["Informacje prawne", "Legal information"],
+  "thais-foot-links": ["Nawigacja w stopce", "Footer navigation"],
+  "thais-foot-player-help": ["Pomoc dla graczy", "Player support"],
+  "thais-foot-report": ["Zgłoś błąd", "Report a bug"],
+  "thais-foot-twitch": ["Twitch · kategoria Tibia", "Twitch · Tibia category"],
+  "thais-home-today": ["Dzisiaj w Oterynie", "Today in Oteryn"],
+  "thais-nav-activities": ["Aktywności", "Activities"],
+  "thais-nav-bestiary": ["Bestiariusz", "Bestiary"],
+  "thais-nav-experience": ["Ranking doświadczenia", "Experience ranking"],
+  "thais-nav-explore": ["Poznaj świat", "Explore the world"],
+  "thais-nav-players": ["Gracze", "Players"],
+  "thais-nav-professions": ["Profesje", "Vocations"],
+  "thais-nav-rankings": ["Rankingi i porównania", "Rankings and comparisons"],
+  "thais-nav-start": ["Jak zacząć", "Getting started"],
+  "thais-nav-world": ["Świat gry", "Game world"],
+  "worlds-title": ["Status światów", "World status"],
+};
+
+const shellLinkKeys = new Map(inventory.sections.map(({ path, label }) => ['/' + path.replace(/^\//u, ''), label]));
+for (const [path, key] of Object.entries({
+  '/account/game-logins': 'thais-account-game-logins',
+  '/help': 'shell-support',
+  '/password/change': 'thais-account-password',
+  '/rankings/experience': 'thais-nav-experience',
+  '/support/report-a-bug': 'thais-foot-report',
+  '/today': 'thais-home-today',
+  '/wiki/creatures': 'thais-nav-bestiary',
+})) shellLinkKeys.set(path, key);
+const shellFragmentKeys = new Map([
+  ['#bestiariusz', 'thais-nav-bestiary'],
+  ['#jak-zaczac', 'thais-nav-start'],
+  ['#profesje', 'thais-nav-professions'],
+  ['#status', 'worlds-title'],
+]);
+
+function shellHeading(selector, routes, heading = 'h2') {
+  const anchors = routes.flatMap((route) => ['', '/pl', '/en'].map((prefix) => 'a[href="' + prefix + route + '"]'));
+  return selector + ':has(' + anchors.join(', ') + ') ' + heading;
+}
+
+// Each entry names a stable element and the authored text or accessible label
+// it exposes. Optional controls depend on the mounted modules and session.
+const shellControls = [
+  ['a.skip[href="#main"]', 'skip'],
+  ['#portal-menu-toggle span, header#portal-header .om-fallback-menu > summary', 'shell-menu'],
+  ['#portal-navigation', 'navigation', 'aria-label'],
+  ['#portal-world-button .om-label, footer.foot .foot-links .foot-group:first-child h2', 'thais-nav-world'],
+  ['#portal-community-button .om-label, footer.foot .foot-links .foot-group:has(a[href$="/news"]) h2', 'shell-community'],
+  ['#portal-world-panel .om-column:nth-child(1) h2', 'thais-nav-explore'],
+  ['#portal-world-panel .om-column:nth-child(2) h2', 'thais-nav-activities'],
+  [shellHeading('#portal-community-panel .om-column', ['/online', '/party', '/bazaar', '/guilds', '/deaths']), 'thais-nav-players'],
+  [shellHeading('#portal-community-panel .om-column', ['/rankings/experience', '/stats/compare', '/stats/guilds', '/stats/rankings/yesterday']), 'thais-nav-rankings'],
+  ['#account-heading, header#portal-header .om-fallback-account > summary', 'stage-my-account'],
+  ['#podglad-konta .account-close', 'thais-account-close', 'aria-label'],
+  ['#podglad-konta .account-grid, header#portal-header .account-grid', 'thais-account-nav', 'aria-label'],
+  [shellHeading(':is(#podglad-konta, #portal-header) .account-grid section', ['/account/characters/new', '/panel/hirelings', '/account/hunts', '/account/journal/reports', '/account/bazaar'], 'h3'), 'thais-account-play'],
+  [shellHeading(':is(#podglad-konta, #portal-header) .account-grid section', ['/password/change', '/account/security/wizard', '/account/passkeys', '/account/recovery-key', '/account/sessions', '/account/game-logins'], 'h3'), 'thais-account-security'],
+  [shellHeading(':is(#podglad-konta, #portal-header) .account-grid section', ['/account/privacy', '/account/notifications', '/panel/premium', '/panel/payments'], 'h3'), 'thais-account-settings'],
+  [shellHeading(':is(#podglad-konta, #portal-header) .account-grid section', ['/support/tickets', '/support/reports'], 'h3'), 'thais-account-requests'],
+  ['#podglad-konta form[action$="/logout"] button, header#portal-header form[action$="/logout"] button', 'shell-logout'],
+  ['footer.foot .foot-links', 'thais-foot-links', 'aria-label'],
+  ['footer.foot .foot-social', 'thais-foot-external', 'aria-label'],
+  ['footer.foot .foot-community-status', 'thais-foot-discord-unavailable'],
+  [shellHeading('footer.foot .foot-links .foot-group', ['/help']), 'thais-foot-player-help'],
+  ['footer.foot .foot-legal', 'thais-foot-legal', 'aria-label'],
+  ['footer.foot .foot-langs', 'thais-foot-language', 'aria-label'],
+];
+
+async function assertShellCopy(page, locale, target) {
+  const shell = await page.evaluate((controls) => {
+    const header = document.querySelector('header#portal-header');
+    const footer = document.querySelector('footer.foot');
+    if (!header && !footer) return null;
+    const captions = controls.flatMap(([selector, key, attribute]) =>
+      [...document.querySelectorAll(selector)].map((node) =>
+        [key, attribute ? node.getAttribute(attribute) : node.textContent]));
+    const links = [...document.querySelectorAll('header#portal-header a[href], #podglad-konta a[href], footer.foot a[href]')].map((link) => {
+      const { pathname, hash } = new URL(link.href);
+      let key;
+      let text = link.textContent;
+      if (link.matches('.brand')) {
+        key = 'home-link';
+        text = link.getAttribute('aria-label');
+      } else if (link.matches('.om-shop')) key = 'shell-shop';
+      else if (link.matches('.om-login')) key = link.hasAttribute('data-account-link') ? 'stage-my-account' : 'stage-login';
+      else if (link.matches('.om-mobile-only')) key = 'worlds-title';
+      else if (link.closest('.foot-social')) key = 'thais-foot-twitch';
+      return { pathname, hash, key, text, language: link.getAttribute('hreflang'), legal: Boolean(link.closest('footer.foot .foot-legal')) };
+    });
+    return { header: Boolean(header), footer: Boolean(footer), captions, links };
+  }, shellControls);
+  if (!shell) return;
+  const caption = (key) => shellCopy[key]?.[locale === 'pl' ? 0 : 1];
+  const errors = [];
+  const compare = (where, actual, expected) => {
+    if (expected === undefined || normalize(actual ?? '') !== expected) errors.push({ where, actual, expected });
+  };
+  if (!shell.header || !shell.footer) errors.push({ header: shell.header, footer: shell.footer });
+  for (const [key, text] of shell.captions) compare(key, text, caption(key));
+  const legalLinks = new Set();
+  for (const { pathname, hash, key, text, language, legal } of shell.links) {
+    const route = pathname.replace(/^\/(?:pl|en)(?=\/|$)/u, '');
+    const label = key ?? (hash ? shellFragmentKeys.get(hash) : shellLinkKeys.get(route));
+    const expected = language?.toUpperCase() ?? (label === 'home-link' ? 'Oteryn · ' + caption(label) : caption(label));
+    compare(pathname + hash, text, expected);
+    if (legal) legalLinks.add(route);
+  }
+  expect.soft([...legalLinks].sort(), target + ': shared legal links').toEqual(['/legal/privacy', '/legal/terms']);
+  expect.soft(errors, target + ': shared navigation and footer copy').toEqual([]);
 }
 
 async function assertRouteResponse(response, target, contract = {}) {
@@ -336,7 +479,7 @@ const localeQueryRoute = /^\/(?:news(?:\/[^/]+)?|today(?:\/(?:data|widget))?|ann
 const validationMessages = 'main [role=alert], main .op-error, main [aria-live]:not([aria-live=off])';
 
 async function nativeValidation(page, locale, checked, uncovered) {
-  const keys = keysForPage(new URL(page.url()).pathname);
+  const pathname = new URL(page.url()).pathname;
   const forms = page.locator('form');
   for (let index = 0; index < await forms.count(); index++) {
     const form = forms.nth(index);
@@ -379,9 +522,9 @@ async function nativeValidation(page, locale, checked, uncovered) {
     expect.soft(result.message.length, name).toBeGreaterThan(0);
     // The browser supplies native UI strings. Check authored custom messages
     // and DOM feedback against the portal's catalogs.
-    if (result.custom) assertText(result.message, locale, name, keys);
+    if (result.custom) assertText(result.message, locale, name, pathname);
     for (const message of await page.locator(validationMessages).allInnerTexts()) {
-      assertText(message, locale, name, keys);
+      assertText(message, locale, name, pathname);
     }
     checked.add(name);
   }
@@ -624,8 +767,37 @@ async function seedCheckout(page, email) {
   }
 }
 
+const checkoutCopy = {
+  pl: {
+    title: "Zakup monet w trybie testowym",
+    description: "To płatność testowa. Żadne pieniądze nie zostaną pobrane. Monety zostaną przyznane po weryfikacji płatności.",
+    order: "Zamówienie",
+    coins: "Monety",
+    price: "Cena",
+    status: "Status",
+    pay: "Zakończ płatność testową",
+    fail: "Odrzuć płatność testową",
+    return: "Możesz wrócić do gry. Gra pobierze status zamówienia i saldo monet z Oteryn.",
+    awaiting_payment: "Oczekuje na płatność",
+    failed: "Niepowodzenie",
+  },
+  en: {
+    title: "Sandbox coin checkout",
+    description: "Test payment only. No real money is charged. Coins are credited only after the payment is verified.",
+    order: "Order",
+    coins: "Coins",
+    price: "Price",
+    status: "Status",
+    pay: "Complete test payment",
+    fail: "Fail test payment",
+    return: "You can return to the game. It reads the order status and your coin balance from Oteryn.",
+    awaiting_payment: "Awaiting payment",
+    failed: "Failed",
+  },
+};
+
 async function assertCheckout(page, locale, state) {
-  const copy = (key) => catalogText(`crates/payments/templates/coin/${locale}.ftl`, `coin-checkout-${key}`);
+  const copy = (key) => checkoutCopy[locale][key];
   await expect(page).toHaveTitle(`${copy('title')} · Oteryn`);
   await expect(page.locator('main h1')).toHaveText(copy('title'));
   await expect(page.locator('main dt')).toHaveText(['order', 'coins', 'price', 'status'].map(copy));
@@ -814,16 +986,16 @@ test('invalid sign-in submits a localized server error', async ({ page }, info) 
 
 
 test('raw Fluent tokens distinguish leaks from passkey prose', () => {
-  const passkeys = keysForPage('/en/account/passkeys');
+  const passkeys = '/en/account/passkeys';
+  const revoke = catalogText('templates/account/passkeys/en.ftl', 'passkeys-revoke');
   expect(rawKeysIn('Help: passkeys-help', passkeys)).toEqual(['passkeys-help']);
-  expect(rawKeysIn(catalogText('templates/account/passkeys/en.ftl', 'passkeys-revoke'), passkeys)).toEqual([]);
-  expect(rawKeysIn('Help: sign-in', keysForPage('/en/atlas'))).toEqual(['sign-in']);
+  expect(rawKeysIn(revoke, passkeys)).toEqual([]);
+  expect(rawKeysIn(revoke + ' sign-in', passkeys)).toEqual(['sign-in', 'sign-in']);
+  expect(rawKeysIn('Help: sign-in', '/en/atlas')).toEqual(['sign-in']);
+  expect(rawKeysIn('passkeys-help', '/pl/login')).toEqual(['passkeys-help']);
   for (const prefix of ['', '/pl', '/en']) {
-    const login = keysForPage(`${prefix}/login`);
-    expect(rawKeysIn('Fields: login-email, mfa-password', login)).toEqual(['login-email', 'mfa-password']);
-  }
-  for (const prefix of ['', '/pl', '/en']) {
-    const profile = keysForPage(`${prefix}/account/characters/Parity%20Fixture/profile`);
+    expect(rawKeysIn('Fields: login-email, mfa-password', prefix + '/login')).toEqual(['login-email', 'mfa-password']);
+    const profile = prefix + '/account/characters/Parity%20Fixture/profile';
     expect(rawKeysIn('Settings: hide-all and online-time', profile)).toEqual(['hide-all', 'online-time']);
   }
 });
