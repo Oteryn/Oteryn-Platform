@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { login, password, pool, submit } from '../helpers.mjs';
+import { login, logout, password, pool, submit, waitForLoginBudget } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, player, query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 
@@ -1445,5 +1445,94 @@ test('OAuth consent form approves or denies the checked client and binds its cod
     expect(await readCodes()).toEqual([{ account_id: owner.id, client_id: client, used: true }]);
   } finally {
     await context.close();
+  }
+});
+
+test('localized and unprefixed login, MFA login and logout aliases rotate only the acting session', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const acting = await seededPlayer(page, lang);
+    const existing = [];
+    for (const role of [undefined, 'content_editor']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const other = await context.newPage();
+      const account = await seededPlayer(other, lang, role);
+      await other.goto(`/${lang}/account/privacy`);
+      existing.push({ other, id: account.id, token: (await prepare(other, formSelector)).fields._csrf });
+    }
+    const state = async () => ({
+      sessions: (await query('SELECT session_id FROM web_sessions WHERE account_id=$1 ORDER BY session_id', [acting.id]))
+        .map(row => row.session_id),
+      logins: (await query("SELECT count(*)::int AS count FROM security_events WHERE account_id=$1 AND kind='login_succeeded'", [acting.id]))[0].count,
+      otherSessions: await query(
+        'SELECT account_id,session_id FROM web_sessions WHERE account_id=ANY($1::uuid[]) ORDER BY account_id,session_id',
+        [existing.map(other => other.id)],
+      ),
+    });
+    await logout(page, lang);
+    const loginPage = `/${lang}/login`;
+    const variants = [
+      [`/${lang}/login`, `/${lang}/logout`], ['/login', '/logout'],
+      [`/${lang}/mfa/login`, `/${lang}/logout`], ['/mfa/login', '/logout'],
+    ];
+    for (const [entry, exit] of variants) {
+      await test.step(entry, async () => {
+        const baseline = await state();
+        expect(baseline.sessions).toEqual([]);
+        expect(baseline.otherSessions).toHaveLength(2);
+        expect((await page.goto(loginPage)).status()).toBe(200);
+        const values = { email: acting.email, password: acting.password };
+        const { url, fields } = await prepare(page, formSelector, values);
+        const alias = new URL(entry, url).href;
+        await rejected({ page, url: alias, fields, snapshot: state, baseline });
+        await waitForLoginBudget(7);
+        for (const { other, token } of existing) {
+          const response = await sendForm(other, alias, { ...fields, _csrf: token });
+          expect(response.status()).toBe(302);
+          expect(response.headers().location).toBe(`/${lang}/`);
+          expect(await state()).toEqual(baseline);
+        }
+        for (const patch of [
+          { email: '' }, { email: 'a'.repeat(255) + '@example.invalid' },
+          { email: '1' }, { password: 'a'.repeat(1025) },
+        ]) {
+          const response = await sendForm(page, alias, { ...fields, ...patch });
+          expect(response.status()).toBe(302);
+          expect(response.headers().location).toBe(loginPage);
+          await page.goto(loginPage);
+          await expect(page.getByRole('alert')).toHaveText(lang === 'pl'
+            ? 'Nie udało się zweryfikować żądania. Sprawdź dane i spróbuj ponownie.'
+            : 'The request could not be verified. Check your details and try again.');
+          expect(await state()).toEqual(baseline);
+        }
+        await useFormMethod(page, url, 'POST', () => submit(page, formSelector, values), alias);
+        await expect(page).toHaveURL(new URL(`/${lang}/`, url).href);
+        const signedIn = await state();
+        expect(signedIn).toEqual({ ...baseline, sessions: [expect.any(String)], logins: baseline.logins + 1 });
+        expect((await sendForm(page, alias, fields)).status()).toBe(403);
+        expect(await state()).toEqual(signedIn);
+
+        await page.goto(`/${lang}/account/privacy`);
+        const logoutFields = { _csrf: (await prepare(page, formSelector)).fields._csrf };
+        const real = new URL(`/${lang}/logout`, url).href;
+        const alternate = new URL(exit, url).href;
+        await rejected({ page, url: alternate, fields: logoutFields, snapshot: state, baseline: signedIn });
+        await useFormMethod(page, real, 'POST', () => logout(page, lang), alternate);
+        await expect(page).toHaveURL(new URL(`/${lang}/`, url).href);
+        const signedOut = { ...signedIn, sessions: [] };
+        expect(await state()).toEqual(signedOut);
+        expect((await sendForm(page, alternate, logoutFields)).status()).toBe(403);
+        expect(await state()).toEqual(signedOut);
+        await page.goto(`/${lang}/account/sessions`);
+        await expect(page).toHaveURL(new URL(loginPage, url).href);
+      });
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
