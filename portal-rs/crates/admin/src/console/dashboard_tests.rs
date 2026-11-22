@@ -311,7 +311,7 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
             assert!(html.contains("width=device-width"));
             assert!(html.contains(r#"<nav class="op-tabs" aria-label="#));
             assert!(!html.contains("<header"));
-            assert!(html.contains(r#"<a class="op-skip" href="#main">"#));
+            assert!(html.contains(r##"<a class="op-skip" href="#main">"##));
             assert!(html.contains(r#"<main id="main" tabindex="-1""#));
             assert!(html.contains(r#"<label for="agent""#));
             assert!(html.contains(&format!(r#"lang="{lang}""#)));
