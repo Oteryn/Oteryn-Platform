@@ -3,7 +3,7 @@ use super::*;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Request, State},
+    extract::{Path, Request, State, rejection::FormRejection},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -425,13 +425,29 @@ async fn edit<A: AccountStateReader>(
 ) -> Response {
     form(&s, c, session, h, Some(id)).await
 }
+type MutationForm<T> = Result<Form<T>, FormRejection>;
+
+fn mutation_form<T>(form: MutationForm<T>, headers: &axum::http::HeaderMap) -> Result<T, Response> {
+    match form {
+        Ok(Form(fields)) => Ok(fields),
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            Err(mutation_error(Error::Invalid, headers))
+        }
+        Err(rejection) => Err(rejection.into_response()),
+    }
+}
+
 async fn save<A: AccountStateReader>(
     s: &Staff<A>,
     c: CheckContext,
     id: Option<Uuid>,
-    f: EventForm,
+    form: MutationForm<EventForm>,
     headers: &axum::http::HeaderMap,
 ) -> Response {
+    let f = match mutation_form(form, headers) {
+        Ok(fields) => fields,
+        Err(response) => return response,
+    };
     let draft = match f.draft() {
         Ok(v) => v,
         Err(e) => return mutation_error(e, headers),
@@ -452,18 +468,18 @@ async fn save_new<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
     headers: axum::http::HeaderMap,
-    Form(f): Form<EventForm>,
+    form: MutationForm<EventForm>,
 ) -> Response {
-    save(&s, c, None, f, &headers).await
+    save(&s, c, None, form, &headers).await
 }
 async fn save_existing<A: AccountStateReader>(
     State(s): State<Arc<Staff<A>>>,
     Extension(c): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     headers: axum::http::HeaderMap,
-    Form(f): Form<EventForm>,
+    form: MutationForm<EventForm>,
 ) -> Response {
-    save(&s, c, Some(id), f, &headers).await
+    save(&s, c, Some(id), form, &headers).await
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -478,8 +494,12 @@ async fn status<A: AccountStateReader>(
     Extension(c): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     headers: axum::http::HeaderMap,
-    Form(f): Form<StatusForm>,
+    form: MutationForm<StatusForm>,
 ) -> Response {
+    let f = match mutation_form(form, &headers) {
+        Ok(fields) => fields,
+        Err(response) => return response,
+    };
     match s
         .events
         .transition(&s.auth, c, id, f.lock_version, &f.status)

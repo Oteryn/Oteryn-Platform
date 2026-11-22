@@ -348,30 +348,38 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
     assert!(html.contains("name=\"en_body\""));
     assert!(html.contains("name=\"status\""));
     for (language, expected) in [
-        ("en", "Some information could not be accepted. Check your input and try again."),
-        ("pl", "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie."),
+        (
+            "en",
+            "Some information could not be accepted. Check your input and try again.",
+        ),
+        (
+            "pl",
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+        ),
     ] {
-        let response = app
-            .clone()
-            .oneshot(
-                Request::post(format!("/admin/events/{id}/status"))
-                    .header("host", "staff.test")
-                    .header("origin", "https://staff.test")
-                    .header("cookie", &cookie)
-                    .header("accept-language", language)
-                    .header("content-type", "application/x-www-form-urlencoded")
-                    .body(Body::from(format!(
-                        "_csrf={csrf}&status=invalid&lock_version=2"
-                    )))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(
-            to_bytes(response.into_body(), 2048).await.unwrap().as_ref(),
-            expected.as_bytes(),
-        );
+        for (status, version) in [("invalid", "2"), ("archived", "invalid")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post(format!("/admin/events/{id}/status"))
+                        .header("host", "staff.test")
+                        .header("origin", "https://staff.test")
+                        .header("cookie", &cookie)
+                        .header("accept-language", language)
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from(format!(
+                            "_csrf={csrf}&status={status}&lock_version={version}"
+                        )))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(
+                to_bytes(response.into_body(), 2048).await.unwrap().as_ref(),
+                expected.as_bytes(),
+            );
+        }
     }
     let r = app
         .clone()
