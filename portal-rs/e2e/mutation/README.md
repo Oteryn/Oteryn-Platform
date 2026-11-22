@@ -94,6 +94,12 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Character services (schedule, cancel and paid rename) | The owner sees Game-confirmed changes. Rename settles one coin from the test-funded wallet | Yes | Another player and unrelated staff are refused | Localized confirmation, name and price validation | One Game command per operation and one rename debit |
 | Recruitment create, remove, report and staff moderation | The publisher supplies the owned character. Browser lists show creation, owner removal, dismissal and staff removal | Yes | Another player and unrelated staff are refused from owner or moderation actions | Localized character, report and moderation validation | Requests preserve unique posts and reports |
 
+Ticket, player report and character creation derive ownership from the active
+browser session. An authenticated player or staff member may create their own
+record. The matrix checks that both foreign actors are refused when they use
+the owner's form token or request the owner's result. The refusals preserve the
+original record and create zero records for either foreign actor.
+
 Temporary Game producers supply the profile, character-service and recruitment
 prerequisites through the existing internal ingress. The cases run from
 `matrix.spec.mjs` under the publisher configuration.
