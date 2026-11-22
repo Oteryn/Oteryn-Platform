@@ -64,7 +64,9 @@ function inspectDocument({ html, view, privateValues }) {
     const text = doc.documentElement.textContent;
     const privateData = privateValues.some(value => raw.includes(value) || text.includes(value));
     const data = main.querySelector('article, table, [role="table"], [role="grid"], dl, li:not(nav li)');
-    const mutation = main.querySelector(view.filters ? 'form:not([method="get" i])' : 'form');
+    const mutation = main.querySelector(view.filters
+      ? 'form:not([method="get" i]), [formmethod]:not([formmethod="get" i])'
+      : 'form');
     contents.empty = textMatches && layoutMatches && !privateData && !data && !mutation;
   }
   if (html !== undefined) return contents;
@@ -364,10 +366,12 @@ test('Today exposes only the declared empty-Game JSON and widget', async ({ requ
   expect(widget.status(), 'no accepted WorldDaily snapshot or watermark').toBe(503);
   expect(widget.headers()['cache-control'].split(',').map(value => value.trim())).toContain('no-store');
   expect(widget.headers()['content-type']).toContain('text/html');
-  const body = await widget.text();
-  expect(body.includes(locale === 'pl'
-    ? 'Dzienne dane świata są teraz niedostępne.'
-    : 'World daily data is currently unavailable.')).toBe(true);
+  const [title, unavailable] = locale === 'pl'
+    ? ['Dziś na świecie', 'Dzienne dane świata są teraz niedostępne.']
+    : ['Today in the world', 'World daily data is currently unavailable.'];
+  const expected = `<aside class="op-theme op-card op-stack" aria-label="${title}"> <strong>${title}</strong> <p role="status">${unavailable}</p> </aside>`;
+  const body = (await widget.text()).replace(/\s+/g, ' ').trim();
+  expect(body === expected, 'widget contains only the localized unavailable state').toBe(true);
 });
 
 test('a cold atlas read without browser decoration is uncacheable', async ({ request }, info) => {
