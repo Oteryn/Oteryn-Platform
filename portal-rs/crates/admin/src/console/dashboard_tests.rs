@@ -310,6 +310,9 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
             assert!(!html.contains("<script>"));
             assert!(html.contains("width=device-width"));
             assert!(html.contains(r#"<label for="agent""#));
+            // HTML pattern uses the Unicode Sets (v) regex flag, which requires
+            // a literal hyphen in a character class to be escaped.
+            assert_eq!(html.matches(r#"pattern="[A-Za-z0-9_.\-]+""#).count(), 2);
             assert!(html.contains(&format!(r#"lang="{lang}""#)));
         }
         for mode in 1..=7 {
