@@ -188,18 +188,24 @@ impl WorldStore {
             let kind = crate::canonical_kind(kind);
             validate_label(kind, "kind")?;
             validate_label(key, "key")?;
-            let result = sqlx::query(
-                "INSERT INTO world_visibility (kind, key, allowed)
-                 SELECT kind, key, true FROM world_entities
-                 WHERE version_id = $1 AND kind = $2 AND key = $3 AND publishable
-                 ON CONFLICT (kind, key) DO UPDATE SET allowed = true, updated_at = now()",
+            let valid: bool = sqlx::query_scalar(
+                "WITH entity AS (
+                    SELECT kind, key FROM world_entities
+                    WHERE version_id = $1 AND kind = $2 AND key = $3 AND publishable
+                 ), granted AS (
+                    INSERT INTO world_visibility (kind, key, allowed)
+                    SELECT kind, key, true FROM entity
+                    ON CONFLICT (kind, key) DO UPDATE SET allowed = true, updated_at = now()
+                    WHERE NOT world_visibility.allowed
+                 )
+                 SELECT EXISTS (SELECT 1 FROM entity)",
             )
             .bind(version)
             .bind(kind)
             .bind(key)
-            .execute(&mut *tx)
+            .fetch_one(&mut *tx)
             .await?;
-            if result.rows_affected() == 0 {
+            if !valid {
                 return Err(WorldError::InvalidInput(
                     "visibility grant has no publishable entity".into(),
                 ));

@@ -114,6 +114,15 @@ async fn query_catalog_seed_serializes_and_publishes_visibility_atomically() -> 
     let visible = "SELECT count(*) FROM world_visibility WHERE kind = 'Item'
                    AND key IN ('fixture.alpha', 'fixture.beta') AND allowed";
     assert_eq!(db.count(visible).await?, 2);
+    let grant_timestamps = "SELECT updated_at::text FROM world_visibility ORDER BY kind, key";
+    let before: Vec<String> = sqlx::query_scalar(grant_timestamps)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(seed().await?, version);
+    let after: Vec<String> = sqlx::query_scalar(grant_timestamps)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(after, before);
 
     sqlx::query("DELETE FROM world_visibility")
         .execute(&db.pool)
