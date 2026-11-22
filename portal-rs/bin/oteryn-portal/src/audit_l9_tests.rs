@@ -437,15 +437,17 @@ async fn production_legal_signup_refusals() -> Result {
     let legacy = (APPROVED_SIGNUP_EDITION.0, APPROVED_SIGNUP_EDITION.1, false);
     let fictional = ("Tax ID (NIP) (000) 000-00-00", "NIP (000) 000-00-00", true);
     let blank = ("<!-- Draft terms -->", "<!-- Projekt regulaminu -->", true);
+    let invisible = ("&#xfe0f;", "&#x034f;", true);
     let allow_placeholders = ConsentConfig::published(
         DEFAULT_LEGAL_VERSION.into(),
         DEFAULT_LEGAL_VERSION.into(),
         true,
     );
-    for (reason, refused) in [
-        ("fictional operator", fictional),
-        ("unapproved legacy snapshot", legacy),
-        ("empty sanitized body", blank),
+    for (reason, refused, has_visible_body) in [
+        ("fictional operator", fictional, true),
+        ("unapproved legacy snapshot", legacy, true),
+        ("empty sanitized body", blank, false),
+        ("invisible sanitized body", invisible, false),
     ] {
         for slug in ["terms", "privacy"] {
             let (terms, privacy) = if slug == "terms" {
@@ -461,7 +463,7 @@ async fn production_legal_signup_refusals() -> Result {
             let app = app(db.pool.clone());
             let browser = browser(&db.pool, None).await?;
             for locale in ["en", "pl"] {
-                if reason != "empty sanitized body" {
+                if has_visible_body {
                     // Both live rows match their immutable snapshots. Only the
                     // production approval gate can reject these editions.
                     allow_placeholders

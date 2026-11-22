@@ -2988,6 +2988,7 @@ dependencies = [
  "oteryn-web",
  "prost",
  "pulldown-cmark",
+ "regex",
  "rustls",
  "serde",
  "serde_json",

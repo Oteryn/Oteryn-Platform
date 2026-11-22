@@ -471,6 +471,8 @@ Updated English source",
         ("pl", "NIP (000) 000-00-00"),
         ("en", "<!-- Terms draft -->"),
         ("pl", "<!-- Projekt regulaminu -->"),
+        ("en", "&#xfe0f;"),
+        ("pl", "&#x034f;"),
     ] {
         form.body = body.into();
         assert!(matches!(

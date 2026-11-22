@@ -449,6 +449,7 @@ fn recognizes_placeholders_in_rendered_legal_text() {
     for body in [
         "NIP 000‑000‑00‑00",
         "NIP (000) 000-00-00",
+        "NIP (00\u{034f}0) 000-00-00",
         "Tax ID (NIP) （０００） 000-00-00",
         "Tax ID (NIP) **000**&#8209;000&#x2011;00‑00",
         "Tax ID (NIP) <strong>000</strong>&#8209;000‑00‑00",
@@ -461,7 +462,13 @@ fn recognizes_placeholders_in_rendered_legal_text() {
     }
     let real = inspect_legal_edition("final-v1", "Terms", "**NIP (123) 456-78-90**");
     assert!(!real.has_placeholder && real.has_visible_body);
-    for body in ["<!-- NIP 000‑000‑00‑00 -->", "<p>&nbsp;&#8203;</p>", "<hr>"] {
+    for body in [
+        "<!-- NIP 000‑000‑00‑00 -->",
+        "<p>&nbsp;&#8203;</p>",
+        "<hr>",
+        "<p>&#x034f;&#xfe0f;</p>",
+        "&#x2800;",
+    ] {
         let text = inspect_legal_edition("final-v1", "Terms", body);
         assert!(!text.has_placeholder && !text.has_visible_body, "{body}");
     }

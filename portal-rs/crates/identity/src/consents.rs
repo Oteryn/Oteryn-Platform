@@ -2,9 +2,14 @@
 use crate::accounts::AccountId;
 use sqlx::{PgExecutor, PgTransaction};
 use std::net::IpAddr;
+use std::sync::LazyLock;
 use uuid::Uuid;
 /// Version of the repository's bilingual placeholder package.
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
+
+static INVISIBLE_LEGAL_TEXT: LazyLock<Result<regex::Regex, regex::Error>> = LazyLock::new(|| {
+    regex::Regex::new(r"[\s\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}\u{2800}]+")
+});
 
 /// Properties of the text the public renderer exposes.
 #[derive(Debug)]
@@ -16,7 +21,6 @@ pub struct LegalEditionText {
 pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEditionText {
     use html5ever::tokenizer::{BufferQueue, Token, TokenSink, TokenSinkResult, Tokenizer};
     use std::cell::RefCell;
-    use unicode_general_category::{GeneralCategory, get_general_category};
 
     struct Text(RefCell<String>);
     impl TokenSink for Text {
@@ -39,19 +43,21 @@ pub fn inspect_legal_edition(version: &str, title: &str, body: &str) -> LegalEdi
     tokenizer.end();
     let body = tokenizer.sink.0.into_inner();
 
+    let Ok(invisible) = &*INVISIBLE_LEGAL_TEXT else {
+        return LegalEditionText {
+            has_visible_body: false,
+            has_placeholder: true,
+        };
+    };
+    let visible_body = invisible.replace_all(&body, "");
+    let visible_title = invisible.replace_all(title, "");
     LegalEditionText {
-        has_visible_body: body.chars().any(|c| {
-            !c.is_whitespace()
-                && !matches!(
-                    get_general_category(c),
-                    GeneralCategory::Control | GeneralCategory::Format
-                )
-        }),
+        has_visible_body: !visible_body.is_empty(),
         has_placeholder: version
             .trim_start()
             .to_ascii_lowercase()
             .starts_with("placeholder")
-            || contains_legal_placeholder(title, &body),
+            || contains_legal_placeholder(&visible_title, &visible_body),
     }
 }
 
