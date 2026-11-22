@@ -114,7 +114,7 @@ test('staff uses the editorial PUT endpoints to edit news and publish an event',
     const updatedNews = await page.request.put(newsPath, {
       form: {...newsData, body: 'News updated with PUT.'}, headers, maxRedirects: 0,
     });
-    expect(updatedNews.status()).toBe(302);
+    expect(updatedNews.status()).toBe(303);
     expect((await page.goto(`/en/news/${slug}`)).status()).toBe(200);
     await expect(page.locator('main')).toContainText('News updated with PUT.');
 
