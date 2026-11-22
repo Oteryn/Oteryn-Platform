@@ -15,9 +15,10 @@ const [tier, project, shard] = process.argv.slice(2);
 const manifest = JSON.parse(await readFile(new URL('smoke.json', import.meta.url)));
 const escape = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 let selection;
-if (tier === 'smoke' && !project && !shard) {
+const smokeProjects = project ? [project] : manifest.projects;
+if (tier === 'smoke' && !shard && smokeProjects.every(name => manifest.projects.includes(name))) {
   selection = [
-    ...manifest.projects.map(name => `--project=${name}`),
+    ...smokeProjects.map(name => `--project=${name}`),
     '--grep', ` (?:${manifest.titles.map(escape).join('|')})$`,
   ];
 } else if (tier === 'nightly' && project && ['1', '2', '3'].includes(shard)) {
@@ -27,14 +28,14 @@ if (tier === 'smoke' && !project && !shard) {
   specs.push('tiers/smoke.spec.mjs');
   specs.sort();
   // Keep the staff bootstrap with consumers of its browser storage state.
-  const usesStaffState = file => /^(?:admin\.|content\.|routes\.|staff-)/.test(basename(file));
+  const usesStaffState = file => /^(?:admin\.|content\.|game-sim-bazaar\.|routes\.|staff-)/.test(basename(file));
   const files = shard === '1'
     ? specs.filter(usesStaffState)
     : specs.filter(file => !usesStaffState(file)).filter((_, index) => index % 2 === Number(shard) - 2);
   if (!files.length) throw new Error('Empty nightly shard');
   selection = [`--project=${project}`, ...files.map(file => `/${escape(file)}$`)];
 } else {
-  throw new Error('Usage: node tiers/run.mjs smoke | nightly PROJECT SHARD');
+  throw new Error('Usage: node tiers/run.mjs smoke [PROJECT] | nightly PROJECT SHARD');
 }
 
 const scratch = await mkdtemp(join(tmpdir(), 'portal-ci-e2e-'));
@@ -101,13 +102,13 @@ try {
   const count = Number(/^Total: (\d+) tests? in /m.exec(list)?.[1]);
   if (listing !== 0 || !count) throw new Error('Playwright discovery failed or selected no tests');
   if (tier === 'smoke') {
-    for (const name of manifest.projects) {
+    for (const name of smokeProjects) {
       for (const title of manifest.titles) {
         const matches = list.split('\n').filter(line => line.trimStart().startsWith(`[${name}] `) && line.endsWith(` › ${title}`));
         if (matches.length !== 1) throw new Error(`Expected one ${manifest.tag} case per project for "${title}"`);
       }
     }
-    if (count !== manifest.projects.length * manifest.titles.length) throw new Error('Unexpected smoke test count');
+    if (count !== smokeProjects.length * manifest.titles.length) throw new Error('Unexpected smoke test count');
   }
 
   const status = await launch('run.mjs', [...args, '--trace=off', '--reporter=json'], 'playwright.log').done;

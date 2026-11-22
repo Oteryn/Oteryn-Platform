@@ -7,9 +7,6 @@ run-name: ${{ github.event_name == 'pull_request' && 'Portal RS E2E Smoke' || 'P
 
 on:
   pull_request:
-    paths:
-      - 'portal-rs/**'
-      - '.github/workflows/portal-rs-e2e.yml'
   schedule:
     - cron: '17 2 * * *'
   workflow_dispatch:
@@ -73,6 +70,11 @@ jobs:
   smoke:
     if: github.event_name == 'pull_request'
     needs: build
+    name: Smoke (${{ matrix.project }})
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [pl-1440, en-390]
     runs-on: ubuntu-24.04
     timeout-minutes: 11
     steps:
@@ -89,10 +91,11 @@ jobs:
       - name: Run the smoke manifest
         working-directory: portal-rs/e2e
         env:
+          PROJECT: ${{ matrix.project }}
           PORTAL_E2E_BINARY: ${{ runner.temp }}/portal-bin/oteryn-portal
         run: |
           chmod +x "$PORTAL_E2E_BINARY"
-          bash tiers/ci.sh smoke
+          bash tiers/ci.sh smoke "$PROJECT"
 
   full:
     if: github.event_name != 'pull_request'
@@ -146,6 +149,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       BUILD_RESULT: ${{ needs.build.result }}
       FULL_RESULT: ${{ needs.full.result }}
+      NIGHTLY_ISSUE_NUMBER: ${{ vars.PORTAL_E2E_NIGHTLY_ISSUE_NUMBER }}
     steps:
       - name: Track the nightly failure or recovery
         shell: bash
@@ -161,40 +165,32 @@ jobs:
             fi
           }
           require_latest_schedule
-          title='Nightly E2E failing'
-          label=e2e-nightly
-          if ! labels="$(gh api --paginate "repos/$GITHUB_REPOSITORY/labels?per_page=100" --jq '.[] | .name')"; then
+          number="$NIGHTLY_ISSUE_NUMBER"
+          issue_endpoint="repos/$GITHUB_REPOSITORY/issues/$number"
+          marker='<!-- oteryn:portal-rs-e2e-nightly -->'
+          if [[ ! "$number" =~ ^[1-9][0-9]*$ ]]; then
+            echo 'Set PORTAL_E2E_NIGHTLY_ISSUE_NUMBER to the provisioned tracking issue number.' >&2
             exit 1
           fi
-          if ! grep -Fxq "$label" <<< "$labels"; then
-            if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
-              exit 0
-            fi
-            require_latest_schedule
-            gh api --method POST "repos/$GITHUB_REPOSITORY/labels" -f name="$label" -f color=b60205 >/dev/null
-          fi
-          issues="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues?state=all&labels=$label&per_page=100" \
-            --jq '.[] | select(.pull_request == null and .title == "Nightly E2E failing") | [.number, .state] | @tsv')"
-          if [[ "$issues" == *$'\n'* ]]; then
-            echo 'Multiple nightly tracking issues exist' >&2
-            exit 1
-          fi
-          read -r number state <<< "$issues"
+          state="$(gh api "$issue_endpoint" | jq -er \
+            --argjson number "$number" --arg repo "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY" \
+            --arg marker "$marker" '
+              select(.number == $number and .repository_url == $repo and .pull_request == null
+                     and .title == "Nightly E2E failing"
+                     and any(.labels[]; .name == "e2e-nightly")
+                     and ((.body // "") | split("\n")[0] == $marker)
+                     and (.state == "open" or .state == "closed"))
+              | .state')"
           run="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           if [[ "$BUILD_RESULT" == success && "$FULL_RESULT" == success ]]; then
             if [[ "$state" == open ]]; then
               require_latest_schedule
-              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$number" \
+              gh api --method PATCH "$issue_endpoint" \
                 -f state=closed -f state_reason=completed >/dev/null
             fi
             exit 0
           fi
-          body="Nightly E2E failed in $run. Build: $BUILD_RESULT. Full suite: $FULL_RESULT."
+          body="$(printf '%s\n\nNightly E2E failed in %s. Build: %s. Full suite: %s.' \
+            "$marker" "$run" "$BUILD_RESULT" "$FULL_RESULT")"
           require_latest_schedule
-          if [[ -z "$number" ]]; then
-            gh api --method POST "repos/$GITHUB_REPOSITORY/issues" \
-              -f title="$title" -f 'labels[]=e2e-nightly' -f body="$body" >/dev/null
-          else
-            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/$number" \
-              -f body="$body" -f state=open >/dev/null
-          fi
+          gh api --method PATCH "$issue_endpoint" -f body="$body" -f state=open >/dev/null

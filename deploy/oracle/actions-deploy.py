@@ -50,9 +50,9 @@ def parse(component, command):
         if not match:
             raise ValueError('only status or deploy-image <full protected-main SHA> <run> <attempt> <artifact> is allowed')
         return 'deploy', match[1], int(match[2]), int(match[3]), int(match[4])
-    match = re.fullmatch(r'deploy (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
+    match = re.fullmatch(r'deploy-v2 (' + SHA + r') ([1-9][0-9]{0,19}) ([1-9][0-9]{0,5})', command)
     if not match:
-        raise ValueError('only status or deploy <full protected-main SHA> is allowed')
+        raise ValueError('only status or deploy-v2 <full protected-main SHA> <run> <attempt> is allowed')
     return 'deploy', match[1], int(match[2]), int(match[3]), None
 
 
@@ -399,6 +399,14 @@ def platform_deploy(directory, sha, run_id, attempt):
             rewrite(path, after)
         journal('platform', sha, 'schema_unknown')
         reauthorize_platform(sha, run_id, attempt)
+    except BaseException:
+        # Migration has not been invoked. Clear the journal only after the
+        # previous configuration has been restored successfully.
+        for path, before, _ in texts:
+            rewrite(path, before)
+        (STATE / 'platform-pending.json').unlink()
+        raise
+    try:
         run(current + ['run', '--rm', '-T', 'portal', 'migrate'])
         journal('platform', sha, 'schema_known')
         run(current + ['up', '-d', *PORTAL_APPS])

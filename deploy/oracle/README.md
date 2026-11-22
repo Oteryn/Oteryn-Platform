@@ -271,7 +271,7 @@ secret. A local SSH key has a root-owned forced command restricted to its single
 component, no shell/PTY/forwarding, with independently pinned SSH host identity.
 
 Install `actions-deploy.py` root-owned under `/opt/oteryn-oracle`, not in a runner
-writable mount. `status` only reads readiness. `deploy <40-character SHA>` requires
+writable mount. `status` only reads readiness. `deploy-v2 <40-character SHA> <run> <attempt>` requires
 exact current protected main and its latest GitHub Actions aggregate success,
 rechecks after build, builds native ARM64, backs up, preserves root-owned private
 configuration and migrates through the existing owner connection. Platform keeps
@@ -280,6 +280,8 @@ Game keeps deployed World/content and routes every restart through the durable
 controller. Failures remain closed for operator reconciliation; no automatic
 schema rollback, destructive volume operation or trust reset is performed.
 The runner never installs or upgrades the root wrapper/controller itself.
+Install the wrapper with `deploy-v2` support before enabling Platform deploy.
+Older wrappers refuse the versioned request.
 
 Before enabling these runners, disable the retired Synology runtime workflows,
 Synology image/deploy-runner builders and Tunnel endpoint mutation workflows in

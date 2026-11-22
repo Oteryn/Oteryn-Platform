@@ -155,6 +155,15 @@ class AuthorityBoundary(unittest.TestCase):
             with self.subTest(component=component, command=command), self.assertRaises(ValueError):
                 deploy.parse(component, command)
 
+    def test_platform_deploy_requires_versioned_forced_command(self):
+        sha = 'a' * 40
+        self.assertEqual(deploy.parse('platform', f'deploy-v2 {sha} 100 1'),
+                         ('deploy', sha, 100, 1, None))
+        for component, command in [('platform', f'deploy {sha} 100 1'),
+                                   ('game', f'deploy-v2 {sha} 100 1')]:
+            with self.subTest(component=component), self.assertRaises(ValueError):
+                deploy.parse(component, command)
+
     def test_exact_current_main_and_aggregate_success_are_independent(self):
         sha = 'a' * 40
         good = {'id': 10, 'name': 'game-gate', 'head_sha': sha,
@@ -363,7 +372,8 @@ class LivePortalDeployment(unittest.TestCase):
                     clock.now.side_effect = [previous, previous, previous, previous, current, current]
                     self.deploy(portal, state, nightly=deploy.qualify_platform_nightly)
                 self.assertEqual(api.call_count, 3)
-                self.assertFalse(any('migrate' in args for args, _ in raised.exception.calls))
+                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
+                self.assertFalse((state / 'platform-pending.json').exists())
                 self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
                 self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
 
@@ -712,9 +722,10 @@ class GameImageArtifact(unittest.TestCase):
 class GameBranchUnchanged(unittest.TestCase):
     # Source hashes of the shared and Game functions as reviewed; the same file
     # serves the Game forced command, so a Platform change must not move these.
-    # Updated deliberately for the Game image artifact path (deploy-image).
+    # The parser hash includes the versioned Platform command. The Game
+    # command contract is exercised by the component-bound parser tests.
     REVIEWED = {
-        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
+        'parse': '60d0aee096b2bd7a347788c42b0e022f951234ded4bb1a9e20faa685d6884f5f',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',
