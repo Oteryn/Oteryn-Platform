@@ -327,7 +327,7 @@ struct PackageView {
 <html lang="{{ lang }}" data-theme="dark">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme op-stack">
-<header class="op-card op-stack"><a href="#main">{{ skip }}</a><nav class="op-tabs" aria-label="{{ shop }}"><a href="/{{ lang }}/shop">{{ shop }}</a><a href="/{{ lang }}/shop/coins">{{ coins }}</a><a href="/{{ lang }}/shop/history">{{ history }}</a><a href="/{{ lang }}/shop/transfer">{{ transfer }}</a></nav></header>
+<a class="op-skip" href="#main">{{ skip }}</a><div class="op-card op-stack"><nav class="op-tabs" aria-label="{{ shop }}"><a href="/{{ lang }}/shop">{{ shop }}</a><a href="/{{ lang }}/shop/coins">{{ coins }}</a><a href="/{{ lang }}/shop/history">{{ history }}</a><a href="/{{ lang }}/shop/transfer">{{ transfer }}</a></nav></div>
 <main id="main" tabindex="-1" class="op-card op-stack"><h1>{{ title }}</h1>
 {% if !message.is_empty() %}<p class="op-alert" role="status">{{ message }}</p>{% endif %}
 {% if let Some(b) = balance %}<section class="op-panel"><dl><dt>{{ available }}</dt><dd>{{ b.available }}</dd><dt>{{ reserved }}</dt><dd>{{ b.reserved }}</dd></dl></section>{% endif %}

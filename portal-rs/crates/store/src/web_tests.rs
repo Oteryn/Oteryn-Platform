@@ -324,6 +324,9 @@ async fn postgres_pages_authentication_flags_and_pagination() -> TestResult {
             let html = body(response).await?;
             assert!(html.contains(&format!("lang=\"{lang}\"")));
             assert!(html.contains("width=device-width"));
+            assert!(html.contains(r##"class="op-skip" href="#main""##));
+            assert!(html.contains(r#"<nav class="op-tabs" aria-label="#));
+            assert!(!html.contains("<header"));
         }
     }
     for query in [
