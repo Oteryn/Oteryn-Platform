@@ -1260,6 +1260,18 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
         b"The request could not be completed. Reload the ticket and try again.",
     );
     assert!(unread().await?);
+    let unsupported = router(tickets.clone(), "http://localhost:3000")
+        .oneshot(
+            Request::post(format!("/en/support/tickets/{id}/read"))
+                .header("cookie", &cookie)
+                .header("origin", "http://localhost:3000")
+                .header("x-csrf-token", &csrf)
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))?,
+        )
+        .await?;
+    assert_eq!(unsupported.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(unread().await?);
     // Owner mutations establish no viewing boundary.
     tickets
         .change(

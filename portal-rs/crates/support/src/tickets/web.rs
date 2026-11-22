@@ -475,8 +475,12 @@ async fn mark_read(
         Ok(v) => v,
         Err(e) => return e.into_response(),
     };
-    let Ok(Form(form)) = form else {
-        return fail(Error::Invalid, &language);
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return fail(Error::Invalid, &language);
+        }
+        Err(rejection) => return rejection.into_response(),
     };
     match t
         .load_page(owner, false, id, form.after, Acknowledge::Reply(form.reply))
