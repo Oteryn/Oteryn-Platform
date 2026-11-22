@@ -1053,7 +1053,7 @@ impl SecurityRequest {
         status: StatusCode,
         mode: &'static str,
     ) -> Result<Response, StatusCode> {
-        let html = page(
+        let page = page_data(
             self.language,
             &self.session,
             mode,
@@ -1063,7 +1063,7 @@ impl SecurityRequest {
             vec![],
         )
         .await?;
-        Ok((status, html).into_response())
+        Ok(oteryn_web::render_form_refusal(status, &page))
     }
 
     async fn codes(&self, codes: Vec<String>) -> Result<Response, StatusCode> {

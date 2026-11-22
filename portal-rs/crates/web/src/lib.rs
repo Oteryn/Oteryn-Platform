@@ -46,6 +46,19 @@ pub fn render(template: &impl Template) -> Response {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RenderedFormRefusal;
+
+/// Render a form refusal with its localized retry path and original HTTP status.
+pub fn render_form_refusal(status: StatusCode, template: &impl Template) -> Response {
+    let mut response = render(template);
+    if response.extensions().get::<RenderedPage>().is_some() {
+        *response.status_mut() = status;
+        response.extensions_mut().insert(RenderedFormRefusal);
+    }
+    response
+}
+
 async fn home(request: axum::extract::Request) -> Response {
     let data = surface::home_data(&request, surface::Language::Pl);
     drop(request);

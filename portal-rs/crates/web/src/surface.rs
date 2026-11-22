@@ -241,11 +241,18 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
+    let form_refusal = !json
+        && matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+        && response
+            .extensions()
+            .get::<crate::RenderedFormRefusal>()
+            .is_some();
     if path != oteryn_gameauth::locator::PATH
         && matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
         )
+        && !form_refusal
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
     {
@@ -432,6 +439,53 @@ mod tests {
                     .to_str()?
                     .starts_with(content_type)
             );
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn rendered_form_refusal_keeps_status_and_retry_for_html_only() -> TestResult {
+        #[derive(askama::Template)]
+        #[template(source = "<a href='/en/mfa'>Retry verification</a>", ext = "html")]
+        struct Retry;
+
+        let app = finish(
+            Router::new()
+                .route(
+                    "/en/bad",
+                    axum::routing::post(|| async {
+                        crate::render_form_refusal(StatusCode::BAD_REQUEST, &Retry)
+                    }),
+                )
+                .route(
+                    "/en/forbidden",
+                    axum::routing::post(|| async {
+                        crate::render_form_refusal(StatusCode::FORBIDDEN, &Retry)
+                    }),
+                ),
+        );
+        for (uri, expected) in [
+            ("/en/bad", StatusCode::BAD_REQUEST),
+            ("/en/forbidden", StatusCode::FORBIDDEN),
+        ] {
+            for (accept, retry) in [("text/html", true), ("application/json", false)] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        HttpRequest::post(uri)
+                            .header(header::ACCEPT, accept)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), expected);
+                assert_headers(&response);
+                assert!(
+                    response.headers()[header::CONTENT_TYPE]
+                        .to_str()?
+                        .starts_with(accept)
+                );
+                assert_eq!(html(response).await?.contains("Retry verification"), retry);
+            }
         }
         Ok(())
     }
