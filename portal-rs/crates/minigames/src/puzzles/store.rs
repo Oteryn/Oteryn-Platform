@@ -5,7 +5,7 @@ use sqlx::{PgPool, Row};
 
 #[derive(Debug, Clone)]
 pub struct Puzzles {
-    pool: PgPool,
+    pub(super) pool: PgPool,
     world: WorldStore,
     flags: Flags,
 }

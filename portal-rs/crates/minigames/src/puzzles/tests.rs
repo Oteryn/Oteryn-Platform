@@ -1044,12 +1044,13 @@ async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
     });
     document["puzzles"][1]["definition"]["choices"][0]["source"]["key"] = "hidden".into();
 
+    let prepared = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
     let mut tx = db.pool.begin().await?;
-    let publication = serde_json::from_value(document.clone())?;
     assert!(matches!(
-        db.service
-            .activate_publication(&mut tx, &publication, dir.path())
-            .await,
+        db.service.activate_publication(&mut tx, prepared).await,
         Err(Error::Unavailable)
     ));
     tx.rollback().await?;
@@ -1057,11 +1058,20 @@ async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
 
     document["puzzles"][1]["definition"] =
         serde_json::to_value(definition(db.version, Kind::Quiz))?;
-    let publication = serde_json::from_value(document.clone())?;
+    let prepared = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    let concurrent = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, dir.path())
+        .await?;
+    // Activation can use the prepared media even if the files are retired.
+    dir.close()?;
     let mut tx = db.pool.begin().await?;
     let ids = db
         .service
-        .activate_publication(&mut tx, &publication, dir.path())
+        .activate_publication(&mut tx, prepared)
         .await?
         .unwrap();
     tx.commit().await?;
@@ -1074,24 +1084,35 @@ async fn postgres_publication_is_atomic_and_replays_by_id() -> TestResult {
     assert_eq!(stored_ids, ids);
     assert_eq!(db.service.image(db.account, ids[0]).await?, bytes);
 
-    // A retry after the editorial assets have been retired keeps the original rows.
-    dir.close()?;
-    let root = std::path::Path::new("unused");
+    // A prepared concurrent attempt must check the now-committed claim.
     let mut tx = db.pool.begin().await?;
     assert_eq!(
-        db.service
-            .activate_publication(&mut tx, &publication, root)
-            .await?,
+        db.service.activate_publication(&mut tx, concurrent).await?,
+        None
+    );
+    tx.commit().await?;
+
+    // A retry after the editorial assets have been retired keeps the original rows.
+    let root = std::path::Path::new("unused");
+    let replay = db
+        .service
+        .prepare_publication(serde_json::from_value(document.clone())?, root)
+        .await?;
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        db.service.activate_publication(&mut tx, replay).await?,
         None
     );
     tx.commit().await?;
 
     document["puzzles"][1]["definition"]["correct_choice"] = 0.into();
+    let conflict = db
+        .service
+        .prepare_publication(serde_json::from_value(document)?, root)
+        .await?;
     let mut tx = db.pool.begin().await?;
     assert!(matches!(
-        db.service
-            .activate_publication(&mut tx, &serde_json::from_value(document)?, root)
-            .await,
+        db.service.activate_publication(&mut tx, conflict).await,
         Err(Error::Conflict)
     ));
     tx.rollback().await?;

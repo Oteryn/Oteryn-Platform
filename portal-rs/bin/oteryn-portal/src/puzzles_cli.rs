@@ -18,6 +18,27 @@ fn publication_error(error: Error) -> &'static str {
     }
 }
 
+async fn require_operator<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    actor: Uuid,
+) -> Result<(), &'static str> {
+    let permitted: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM accounts a JOIN account_roles ar ON ar.account_id=a.id
+           JOIN role_permissions rp ON rp.role_id=ar.role_id
+           WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND rp.permission=$2)",
+    )
+    .bind(actor)
+    .bind(rbac::Permission::PublishDailyPuzzles.as_str())
+    .fetch_one(executor)
+    .await
+    .map_err(|_| "Database")?;
+    if !permitted {
+        return Err("Denied");
+    }
+
+    Ok(())
+}
+
 async fn run(args: &[String]) -> Result<Value, &'static str> {
     let [group, command, file, flag, actor] = args else {
         return Err(USAGE);
@@ -36,6 +57,24 @@ async fn run(args: &[String]) -> Result<Value, &'static str> {
     }
     let config = oteryn_core::Config::from_env().map_err(|_| "Configuration")?;
     let pool = oteryn_db::lazy_pool(config.database_url()).map_err(|_| "Database")?;
+    require_operator(&pool, actor).await?;
+    let file = Path::new(file);
+    let publication = Publication::read(file).map_err(publication_error)?;
+    let id = publication.publication_id;
+    let root = file.parent().ok_or("InvalidDocument")?;
+    let world = WorldStore::new(pool.clone(), WorldOptions { enabled: true });
+    let service = Puzzles::new(
+        pool.clone(),
+        world,
+        Flags {
+            daily_puzzles: true,
+        },
+    );
+    let prepared = service
+        .prepare_publication(publication, root)
+        .await
+        .map_err(publication_error)?;
+
     let mut tx = pool.begin().await.map_err(|_| "Database")?;
     // World catalogue writers lock the active pointer before the RBAC fence.
     rbac::lock_accounts_resources_and_mutation(&mut tx, &[actor], |connection| {
@@ -48,36 +87,11 @@ async fn run(args: &[String]) -> Result<Value, &'static str> {
     })
     .await
     .map_err(|_| "Database")?;
-    let permitted: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM accounts a JOIN account_roles ar ON ar.account_id=a.id
-           JOIN role_permissions rp ON rp.role_id=ar.role_id
-           WHERE a.id=$1 AND a.status='active' AND rp.permission=$2)",
-    )
-    .bind(actor)
-    .bind(rbac::Permission::PublishDailyPuzzles.as_str())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(|_| "Database")?;
-    if !permitted {
-        return Err("Denied");
-    }
-
-    let file = Path::new(file);
-    let publication = Publication::read(file).map_err(publication_error)?;
-    let root = file.parent().ok_or("InvalidDocument")?;
-    let world = WorldStore::new(pool.clone(), WorldOptions { enabled: true });
-    let service = Puzzles::new(
-        pool,
-        world,
-        Flags {
-            daily_puzzles: true,
-        },
-    );
+    require_operator(&mut *tx, actor).await?;
     let puzzle_ids = service
-        .activate_publication(&mut tx, &publication, root)
+        .activate_publication(&mut tx, prepared)
         .await
         .map_err(publication_error)?;
-    let id = publication.publication_id;
     let replayed = puzzle_ids.is_none();
     if let Some(ids) = puzzle_ids {
         audit::append(

@@ -15,7 +15,7 @@ session; only active, verified accounts may read or answer puzzles.
 
 Run the admin CLI from a trusted operator shell, with the portal database
 configured and both `OTERYN_DAILY_PUZZLES_ENABLED=true` and
-`OTERYN_WORLD_ENABLED=true`. Pass the UUID of an active staff account with the
+`OTERYN_WORLD_ENABLED=true`. Pass the UUID of an active, email-verified staff account with the
 `puzzles.publish` permission, granted to the built-in `platform_admin` role.
 
 ```sh

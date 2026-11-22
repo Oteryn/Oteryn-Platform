@@ -8,7 +8,7 @@ mod store;
 
 pub use assets::Media;
 pub use http::{configured_router, router};
-pub use publication::Publication;
+pub use publication::{PreparedPublication, Publication};
 pub use store::Puzzles;
 
 use serde::{Deserialize, Serialize};

@@ -89,15 +89,22 @@ impl Publication {
     }
 }
 
+/// Validated publication with any required media loaded before activation.
+#[derive(Debug)]
+pub struct PreparedPublication {
+    publication_id: Uuid,
+    day: Date,
+    digest: [u8; 32],
+    // An existing claim can be checked without reopening retired assets.
+    puzzles: Option<Vec<(Definition, Option<Media>)>>,
+}
+
 impl Puzzles {
-    /// The trusted caller must authorize the transaction and audit a new
-    /// publication before committing it. Returns the new puzzle IDs, or None for an exact replay.
-    pub async fn activate_publication(
+    pub async fn prepare_publication(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
-        publication: &Publication,
+        publication: Publication,
         root: &Path,
-    ) -> Result<Option<Vec<Uuid>>, Error> {
+    ) -> Result<PreparedPublication, Error> {
         self.enabled()?;
         let day = Date::parse(
             &publication.day,
@@ -123,20 +130,63 @@ impl Puzzles {
             }
         }
 
-        let document = serde_json::to_vec(publication).map_err(|_| Error::Invalid)?;
+        let document = serde_json::to_vec(&publication).map_err(|_| Error::Invalid)?;
         let digest: [u8; 32] = Sha256::digest(document).into();
+        let publication_id = publication.publication_id;
+        let claimed: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM puzzles_publications WHERE id=$1)")
+                .bind(publication_id)
+                .fetch_one(&self.pool)
+                .await?;
+        let puzzles = if claimed {
+            None
+        } else {
+            let mut puzzles = publication.puzzles;
+            puzzles.sort_by_key(|puzzle| puzzle.definition.kind.key());
+            Some(
+                puzzles
+                    .into_iter()
+                    .map(|puzzle| {
+                        let media = puzzle.media.map(|source| source.load(root)).transpose()?;
+                        Ok((puzzle.definition, media))
+                    })
+                    .collect::<Result<_, Error>>()?,
+            )
+        };
+        Ok(PreparedPublication {
+            publication_id,
+            day,
+            digest,
+            puzzles,
+        })
+    }
+
+    /// The trusted caller must authorize the transaction and audit a new
+    /// publication before committing it. Returns the new puzzle IDs, or None for an exact replay.
+    pub async fn activate_publication(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        publication: PreparedPublication,
+    ) -> Result<Option<Vec<Uuid>>, Error> {
+        self.enabled()?;
+        let PreparedPublication {
+            publication_id,
+            day,
+            digest,
+            puzzles,
+        } = publication;
         let inserted = sqlx::query(
             "INSERT INTO puzzles_publications (id, document_sha256) VALUES ($1, $2)
              ON CONFLICT (id) DO NOTHING",
         )
-        .bind(publication.publication_id)
+        .bind(publication_id)
         .bind(&digest[..])
         .execute(&mut **tx)
         .await?;
         if inserted.rows_affected() == 0 {
             let existing: Vec<u8> =
                 sqlx::query_scalar("SELECT document_sha256 FROM puzzles_publications WHERE id=$1")
-                    .bind(publication.publication_id)
+                    .bind(publication_id)
                     .fetch_one(&mut **tx)
                     .await?;
             return if existing == digest {
@@ -151,24 +201,12 @@ impl Puzzles {
         if day < today {
             return Err(Error::Invalid);
         }
-        // Acquire daily slots in the same order for concurrent publications.
-        let mut puzzles: Vec<_> = publication.puzzles.iter().collect();
-        puzzles.sort_by_key(|puzzle| puzzle.definition.kind.key());
+        // Never add a new publication from a replay-only preparation.
+        let puzzles = puzzles.ok_or(Error::Conflict)?;
         let mut ids = Vec::with_capacity(puzzles.len());
-        for puzzle in puzzles {
-            let media = puzzle
-                .media
-                .as_ref()
-                .map(|source| source.load(root))
-                .transpose()?;
+        for (definition, media) in puzzles {
             let puzzle_id = self
-                .insert_daily(
-                    tx,
-                    day,
-                    &puzzle.definition,
-                    media,
-                    Some(publication.publication_id),
-                )
+                .insert_daily(tx, day, &definition, media, Some(publication_id))
                 .await?;
             ids.push(puzzle_id);
         }

@@ -94,23 +94,42 @@ test('an operator publishes a daily quiz and a player can solve it once', async 
     };
     const file = info.outputPath('publication.json');
     const publish = actor => ['admin-cli', 'puzzles', 'publish', file, '--actor', actor];
+    const audits = () => query("SELECT actor, request_id FROM audit_log WHERE action='puzzles.publish' AND target=$1", [publicationId]);
+    const publicationState = async () => ({
+      claims: await query('SELECT id, document_sha256 FROM puzzles_publications WHERE id=$1', [publicationId]),
+      slots: await query("SELECT id, publication_id FROM puzzles_daily WHERE publication_id=$1 OR (day=$2 AND kind='quiz') ORDER BY id", [publicationId, day]),
+      audit: await audits(),
+    });
+    const before = await publicationState();
+    expect(before.audit.length).toBeLessThanOrEqual(1);
+    expect(before.claims).toHaveLength(before.audit.length);
+    expect(before.slots).toHaveLength(before.audit.length);
+
     writeFileSync(file, JSON.stringify(document), { mode: 0o600 });
     cli(publish(player.id), {}, 2, 'Denied');
+    expect(await publicationState()).toEqual(before);
     cli(publish(operator.id), { OTERYN_DAILY_PUZZLES_ENABLED: '' }, 2, 'Disabled');
-    const audits = () => query("SELECT actor, request_id FROM audit_log WHERE action='puzzles.publish' AND target=$1", [publicationId]);
-    const before = await audits();
-    expect(before.length).toBeLessThanOrEqual(1);
+    expect(await publicationState()).toEqual(before);
+
+    await query('UPDATE accounts SET email_verified_at=NULL WHERE id=$1', [operator.id]);
+    cli(publish(operator.id), {}, 2, 'Denied');
+    expect(await publicationState()).toEqual(before);
+    await query('UPDATE accounts SET email_verified_at=now() WHERE id=$1', [operator.id]);
 
     const invalid = structuredClone(document);
     invalid.puzzles[0].definition.correct_choice = 6;
     writeFileSync(file, JSON.stringify(invalid));
     cli(publish(operator.id), {}, 2, 'InvalidDocument');
-    expect(await audits()).toEqual(before);
+    expect(await publicationState()).toEqual(before);
 
     writeFileSync(file, JSON.stringify(document));
-    expect(cli(publish(operator.id), {}, 0)).toEqual({ publicationId, replayed: before.length === 1 });
+    expect(cli(publish(operator.id), {}, 0)).toEqual({ publicationId, replayed: before.audit.length === 1 });
+    const activated = await publicationState();
+    expect(activated.claims).toHaveLength(1);
+    expect(activated.slots).toEqual([{ id: expect.any(String), publication_id: publicationId }]);
     expect(cli(publish(operator.id), {}, 0)).toEqual({ publicationId, replayed: true });
-    expect(await audits()).toEqual(before.length ? before : [{ actor: operator.id, request_id: publicationId }]);
+    expect(await publicationState()).toEqual(activated);
+    expect(activated.audit).toEqual(before.audit.length ? before.audit : [{ actor: operator.id, request_id: publicationId }]);
 
     const guest = await page.request.get(route, { maxRedirects: 0 });
     expect(guest.status()).toBe(303);
@@ -123,11 +142,18 @@ test('an operator publishes a daily quiz and a player can solve it once', async 
     const form = page.locator('main form:has(select[name=choice])');
     const action = await form.getAttribute('action');
     const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
+    const answers = () => query(
+      'SELECT choice,correct FROM puzzles_answers WHERE account_id=$1 AND puzzle_id=$2',
+      [player.id, action.split('/').at(-2)],
+    );
+    expect(await answers()).toEqual([]);
     await csrfRejected(page, action, { choice: '0' });
+    expect(await answers()).toEqual([]);
     const post = choice => page.request.post(action, {
       form: { ...fields, choice }, headers: { origin: new URL(page.url()).origin }, maxRedirects: 0,
     });
     expect((await post('6')).status()).toBe(400);
+    expect(await answers()).toEqual([]);
     await form.locator('select').selectOption({ label: lang === 'pl' ? 'Lis' : 'Fox' });
     const [answer] = await Promise.all([
       page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === action),
@@ -136,11 +162,10 @@ test('an operator publishes a daily quiz and a player can solve it once', async 
     expect(answer.status()).toBe(303);
     expect(answer.headers().location).toBe(route);
     await expect(page.locator('main [role=status]')).toHaveText(lang === 'pl' ? 'Poprawna odpowiedź.' : 'Correct answer.');
+    const solved = [{ choice: 0, correct: true }];
+    expect(await answers()).toEqual(solved);
     expect((await post('1')).status()).toBe(409);
-    expect(await query(
-      'SELECT choice,correct FROM puzzles_answers WHERE account_id=$1 AND puzzle_id=$2',
-      [player.id, action.split('/').at(-2)],
-    )).toEqual([{ choice: 0, correct: true }]);
+    expect(await answers()).toEqual(solved);
   } finally {
     if (operator) await query('DELETE FROM account_roles WHERE account_id=$1', [operator.id]);
     await query('UPDATE world_active_version SET version_id=NULL WHERE singleton AND version_id=$1', [worldVersion]);
