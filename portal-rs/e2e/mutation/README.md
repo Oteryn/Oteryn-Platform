@@ -5,6 +5,7 @@ From `portal-rs/e2e`, regenerate and verify the source inventory.
 ```sh
 python3 mutation/generate.py
 python3 mutation/generate.py --check
+python3 -B -m unittest discover -s mutation -p 'test_*.py'
 ```
 
 `forms.json` records source POST forms, including Rust-rendered markup, and write-method router registrations. A form's source and ordinal identify it when several forms share a line. An empty `action` submits to the current document. `actionVariants` captures finite template expansions inferred from literals or the form's rendering code. Runtime identifiers remain template expressions. Locale-prefixed routes share a row, while unprefixed aliases retain their own rows. The inventory includes source registrations behind feature gates and compatibility routes. Native and internal protocol receivers and provider webhooks are outside the browser inventory.
@@ -49,4 +50,4 @@ b, c and d require their own write requests where middleware can be exercised.
 | `POST /{lang}/pass/{season}/buy` | `crates/minigames/src/pass/web.rs::configured_router` supplies unavailable authority and payment adapters. The browser cannot resolve a purchasable season or settle a purchase. |
 | `POST /{lang}/pass/{season}/claim` | The same router supplies unavailable authority and reward adapters. The browser cannot establish claim eligibility and issue the reward. |
 | `POST /{lang}/puzzles/{id}/answer` | `Puzzles::publish` is a Rust service method with no composed ingress or operator CLI. The harness cannot publish an eligible daily definition to supply the puzzle ID. |
-| `POST /{lang}/shop` | `crates/store/src/web_backend.rs::configured` constructs the browser backend with `purchases: None` and an access adapter whose purchase target check always returns false. The internal Store delivery protocol cannot supply the browser purchase adapter. |
+| `POST /{lang}/shop` | `crates/store/src/web_backend.rs::configured` constructs the browser backend with `purchases: None` and an access adapter whose purchase target check always returns false. The matrix checks CSRF and the composed 503 response with no purchases, debits, or deliveries. The Store crate's enabled-backend purchase test checks malformed fields and durable state. |

@@ -55,7 +55,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:13",
+      "source": "templates/account/mfa/page.html:14",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/challenge",
       "actionVariants": [],
@@ -69,7 +69,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:18",
+      "source": "templates/account/mfa/page.html:19",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/email",
       "actionVariants": [],
@@ -81,7 +81,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:21",
+      "source": "templates/account/mfa/page.html:22",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/confirm",
       "actionVariants": [],
@@ -95,7 +95,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:32",
+      "source": "templates/account/mfa/page.html:33",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/enroll",
       "actionVariants": [],
@@ -108,7 +108,7 @@
       ]
     },
     {
-      "source": "templates/account/mfa/page.html:37",
+      "source": "templates/account/mfa/page.html:38",
       "ordinal": 1,
       "action": "/{{ lang }}/mfa/devices",
       "actionVariants": [],
@@ -655,7 +655,7 @@
       ]
     },
     {
-      "source": "templates/components/thais-header.html:112",
+      "source": "templates/components/thais-header.html:123",
       "ordinal": 1,
       "action": "/{{ chrome.lang }}/logout",
       "actionVariants": [],
@@ -1507,8 +1507,9 @@
       "ordinal": 1,
       "action": "/{{ context.language }}/{% if mode != \"recover\" %}account/{% endif %}recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}",
       "actionVariants": [
-        "/{{ context.language }}/account/recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}",
-        "/{{ context.language }}/recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}"
+        "/{{ context.language }}/account/recovery-key",
+        "/{{ context.language }}/recovery-key",
+        "/{{ context.language }}/account/recovery-key/confirm"
       ],
       "fields": [
         "_csrf",
@@ -2154,7 +2155,7 @@
       "route": "/admin/events",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:189",
+          "source": "crates/content/src/events/web.rs:206",
           "handler": "save_new::"
         }
       ]
@@ -2164,7 +2165,7 @@
       "route": "/admin/events/{id}",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:192",
+          "source": "crates/content/src/events/web.rs:209",
           "handler": "save_existing::"
         }
       ]
@@ -2174,7 +2175,7 @@
       "route": "/admin/events/{id}/status",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:196",
+          "source": "crates/content/src/events/web.rs:213",
           "handler": "status::"
         }
       ]
@@ -3486,7 +3487,7 @@
       "route": "/admin/events/{id}",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:192",
+          "source": "crates/content/src/events/web.rs:209",
           "handler": "save_existing::"
         }
       ]
@@ -3496,7 +3497,7 @@
       "route": "/admin/events/{id}/status",
       "sources": [
         {
-          "source": "crates/content/src/events/web.rs:196",
+          "source": "crates/content/src/events/web.rs:213",
           "handler": "status::"
         }
       ]

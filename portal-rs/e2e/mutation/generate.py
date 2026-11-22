@@ -17,6 +17,7 @@ ATTRIBUTE = re.compile(
 FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")
 CONSTANT = re.compile(r'\bconst (\w+)\s*:\s*&str\s*=\s*"([^"]+)"')
+ACTION_CONDITIONAL = re.compile(r"{% if (.*?) %}(.*?)(?:{% else %}(.*?))?{% endif %}")
 
 # These are protocol receivers even when their paths look like regular HTTP routes.
 NON_BROWSER = {
@@ -83,6 +84,27 @@ def bindings(path, source, all_sources):
     return {}
 
 
+def conditional_actions(path, target):
+    if path == "crates/identity/src/recovery_key_http.rs":
+        # Both conditionals use the same mode for any one rendered form.
+        def branch(match, mode):
+            condition, yes, no = match.groups()
+            operator, value = re.fullmatch(r'mode (==|!=) "(\w+)"', condition).groups()
+            return (yes if (mode == value) == (operator == "==") else no) or ""
+
+        return [
+            ACTION_CONDITIONAL.sub(lambda match: branch(match, mode), target)
+            for mode in ("manage", "recover", "confirm")
+        ]
+    conditional = ACTION_CONDITIONAL.search(target)
+    if not conditional:
+        return []
+    return [
+        target[:conditional.start()] + (branch or "") + target[conditional.end():]
+        for branch in conditional.groups()[1:]
+    ]
+
+
 def forms(path, source, all_sources):
     # Normalize escaped HTML attribute delimiters in Rust string literals.
     source = source.replace(r'\"', '"')
@@ -110,14 +132,7 @@ def forms(path, source, all_sources):
             elif name in {"action", "operation", "decision", "kind"} and field.get("type") == "hidden":
                 value = field.get("value", "")
                 submits.extend({"name": name, "value": choice} for choice in dynamic.get(value, [value]))
-        action_variants = []
-        if "{% if" in target:
-            conditional = re.search(r"{% if .*? %}(.*?)(?:{% else %}(.*?))?{% endif %}", target)
-            if conditional:
-                action_variants = [
-                    target[:conditional.start()] + (branch or "") + target[conditional.end():]
-                    for branch in conditional.groups()
-                ]
+        action_variants = conditional_actions(path, target) if "{% if" in target else []
         if "{{ action }}" in target:
             # Literal action loops in Askama templates emit one form per action.
             loop = re.search(r'{% for action in (\[[^\]]+\]) %}(?:(?!{% endfor %}).)*$', source[:form.start()], re.S)

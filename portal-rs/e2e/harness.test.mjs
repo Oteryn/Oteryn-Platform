@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, constants, mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
 import pg from 'pg';
@@ -61,13 +62,25 @@ test('Game-data teardown rejects a failed database drop and retains diagnostics'
   const { OTERYN_DATABASE_URL: databaseUrl } = JSON.parse(
     await readFile(path.join(report.outputDirectory, 'secrets', 'env.json'), 'utf8'),
   );
-  const db = new pg.Pool({ connectionString: databaseUrl });
   const admin = new pg.Pool({ connectionString: process.env.PORTAL_E2E_ADMIN_DATABASE_URL });
+  async function subscription(statement) {
+    const db = new pg.Client({ connectionString: databaseUrl });
+    await db.connect();
+    try {
+      await db.query(statement);
+    } finally {
+      await db.end();
+    }
+  }
   let subscribed = false;
   try {
+    const portalRoot = fileURLToPath(new URL('../', import.meta.url));
+    assert.equal(report.binary, path.resolve(portalRoot, process.env.PORTAL_E2E_BINARY));
+    await access(report.binary, constants.X_OK);
+
     // PostgreSQL refuses DROP DATABASE WITH (FORCE) while any subscription
     // exists. This disconnected subscription has no publisher or remote slot.
-    await db.query(`CREATE SUBSCRIPTION harness_shutdown_probe
+    await subscription(`CREATE SUBSCRIPTION harness_shutdown_probe
       CONNECTION 'host=127.0.0.1 port=1 dbname=postgres' PUBLICATION shutdown_probe
       WITH (connect = false, slot_name = NONE)`);
 
@@ -80,18 +93,14 @@ test('Game-data teardown rejects a failed database drop and retains diagnostics'
     assert.equal((await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [report.database])).rowCount, 1);
   } finally {
     try {
-      if (subscribed) await db.query('DROP SUBSCRIPTION harness_shutdown_probe');
-    } finally {
-      await db.end();
-      try {
-        if (subscribed) {
-          await admin.query(`DROP DATABASE IF EXISTS "${report.database}" WITH (FORCE)`);
-        } else {
-          await teardown();
-        }
-      } finally {
-        await admin.end();
+      if (subscribed) {
+        await subscription('DROP SUBSCRIPTION harness_shutdown_probe');
+        await admin.query(`DROP DATABASE IF EXISTS "${report.database}" WITH (FORCE)`);
+      } else {
+        await teardown();
       }
+    } finally {
+      await admin.end();
     }
   }
   await rm(path.dirname(report.outputDirectory), { recursive: true, force: true });

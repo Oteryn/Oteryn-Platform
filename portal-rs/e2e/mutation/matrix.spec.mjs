@@ -362,6 +362,47 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
       }
     }
 
+    await test.step(`POST /${lang}/shop refuses purchases without browser purchase authority`, async () => {
+      const url = new URL(`/${lang}/shop`, page.url()).href;
+      const operation = uuid7();
+      const fields = {
+        operation, character, world: uuid7(), revision: 'a'.repeat(64),
+        offer: 'potion-pack-10', price: '250', quantity: '1',
+      };
+      const snapshot = () => query(
+        `SELECT
+           (SELECT jsonb_agg(to_jsonb(r) ORDER BY purchase_request_id) FROM store_purchase_requests r
+             WHERE account_id=ANY($1::uuid[]) OR purchase_request_id=$2) AS requests,
+           (SELECT jsonb_agg(to_jsonb(o) ORDER BY order_id) FROM store_orders o
+             WHERE account_id=ANY($1::uuid[]) OR purchase_request_id=$2) AS orders,
+           (SELECT jsonb_agg(to_jsonb(w) ORDER BY id) FROM wallet_operations w
+             WHERE account_id=ANY($1::uuid[]) OR id=$2) AS wallet_operations,
+           (SELECT jsonb_agg(to_jsonb(e) ORDER BY id) FROM wallet_entries e
+             WHERE account_id=ANY($1::uuid[]) OR operation_id=$2) AS wallet_entries,
+           (SELECT jsonb_agg(to_jsonb(u) ORDER BY entitlement_id) FROM store_fulfilment_units u
+             WHERE account_id=ANY($1::uuid[])) AS entitlements,
+           (SELECT jsonb_agg(to_jsonb(d) ORDER BY operation_id) FROM store_operations d
+             JOIN store_fulfilment_units u USING (entitlement_id)
+             WHERE u.account_id=ANY($1::uuid[])) AS deliveries`,
+        [accounts, operation],
+      );
+      const baseline = await snapshot();
+      expect(baseline).toEqual([{
+        requests: null, orders: null, wallet_operations: null, wallet_entries: null,
+        entitlements: null, deliveries: null,
+      }]);
+      await rejected({ page, url, fields, snapshot, baseline });
+      for (const [actor, _csrf] of [[visitor, anonymousCsrf], [other, foreignCsrf], [page, ownerCsrf]]) {
+        const response = await post(actor, url, { ...fields, _csrf });
+        expect(response.status()).toBe(503);
+        expect(response.headers()['cache-control']).toBe('no-store');
+        expect(await response.text()).toContain(lang === 'pl'
+          ? 'Operacja jest niedostępna. Powodzenie nie zostało potwierdzone.'
+          : 'This operation is unavailable. No success has been confirmed.');
+        expect(await snapshot()).toEqual(baseline);
+      }
+    });
+
     await test.step('owner forfeit refuses an unknown battle', async () => {
       const baseline = await collectionState();
       const url = new URL(`/${lang}/collection/battles/${missingBattle}/forfeit`, page.url()).href;
