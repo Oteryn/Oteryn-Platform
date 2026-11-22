@@ -39,6 +39,8 @@ export function diagnosticURL(value) {
 export function redactURLs(text) {
   return text
     .replace(/(?:https?:)?\/\/[^\s"'<>]+|(?<![\w/])\/(?!\/)[^\s"'<>]+/gi, diagnosticURL)
-    .replace(/([?&](?:token|code|signature|access_token|refresh_token|id_token|state|csrf|_csrf)=)[^&\s"'<>]+/gi,
-      '$1[redacted]');
+    .replace(/([?&][^=&\s"'<>]+)=([^&\s"'<>]+)/g, (value, key) => {
+      const name = new URLSearchParams(key.slice(1) + '=').keys().next().value;
+      return statefulQuery.test(name) ? `${key}=[redacted]` : value;
+    });
 }

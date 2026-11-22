@@ -23,4 +23,6 @@ test('diagnostics omit credential values and preserve route context', () => {
   assert(!evidence.includes('sample-secret'));
   assert(evidence.includes('/en/reset-password/[redacted]'));
   assert(evidence.includes(`${base}/en/news`));
+  assert.equal(redactURLs('Location=?action=sample-secret&%74oken=sample-secret&page=2'),
+    'Location=?action=[redacted]&%74oken=[redacted]&page=2');
 });
