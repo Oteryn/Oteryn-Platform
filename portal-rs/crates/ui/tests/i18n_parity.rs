@@ -363,7 +363,7 @@ fn owner(path: &Path) -> &str {
             "bazaar" => "bazaar",
             "badges" | "profile" | "services" => "characters",
             "guilds" | "houses" | "profiles" | "today" => "community",
-            "events" | "pages" => "content",
+            "content" | "events" | "pages" => "content",
             "oauth" => "gameauth",
             "pass" => "minigames",
             "playerdata" => "playerdata",

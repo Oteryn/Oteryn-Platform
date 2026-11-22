@@ -444,6 +444,23 @@ async fn postgres_staff_announcement_dispatch() {
             .to_vec(),
     )
     .unwrap();
+    assert!(html.contains("<html lang=\"pl\">"));
+    assert!(html.contains("value=\"maintenance\">Prace techniczne</option>"));
+    let english = app(true, "staff.test", true)
+        .oneshot(
+            Request::get("/admin/announcements/create")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(english.status(), StatusCode::OK);
+    let english = to_bytes(english.into_body(), 100000).await.unwrap();
+    let english = std::str::from_utf8(&english).unwrap();
+    assert!(english.contains("<html lang=\"en\">"));
+    assert!(english.contains("value=\"maintenance\">maintenance</option>"));
     let token = html
         .split("name=\"_csrf\" value=\"")
         .nth(1)
