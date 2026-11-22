@@ -50,6 +50,7 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
  const text=await response.text();
  if(row.method==='GET'&&response.headers()['content-type']?.startsWith('text/html')&&/<html[\s>]/i.test(text)) {
    expect((await page.goto(target)).status()).toBe(row.status);
+   if (row.route.endsWith('/privacy/export')) expect(new URL(page.url()).searchParams.get('return_to')).toBe('export');
    expect(new URL(page.url()).pathname).toBe(documentPath);
    await assertShell(page,{status:row.status});
  }

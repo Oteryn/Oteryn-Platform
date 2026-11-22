@@ -259,6 +259,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         .await?,
         StatusCode::SEE_OTHER
     );
+    crate::test_staff::recent_password(&db.pool, &cookie).await?;
     let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='panel_editor'")
         .fetch_one(&db.pool)
         .await?;
@@ -269,7 +270,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=grant&account={target}&role={role}&reason=Assign+staff+workflow+role")
+            format!("action=grant&account={target}&role={role}&reason=role_assignment")
         )
         .await?,
         StatusCode::SEE_OTHER

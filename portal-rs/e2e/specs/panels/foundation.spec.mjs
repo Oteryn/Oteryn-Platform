@@ -65,14 +65,14 @@ const labels = {
     export: 'Export account data', deletion: 'Delete account',
     accounts: 'Account search', bazaar: 'Bazaar moderation', gm: 'GM console',
     worlds: 'Worlds', reason: 'Action reason',
-    invalidReason: 'Enter a reason of 8 to 500 characters.',
+    invalidReason: 'Choose an approved reason.',
   },
   pl: {
     player: 'Panel gracza', staff: 'Panel administracyjny', email: 'Ustawienia adresu e-mail',
     export: 'Eksport danych konta', deletion: 'Usuń konto',
     accounts: 'Wyszukiwanie kont', bazaar: 'Moderacja Bazaru', gm: 'Konsola GM',
     worlds: 'Światy', reason: 'Powód działania',
-    invalidReason: 'Podaj powód liczący od 8 do 500 znaków.',
+    invalidReason: 'Wybierz zatwierdzony powód.',
   },
 };
 
@@ -114,6 +114,12 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await expect(adminNav.getByRole('link', {name: label.accounts})).toHaveAttribute('href', '/admin/players');
     await expect(adminNav.getByRole('link', {name: label.bazaar})).toHaveAttribute('href', `/admin/${lang}/bazaar`);
     await expect(adminNav.getByRole('link', {name: label.gm})).toHaveCount(0);
+    for (const locale of ['pl', 'en']) {
+      await staffContext.addCookies([{name: 'portal_language', value: locale === 'pl' ? 'en' : 'pl', url: origin}]);
+      expect((await visit(admin, `/console/dashboard?lang=${locale}`)).status()).toBe(403);
+      await expect(admin.locator('html')).toHaveAttribute('lang', locale);
+    }
+    await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
     expect((await visit(admin, '/console/worlds')).status()).toBe(403);
     await query(
       "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'",
@@ -143,10 +149,18 @@ test('panel navigation enforces scope and role grants require a reason', async (
     expect(await membership()).toEqual([]);
     expect(await audit()).toEqual([]);
 
-    const reason = 'Assign panel testing role';
+    const reason = 'role_assignment';
+    const unconfirmed = await admin.request.post('/admin/roles', {
+      form: {_csrf: csrf, action: 'grant', account: recipient, role: roleId, reason},
+      maxRedirects: 0,
+    });
+    expect(unconfirmed.status()).toBe(403);
+    expect(await membership()).toEqual([]);
+    expect(await audit()).toEqual([]);
+    await query("UPDATE web_sessions SET sudo_until=clock_timestamp()+interval '15 minutes' WHERE account_id=$1", [staff]);
     await grant.locator('[name=account]').fill(recipient);
     await grant.locator('[name=role]').selectOption(roleId);
-    await grant.getByLabel(label.reason).fill(reason);
+    await grant.getByLabel(label.reason).selectOption(reason);
     const [granted] = await Promise.all([
       admin.waitForResponse(response =>
         new URL(response.url()).pathname === '/admin/roles'

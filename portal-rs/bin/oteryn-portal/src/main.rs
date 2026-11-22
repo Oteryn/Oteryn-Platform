@@ -383,7 +383,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_bazaar::navigation::register(&mut navigation);
             use oteryn_ui::panels::{Entry, Panel, Permission};
             for (enabled, route, label) in [
-                (true, "/account", "shell-account-overview"),
                 (
                     email_change_enabled,
                     "account/security/email",

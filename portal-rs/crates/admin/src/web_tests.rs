@@ -140,6 +140,8 @@ fn localized_responsive_labelled_template() {
             grant: text(lang, "grant"),
             can_grant: true,
             reason_label: "Reason".into(),
+            reason_assignment: "Role assignment".into(),
+            step_up_label: "Confirm password".into(),
             navigation: Vec::new(),
             revoke: text(lang, "revoke"),
             csrf: "token".into(),
@@ -348,6 +350,16 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .fetch_one(&pool)
         .await
         .unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
+        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
+    crate::test_staff::browser(&pool, actor, &cookie)
+        .await
+        .unwrap();
+    crate::test_staff::recent_password(&pool, &cookie)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
+        .bind(target).bind(format!("{target}@example.test")).execute(&pool).await.unwrap();
     // A grant to a role manager is refused pending four-eyes approval.
     let denied = app(pool.clone(), identity, true)
         .oneshot(
@@ -358,7 +370,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                 .header("origin", "https://staff.test")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "account={target}&role={ordinary}&action=grant&reason=Reference+role+grant"
+                    "account={target}&role={ordinary}&action=grant&reason=role_assignment"
                 )))
                 .unwrap(),
         )
@@ -384,7 +396,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                     .header("origin", "https://staff.test")
                     .header("content-type", "application/x-www-form-urlencoded")
                     .body(Body::from(format!(
-                        "account={account}&role={ordinary}&action={action}&reason=Reference+role+grant"
+                        "account={account}&role={ordinary}&action={action}&reason=role_assignment"
                     )))
                     .unwrap(),
             )
@@ -467,8 +479,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .unwrap();
     // Two competing removals cannot both discard the last full-access holder.
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
-        SELECT id,id::text||'@example.test','unused','active',now(),'en' FROM unnest($1::uuid[]) AS candidates(id)")
-        .bind(vec![actor, other])
+        VALUES($1,$1::uuid::text||'@example.test','unused','active',now(),'en')")
+        .bind(other)
         .execute(&pool)
         .await
         .unwrap();
