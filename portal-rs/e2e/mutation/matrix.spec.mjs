@@ -1148,3 +1148,39 @@ test('atlas annotation API writes owner data while the unavailable atlas hides i
     await context.close();
   }
 });
+
+test('console exposes unavailable Game agents and creates no read requests', async ({ page }, info) => {
+  test.setTimeout(240_000);
+  const lang = info.project.metadata.locale;
+  const viewer = await seededPlayer(page, lang, 'game_viewer');
+  await page.goto(`/${lang}/account/privacy`);
+  const { url, fields } = await prepare(page, formSelector);
+  const snapshot = () => query('SELECT request_id FROM admin_control_requests WHERE actor=$1', [viewer.id]);
+  const baseline = await snapshot();
+  expect(baseline).toEqual([]);
+  const agent = 'matrix-no-agent';
+  const unavailable = lang === 'pl' ? 'Niedostępne' : 'Unavailable';
+  const config = [
+    ['dashboard', 'ops.overview.get', ''],
+    ['worlds', 'world.list', ''],
+    ['worlds', 'world.get', 'matrix-world'],
+    ['nodes', 'node.list', ''],
+    ['nodes', 'node.get', 'matrix-node'],
+    ['database', 'db.status', ''],
+    ['database', 'db.migrations.list', ''],
+  ];
+  for (const [section, operation, target] of config) {
+    const path = `/console/${section}`;
+    const params = new URLSearchParams({ lang, agent, ...(target ? { target } : {}) });
+    expect((await page.goto(`${path}?${params}`)).status()).toBe(200);
+    await expect(page.locator('main')).toContainText(`R0 · ${unavailable}`);
+    await expect(page.locator('main form[method=post]')).toHaveCount(0);
+    const options = {
+      page, url: new URL(path, url).href, fields: { _csrf: fields._csrf, lang, agent, operation, target },
+      snapshot, baseline,
+    };
+    await rejected(options);
+    expect((await sendForm(page, options.url, options.fields)).status()).toBe(503);
+    expect(await snapshot()).toEqual(baseline);
+  }
+});

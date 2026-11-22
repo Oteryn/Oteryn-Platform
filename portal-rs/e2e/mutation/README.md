@@ -81,6 +81,14 @@ publisher fixture supplies LCFA but does not publish the profile family. The
 matrix checks the valid-session 403 from creation and the 404 from reporting
 or removing an absent post, with no persisted post.
 
+The R0 console dashboard, world, node, and database actions require a
+connected Game control agent with a negotiated operation for the selected
+target. Neither the standard harness nor the Game publisher fixture
+exchanges control-agent hello or result envelopes. An authenticated Game
+viewer sees the localized unavailable state and no write form. All seven
+console operations reject valid-CSRF submissions with 503 and persist no
+control request.
+
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 
 For the owner and staff ticket status PUT aliases, Playwright forwards the real form request using PUT and the server handles the request. The report scenario observes the real per-account submission budget before submitting further invalid inputs.
