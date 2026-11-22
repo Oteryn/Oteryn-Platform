@@ -442,6 +442,8 @@ mod flag_boundary {
                 .env("OTERYN_SMTP_HOST", "localhost")
                 .env("OTERYN_SMTP_USERNAME", "local")
                 .env("OTERYN_MAIL_FROM", "portal@example.test")
+                .env("OTERYN_NOTIFY_UNSUBSCRIBE_KEY", "flag-boundary-notification-key-00000000")
+                .env("OTERYN_NOTIFY_UNSUBSCRIBE_URL", "https://localhost/unsubscribe")
                 .env("OTERYN_RESET_DELIVERY_KEY", "02".repeat(32));
         }
         if test == "flags_off_keep_routes_jobs_and_tables_inert" {
@@ -759,8 +761,12 @@ mod flag_boundary {
             Ok(())
         }
         .await;
-        serve.abort();
-        let _ = serve.await;
+        if serve.is_finished() {
+            serve.await??;
+        } else {
+            serve.abort();
+            let _ = serve.await;
+        }
         result
     }
 
