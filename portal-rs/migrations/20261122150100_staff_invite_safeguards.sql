@@ -16,10 +16,10 @@ WHERE i.accepted_at IS NULL AND i.revoked_at IS NULL AND EXISTS (
     ))
 );
 
--- Existing queued work must wait for approval too. Reset the lease so an
--- in-flight worker cannot acknowledge the rescheduled job.
+-- Existing queued work must wait for approval too. Clear the lease but keep
+-- the attempt counter so stale workers cannot acknowledge a later claim.
 UPDATE outbox o
-SET state='pending', leased_until=NULL, attempts=0, run_after=i.expires_at,
+SET state='pending', leased_until=NULL, run_after=i.expires_at,
     updated_at=clock_timestamp()
 FROM staff_invites i
 WHERE o.kind='email.staff-invite' AND o.idempotency_key=i.id::text
