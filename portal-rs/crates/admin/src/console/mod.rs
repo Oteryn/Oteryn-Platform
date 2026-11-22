@@ -473,20 +473,19 @@ async fn console_refusal_locale(
         return next.run(request).await;
     }
     let locale = lang(request.headers(), &selection);
-    let mut chrome = request
-        .extensions()
-        .get::<oteryn_ui::Chrome>()
+    let existing = request.extensions().get::<oteryn_ui::Chrome>();
+    let chrome = existing
+        .filter(|chrome| selection.lang.is_none() || chrome.lang == locale)
         .cloned()
         .unwrap_or_else(|| {
             oteryn_ui::Registry::default().chrome(
                 locale,
                 request.uri().path(),
-                oteryn_ui::Account::Anonymous,
+                existing.map_or(oteryn_ui::Account::Anonymous, |chrome| {
+                    chrome.account.clone()
+                }),
             )
         });
-    if selection.lang.is_some() {
-        chrome.lang = locale.into();
-    }
     request.extensions_mut().insert(chrome.clone());
     let response = next.run(request).await;
     if response.status() != StatusCode::FORBIDDEN

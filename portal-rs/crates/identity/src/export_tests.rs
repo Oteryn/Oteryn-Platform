@@ -27,6 +27,23 @@ async fn disabled_and_bad_input() -> TestResult {
     Ok(())
 }
 #[tokio::test]
+async fn browser_export_requires_mounted_password_confirmation() -> TestResult {
+    let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    for (enabled, password_confirmation, mounted) in [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        assert_eq!(
+            configured_browser_router(pool.clone(), enabled, password_confirmation).has_routes(),
+            mounted
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_owner_export_and_refusals() -> TestResult {
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {

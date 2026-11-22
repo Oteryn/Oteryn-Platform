@@ -170,7 +170,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
-            let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
+            let credentials = credentials_http::configured_router(db.clone());
+            let password_confirmation = credentials.has_routes();
+            let app = app.merge(oteryn_admin::web::configured_router(
+                db.clone(),
+                password_confirmation,
+            )?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
@@ -233,9 +238,12 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
-            let app = app.merge(credentials_http::configured_router(db.clone()));
+            let app = app.merge(credentials);
+            let export =
+                oteryn_identity::export::configured_router(db.clone(), password_confirmation);
+            let export_enabled = export.has_routes();
+            let app = app.merge(export);
             let app = app.merge(profile_http::configured_router(db.clone()));
-            let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
                 db.clone(),
@@ -390,11 +398,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     "account/security/email",
                     "panel-email",
                 ),
-                (
-                    std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED").as_deref() == Ok("true"),
-                    "account/privacy/export",
-                    "panel-export",
-                ),
+                (export_enabled, "account/privacy/export", "panel-export"),
                 (
                     closure.terminations.accepts_requests(),
                     "account/privacy/delete",

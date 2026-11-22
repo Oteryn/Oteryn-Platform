@@ -45,6 +45,9 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
  expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
  if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
+ if (row.method === 'GET' && ['staff', 'gm'].includes(row.actor)) {
+   expect(documentPath, 'terminal staff route').toBe(new URL(target, response.url()).pathname);
+ }
  const text=await response.text();
  if(row.method==='GET'&&response.headers()['content-type']?.startsWith('text/html')&&/<html[\s>]/i.test(text)) {
    expect((await page.goto(target)).status()).toBe(row.status);

@@ -36,20 +36,19 @@ struct TestForm {
 
 async fn apply(
     State(fixture): State<Fixture>,
-    csrf: Option<Extension<Verified>>,
+    Extension(csrf): Extension<Verified>,
     Form(form): Form<TestForm>,
 ) -> Response {
     let actor = fixture.actor.account;
-    match run(
+    let mut response = match run(
         &fixture.pool,
         Guard {
             actor: fixture.actor,
             authority: &fixture.authority,
-            csrf: csrf.map(|Extension(proof)| proof),
+            csrf: Some(csrf),
         },
         Action {
             permission: Permission::GrantRoles,
-            action: "staff.action.test",
             reason: &form.reason,
             reason_codes: &["role_assignment"],
             step_up: StepUp::RecentPassword,
@@ -86,11 +85,7 @@ async fn apply(
                     .execute(&mut *connection)
                     .await?;
                 }
-                Ok(Some(AuditChange {
-                    target: actor,
-                    before: [("locale", AuditValue::Label("pl"))].into(),
-                    after: [("locale", AuditValue::Label("en"))].into(),
-                }))
+                Ok(Some(AuditChange::TestLocale { account: actor }))
             })
         },
     )
@@ -102,7 +97,12 @@ async fn apply(
             "/",
             oteryn_ui::Account::Anonymous,
         )),
-    }
+    };
+    response.headers_mut().insert(
+        "x-test-staff-handler",
+        header::HeaderValue::from_static("verified"),
+    );
+    response
 }
 
 #[tokio::test]
@@ -146,7 +146,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .bind(role)
         .execute(&pool)
         .await?;
-    let proof = crate::test_staff::proof(&pool, account).await?;
+    let (proof, cookie) = crate::test_staff::proof_with_cookie(&pool, account).await?;
     let context = CheckContext {
         account,
         require_staff_mfa: true,
@@ -177,19 +177,17 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .with_state(fixture);
     let response = app
         .clone()
-        .oneshot(Request::get("/action").body(Body::empty())?)
+        .oneshot(
+            Request::get("/action")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())?,
+        )
         .await?;
-    let cookie = response.headers()[header::SET_COOKIE]
-        .to_str()?
-        .split(';')
-        .next()
-        .unwrap()
-        .to_owned();
     let token = String::from_utf8(to_bytes(response.into_body(), 256).await?.to_vec())?;
-    let post = |token: &str, form: &str| {
+    let post_as = |cookie: &str, token: &str, form: &str| {
         app.clone().oneshot(
             Request::post("/action")
-                .header(header::COOKIE, &cookie)
+                .header(header::COOKIE, cookie)
                 .header(header::ACCEPT_LANGUAGE, "en")
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
                 .header("x-csrf-token", token)
@@ -197,6 +195,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
                 .unwrap(),
         )
     };
+    let post = |token: &str, form: &str| post_as(&cookie, token, form);
     let good = "reason=role_assignment";
     let unchanged = || async {
         let locale: String = sqlx::query_scalar("SELECT locale FROM accounts WHERE id=$1")
@@ -243,12 +242,25 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .execute(&pool)
         .await?;
     assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
-    // Fresh sudo in a different session must not elevate this request.
-    crate::test_staff::browser(&pool, account, &cookie).await?;
-    crate::test_staff::recent_password(&pool, &cookie).await?;
+    let (_, other_cookie) = crate::test_staff::proof_with_cookie(&pool, account).await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/action")
+                .header(header::COOKIE, &other_cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    let other_token = String::from_utf8(to_bytes(response.into_body(), 256).await?.to_vec())?;
+    crate::test_staff::recent_password(&pool, &other_cookie).await?;
     assert_eq!(post(&token, good).await?.status(), StatusCode::FORBIDDEN);
-    sqlx::query("UPDATE web_sessions SET sudo_until=clock_timestamp()+interval '15 minutes' WHERE id_hash=$1")
-        .bind(proof.session_hash.as_slice()).execute(&pool).await?;
+    crate::test_staff::recent_password(&pool, &cookie).await?;
+    // The other session has a valid token and fresh sudo for this same actor.
+    // Its request must still fail when paired with the original actor proof.
+    let mismatched = post_as(&other_cookie, &other_token, good).await?;
+    assert_eq!(mismatched.headers()["x-test-staff-handler"], "verified");
+    assert_eq!(mismatched.status(), StatusCode::FORBIDDEN);
+    unchanged().await;
     let conflict = post(&token, "reason=role_assignment&conflict=true").await?;
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
     assert!(

@@ -31,8 +31,16 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
+ expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
+ const terminalRoutes=new Map();
+ const recordTerminal=response=>{
+   let request=response.request();
+   if(!request.isNavigationRequest() || (response.status()>=300 && response.status()<400)) return;
+   while(request.redirectedFrom()) request=request.redirectedFrom();
+   terminalRoutes.set(new URL(request.url()).pathname,new URL(response.url()).pathname);
+ };
+ page.context().on('response',recordTerminal);
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(path=>path!=='/console/dashboard');
  const failures=[];
  const staffContext=page.context();
@@ -77,10 +85,17 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
+ page.context().off('response',recordTerminal);
+ for(const path of paths) {
+   const expected=new URL(path,page.url()).pathname;
+   expect(terminalRoutes.get(expected),'terminal staff route').toBe(expected);
+ }
  await test.step('/console/dashboard',async()=>{
    const denied=await page.context().newPage();
    try {
-     expect((await denied.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(403);
+     const response=await denied.goto(`/console/dashboard?lang=${lang}`);
+     expect(response.status()).toBe(403);
+     expect(new URL(response.url()).pathname).toBe('/console/dashboard');
      expect(await denied.locator('html').getAttribute('lang')).toBe(lang);
      await assertShell(denied);
    } finally {await denied.close();}
@@ -93,6 +108,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
      await confirmStaffPassword(page,lang,staff.password);
+     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);

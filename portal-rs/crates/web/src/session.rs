@@ -163,13 +163,13 @@ impl BrowserSession {
             .map(|r| r.csrf.clone())
             .ok_or(sqlx::Error::RowNotFound)
     }
-    pub(crate) async fn existing_csrf_token(&self) -> Option<String> {
+    pub(crate) async fn csrf_proof(&self) -> Option<(String, [u8; 32])> {
         self.inner
             .lock()
             .await
             .record
             .as_ref()
-            .map(|r| r.csrf.clone())
+            .map(|r| (r.csrf.clone(), Sha256::digest(r.id.as_bytes()).into()))
     }
     pub async fn account_id(&self) -> Option<Uuid> {
         self.inner

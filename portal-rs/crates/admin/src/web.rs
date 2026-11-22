@@ -141,6 +141,7 @@ struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
     required: Option<Permission>,
+    grant_confirmation: bool,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -164,12 +165,16 @@ pub(crate) fn config_from(
     })
 }
 
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+pub fn configured_router(
+    pool: PgPool,
+    grant_confirmation: bool,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(roles_router(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
+        grant_confirmation,
     ))
 }
 
@@ -219,6 +224,7 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     let state = Arc::new(Panel {
         config,
         required: Some(permission),
+        grant_confirmation: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -242,12 +248,23 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    roles_router(pool, config, identity, accounts, true)
+}
+
+fn roles_router<I: StaffSession, A: AccountStateReader + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    grant_confirmation: bool,
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
+        grant_confirmation,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -632,7 +649,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
-        can_grant: manage && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
+        can_grant: manage
+            && s.grant_confirmation
+            && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
         reason_label: oteryn_ui::text(lang, "staff-action-reason"),
         reason_assignment: oteryn_ui::text(lang, "staff-action-role-assignment"),
         step_up_label: oteryn_ui::text(lang, "staff-action-step-up"),
@@ -684,6 +703,17 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
         }
         Err(error) => return error.into_response(),
     };
+    let guard = staff_actions::Guard {
+        actor: context,
+        authority: &authority,
+        csrf: csrf.map(|Extension(proof)| proof),
+    };
+    let grant_action = staff_actions::Action {
+        permission: Permission::GrantRoles,
+        reason: &form.reason,
+        reason_codes: &["role_assignment"],
+        step_up: staff_actions::StepUp::RecentPassword,
+    };
     let result = match form.action.as_str() {
         "create" | "set-permissions" => {
             let permissions: Result<Vec<Permission>, _> = form
@@ -706,28 +736,57 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                     permissions: &permissions,
                 }
             };
+            if permissions.contains(&Permission::GrantRoles) {
+                if !s.grant_confirmation {
+                    return staff_actions::Error::Forbidden.response(chrome);
+                }
+                // A plain edit may retain or remove an existing grant permission.
+                // Storage rejects any new assignment on the plain edit path.
+                if !form.reason.is_empty() || form.action == "create" {
+                    let auth = s.auth.clone();
+                    let result = staff_actions::run(
+                        &s.pool,
+                        guard,
+                        grant_action,
+                        || Ok((Vec::new(), (form.action, form.key, form.role, permissions))),
+                        move |connection, (action, key, role, permissions)| {
+                            Box::pin(async move {
+                                let change = if action == "create" {
+                                    Change::CreateRole {
+                                        key: &key,
+                                        permissions: &permissions,
+                                    }
+                                } else {
+                                    Change::SetPermissions {
+                                        role,
+                                        permissions: &permissions,
+                                    }
+                                };
+                                Ok(auth
+                                    .edit_grant_permission(connection, context, change)
+                                    .await?)
+                            })
+                        },
+                    )
+                    .await;
+                    return staff_action_response(result, chrome);
+                }
+            }
             s.auth
                 .change_from_panel(context, Uuid::now_v7(), change)
                 .await
                 .map(|_| ())
         }
         "grant" => {
-            use staff_actions::{AuditChange, AuditValue};
+            if !s.grant_confirmation {
+                return staff_actions::Error::Forbidden.response(chrome);
+            }
+            use staff_actions::AuditChange;
             let auth = s.auth.clone();
             let result = staff_actions::run(
                 &s.pool,
-                staff_actions::Guard {
-                    actor: context,
-                    authority: &authority,
-                    csrf: csrf.map(|Extension(proof)| proof),
-                },
-                staff_actions::Action {
-                    permission: Permission::GrantRoles,
-                    action: "rbac.role.granted",
-                    reason: &form.reason,
-                    reason_codes: &["role_assignment"],
-                    step_up: staff_actions::StepUp::RecentPassword,
-                },
+                guard,
+                grant_action,
                 || {
                     if form.account.is_nil() || form.role.is_nil() {
                         return Err(staff_actions::Error::Invalid);
@@ -739,26 +798,12 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                         let granted = auth
                             .grant_from_staff_action(connection, context, account, role)
                             .await?;
-                        let snapshot = |assigned| {
-                            [
-                                ("role", AuditValue::Id(role)),
-                                ("assigned", AuditValue::Flag(assigned)),
-                            ]
-                            .into()
-                        };
-                        Ok(granted.then(|| AuditChange {
-                            target: account,
-                            before: snapshot(false),
-                            after: snapshot(true),
-                        }))
+                        Ok(granted.then_some(AuditChange::RoleGrant { account, role }))
                     })
                 },
             )
             .await;
-            return match result {
-                Ok(()) => Redirect::to("/admin/roles").into_response(),
-                Err(error) => error.response(chrome),
-            };
+            return staff_action_response(result, chrome);
         }
         "revoke" => revoke(&s, context, form.account, form.role).await,
         _ => return StatusCode::BAD_REQUEST.into_response(),
@@ -773,6 +818,16 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+fn staff_action_response(
+    result: Result<(), staff_actions::Error>,
+    chrome: &oteryn_ui::Chrome,
+) -> Response {
+    match result {
+        Ok(()) => Redirect::to("/admin/roles").into_response(),
+        Err(error) => error.response(chrome),
+    }
+}
+
 /// Serialize with every T10 role writer and recheck authorization under that lock.
 /// T10 has no owner key: its full-access platform administrator is also protected.
 async fn revoke<I: StaffSession, A: AccountStateReader>(
