@@ -350,9 +350,11 @@ pub enum StaffCommand {
     },
     ApproveInvalidation {
         id: Uuid,
+        reason: String,
     },
     ReviewReport {
         id: Uuid,
+        reason: String,
         accepted: bool,
     },
     Fees {
@@ -378,12 +380,23 @@ impl StaffCommand {
     pub fn target(&self) -> Uuid {
         match self {
             Self::Suspend { listing, .. } | Self::RequestInvalidation { listing, .. } => *listing,
-            Self::ApproveInvalidation { id }
+            Self::ApproveInvalidation { id, .. }
             | Self::ReviewReport { id, .. }
             | Self::Fees { id, .. }
             | Self::RestrictItem { id, .. } => *id,
         }
     }
+    pub fn reason(&self) -> &str {
+        match self {
+            Self::Suspend { reason, .. }
+            | Self::RequestInvalidation { reason, .. }
+            | Self::ApproveInvalidation { reason, .. }
+            | Self::ReviewReport { reason, .. }
+            | Self::Fees { reason, .. }
+            | Self::RestrictItem { reason, .. } => reason.trim(),
+        }
+    }
+
     pub fn action(&self) -> &'static str {
         match self {
             Self::Suspend { .. } => "bazaar.suspend",
@@ -408,7 +421,7 @@ pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) ->
         | StaffCommand::RequestInvalidation { listing, .. } => {
             lock_listing(tx, *listing).await?;
         }
-        StaffCommand::ApproveInvalidation { id } => {
+        StaffCommand::ApproveInvalidation { id, .. } => {
             let listing: Uuid = sqlx::query_scalar(
                 "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
             )
@@ -492,7 +505,8 @@ pub async fn execute_staff(
             sqlx::query("INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason) VALUES($1,$2,$3,$4,$5)")
                 .bind(id).bind(listing).bind(revision).bind(actor).bind(reason).execute(&mut *tx).await?;
         }
-        StaffCommand::ApproveInvalidation { id } => {
+        StaffCommand::ApproveInvalidation { id, reason } => {
+            reason_valid(reason)?;
             // Discover listing first; lock listing before request, as the requester does.
             let listing: Uuid = sqlx::query_scalar(
                 "SELECT listing_id FROM bazaar_invalidation_requests WHERE id=$1",
@@ -528,7 +542,12 @@ pub async fn execute_staff(
             sqlx::query("UPDATE bazaar_invalidation_requests SET approved_by=$2,state='approved',updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(actor).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO bazaar_moderation_outbox(id,listing_id,kind) VALUES($1,$2,'reconcile_invalidation')").bind(id).bind(listing).execute(&mut *tx).await?;
         }
-        StaffCommand::ReviewReport { id, accepted } => {
+        StaffCommand::ReviewReport {
+            id,
+            accepted,
+            reason,
+        } => {
+            reason_valid(reason)?;
             let reporter: Uuid =
                 sqlx::query_scalar("SELECT reporter FROM bazaar_reports WHERE id=$1 FOR UPDATE")
                     .bind(id)

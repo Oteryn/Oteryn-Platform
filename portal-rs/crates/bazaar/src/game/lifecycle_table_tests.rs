@@ -523,7 +523,10 @@ async fn lifecycle_active_invalidate() {
     execute_staff(
         &mut tx,
         uid("82"),
-        &StaffCommand::ApproveInvalidation { id: request },
+        &StaffCommand::ApproveInvalidation {
+            id: request,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await
     .unwrap();

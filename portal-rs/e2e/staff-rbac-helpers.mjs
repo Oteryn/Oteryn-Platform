@@ -1,8 +1,10 @@
 import {expect} from '@playwright/test';
 import * as OTPAuth from 'otpauth';
 import path from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import crypto from 'node:crypto';
-import {pool,csrfRejected,submit,register,login} from './helpers.mjs';
+import {pool,csrfRejected,submit,register,login,password} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
 export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[]){const db=pool();try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
@@ -21,7 +23,9 @@ export async function enrollMfa(page,lang,account){
  await submit(page,'form[action$="/mfa/enroll"]',{password:account.password});
  const totp=new OTPAuth.TOTP({secret:await page.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
  await submit(page,'form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
- return page.locator('textarea[readonly]').allTextContents();
+ const codes = page.locator('textarea[readonly]');
+ await expect(codes).toHaveCount(8);
+ return codes.allTextContents();
 }
 
 export async function loginWithRecoveryCode(page,lang,account,code){
@@ -48,4 +52,30 @@ export async function isolatedAdmin(browser,info){
   await loginWithRecoveryCode(page,lang,account,codes[0]);
   return {context,page,account,password:account.password,codes};
  }catch(error){await context.close();throw error;}
+}
+
+export async function seededAccount(lang) {
+ const account = {email: `${unique()}@example.invalid`, password: password(), locale: lang};
+ const portal = fileURLToPath(new URL('../', import.meta.url));
+ const binary = process.env.PORTAL_E2E_BINARY ||
+   path.resolve(process.env.CARGO_TARGET_DIR || path.join(portal, 'target'), 'debug/oteryn-portal');
+ const database = pool();
+ const result = spawnSync(binary, ['seed', 'account', JSON.stringify(account)], {
+   cwd: portal, encoding: 'utf8',
+   env: {...process.env, OTERYN_DATABASE_URL: database.options.connectionString, OTERYN_ENV: 'testing'},
+ });
+ await database.end();
+ expect(result.status, 'seed CLI created the disposable staff account').toBe(0);
+ const {accountId} = JSON.parse(result.stdout);
+ return {...account, id: accountId};
+}
+
+export async function seededStaff(page, lang, role) {
+ const account = await seededAccount(lang);
+ const accountId = account.id;
+ await query('INSERT INTO account_roles(account_id, role_id) SELECT $1, id FROM roles WHERE key=$2', [accountId, role]);
+ await login(page, lang, account);
+ const codes = await enrollMfa(page, lang, account);
+ await loginWithRecoveryCode(page, lang, account, codes[0]);
+ return accountId;
 }

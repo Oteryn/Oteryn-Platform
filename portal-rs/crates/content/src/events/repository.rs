@@ -109,26 +109,30 @@ impl Events {
         auth.check_in(&mut tx, context, Permission::ManageEvents)
             .await?;
         draft.validate()?;
+        let reason = audit_reason(&draft.reason)?;
         let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
         let mut permissions = vec![Permission::Access, Permission::ManageEvents];
         let before = if let Some((_, version)) = existing {
-            let row: (String, i64) =
-                sqlx::query_as("SELECT status,lock_version FROM events WHERE id=$1 FOR UPDATE")
+            let row: Event =
+                sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events WHERE id=$1 FOR UPDATE")
                     .bind(id)
                     .fetch_optional(&mut *tx)
                     .await?
                     .ok_or(Error::NotFound)?;
-            if version < 1 || row.1 != version || Status::parse(&row.0).is_none() {
+            if version < 1 || row.lock_version != version || Status::parse(&row.status).is_none() {
                 return Err(Error::Conflict);
             }
-            if row.0 != Status::Draft.as_str() {
+            if row.status != Status::Draft.as_str() {
                 auth.check_in(&mut tx, context, Permission::PublishEvents)
                     .await?;
                 permissions.push(Permission::PublishEvents);
             }
             sqlx::query("UPDATE events SET status='draft',starts_at=$2,ends_at=$3,featured=$4,updated_by=$5,published_by=NULL,lock_version=lock_version+1,updated_at=now() WHERE id=$1")
                 .bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
-            json!({"status":row.0,"version":row.1})
+            json!({
+                "status": row.status, "version": version, "featured": row.featured,
+                "starts_at": row.starts_at.unix_timestamp(), "ends_at": row.ends_at.unix_timestamp(),
+            })
         } else {
             sqlx::query("INSERT INTO events (id,starts_at,ends_at,featured,created_by,updated_by) VALUES ($1,$2,$3,$4,$5,$5)").bind(id).bind(draft.starts_at).bind(draft.ends_at).bind(draft.featured).bind(context.account).execute(&mut *tx).await?;
             json!(null)
@@ -156,7 +160,11 @@ impl Events {
                 },
                 target: &id.to_string(),
                 before,
-                after: json!({"status":"draft"}),
+                after: json!({
+                    "status": "draft", "version": existing.map_or(1, |(_, version)| version + 1),
+                    "starts_at": draft.starts_at.unix_timestamp(), "ends_at": draft.ends_at.unix_timestamp(),
+                    "featured": draft.featured, "reason": reason,
+                }),
             },
         )
         .await?;
@@ -171,6 +179,7 @@ impl Events {
         id: Uuid,
         version: i64,
         target: &str,
+        reason: &str,
     ) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -199,6 +208,7 @@ impl Events {
             auth.check_in(&mut tx, context, permission).await?;
         }
         let target = Status::parse(target).ok_or(Error::Invalid)?;
+        let reason = audit_reason(reason)?;
         let current: Event=sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version FROM events WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         if version < 1
             || version != current.lock_version
@@ -234,7 +244,7 @@ impl Events {
                 action: "events.status_changed",
                 target: &id.to_string(),
                 before: json!({"status":current.status,"version":version}),
-                after: json!({"status":target.as_str(),"version":version+1}),
+                after: json!({"status":target.as_str(),"version":version+1,"reason":reason}),
             },
         )
         .await?;

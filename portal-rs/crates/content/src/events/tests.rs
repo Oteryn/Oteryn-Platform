@@ -55,6 +55,7 @@ fn context(actor: Uuid) -> CheckContext {
 }
 fn draft(slug: &str) -> Draft {
     Draft {
+        reason: "Editorial test change".into(),
         starts_at: OffsetDateTime::now_utc() + time::Duration::days(1),
         ends_at: OffsetDateTime::now_utc() + time::Duration::days(2),
         featured: false,
@@ -177,34 +178,48 @@ async fn postgres_publication_versions_validation_and_refusals() {
     let (actor, auth, _) = db.author().await;
     let c = context(actor);
     let events = Events::new(db.pool.clone());
+    let mut missing_reason = draft("event");
+    missing_reason.reason = " ".into();
+    assert!(matches!(
+        events.save(&auth, c, None, missing_reason).await,
+        Err(Error::Invalid)
+    ));
     let id = events.save(&auth, c, None, draft("event")).await.unwrap();
     assert!(events.public("en", None).await.unwrap().is_empty());
+    assert!(matches!(
+        events.transition(&auth, c, id, 1, "scheduled", " ").await,
+        Err(Error::Invalid)
+    ));
     events
-        .transition(&auth, c, id, 1, "scheduled")
+        .transition(&auth, c, id, 1, "scheduled", "Editorial test change")
         .await
         .unwrap();
     assert!(events.public("en", None).await.unwrap().is_empty());
     assert!(matches!(
-        events.transition(&auth, c, id, 1, "published").await,
+        events
+            .transition(&auth, c, id, 1, "published", "Editorial test change")
+            .await,
         Err(Error::Conflict)
     ));
     assert!(matches!(
-        events.transition(&auth, c, id, 2, "unknown").await,
+        events
+            .transition(&auth, c, id, 2, "unknown", "Editorial test change")
+            .await,
         Err(Error::Invalid)
     ));
     events
-        .transition(&auth, c, id, 2, "published")
+        .transition(&auth, c, id, 2, "published", "Editorial test change")
         .await
         .unwrap();
     assert_eq!(events.public("en", Some("event")).await.unwrap().len(), 1);
     assert!(events.public("pl", Some("event")).await.unwrap().is_empty());
     events
-        .transition(&auth, c, id, 3, "archived")
+        .transition(&auth, c, id, 3, "archived", "Editorial test change")
         .await
         .unwrap();
     assert!(events.public("en", None).await.unwrap().is_empty());
     events
-        .transition(&auth, c, id, 4, "published")
+        .transition(&auth, c, id, 4, "published", "Editorial test change")
         .await
         .unwrap();
     events
@@ -235,7 +250,9 @@ async fn postgres_publication_versions_validation_and_refusals() {
         },
     );
     assert!(matches!(
-        events.transition(&denied, c, id, 6, "published").await,
+        events
+            .transition(&denied, c, id, 6, "published", "Editorial test change")
+            .await,
         Err(Error::Authorization(_))
     ));
     let editor = Uuid::now_v7();
@@ -257,7 +274,14 @@ async fn postgres_publication_versions_validation_and_refusals() {
         .unwrap();
     assert!(matches!(
         events
-            .transition(&auth, context(editor), id, 6, "published")
+            .transition(
+                &auth,
+                context(editor),
+                id,
+                6,
+                "published",
+                "Editorial test change"
+            )
             .await,
         Err(Error::Authorization(_))
     ));
@@ -315,7 +339,14 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
         StatusCode::NOT_FOUND
     );
     events
-        .transition(&auth, context(actor), id, 1, "published")
+        .transition(
+            &auth,
+            context(actor),
+            id,
+            1,
+            "published",
+            "Editorial test change",
+        )
         .await
         .unwrap();
     let r = request(web::public_router(db.pool.clone()), "/en/events/event").await;
@@ -355,7 +386,9 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
                 .header("origin", "https://staff.test")
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from("status=archived&lock_version=2"))
+                .body(Body::from(
+                    "status=archived&lock_version=2&reason=Archive+editorial+event",
+                ))
                 .unwrap(),
         )
         .await
@@ -370,7 +403,7 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "_csrf={csrf}&status=archived&lock_version=2"
+                    "_csrf={csrf}&status=archived&lock_version=2&reason=Archive+editorial+event"
                 )))
                 .unwrap(),
         )
@@ -388,7 +421,7 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
         ("Updated", StatusCode::SEE_OTHER),
     ] {
         let body = format!(
-            "_csrf={csrf}&lock_version=3&starts_at=2027-01-01T12%3A00&ends_at=2027-01-02T12%3A00&en_title={title}&en_slug=event&en_summary=Summary&en_body=Body"
+            "_csrf={csrf}&lock_version=3&reason=Edit+editorial+event&starts_at=2027-01-01T12%3A00&ends_at=2027-01-02T12%3A00&en_title={title}&en_slug=event&en_summary=Summary&en_body=Body"
         );
         let r = app
             .clone()
@@ -569,7 +602,14 @@ async fn manage_only_save_cannot_unpublish_event() {
         .await
         .unwrap();
     events
-        .transition(&auth, context(publisher), id, 1, "published")
+        .transition(
+            &auth,
+            context(publisher),
+            id,
+            1,
+            "published",
+            "Editorial test change",
+        )
         .await
         .unwrap();
     let result = events

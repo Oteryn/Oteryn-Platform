@@ -36,11 +36,11 @@ test('editorial event: create, publish and read both translations',async({page},
  const key=slug('browser-event');
  expect((await page.goto('/admin/events/create')).status()).toBe(200);
  await assertShell(page);
- await submit(page,'main form',{starts_at:new Date(Date.now()-3_600_000).toISOString().slice(0,16),ends_at:new Date(Date.now()+86_400_000).toISOString().slice(0,16),en_title:'English browser event',en_slug:key,en_summary:'Public editorial event.',en_body:'## Event details\n\nPublished by the staff browser.',pl_title:'Polskie wydarzenie przeglądarkowe',pl_slug:key,pl_summary:'Publiczne wydarzenie redakcyjne.',pl_body:'## Szczegóły wydarzenia\n\nPublikacja przez przeglądarkę zespołu.'});
+ await submit(page,'main form',{starts_at:new Date(Date.now()-3_600_000).toISOString().slice(0,16),ends_at:new Date(Date.now()+86_400_000).toISOString().slice(0,16),reason:'Create editorial event',en_title:'English browser event',en_slug:key,en_summary:'Public editorial event.',en_body:'## Event details\n\nPublished by the staff browser.',pl_title:'Polskie wydarzenie przeglądarkowe',pl_slug:key,pl_summary:'Publiczne wydarzenie redakcyjne.',pl_body:'## Szczegóły wydarzenia\n\nPublikacja przez przeglądarkę zespołu.'});
  await expect(page).toHaveURL(/\/admin\/events\/[a-f0-9-]+\/edit$/);
  await assertShell(page);
  await page.locator('main form[action$="/status"] select[name=status]').selectOption('published');
- await submit(page,'main form[action$="/status"]');
+ await submit(page,'main form[action$="/status"]',{reason:'Publish editorial event'});
  for(const lang of [info.project.metadata.locale,info.project.metadata.locale==='pl'?'en':'pl']) {
    expect((await page.goto(`/${lang}/events/${key}`)).status()).toBe(200);
    await expect(page.locator('main h1')).toHaveText(lang==='pl'?'Polskie wydarzenie przeglądarkowe':'English browser event');

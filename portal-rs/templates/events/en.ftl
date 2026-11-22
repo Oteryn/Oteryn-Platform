@@ -15,3 +15,5 @@ scheduled = Scheduled
 published = Published
 archived = Archived
 apply = Change status
+
+reason = Reason for change

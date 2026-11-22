@@ -103,7 +103,8 @@ impl<A: AccountStateReader> StaffBazaar<A> {
         let before = snapshot(&mut tx, command.target()).await?;
         moderation::execute_staff(&mut tx, context.account, &command).await?;
         self.check_in(&mut tx, context).await?;
-        let after = snapshot(&mut tx, command.target()).await?;
+        let mut after = snapshot(&mut tx, command.target()).await?;
+        after["reason"] = Value::String(command.reason().to_owned());
         audit::append(
             &mut tx,
             Entry {
@@ -231,9 +232,11 @@ impl Input {
             },
             "approve" => StaffCommand::ApproveInvalidation {
                 id: uuid(&self.id)?,
+                reason: self.reason,
             },
             "review" => StaffCommand::ReviewReport {
                 id: uuid(&self.id)?,
+                reason: self.reason,
                 accepted: match self.accepted.as_str() {
                     "true" => true,
                     "false" => false,
@@ -271,8 +274,9 @@ impl Input {
 #[derive(Template)]
 #[template(
     source = r#"<!doctype html><html lang="{{ locale.0 }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ self.text("staff") }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ self.text("staff") }}</h1><p>{{ self.text("invalidation-help") }}</p><p>{{ self.text("policy-help") }}</p>
-<h2>{{ self.text("pending") }}</h2><ul class="op-stack">{% for r in reports %}<li class="op-panel"><p>{{ r.id }}</p><p>{{ r.listing_id }}</p><p>{{ self.text(&r.category) }}</p><p>{{ r.detail }}</p><form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="review"><input type="hidden" name="id" value="{{ r.id }}"><label for="review-{{ r.id }}">{{ self.text("review") }}</label><select id="review-{{ r.id }}" name="accepted" class="op-input"><option value="true">{{ self.text("accepted") }}</option><option value="false">{{ self.text("dismissed") }}</option></select><button class="op-button" type="submit">{{ self.text("submit") }}</button></form></li>{% endfor %}</ul>
-{% for section in sections %}<section class="op-stack"><h2>{{ self.text(section.key) }}</h2><ul>{% for row in section.rows %}<li>{{ row }}</li>{% endfor %}</ul></section>{% endfor %}
+<h2>{{ self.text("pending") }}</h2><ul class="op-stack">{% for r in reports %}<li class="op-panel"><p>{{ r.id }}</p><p>{{ r.listing_id }}</p><p>{{ self.text(&r.category) }}</p><p>{{ r.detail }}</p><form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="review"><input type="hidden" name="id" value="{{ r.id }}"><label for="review-{{ r.id }}">{{ self.text("review") }}</label><select id="review-{{ r.id }}" name="accepted" class="op-input"><option value="true">{{ self.text("accepted") }}</option><option value="false">{{ self.text("dismissed") }}</option></select><label for="reason-{{ r.id }}">{{ self.text("reason") }}</label><input class="op-input" id="reason-{{ r.id }}" name="reason" minlength="10" maxlength="500" required><button class="op-button" type="submit">{{ self.text("submit") }}</button></form></li>{% endfor %}</ul>
+<section class="op-stack"><h2>{{ self.text("holds") }}</h2><ul>{% for id in holds %}<li>{{ id }}</li>{% endfor %}</ul></section>
+<section class="op-stack"><h2>{{ self.text("invalidations") }}</h2><ul>{% for row in invalidations %}<li data-invalidation="{{ row.id }}" data-request-state="{{ row.request_state }}" data-listing-state="{{ row.listing_state }}">{{ row.id }} · {{ self.text("listing") }} {{ row.listing }} · {{ self.text(&row.request_label()) }} · {{ self.text("listing-state") }} · {{ self.text(&row.listing_label()) }}</li>{% endfor %}</ul></section>
 <section><h2>{{ self.text("fees") }}</h2><ul class="op-stack">{% for fee in fees %}<li class="op-panel"><p>{{ fee.id }}</p><p>{{ self.text("coin-bps") }}: {{ fee.coin_bps }}</p><p>{{ self.text("gold-bps") }}: {{ fee.gold_bps }}</p><p>{{ self.text("listing-fee") }}: {{ fee.listing_fee }}</p><p>{{ self.text("promotion-price") }}: {{ fee.promotion_price }}</p></li>{% endfor %}</ul></section>
 <section><h2>{{ self.text("restrict") }}</h2><p>{{ self.text("catalog-unavailable") }}</p><ul class="op-stack">{% for item in restrictions %}<li class="op-panel"><p>{{ self.text("world") }}: {{ item.world_id }}</p><p>{{ self.text("family") }}: {{ item.family }}</p><p>{{ self.text("production-key") }}: {{ item.production_key }}</p><p>{{ self.text("revision-ref") }}: {{ item.revision_ref }}</p><p>{{ self.text("minimum-value") }}: {{ item.minimum_value }}</p><p>{{ self.text("denied") }}: {% if item.denied %}{{ self.text("yes") }}{% else %}{{ self.text("no") }}{% endif %}</p></li>{% endfor %}</ul></section>
 {% for form in forms %}<section><h2>{{ self.text(form.action) }}</h2><form method="post" class="op-panel op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="{{ form.action }}">{% if form.action != "approve" %}<input type="hidden" name="id" value="{{ form.id }}">{% endif %}{% for field in form.fields %}<label for="{{ form.action }}-{{ field.name }}">{{ self.text(field.label) }}</label><input class="op-input" id="{{ form.action }}-{{ field.name }}" name="{{ field.name }}" type="text" value="{{ field.value }}" maxlength="500" required>{% endfor %}<button type="submit" class="op-button">{{ self.text("submit") }}</button></form></section>{% endfor %}</main></body></html>"#,
@@ -282,7 +286,8 @@ struct Page {
     locale: Locale,
     csrf: String,
     reports: Vec<moderation::PendingReport>,
-    sections: Vec<Section>,
+    holds: Vec<String>,
+    invalidations: Vec<InvalidationRow>,
     forms: Vec<PanelForm>,
     fees: Vec<FeeRow>,
     restrictions: Vec<RestrictionRow>,
@@ -309,9 +314,25 @@ struct RestrictionRow {
     minimum_value: i64,
     denied: bool,
 }
-struct Section {
-    key: &'static str,
-    rows: Vec<String>,
+#[derive(sqlx::FromRow)]
+struct InvalidationRow {
+    id: Uuid,
+    listing: Uuid,
+    request_state: String,
+    listing_state: String,
+}
+impl InvalidationRow {
+    fn listing_label(&self) -> String {
+        format!("listing-state-{}", self.listing_state.replace('_', "-"))
+    }
+
+    fn request_label(&self) -> &str {
+        match self.request_state.as_str() {
+            "pending" => "invalidation-pending",
+            "approved" => "invalidation-approved",
+            _ => "invalidation-unknown",
+        }
+    }
 }
 struct Field {
     name: &'static str,
@@ -359,7 +380,16 @@ async fn index<A: AccountStateReader>(
     .fetch_all(&mut *connection)
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let invalidations=sqlx::query_scalar("SELECT id::text FROM bazaar_invalidation_requests WHERE state='pending' ORDER BY created_at LIMIT 100").fetch_all(&mut *connection).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    let invalidations = sqlx::query_as(
+        "SELECT request.id, listing.id AS listing, request.state AS request_state,
+                listing.state::text AS listing_state
+         FROM bazaar_invalidation_requests request
+         JOIN bazaar_listings listing ON listing.id = request.listing_id
+         ORDER BY request.updated_at DESC, request.id DESC LIMIT 100",
+    )
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let fees=sqlx::query_as("SELECT id,coin_bps,gold_bps,listing_fee,promotion_price FROM bazaar_fee_revisions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&mut *connection).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let restrictions=sqlx::query_as("SELECT world_id,family,production_key,revision_ref,minimum_value,denied FROM bazaar_item_restrictions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&mut *connection).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let forms = vec![
@@ -371,7 +401,10 @@ async fn index<A: AccountStateReader>(
             "request",
             &[("listing", "listing", ""), ("reason", "reason", "")],
         ),
-        form("approve", &[("id", "identifier", "")]),
+        form(
+            "approve",
+            &[("id", "identifier", ""), ("reason", "reason", "")],
+        ),
         form(
             "fees",
             &[
@@ -401,16 +434,8 @@ async fn index<A: AccountStateReader>(
         forms,
         fees,
         restrictions,
-        sections: vec![
-            Section {
-                key: "holds",
-                rows: holds,
-            },
-            Section {
-                key: "invalidations",
-                rows: invalidations,
-            },
-        ],
+        holds,
+        invalidations,
     };
     page.render()
         .map(|s| Html(s).into_response())

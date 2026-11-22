@@ -273,14 +273,32 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
     )
     .await?;
     assert!(matches!(
-        db.staff(first, StaffCommand::ApproveInvalidation { id })
-            .await,
+        db.staff(
+            first,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
     ));
-    db.staff(second, StaffCommand::ApproveInvalidation { id })
-        .await?;
-    db.staff(second, StaffCommand::ApproveInvalidation { id })
-        .await?;
+    db.staff(
+        second,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        second,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_moderation_outbox")
         .fetch_one(&db.pool)
         .await?;
@@ -318,8 +336,14 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     .await?;
     db.staff(first, suspend(listing)).await?;
     assert!(matches!(
-        db.staff(Uuid::now_v7(), StaffCommand::ApproveInvalidation { id })
-            .await,
+        db.staff(
+            Uuid::now_v7(),
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
     ));
     let replacement = Uuid::now_v7();
@@ -334,7 +358,10 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: replacement },
+        StaffCommand::ApproveInvalidation {
+            id: replacement,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     let requests: i64 =
@@ -599,13 +626,36 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
         .report(actor, input)
         .await?;
     assert!(matches!(
-        db.staff(actor, StaffCommand::ReviewReport { id, accepted: true })
-            .await,
+        db.staff(
+            actor,
+            StaffCommand::ReviewReport {
+                id,
+                accepted: true,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
+    ));
+    assert!(matches!(
+        db.staff(
+            Uuid::now_v7(),
+            StaffCommand::ReviewReport {
+                id,
+                accepted: true,
+                reason: " ".into()
+            },
+        )
+        .await,
+        Err(Error::InvalidInput)
     ));
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ReviewReport { id, accepted: true },
+        StaffCommand::ReviewReport {
+            id,
+            accepted: true,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     assert!(matches!(
@@ -613,7 +663,8 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
             Uuid::now_v7(),
             StaffCommand::ReviewReport {
                 id,
-                accepted: false
+                accepted: false,
+                reason: "Documented moderation decision".into()
             }
         )
         .await,
@@ -803,7 +854,10 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: approval },
+        StaffCommand::ApproveInvalidation {
+            id: approval,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
 
@@ -822,7 +876,10 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: stale_request },
+        StaffCommand::ApproveInvalidation {
+            id: stale_request,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     db.staff(requester, suspend(stale)).await?;

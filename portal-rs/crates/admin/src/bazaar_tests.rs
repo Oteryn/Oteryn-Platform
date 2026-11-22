@@ -322,9 +322,15 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
     .await
     .unwrap();
     assert!(
-        api.execute(db.context(), StaffCommand::ApproveInvalidation { id })
-            .await
-            .is_err()
+        api.execute(
+            db.context(),
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await
+        .is_err()
     );
     let second = Uuid::now_v7();
     let context = CheckContext {
@@ -332,19 +338,53 @@ async fn postgres_staff_four_eyes_requires_second_live_permission() {
         ..db.context()
     };
     assert!(
-        api.execute(context, StaffCommand::ApproveInvalidation { id })
-            .await
-            .is_err()
+        api.execute(
+            context,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await
+        .is_err()
     );
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(second).execute(&db.pool).await.unwrap();
-    api.execute(context, StaffCommand::ApproveInvalidation { id })
-        .await
-        .unwrap();
+    assert!(matches!(
+        api.execute(
+            context,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: " ".into()
+            }
+        )
+        .await,
+        Err(Error::Domain(oteryn_bazaar::Error::InvalidInput))
+    ));
+    api.execute(
+        context,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await
+    .unwrap();
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_moderation_outbox")
         .fetch_one(&db.pool)
         .await
         .unwrap();
     assert_eq!(count, 1);
+    let (before, after): (Value, Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE action='bazaar.invalidation.approve' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(before["invalidation"][0]["state"], "pending");
+    assert_eq!(after["invalidation"][0]["state"], "approved");
+    assert_eq!(after["reason"], "Documented moderation decision");
+
     db.end().await;
 }
 
@@ -473,6 +513,7 @@ async fn postgres_a3_bazaar_target_and_gate_waits_share_deadline_and_release_poo
         StaffCommand::ReviewReport {
             id: report,
             accepted: false,
+            reason: "Documented moderation decision".into(),
         },
         StaffCommand::Fees {
             id: Uuid::now_v7(),
