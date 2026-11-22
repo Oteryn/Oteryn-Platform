@@ -106,12 +106,15 @@ export async function register(page,lang) {
 export async function logout(page,lang) {
  await page.goto(`/${lang}/`);
  const formSelector = 'form[action$="/logout"]';
- const form = page.locator(formSelector);
- if (!await form.count()) return;
+ if (!await page.locator(formSelector).count()) return;
+ const visibleForm = `${formSelector}:visible`;
  const menu = page.locator('#portal-menu-toggle');
  if (await menu.isVisible()) await menu.click();
- if (!await form.isVisible()) await page.locator('[data-account-link]').click();
- await submit(page, formSelector);
+ if (!await page.locator(visibleForm).count()) {
+  await page.locator('[data-account-link]:visible').click();
+  await expect(page.locator(visibleForm)).toBeVisible();
+ }
+ await submit(page, visibleForm);
 }
 // Wiki entities and the portal search share the 30/minute WikiSearch policy.
 export async function waitForWikiBudget(target, needed=1) {
