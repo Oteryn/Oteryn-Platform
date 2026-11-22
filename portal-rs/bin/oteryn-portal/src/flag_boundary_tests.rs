@@ -310,6 +310,11 @@ mod flag_boundary {
         run_case("referrals_on_records_session_activity", true)
     }
 
+    #[test]
+    fn game_staff_browser_permissions() -> TestResult {
+        run_case("game_staff_browser_permissions", false)
+    }
+
     fn run_case(test: &str, referrals_enabled: bool) -> TestResult {
         if std::env::var_os(CHILD).is_some() {
             return tokio::runtime::Builder::new_current_thread()
@@ -321,6 +326,9 @@ mod flag_boundary {
                 );
         }
         let route_profiles = tempfile::tempdir()?;
+        if test == "game_staff_browser_permissions" {
+            return launch_case(test, false, route_profiles.path(), "game-staff");
+        }
         if test == "flags_off_keep_routes_jobs_and_tables_inert" {
             launch_case(test, false, route_profiles.path(), "enabled")?;
             launch_case(test, false, route_profiles.path(), "enabled-with-restore")?;
@@ -419,6 +427,10 @@ mod flag_boundary {
             command.env("OTERYN_ACCOUNT_LOGIN", "true");
         }
 
+        if test == "game_staff_browser_permissions" {
+            enable_route_profile(&mut command, tls.path())?;
+            command.env(ROUTE_PROFILE, route_profile);
+        }
         if test == "flags_off_keep_routes_jobs_and_tables_inert" {
             let route_dir = if route_profile.is_empty() {
                 "disabled"
@@ -571,6 +583,9 @@ mod flag_boundary {
         let serve = tokio::task::spawn_local(async { crate::run(crate::Role::Serve).await });
         let result = async {
             wait_for_serve(&serve, std::env::var("OTERYN_BIND")?.parse()?).await?;
+            if profile == "game-staff" {
+                return exercise_game_staff_routes(pool).await;
+            }
             if profile == "enabled" {
                 game_purposes_share_the_internal_mtls_address().await?;
             }
@@ -617,6 +632,11 @@ mod flag_boundary {
     }
 
     async fn exercise_boundary(test: &str, referrals_enabled: bool) -> TestResult {
+        let _database_guard = if test == "game_staff_browser_permissions" {
+            oteryn_db::test_support::global_lock_guard().await?
+        } else {
+            None
+        };
         let started = Instant::now();
         let config = oteryn_core::Config::from_env()?;
         let root = PgPoolOptions::new()
@@ -688,6 +708,150 @@ mod flag_boundary {
         )
         .await?;
         Ok((account, staff))
+    }
+
+    async fn exercise_game_staff_routes(pool: &PgPool) -> TestResult {
+        let (target, staff) = seed_browser_accounts(pool).await?;
+        let address = std::env::var("OTERYN_BIND")?.parse()?;
+        let mut tx = pool.begin().await?;
+        oteryn_admin::audit::append(
+            &mut tx,
+            oteryn_admin::audit::Entry {
+                context: oteryn_admin::audit::AuditContext {
+                    actor: Some(staff),
+                    request_id: Uuid::now_v7(),
+                },
+                action: "fixture.platform-audit",
+                target: "platform-audit-visibility-marker",
+                before: serde_json::Value::Null,
+                after: serde_json::Value::Null,
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        let platform_pages = [
+            "/admin/roles",
+            "/admin/console/access",
+            "/admin/news",
+            "/admin/pages",
+            "/admin/media",
+            "/admin/wiki",
+            "/admin/commerce",
+            "/admin/en/bazaar",
+        ];
+        let player_detail = format!("/admin/players/{target}");
+        for role in [
+            "platform_admin",
+            "game_master_senior",
+            "game_viewer",
+            "game_admin",
+            "game_operator",
+            "game_dba",
+            "game_release",
+            "game_security",
+            "game_support",
+            "game_analyst",
+        ] {
+            assert_eq!(
+                sqlx::query("UPDATE account_roles SET role_id=(SELECT id FROM roles WHERE key=$2) WHERE account_id=$1")
+                    .bind(staff).bind(role).execute(pool).await?.rows_affected(),
+                1
+            );
+            let expected = if role == "platform_admin" {
+                "200"
+            } else {
+                "403"
+            };
+            for path in platform_pages {
+                let response = exchange(address, None, "GET", path).await?;
+                assert_eq!(
+                    response.split_whitespace().nth(1),
+                    Some(expected),
+                    "{role} GET {path}"
+                );
+            }
+            if role.starts_with("game_") {
+                for (method, path, expected) in [
+                    ("GET", "/admin/players", "403"),
+                    ("POST", "/admin/players", "405"),
+                    ("GET", player_detail.as_str(), "403"),
+                    ("POST", player_detail.as_str(), "403"),
+                ] {
+                    let response = exchange(address, None, method, path).await?;
+                    assert_eq!(
+                        response.split_whitespace().nth(1),
+                        Some(expected),
+                        "{role} {method} {path}"
+                    );
+                }
+            }
+            if matches!(role, "game_dba" | "game_release") {
+                let path = "/admin/console/players";
+                let response = exchange(address, None, "GET", path).await?;
+                assert_eq!(
+                    response.split_whitespace().nth(1),
+                    Some("403"),
+                    "{role} GET {path}"
+                );
+            }
+            if matches!(role, "game_master_senior" | "platform_admin") {
+                let platform = role == "platform_admin";
+                for (path, platform_marker) in [
+                    ("/admin/console/audit", "platform-audit-visibility-marker"),
+                    (
+                        "/admin/analytics/economy/data?start=86400&end=172800",
+                        "Platform wallet ledger",
+                    ),
+                ] {
+                    let response = exchange(address, None, "GET", path).await?;
+                    assert_eq!(
+                        response.split_whitespace().nth(1),
+                        Some("200"),
+                        "{role} GET {path}"
+                    );
+                    assert_eq!(
+                        response.contains(platform_marker),
+                        platform,
+                        "{role} GET {path}"
+                    );
+                }
+            }
+            if role == "game_master_senior" {
+                for path in [
+                    "/console/dashboard",
+                    "/admin/console/players",
+                    "/admin/console/audit",
+                    "/admin/analytics",
+                ] {
+                    let response = exchange(address, None, "GET", path).await?;
+                    assert_eq!(
+                        response.split_whitespace().nth(1),
+                        Some("200"),
+                        "{role} GET {path}"
+                    );
+                }
+            }
+            if role == "game_viewer" {
+                let response = exchange(address, None, "GET", "/console/dashboard?lang=en").await?;
+                assert_eq!(response.split_whitespace().nth(1), Some("200"));
+                assert!(!response.contains("Platform metrics"));
+                let id = "019ad000-0000-7000-8000-000000000003".parse::<Uuid>()?;
+                let path = format!("/admin/moderation/enforcement/{id}");
+                let response = exchange(address, None, "POST", &path).await?;
+                assert_eq!(
+                    response.split_whitespace().nth(1),
+                    Some("403"),
+                    "{role} POST {path}"
+                );
+                let created: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sanctions WHERE id=$1)")
+                        .bind(id)
+                        .fetch_one(pool)
+                        .await?;
+                assert!(!created);
+            }
+        }
+        Ok(())
     }
 
     async fn exercise_schema(pool: &PgPool) -> TestResult {
@@ -2350,6 +2514,10 @@ mod flag_boundary {
             "&lock_version=1&action=ticket_status&status=closed"
         } else if path.starts_with("/admin/moderation/reports/") {
             "&lock_version=1&action=moderate&status=reviewing&public_outcome=reviewing&moderator_notes=fixture"
+        } else if path.starts_with("/admin/players/") {
+            "&action=note&body=unexpected+game+staff+note"
+        } else if path.starts_with("/admin/moderation/enforcement/") {
+            "&lock_version=1&action=sanction&create=true&status=active&target=019ad000-0000-7000-8000-000000000001&category=suspension&public_reason=Test&moderator_notes=&effective_at=100&expires_at=200"
         } else if path.ends_with("/account/consents") {
             "&kind=analytics&version=flag-boundary&granted=on"
         } else if path.ends_with("/journal/reports/notes") {
@@ -2404,7 +2572,9 @@ mod flag_boundary {
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .with_root_certificates(roots)
         .with_client_auth_cert(
-            vec![CertificateDer::from_pem_file(path.join(format!("{name}.pem")))?],
+            vec![CertificateDer::from_pem_file(
+                path.join(format!("{name}.pem")),
+            )?],
             PrivateKeyDer::from_pem_file(path.join(format!("{name}.key")))?,
         )?;
         client.alpn_protocols = vec![b"http/1.1".to_vec()];

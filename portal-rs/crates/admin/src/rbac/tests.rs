@@ -808,7 +808,10 @@ fn game_roles_have_exact_contract_permissions() {
         assert_eq!(role.key(), *key);
         let actual: BTreeSet<_> = role.permissions().iter().map(|p| p.as_str()).collect();
         assert_eq!(actual.len(), role.permissions().len());
-        assert_eq!(actual, expected.iter().copied().collect());
+        assert_eq!(
+            actual,
+            expected.iter().copied().chain(["admin.access"]).collect()
+        );
     }
     for role in BuiltInRole::ALL {
         assert!(role.permissions().iter().all(|p| !p.as_str().contains('*')));
@@ -909,6 +912,9 @@ async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant()
             }
         }
         if role.key().starts_with("game_") {
+            auth.check(verified(account), Permission::Access)
+                .await
+                .unwrap();
             assert!(matches!(
                 auth.check(verified(account), Permission::ManageRoles).await,
                 Err(Error::Denied)

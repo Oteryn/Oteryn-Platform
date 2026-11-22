@@ -146,10 +146,13 @@ pub(crate) async fn view<B: Backend>(
 ) -> Result<Page, Error> {
     input.validate()?;
     if input.q.is_none() && input.character.is_none() {
-        state.check(actor, "admin.access").await?;
+        let can_search = state.check(actor, "game.player.read").await.is_ok();
+        if !can_search {
+            state.check(actor, "support.tickets.manage").await?;
+        }
         let lang = language(input.lang.as_deref())?;
         let mut page = Page::new(lang, "players");
-        page.search = state.check(actor, "game.player.read").await.is_ok();
+        page.search = can_search;
         for title in ["characters", "inventory", "sanctions"] {
             page.section(title, None);
         }
