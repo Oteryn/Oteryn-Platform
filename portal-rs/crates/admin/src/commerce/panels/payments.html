@@ -33,12 +33,12 @@
 {% if let Some(reviewed) = p.reviewed_at %}{{ chrome.text("commerce-review-recorded") }} {{ reviewed }} UTC
 {% else %}{{ chrome.text("commerce-review-unrecorded") }}{% endif %}</dd>
 </dl>
-<form method="post" action="/admin/payment-review?lang={{ chrome.lang }}" class="op-stack">
+<form method="post" action="{{ path }}?lang={{ chrome.lang }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="id" value="{{ p.id }}">
 <input type="hidden" name="request_id" value="{{ request_id }}">
 <input type="hidden" name="version" value="{{ p.review_version }}">
-<label class="op-field">{{ chrome.text("staff-action-reason") }} <input class="op-input" name="reason" required minlength="8" maxlength="500"></label>
+<label class="op-field">{{ chrome.text("staff-action-reason") }} <select class="op-input" name="reason" required><option value=""></option><option value="evidence_reviewed">{{ chrome.text("commerce-confirm-review") }}</option></select></label>
 <button class="op-button">{{ chrome.text("commerce-record-review") }}</button>
 </form>
 {% endif %}

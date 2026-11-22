@@ -181,14 +181,13 @@ fn session_cookie(headers: &HeaderMap) -> Option<&str> {
     found
 }
 
-async fn handler(State(state): State<ExportState>, headers: HeaderMap) -> Response {
-    let response = match stream_download(
-        &state.pool,
-        &state.config,
-        session_cookie(&headers).unwrap_or_default(),
-    )
-    .await
-    {
+async fn handler(
+    State(state): State<ExportState>,
+    uri: axum::http::Uri,
+    headers: HeaderMap,
+) -> Response {
+    let session = session_cookie(&headers).unwrap_or_default();
+    let response = match stream_download(&state.pool, &state.config, session).await {
         Ok(value) => (
             [(
                 header::CONTENT_DISPOSITION,
@@ -198,6 +197,30 @@ async fn handler(State(state): State<ExportState>, headers: HeaderMap) -> Respon
             value,
         )
             .into_response(),
+        Err(StatusCode::FORBIDDEN) => {
+            let needs_sudo: Result<bool, _> = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
+                 WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
+                   AND a.status='active' AND a.email_verified_at IS NOT NULL
+                   AND (s.sudo_until IS NULL OR s.sudo_until<=now()))",
+            )
+            .bind(Sha256::digest(session.as_bytes()).to_vec())
+            .fetch_one(&state.pool)
+            .await;
+            match needs_sudo {
+                Ok(true) => {
+                    let lang = if uri.path().starts_with("/en/") {
+                        "en"
+                    } else {
+                        "pl"
+                    };
+                    axum::response::Redirect::to(&format!("/{lang}/account/sudo?return_to=export"))
+                        .into_response()
+                }
+                Ok(false) => StatusCode::FORBIDDEN.into_response(),
+                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            }
+        }
         Err(status) => status.into_response(),
     };
     let mut response = response;
@@ -219,14 +242,20 @@ pub fn router(pool: PgPool, config: ExportConfig) -> Router {
         .with_state(ExportState { pool, config })
 }
 
-pub fn configured_router(pool: PgPool) -> Router {
-    router(
+pub fn configured_router(pool: PgPool, password_confirmation: bool) -> Router {
+    configured_browser_router(
         pool,
-        ExportConfig {
-            enabled: std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED")
-                .is_ok_and(|value| value == "true"),
-        },
+        std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED").as_deref() == Ok("true"),
+        password_confirmation,
     )
+}
+
+fn configured_browser_router(pool: PgPool, enabled: bool, password_confirmation: bool) -> Router {
+    if enabled && password_confirmation {
+        router(pool, ExportConfig { enabled: true })
+    } else {
+        Router::new()
+    }
 }
 
 #[cfg(test)]

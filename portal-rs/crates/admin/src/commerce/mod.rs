@@ -397,8 +397,10 @@ impl<A: rbac::AccountStateReader, E: Effects> Commerce<A, E> {
         {
             return Err(Error::Denied);
         }
-        if row.try_get::<Option<Value>, _>("result")?.is_some() {
-            if row.try_get::<Option<Uuid>, _>("approved_by")? != Some(context.account) {
+        if let Some(result) = row.try_get::<Option<Value>, _>("result")? {
+            if result.get("status").and_then(Value::as_str) == Some("cancelled")
+                || row.try_get::<Option<Uuid>, _>("approved_by")? != Some(context.account)
+            {
                 return Err(Error::Conflict);
             }
             return Ok(None);

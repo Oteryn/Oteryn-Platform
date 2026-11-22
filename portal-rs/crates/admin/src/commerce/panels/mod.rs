@@ -54,7 +54,7 @@ fn render(template: &impl askama::Template) -> Response {
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Language {
+pub(in crate::commerce) struct Language {
     lang: Option<String>,
 }
 

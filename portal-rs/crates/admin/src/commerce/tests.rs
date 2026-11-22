@@ -2337,7 +2337,7 @@ async fn commerce_review_owner_cannot_cancel_refund() {
                 .header("origin", "https://staff.test")
                 .header("cookie", cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!("_csrf={csrf}")))
+                .body(Body::from(format!("_csrf={csrf}&reason=refund_withdrawn")))
                 .unwrap(),
         )
         .await
@@ -2545,18 +2545,49 @@ async fn reconcile_loads_charged_back_intent() {
     let payment = Uuid::now_v7();
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$3,100,'PLN','chargeback')").bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
     let op = Uuid::now_v7();
-    let response = app
+    let detail = app
+        .clone()
         .oneshot(
-            HttpRequest::post("/admin/commerce/reconcile")
+            HttpRequest::get(format!("/admin/commerce/reconcile?id={payment}"))
                 .header("host", "staff.test")
-                .header("origin", "https://staff.test")
-                .header("cookie", cookie)
-                .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(format!(
-                    "_csrf={token}&request_id={op}&target={payment}&reason=Reviewed+support+request"
-                )))
+                .header("cookie", &cookie)
+                .body(Body::empty())
                 .unwrap(),
         )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let detail =
+        String::from_utf8(to_bytes(detail.into_body(), 200000).await.unwrap().to_vec()).unwrap();
+    let version = detail
+        .split_once("name=\"version\" value=\"")
+        .unwrap()
+        .1
+        .split('"')
+        .next()
+        .unwrap();
+    let post = |fields: String| {
+        HttpRequest::post("/admin/commerce/reconcile")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", &cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "_csrf={token}&request_id={op}&reason=evidence_reviewed&{fields}"
+            )))
+            .unwrap()
+    };
+    assert_eq!(
+        app.clone()
+            .oneshot(post(format!("target={payment}")))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "legacy target-only reconciliation cannot record a review"
+    );
+    let response = app
+        .oneshot(post(format!("id={payment}&version={version}")))
         .await
         .unwrap();
     assert_eq!(
@@ -2708,7 +2739,12 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
                 .header("cookie", &cookie)
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "{form}&reason=Review+test+catalog+price&_csrf={token}"
+                    "{form}&reason={}&_csrf={token}",
+                    if path == "/admin/store-catalog" {
+                        "price_correction"
+                    } else {
+                        "game_catalog_verified"
+                    }
                 )))
                 .unwrap()
         };
@@ -2738,7 +2774,7 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
             .header("cookie", &cookie)
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(format!(
-                "{form}&reason=Review+test+catalog+price&_csrf={csrf}"
+                "{form}&reason=game_catalog_verified&_csrf={csrf}"
             )))
             .unwrap()
     };
@@ -2858,17 +2894,9 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
     };
     for (reason, token, expected) in [
         ("", csrf.as_str(), StatusCode::UNPROCESSABLE_ENTITY),
-        ("Reviewed+payment+evidence", "bad", StatusCode::FORBIDDEN),
-        (
-            "Reviewed+payment+evidence",
-            csrf.as_str(),
-            StatusCode::SEE_OTHER,
-        ),
-        (
-            "Reviewed+payment+evidence",
-            csrf.as_str(),
-            StatusCode::SEE_OTHER,
-        ),
+        ("evidence_reviewed", "bad", StatusCode::FORBIDDEN),
+        ("evidence_reviewed", csrf.as_str(), StatusCode::SEE_OTHER),
+        ("evidence_reviewed", csrf.as_str(), StatusCode::SEE_OTHER),
     ] {
         assert_eq!(
             staff
@@ -2889,7 +2917,7 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
     assert_eq!(
         staff
             .clone()
-            .oneshot(submit_review("Reviewed+payment+evidence", &csrf))
+            .oneshot(submit_review("evidence_reviewed", &csrf))
             .await
             .unwrap()
             .status(),
@@ -2909,7 +2937,7 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
     .fetch_all(&h.pool)
     .await
     .unwrap();
-    assert_eq!(reasons, vec!["Reviewed payment evidence"]);
+    assert_eq!(reasons, vec!["evidence_reviewed"]);
 
     for (route, status) in [
         (

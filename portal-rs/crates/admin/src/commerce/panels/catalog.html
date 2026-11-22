@@ -15,7 +15,7 @@
 <input type="hidden" name="current" value="{{ current }}">
 <input type="hidden" name="generation" value="{{ generation }}">
 <input type="hidden" name="revision" value="{{ item.revision }}">
-<label class="op-field">{{ chrome.text("staff-action-reason") }} <input class="op-input" name="reason" required minlength="8" maxlength="500"></label>
+<label class="op-field">{{ chrome.text("staff-action-reason") }} <select class="op-input" name="reason" required><option value=""></option><option value="game_catalog_verified">{{ chrome.text("commerce-confirm-catalog") }}</option></select></label>
 <button class="op-button">{{ chrome.text("commerce-activate") }}</button>
 </form></article>
 {% else %}<p>{{ chrome.text("commerce-no-revisions") }}</p>{% endfor %}
@@ -35,7 +35,7 @@
 <input type="hidden" name="current" value="{{ current }}">
 <input type="hidden" name="offer" value="{{ offer.offer_key }}">
 <label class="op-field">{{ chrome.text("commerce-new-price") }} <input class="op-input" type="number" name="price" min="1" required></label>
-<label class="op-field">{{ chrome.text("staff-action-reason") }} <input class="op-input" name="reason" required minlength="8" maxlength="500"></label>
+<label class="op-field">{{ chrome.text("staff-action-reason") }} <select class="op-input" name="reason" required><option value=""></option><option value="price_correction">{{ chrome.text("commerce-confirm-price") }}</option></select></label>
 <button class="op-button">{{ chrome.text("commerce-stage") }}</button>
 </form></article>
 {% else %}<p>{{ chrome.text("commerce-no-offers") }}</p>{% endfor %}

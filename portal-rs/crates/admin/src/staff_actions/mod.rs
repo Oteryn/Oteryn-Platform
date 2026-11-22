@@ -4,20 +4,48 @@ use crate::{
     rbac::{self, CheckContext, MutationAuthorization, MutationCheck, Permission},
 };
 use axum::{http::StatusCode, response::Response};
+use oteryn_payments::{Amount, IntentState};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
-use serde::Serialize;
+use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool};
-use std::{collections::BTreeMap, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 use uuid::Uuid;
 
-pub const MIN_REASON_CHARS: usize = 8;
-pub const MAX_REASON_CHARS: usize = 500;
+#[derive(Debug, Clone, Copy)]
+pub enum StepUp {
+    SessionMfa,
+    RecentPassword,
+}
+
+async fn check_step_up(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+    requirement: StepUp,
+) -> Result<(), Error> {
+    if matches!(requirement, StepUp::RecentPassword) {
+        let proof = actor.session_proof.ok_or(Error::StepUp)?;
+        // RBAC has already locked and verified the durable session and MFA grant.
+        let fresh: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM web_sessions
+             WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
+        )
+        .bind(actor.account)
+        .bind(proof.session_hash.as_slice())
+        .fetch_one(connection)
+        .await?;
+        if !fresh {
+            return Err(Error::StepUp);
+        }
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub enum Error {
     Forbidden,
     Reason,
+    StepUp,
     Invalid,
     Conflict,
     Unavailable,
@@ -26,7 +54,7 @@ pub enum Error {
 impl Error {
     pub fn response(self, chrome: &Chrome) -> Response {
         let status = match self {
-            Self::Forbidden => StatusCode::FORBIDDEN,
+            Self::Forbidden | Self::StepUp => StatusCode::FORBIDDEN,
             Self::Reason | Self::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
             Self::Conflict => StatusCode::CONFLICT,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
@@ -36,6 +64,12 @@ impl Error {
                 chrome,
                 status,
                 &chrome.text("staff-action-reason-invalid"),
+            )
+        } else if matches!(self, Self::StepUp) {
+            oteryn_ui::error_with_message(
+                chrome,
+                status,
+                &chrome.text("staff-action-step-up-required"),
             )
         } else {
             oteryn_ui::error(chrome, status)
@@ -66,37 +100,169 @@ impl From<sqlx::Error> for Error {
     }
 }
 
-/// Audit projections accept only explicitly selected, non-secret domain values.
-/// Use opaque domain IDs and stable enums represented by trusted static labels.
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum AuditValue {
-    Id(Uuid),
-    Flag(bool),
-    Count(i64),
-    Label(&'static str),
+/// Closed audit projections. Each variant chooses its event name, fields and
+/// value types. Form data and arbitrary runtime values never reach this API.
+#[derive(Debug)]
+pub enum AuditChange {
+    RoleGrant {
+        account: Uuid,
+        role: Uuid,
+    },
+    RoleCreated {
+        role: Uuid,
+        permissions: Vec<Permission>,
+    },
+    RolePermissions {
+        role: Uuid,
+        before: Vec<Permission>,
+        after: Vec<Permission>,
+    },
+    CatalogPriceProposal {
+        target: Uuid,
+        base: String,
+        proposal: String,
+        before: i64,
+        after: i64,
+    },
+    CatalogActivation {
+        id: Uuid,
+        before: Option<String>,
+        after: String,
+    },
+    PaymentReview {
+        id: Uuid,
+        intent: Uuid,
+        state: IntentState,
+    },
+    RefundApproval {
+        id: Uuid,
+        intent: Uuid,
+        proposer: Uuid,
+        amount: Amount,
+        queued: bool,
+    },
+    RefundCancellation {
+        id: Uuid,
+        intent: Uuid,
+        proposer: Uuid,
+    },
+    #[cfg(test)]
+    TestLocale {
+        account: Uuid,
+    },
 }
 
-pub type Snapshot = BTreeMap<&'static str, AuditValue>;
+impl AuditChange {
+    fn request_id(&self) -> Uuid {
+        match self {
+            Self::PaymentReview { id, .. }
+            | Self::RefundApproval { id, .. }
+            | Self::RefundCancellation { id, .. } => *id,
+            _ => Uuid::now_v7(),
+        }
+    }
 
-#[derive(Debug)]
-pub struct AuditChange {
-    pub target: Uuid,
-    pub before: Snapshot,
-    pub after: Snapshot,
+    fn project(self) -> (&'static str, Uuid, Value, Value) {
+        let permissions = |permissions: Vec<Permission>| {
+            let mut names: Vec<_> = permissions.into_iter().map(Permission::as_str).collect();
+            names.sort_unstable();
+            json!({"permissions": names})
+        };
+        match self {
+            Self::RoleGrant { account, role } => (
+                "rbac.role.granted",
+                account,
+                json!({"role": role, "assigned": false}),
+                json!({"role": role, "assigned": true}),
+            ),
+            Self::RoleCreated {
+                role,
+                permissions: assigned,
+            } => (
+                "rbac.role.created",
+                role,
+                Value::Null,
+                permissions(assigned),
+            ),
+            Self::RolePermissions {
+                role,
+                before,
+                after,
+            } => (
+                "rbac.role.permissions_changed",
+                role,
+                permissions(before),
+                permissions(after),
+            ),
+            Self::CatalogPriceProposal {
+                target,
+                base,
+                proposal,
+                before,
+                after,
+            } => (
+                "store.catalog.price.staged",
+                target,
+                json!({"revision": base, "unit_price": before}),
+                json!({"revision": proposal, "unit_price": after}),
+            ),
+            Self::CatalogActivation { id, before, after } => (
+                "store.catalog.activated",
+                id,
+                json!({"revision": before}),
+                json!({"revision": after}),
+            ),
+            Self::PaymentReview { id, intent, state } => (
+                "commerce.payment.reviewed",
+                intent,
+                json!({"payment_state": state}),
+                json!({"payment_state": state, "review": id}),
+            ),
+            Self::RefundApproval {
+                id,
+                intent,
+                proposer,
+                amount,
+                queued,
+            } => (
+                "commerce.approved",
+                intent,
+                json!({"pending": true}),
+                json!({"pending": false, "operation": id, "requested_by": proposer, "command": "refund",
+                       "result": {"intent": intent, "amount": amount.minor_units, "currency": amount.currency, "queued": queued}}),
+            ),
+            Self::RefundCancellation {
+                id,
+                intent,
+                proposer,
+            } => (
+                "commerce.cancelled",
+                intent,
+                json!({"pending": true}),
+                json!({"pending": false, "operation": id, "requested_by": proposer, "command": "refund", "status": "cancelled"}),
+            ),
+            #[cfg(test)]
+            Self::TestLocale { account } => (
+                "staff.action.test",
+                account,
+                json!({"locale": "pl"}),
+                json!({"locale": "en"}),
+            ),
+        }
+    }
 }
 
 pub struct Action<'a> {
     pub permission: Permission,
-    pub action: &'static str,
     pub reason: &'a str,
+    pub reason_codes: &'static [&'static str],
+    pub step_up: StepUp,
 }
 
 impl std::fmt::Debug for Action<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Action")
             .field("permission", &self.permission)
-            .field("action", &self.action)
             .finish_non_exhaustive()
     }
 }
@@ -123,19 +289,24 @@ pub async fn run<T, F>(
 where
     F: for<'a> FnOnce(&'a mut PgConnection, T) -> Mutation<'a>,
 {
-    if guard.csrf.is_none()
+    let same_session = guard
+        .csrf
+        .zip(guard.actor.session_proof)
+        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
+    if !same_session
         || !guard.actor.require_staff_mfa
         || !guard.actor.mfa_verified
         || action.permission == Permission::Access
     {
         return Err(Error::Forbidden);
     }
-    let reason = action.reason.trim();
-    if !(MIN_REASON_CHARS..=MAX_REASON_CHARS).contains(&reason.chars().count())
-        || reason.contains('\0')
-    {
-        return Err(Error::Reason);
-    }
+    let reason = action
+        .reason_codes
+        .iter()
+        .copied()
+        // Match the audit table's char_length constraint before opening a transaction.
+        .find(|code| *code == action.reason && (8..=500).contains(&code.chars().count()))
+        .ok_or(Error::Reason)?;
     let (accounts, input) = validate()?;
     let mut tx = pool.begin().await?;
     rbac::mutation_budget(&mut tx).await?;
@@ -148,20 +319,23 @@ where
         &permissions,
     )
     .await?;
+    check_step_up(&mut tx, guard.actor, action.step_up).await?;
     let change = mutate(&mut tx, input).await?;
     let changed = change.is_some();
     if let Some(change) = change {
+        let request_id = change.request_id();
+        let (event, target, before, after) = change.project();
         audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
                     actor: Some(guard.actor.account),
-                    request_id: Uuid::now_v7(),
+                    request_id,
                 },
-                action: action.action,
-                target: &change.target.to_string(),
-                before: serde_json::to_value(change.before).map_err(|_| Error::Unavailable)?,
-                after: serde_json::to_value(change.after).map_err(|_| Error::Unavailable)?,
+                action: event,
+                target: &target.to_string(),
+                before,
+                after,
             },
             Some(reason),
         )
@@ -173,6 +347,7 @@ where
             .check(&mut tx, guard.actor, permission)
             .await?;
     }
+    check_step_up(&mut tx, guard.actor, action.step_up).await?;
     if changed {
         tx.commit().await?;
     } else {

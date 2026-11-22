@@ -90,7 +90,8 @@ impl Language {
     }
 }
 
-pub(crate) fn negotiate(headers: &HeaderMap) -> Language {
+/// Resolve the portal language from the preference cookie and browser headers.
+pub fn negotiate(headers: &HeaderMap) -> Language {
     for cookie in headers.get_all(header::COOKIE) {
         if let Ok(cookie) = cookie.to_str() {
             for part in cookie.split(';') {

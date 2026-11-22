@@ -1,7 +1,7 @@
 use super::{Language, localized, render};
 use crate::{
     rbac::{CheckContext, MutationAuthorization, Permission},
-    staff_actions::{self, Action, AuditChange, AuditValue, Error, Guard, Snapshot},
+    staff_actions::{self, Action, AuditChange, Error, Guard, StepUp},
 };
 use askama::Template;
 use axum::{
@@ -255,8 +255,9 @@ async fn stage(
         },
         Action {
             permission: Permission::ImportStoreCatalog,
-            action: "store.catalog.price.staged",
             reason: &reason,
+            reason_codes: &["price_correction"],
+            step_up: StepUp::SessionMfa,
         },
         || {
             if !revision_valid(&current) || !(1..=128).contains(&offer.len()) || price <= 0 {
@@ -294,10 +295,12 @@ async fn stage(
                 if inserted.rows_affected() == 0 {
                     return Ok(None);
                 }
-                Ok(Some(AuditChange {
+                Ok(Some(AuditChange::CatalogPriceProposal {
                     target: revision_id(proposed.revision())?,
-                    before: price_snapshot(&current, old_price)?,
-                    after: price_snapshot(proposed.revision(), price)?,
+                    base: current,
+                    proposal: proposed.revision().to_owned(),
+                    before: old_price,
+                    after: price,
                 }))
             })
         },
@@ -327,7 +330,7 @@ async fn activate(
     };
     let result = staff_actions::run(
         &pool, Guard { actor, authority: &authority, csrf: csrf.map(|v| v.0) },
-        Action { permission: Permission::ActivateStoreCatalog, action: "store.catalog.activated", reason: &reason },
+        Action { permission: Permission::ActivateStoreCatalog, reason: &reason, reason_codes: &["game_catalog_verified"], step_up: StepUp::SessionMfa },
         || {
             if generation < 0 || !revision_valid(&revision) || (!current.is_empty() && !revision_valid(&current)) {
                 return Err(Error::Invalid);
@@ -354,8 +357,7 @@ async fn activate(
                 .bind(&prior).bind(&revision).bind(actor.account).bind(activation).execute(&mut *conn).await?;
             sqlx::query("UPDATE store_active_catalog SET catalog_revision=$1,activated_by=$2,updated_at=now() WHERE id=1")
                 .bind(&revision).bind(actor.account).execute(&mut *conn).await?;
-            let before = prior.as_deref().map(revision_snapshot).transpose()?.unwrap_or_default();
-            Ok(Some(AuditChange { target: activation, before, after: revision_snapshot(&revision)? }))
+            Ok(Some(AuditChange::CatalogActivation { id: activation, before: prior, after: revision }))
         }),
     ).await;
     finish(result, &chrome, "/admin/store-activation")
@@ -375,28 +377,6 @@ async fn lock_current(conn: &mut PgConnection, expected: &str) -> Result<Option<
 
 fn revision_id(revision: &str) -> Result<Uuid, Error> {
     Uuid::parse_str(revision.get(..32).ok_or(Error::Unavailable)?).map_err(|_| Error::Unavailable)
-}
-
-fn revision_snapshot(revision: &str) -> Result<Snapshot, Error> {
-    Ok(Snapshot::from([
-        (
-            "revision_first_128_bits",
-            AuditValue::Id(revision_id(revision)?),
-        ),
-        (
-            "revision_last_128_bits",
-            AuditValue::Id(
-                Uuid::parse_str(revision.get(32..).ok_or(Error::Unavailable)?)
-                    .map_err(|_| Error::Unavailable)?,
-            ),
-        ),
-    ]))
-}
-
-fn price_snapshot(revision: &str, price: i64) -> Result<Snapshot, Error> {
-    let mut snapshot = revision_snapshot(revision)?;
-    snapshot.insert("unit_price", AuditValue::Count(price));
-    Ok(snapshot)
 }
 
 fn finish(result: Result<(), Error>, chrome: &Chrome, route: &str) -> Response {

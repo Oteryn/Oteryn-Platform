@@ -1,19 +1,20 @@
 use super::{Language, enabled, localized, payment_actions_enabled, render};
 use crate::{
     rbac::{CheckContext, MutationAuthorization, Permission},
-    staff_actions::{self, Action, AuditChange, AuditValue, Error, Guard},
+    staff_actions::{self, Action, AuditChange, Error, Guard, StepUp},
 };
 use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{
-        Query, State,
+        OriginalUri, Query, State,
         rejection::{FormRejection, QueryRejection},
     },
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
+use oteryn_payments::IntentState;
 use oteryn_ui::Chrome;
 use oteryn_web::{csrf::Verified, session::BrowserSession};
 use serde::Deserialize;
@@ -29,7 +30,7 @@ pub fn routes(pool: PgPool) -> Router {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Filter {
+pub(in crate::commerce) struct Filter {
     lang: Option<String>,
     #[serde(default, deserialize_with = "optional_uuid")]
     id: Option<Uuid>,
@@ -137,25 +138,27 @@ impl Payment {
     }
 }
 
-// The native order revision also covers changes that leave the payment state
-// intact. Use the same projection when rendering and recording the review.
-macro_rules! review_version {
-    () => {
-        "concat(p.state,':',to_char(p.updated_at AT TIME ZONE 'UTC','YYYYMMDDHH24MISSUS'),':',COALESCE(o.revision,0))"
-    };
+const PANEL: &str = "/admin/payment-review";
+const LEGACY: &str = "/admin/commerce/reconcile";
+const REVIEWED: &str = "evidence_reviewed";
+
+fn review_path(uri: &OriginalUri) -> &'static str {
+    if uri.0.path() == LEGACY {
+        LEGACY
+    } else {
+        PANEL
+    }
 }
 
-const PAYMENTS: &str = concat!("
+// The list, detail and locked write all use the same evidence projection. The
+// digest covers the displayed facts and the generations of mutable records.
+const PAYMENTS: &str = "
     SELECT p.id,p.account_id,p.provider,p.currency,p.amount,p.state,o.exponent,
-        (p.state='refunded' OR (p.state='chargeback' AND EXISTS(
-            SELECT 1 FROM payment_events WHERE intent_id=p.id AND state='refunded'
-        ))) AS refund_settled,
-        COALESCE(refund.result->>'refund_outcome'='refused',false) AS refund_refused,
+        evidence.refund_settled,evidence.refund_refused,
         to_char(p.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS updated_at,
         version.observed AS review_version,
         f.state AS refund_state, job.state AS refund_delivery,job.attempts AS refund_attempts,
-        EXISTS(SELECT 1 FROM commerce_operations where target_id=p.id AND command->>'kind'='refund' AND result IS NULL) AS refund_requested,
-        EXISTS(SELECT 1 FROM wallet_operations WHERE id=p.id AND kind='top_up') AS credited,
+        evidence.refund_requested,evidence.credited,
         r.kind AS reversal_kind, r.outcome AS reversal_outcome, h.account_id IS NOT NULL AS purchase_hold,
         COALESCE(d.owed,0) AS outstanding_debt,
         needs_review.pending AS requires_review,
@@ -165,33 +168,83 @@ const PAYMENTS: &str = concat!("
     LEFT JOIN commerce_operations refund ON refund.id=f.operation_id
     LEFT JOIN outbox job ON job.kind='commerce.refund' AND job.idempotency_key=p.id::text AND job.payload->>'operation'=f.operation_id::text
     LEFT JOIN coin_purchase_orders o ON o.payment_intent_id=p.id
-    CROSS JOIN LATERAL (SELECT ", review_version!(), " AS observed) version
     LEFT JOIN coin_purchase_reversals r ON r.order_id=o.id
-    LEFT JOIN coin_purchase_holds h ON h.order_id=r.order_id AND h.account_id=p.account_id
+    LEFT JOIN coin_purchase_holds h ON h.account_id=p.account_id
     LEFT JOIN coin_outstanding_debts d ON d.reversal_id=r.id
+    LEFT JOIN LATERAL (
+        SELECT id FROM coin_purchase_hold_releases WHERE account_id=p.account_id
+        ORDER BY released_at DESC, id DESC LIMIT 1
+    ) release ON true
+    LEFT JOIN LATERAL (
+        SELECT id,updated_at,bool_or(result IS NULL) OVER () AS pending
+        FROM commerce_operations WHERE target_id=p.id AND command->>'kind'='refund'
+        ORDER BY updated_at DESC,id DESC LIMIT 1
+    ) refund_request ON true
+    CROSS JOIN LATERAL (
+        SELECT
+            (p.state='refunded' OR (p.state='chargeback' AND EXISTS(
+                SELECT 1 FROM payment_events WHERE intent_id=p.id AND state='refunded'
+            ))) AS refund_settled,
+            COALESCE(refund.result->>'refund_outcome'='refused',false) AS refund_refused,
+            COALESCE(refund_request.pending,false) AS refund_requested,
+            EXISTS(SELECT 1 FROM wallet_operations WHERE id=p.id AND kind='top_up') AS credited
+    ) evidence
+    CROSS JOIN LATERAL (
+        SELECT encode(sha256(convert_to(jsonb_build_array(
+            p.id,p.account_id,p.provider,p.currency,p.amount,p.state,
+            extract(epoch FROM p.updated_at),o.id,o.revision,o.exponent,o.review_required,
+            r.id,r.kind,r.outcome,d.owed,h.hold_id,h.order_id,release.id,
+            evidence.refund_settled,evidence.refund_refused,evidence.refund_requested,evidence.credited,
+            refund_request.id,extract(epoch FROM refund_request.updated_at),
+            f.operation_id,f.state,extract(epoch FROM f.updated_at),
+            job.id,job.state,job.attempts,extract(epoch FROM job.updated_at)
+        )::text,'UTF8')),'hex') AS observed
+    ) version
     LEFT JOIN LATERAL (
         SELECT updated_at,result->>'review_version' AS observed FROM commerce_operations
         WHERE target_id=p.id AND command->>'kind'='reconcile' AND result->>'resolution_code'='reviewed_no_payment_state_change'
-        ORDER BY updated_at DESC LIMIT 1
+        ORDER BY updated_at DESC,id DESC LIMIT 1
     ) review ON true
     CROSS JOIN LATERAL (
-        SELECT COALESCE(o.review_required,false) AND
-            CASE WHEN review.observed IS NOT NULL THEN version.observed <> review.observed
-                 ELSE review.updated_at IS NULL OR GREATEST(o.updated_at,p.updated_at) > review.updated_at
-            END AS pending
+        SELECT (COALESCE(o.review_required,false) OR job.state IS NOT DISTINCT FROM 'dead')
+            AND review.observed IS DISTINCT FROM version.observed AS pending
     ) needs_review
     WHERE ($1::uuid IS NULL OR p.id=$1) AND ($2::uuid IS NULL OR p.account_id=$2)
-      AND (NOT $3 OR needs_review.pending OR job.state='dead')
+      AND (NOT $3 OR needs_review.pending)
       AND ($4::uuid IS NULL OR (p.created_at,p.id)<(SELECT created_at,id FROM payment_intents WHERE id=$4))
-    ORDER BY p.created_at DESC,p.id DESC LIMIT 26");
+    ORDER BY p.created_at DESC,p.id DESC LIMIT 26";
 
-const REVIEW_VERSION_QUERY: &str = concat!(
-    "SELECT p.state,",
-    review_version!(),
-    "
-     FROM payment_intents p LEFT JOIN coin_purchase_orders o ON o.payment_intent_id=p.id
-     WHERE p.id=$1"
-);
+async fn lock_evidence(conn: &mut sqlx::PgConnection, id: Uuid, payer: Uuid) -> Result<(), Error> {
+    // The caller already holds the payer account lock shared with signed
+    // settlement and hold release. Follow refund dispatch's refund-before-intent
+    // order and the native ledger's intent-before-wallet order.
+    for (statement, key) in [
+        (
+            "SELECT operation_id FROM commerce_refunds WHERE intent_id=$1 FOR UPDATE",
+            id,
+        ),
+        ("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE", id),
+        (
+            "SELECT id FROM coin_purchase_orders WHERE payment_intent_id=$1 FOR UPDATE",
+            id,
+        ),
+        (
+            "SELECT account_id FROM wallet_accounts WHERE account_id=$1 FOR UPDATE",
+            payer,
+        ),
+    ] {
+        crate::rbac::mutation_budget(conn).await?;
+        sqlx::query(statement).bind(key).execute(&mut *conn).await?;
+    }
+    crate::rbac::mutation_budget(conn).await?;
+    sqlx::query(
+        "SELECT id FROM outbox WHERE kind='commerce.refund' AND idempotency_key=$1 FOR UPDATE",
+    )
+    .bind(id.to_string())
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
 
 #[derive(Template)]
 #[template(
@@ -201,6 +254,7 @@ const REVIEW_VERSION_QUERY: &str = concat!(
 struct Page {
     chrome: Chrome,
     rows: Vec<Payment>,
+    path: &'static str,
     detail: bool,
     account: String,
     queue: bool,
@@ -210,12 +264,15 @@ struct Page {
     refunds: bool,
 }
 
-async fn review(
+pub(in crate::commerce) async fn review(
     State(pool): State<PgPool>,
-    Extension(chrome): Extension<Chrome>,
+    uri: OriginalUri,
+    chrome: Option<Extension<Chrome>>,
+    headers: HeaderMap,
     Extension(session): Extension<BrowserSession>,
     filter: Result<Query<Filter>, QueryRejection>,
 ) -> Response {
+    let chrome = review_chrome(chrome, &headers);
     let Ok(Query(filter)) = filter else {
         return oteryn_ui::error(&chrome, StatusCode::UNPROCESSABLE_ENTITY);
     };
@@ -253,6 +310,7 @@ async fn review(
     render(&Page {
         chrome,
         rows,
+        path: review_path(&uri),
         detail,
         account: filter.account.map(|id| id.to_string()).unwrap_or_default(),
         queue,
@@ -264,23 +322,26 @@ async fn review(
 }
 
 #[derive(Deserialize)]
-struct ReviewForm {
+pub(in crate::commerce) struct ReviewForm {
     id: Uuid,
     request_id: Uuid,
     version: String,
     reason: String,
 }
 
-async fn record_review(
+pub(in crate::commerce) async fn record_review(
     State(pool): State<PgPool>,
-    Extension(chrome): Extension<Chrome>,
+    uri: OriginalUri,
+    chrome: Option<Extension<Chrome>>,
+    headers: HeaderMap,
     Extension(actor): Extension<CheckContext>,
     Extension(authority): Extension<MutationAuthorization>,
     csrf: Option<Extension<Verified>>,
     Query(query): Query<Language>,
     form: Result<Form<ReviewForm>, FormRejection>,
 ) -> Response {
-    let chrome = localized(chrome, query.lang.as_deref());
+    let chrome = localized(review_chrome(chrome, &headers), query.lang.as_deref());
+    let path = review_path(&uri);
     let Ok(Form(ReviewForm {
         id,
         request_id,
@@ -290,39 +351,46 @@ async fn record_review(
     else {
         return Error::Invalid.response(&chrome);
     };
-    let hash = format!("{:x}", Sha256::digest(reason.trim().as_bytes()));
+    if !super::super::valid_id(id)
+        || !super::super::valid_id(request_id)
+        || version.len() != 64
+        || !version
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+    {
+        return Error::Invalid.response(&chrome);
+    }
+    let payer = match sqlx::query_scalar("SELECT account_id FROM payment_intents WHERE id=$1")
+        .bind(id)
+        .fetch_optional(&pool)
+        .await
+    {
+        Ok(Some(payer)) => payer,
+        Ok(None) => return Error::Invalid.response(&chrome),
+        Err(error) => return Error::from(error).response(&chrome),
+    };
+    let hash = format!("{:x}", Sha256::digest(REVIEWED.as_bytes()));
     let result = staff_actions::run(
         &pool,
         Guard { actor, authority: &authority, csrf: csrf.map(|value| value.0) },
-        Action { permission: Permission::ReconcilePayments, action: "commerce.payment.reviewed", reason: &reason },
-        || {
-            if !super::super::valid_id(id) || !super::super::valid_id(request_id)
-                || version.is_empty() || version.len() > 80
-                || !version.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b':')
-            {
-                return Err(Error::Invalid);
-            }
-            Ok((vec![], (hash, version)))
-        },
+        Action { permission: Permission::ReconcilePayments, reason: &reason, reason_codes: &[REVIEWED], step_up: StepUp::SessionMfa },
+        || Ok((vec![payer], (hash, version))),
         |conn, (hash, version)| Box::pin(async move {
-            let _: Uuid = sqlx::query_scalar("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
-                .bind(id).fetch_optional(&mut *conn).await?.ok_or(Error::Invalid)?;
-            let (state, observed): (String, String) = sqlx::query_as(REVIEW_VERSION_QUERY)
-                .bind(id).fetch_one(&mut *conn).await?;
-            if observed != version {
+            lock_evidence(conn, id, payer).await?;
+            let observed: Payment = sqlx::query_as(PAYMENTS)
+                .bind(id).bind(payer).bind(false).bind(None::<Uuid>)
+                .fetch_optional(&mut *conn).await?.ok_or(Error::Conflict)?;
+            if observed.review_version != version {
                 return Err(Error::Conflict);
             }
-            let payment_state = match state.as_str() {
-                "created" => "created", "pending" => "pending", "succeeded" => "succeeded",
-                "failed" => "failed", "refunded" => "refunded", "chargeback" => "chargeback",
-                _ => return Err(Error::Unavailable),
-            };
+            let state: IntentState = serde_json::from_value(serde_json::Value::String(observed.state.clone()))
+                .map_err(|_| Error::Unavailable)?;
             let inserted = sqlx::query(
                 "INSERT INTO commerce_operations(id,actor_id,target_id,command,reason_sha256,requires_approval,result,created_at,updated_at)
                  VALUES($1,$2,$3,'{\"kind\":\"reconcile\"}',$4,false,
                         jsonb_build_object('resolution_code','reviewed_no_payment_state_change','state',$5::text,'intent',$3::uuid,'review_version',$6::text),statement_timestamp(),statement_timestamp())
                  ON CONFLICT DO NOTHING"
-            ).bind(request_id).bind(actor.account).bind(id).bind(&hash).bind(payment_state).bind(&version)
+            ).bind(request_id).bind(actor.account).bind(id).bind(&hash).bind(observed.state).bind(&version)
                 .execute(&mut *conn).await?.rows_affected();
             if inserted == 0 {
                 let replay: bool = sqlx::query_scalar(
@@ -333,22 +401,20 @@ async fn record_review(
                 ).bind(request_id).bind(actor.account).bind(id).bind(hash).bind(version).fetch_one(&mut *conn).await?;
                 return if replay { Ok(None) } else { Err(Error::Conflict) };
             }
-            Ok(Some(AuditChange {
-                target: id,
-                before: [("payment_state", AuditValue::Label(payment_state))].into(),
-                after: [
-                    ("payment_state", AuditValue::Label(payment_state)),
-                    ("review", AuditValue::Id(request_id)),
-                ].into(),
-            }))
+            Ok(Some(AuditChange::PaymentReview { id: request_id, intent: id, state }))
         }),
     ).await;
     match result {
-        Ok(()) => Redirect::to(&format!(
-            "/admin/payment-review?lang={}&id={id}",
-            chrome.lang
-        ))
-        .into_response(),
+        Ok(()) => Redirect::to(&format!("{path}?lang={}&id={id}", chrome.lang)).into_response(),
         Err(error) => error.response(&chrome),
     }
+}
+
+fn review_chrome(chrome: Option<Extension<Chrome>>, headers: &HeaderMap) -> Chrome {
+    chrome.map(|value| value.0).unwrap_or_else(|| Chrome {
+        lang: super::super::http::Locale::from_headers(headers)
+            .0
+            .to_owned(),
+        ..Chrome::default()
+    })
 }
