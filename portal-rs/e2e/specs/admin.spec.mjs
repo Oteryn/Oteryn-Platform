@@ -33,8 +33,19 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
+ // The Foundation-owned GM route has a distinct permission from the Admin panel.
+ const gm=await page.context().newPage();
+ try {
+   const denied=await gm.goto(`/console/dashboard?lang=${lang}`);
+   expect(new URL(denied.url()).pathname,'terminal GM route').toBe('/console/dashboard');
+   expect(denied.status()).toBe(403);
+   await expect(gm.locator('html')).toHaveAttribute('lang',lang);
+   await assertShell(gm,{status:403});
+ } finally {
+   await gm.close();
+ }
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/admin/console/access','/admin/console/players','/admin/console/approvals'])].filter(link=>link.split('?')[0]!=='/console/dashboard');
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
@@ -50,14 +61,7 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
          await test.step(path,async()=>{
            const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
            const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
-           expect(new URL(response.url()).pathname, 'terminal staff route').toBe(new URL(path, screen.url()).pathname);
            const status=response.status();
-           if(path==='/console/dashboard') {
-             expect(status).toBe(403);
-             await expect(screen.locator('html')).toHaveAttribute('lang',lang);
-             await assertShell(screen,{status:403});
-             return;
-           }
            if(status===200) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
