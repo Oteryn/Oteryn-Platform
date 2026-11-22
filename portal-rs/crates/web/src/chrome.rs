@@ -1,8 +1,8 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::session::SessionLayer;
+use crate::{Language, session::SessionLayer};
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{Query, Request, State},
     http::header,
     middleware::Next,
     response::Response,
@@ -15,18 +15,43 @@ pub struct Shell {
     pub registry: Registry,
     pub sessions: SessionLayer,
 }
+
+#[derive(serde::Deserialize)]
+struct LocaleQuery {
+    lang: Option<String>,
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
-    let lang = crate::surface::path_language(request.uri().path())
-        .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
-        .code();
-    let account = crate::session::chrome_account(
-        &shell.sessions,
-        &mut request,
-        shell.registry.staff_panel_url.is_some(),
-    )
-    .await;
+    let lang = if request.uri().path() == "/admin/media" {
+        let language = if Query::<LocaleQuery>::try_from_uri(request.uri())
+            .is_ok_and(|query| query.lang.as_deref() == Some("en"))
+        {
+            Language::En
+        } else {
+            Language::Pl
+        };
+        request.extensions_mut().insert(language);
+        language
+    } else {
+        crate::surface::path_language(request.uri().path())
+            .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
+    }
+    .code();
+    let account =
+        if request.method() == axum::http::Method::POST && request.uri().path() == "/admin/media" {
+            // Media uploads authorize before reading the body under a deadline.
+            // Leave session I/O to that route so its timeout covers the first lookup.
+            oteryn_ui::Account::Anonymous
+        } else {
+            crate::session::chrome_account(
+                &shell.sessions,
+                &mut request,
+                shell.registry.staff_panel_url.is_some(),
+            )
+            .await
+        };
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")

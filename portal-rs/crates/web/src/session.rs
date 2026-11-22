@@ -523,6 +523,38 @@ fn cookie_id(headers: &HeaderMap) -> Result<Option<&str>, sqlx::Error> {
     Ok(id)
 }
 
+/// Load an existing signed-in session for a preflight check without extending
+/// its expiry or setting a cookie. The normal request guard still runs later.
+pub async fn signed_in_session(
+    layer: &SessionLayer,
+    connection: &mut sqlx::PgConnection,
+    headers: &axum::http::HeaderMap,
+) -> Result<Option<BrowserSession>, sqlx::Error> {
+    let Some(id) = cookie_id(headers)? else {
+        return Ok(None);
+    };
+    let row: Option<(Uuid, String, Uuid)> = sqlx::query_as(
+        "SELECT s.session_id, s.csrf_token, s.account_id FROM web_sessions s
+         JOIN accounts a ON a.id=s.account_id AND a.native_security_generation=s.authorization_generation
+         WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp()
+         AND s.absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(connection)
+    .await?;
+    let Some((session_id, csrf, account_id)) = row else {
+        return Ok(None);
+    };
+    let session = BrowserSession::new(layer.pool.clone(), layer.config, None, "");
+    session.inner.lock().await.record = Some(Record {
+        session_id,
+        csrf,
+        id: id.into(),
+        account_id: Some(account_id),
+    });
+    Ok(Some(session))
+}
+
 /// Existing authenticated session data for a read-only page.
 #[derive(Clone)]
 pub struct SignedInSession {

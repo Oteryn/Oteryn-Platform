@@ -32,6 +32,35 @@ pub fn https_authority(value: &str) -> Option<String> {
     })
 }
 
+/// Apply the origin and fetch-metadata checks without reading a body.
+pub fn verify_origin(
+    headers: &axum::http::HeaderMap,
+    trusted_origins: &[String],
+) -> Result<(), StatusCode> {
+    if let Some(site) = headers.get("sec-fetch-site") {
+        match site.to_str() {
+            Ok("same-origin" | "none") => {}
+            _ => return Err(StatusCode::FORBIDDEN),
+        }
+    }
+    if headers.get_all(header::ORIGIN).iter().count() > 1 {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    if let Some(origin) = headers.get(header::ORIGIN) {
+        let origin = origin.to_str().map_err(|_| StatusCode::FORBIDDEN)?;
+        let uri: axum::http::Uri = origin.parse().map_err(|_| StatusCode::FORBIDDEN)?;
+        if !matches!(uri.scheme_str(), Some("https" | "http"))
+            || uri.authority().is_none()
+            || uri.path() != "/"
+            || uri.query().is_some()
+            || !trusted_origins.iter().any(|v| v == origin)
+        {
+            return Err(StatusCode::FORBIDDEN);
+        }
+    }
+    Ok(())
+}
+
 pub async fn verify(
     config: &CsrfConfig,
     session: &BrowserSession,
@@ -57,27 +86,7 @@ pub async fn verify(
     {
         return Ok(());
     }
-    if let Some(site) = request.headers().get("sec-fetch-site") {
-        match site.to_str() {
-            Ok("same-origin" | "none") => {}
-            _ => return Err(StatusCode::FORBIDDEN),
-        }
-    }
-    if request.headers().get_all(header::ORIGIN).iter().count() > 1 {
-        return Err(StatusCode::FORBIDDEN);
-    }
-    if let Some(origin) = request.headers().get(header::ORIGIN) {
-        let origin = origin.to_str().map_err(|_| StatusCode::FORBIDDEN)?;
-        let uri: axum::http::Uri = origin.parse().map_err(|_| StatusCode::FORBIDDEN)?;
-        if !matches!(uri.scheme_str(), Some("https" | "http"))
-            || uri.authority().is_none()
-            || uri.path() != "/"
-            || uri.query().is_some()
-            || !config.trusted_origins.iter().any(|v| v == origin)
-        {
-            return Err(StatusCode::FORBIDDEN);
-        }
-    }
+    verify_origin(request.headers(), &config.trusted_origins)?;
     let expected = session
         .existing_csrf_token()
         .await

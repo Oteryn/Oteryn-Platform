@@ -24,7 +24,14 @@ unic-langid = "0.9"
 pulldown-cmark = "0.13"
 ammonia = "4"
 thiserror = "2"
+crc32fast = "1"
+httparse = "1"
+memchr = "2"
+multer = "3.1"
+oxiarc-jpeg = { version = "0.4.2", default-features = false }
+zune-jpeg = "0.5"
 [dev-dependencies]
+futures-util = "0.3"
 oteryn-db = { workspace = true, features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 
