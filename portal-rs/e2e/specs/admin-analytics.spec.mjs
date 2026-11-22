@@ -2,6 +2,7 @@
 // Test launcher: presentation=true with synthetic authority/privacy; no fence or baseline.
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool} from '../helpers.mjs';
+import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
@@ -20,9 +21,12 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
- await login(page,lang,staff);
- await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+ const recoveryCode = page.locator('main textarea[readonly]').first();
+ await expect(recoveryCode).toBeVisible();
+ await expect.poll(async () => Boolean((await recoveryCode.inputValue()).trim()), {
+  message: 'MFA enrollment must display a nonempty recovery code',
+ }).toBe(true);
+ await loginWithRecoveryCode(page, lang, staff, await recoveryCode.inputValue());
  for(const suffix of ['', '/creatures','/activity','/levels','/health','/economy']) {
   const path=`/admin/analytics${suffix}`;
   const response=await page.goto(path);
