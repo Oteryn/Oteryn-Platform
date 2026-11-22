@@ -128,40 +128,57 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
     })
 }
 fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicImage, StatusCode> {
-    use rusty_jpeg::{Decoder, PixelFormat};
+    use zune_jpeg::{
+        JpegDecoder,
+        zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOptions},
+    };
 
-    // Recovering from a truncated scan can produce a full-sized, damaged image.
-    let mut decoder = Decoder::new(bytes);
-    decoder.set_strict(true);
-    decoder.set_single_threaded(true);
-    decoder.set_max_decoding_buffer_size(MAX_DECODE_BYTES);
-    decoder.read_info().map_err(invalid)?;
+    // Zune can synthesize entropy bits after a premature EOI even in strict
+    // mode. Require a complete scan decode through EOI before using its pixels.
+    let verification = oxiarc_jpeg::DecodeOptions {
+        limits: oxiarc_jpeg::DecodeLimits {
+            max_width: width,
+            max_height: height,
+            max_pixels: u64::from(width) * u64::from(height),
+            max_input_bytes: MAX_BYTES as u64,
+            max_output_bytes: MAX_DECODE_BYTES as u64,
+            max_coefficient_bytes: MAX_DECODE_BYTES as u64,
+            ..oxiarc_jpeg::DecodeLimits::strict()
+        },
+        // At 1/8 scale the validator still entropy-decodes every MCU.
+        scale: oxiarc_jpeg::Scale::ONE_EIGHTH,
+        ..oxiarc_jpeg::DecodeOptions::strict()
+    };
+    oxiarc_jpeg::Decoder::with_options(bytes, verification)
+        .decode()
+        .map_err(invalid)?;
+
+    let options = DecoderOptions::default()
+        .set_strict_mode(true)
+        .set_max_width(width as usize)
+        .set_max_height(height as usize);
     let bad = StatusCode::UNPROCESSABLE_ENTITY;
-    let info = decoder.info().ok_or(bad)?;
-    if (u32::from(info.width), u32::from(info.height)) != (width, height) {
+    let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options);
+    decoder.decode_headers().map_err(invalid)?;
+    if decoder.dimensions() != Some((width as usize, height as usize)) {
         return Err(bad);
     }
-
+    let color = match decoder.input_colorspace().ok_or(bad)? {
+        color @ (ColorSpace::Luma | ColorSpace::LumaA | ColorSpace::RGBA) => color,
+        _ => ColorSpace::RGB,
+    };
+    decoder.set_options(decoder.options().jpeg_set_out_colorspace(color));
     let pixels = decoder.decode().map_err(invalid)?;
-    match info.pixel_format {
-        PixelFormat::L8 => {
+    match color {
+        ColorSpace::Luma => {
             image::GrayImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageLuma8)
         }
-        PixelFormat::RGB24 => {
-            image::RgbImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageRgb8)
+        ColorSpace::LumaA => image::GrayAlphaImage::from_raw(width, height, pixels)
+            .map(image::DynamicImage::ImageLumaA8),
+        ColorSpace::RGBA => {
+            image::RgbaImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageRgba8)
         }
-        PixelFormat::CMYK32 => {
-            let rgb = pixels
-                .chunks_exact(4)
-                .flat_map(|cmyk| {
-                    let black = 255 - u16::from(cmyk[3]);
-                    [cmyk[0], cmyk[1], cmyk[2]]
-                        .map(|ink| (((255 - u16::from(ink)) * black + 127) / 255) as u8)
-                })
-                .collect();
-            image::RgbImage::from_raw(width, height, rgb).map(image::DynamicImage::ImageRgb8)
-        }
-        PixelFormat::L16 => None,
+        _ => image::RgbImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageRgb8),
     }
     .ok_or(bad)
 }
