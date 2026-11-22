@@ -336,30 +336,36 @@ async fn invalidation_sections(
     db: &mut sqlx::PgConnection,
     pending_after: Option<Uuid>,
 ) -> Result<[InvalidationSection; 3], sqlx::Error> {
-    // Read all sections from one snapshot so a concurrent approval or hold
-    // revision change cannot put a request into two sections.
+    // Keep the classification in one snapshot. Reconciliation retires the
+    // current hold on cancellation, so retain only the final approval then.
     let rows: Vec<InvalidationRow> = sqlx::query_as(
-        "WITH pending AS (
-            SELECT r.id, r.listing_id, r.state, r.updated_at
+        "WITH classified AS NOT MATERIALIZED (
+            SELECT r.id, r.listing_id, r.updated_at, l.state::text AS listing_state,
+                CASE
+                  WHEN h.revision=r.hold_revision THEN r.state
+                  WHEN h.listing_id IS NULL AND l.state='cancelled' AND r.state='approved'
+                    AND NOT EXISTS (SELECT 1 FROM bazaar_invalidation_requests newer
+                        WHERE newer.listing_id=r.listing_id AND newer.hold_revision>r.hold_revision)
+                    THEN r.state
+                  ELSE 'superseded'
+                END AS request_state
             FROM bazaar_invalidation_requests r
-            JOIN bazaar_moderation_holds h ON h.listing_id=r.listing_id AND h.revision=r.hold_revision
-            WHERE r.state='pending' AND ($1::uuid IS NULL OR r.id > $1)
-            ORDER BY r.id LIMIT ($2 + 1)
+            JOIN bazaar_listings l ON l.id=r.listing_id
+            LEFT JOIN bazaar_moderation_holds h ON h.listing_id=r.listing_id
+         ), pending AS (
+            SELECT * FROM classified
+            WHERE request_state='pending' AND ($1::uuid IS NULL OR id > $1)
+            ORDER BY id LIMIT ($2 + 1)
          ), approved AS (
-            SELECT id, listing_id, state, updated_at
-            FROM bazaar_invalidation_requests WHERE state='approved'
+            SELECT * FROM classified WHERE request_state='approved'
             ORDER BY updated_at DESC, id DESC LIMIT $2
          ), superseded AS (
-            SELECT r.id, r.listing_id, 'superseded' AS state, r.updated_at
-            FROM bazaar_invalidation_requests r
-            LEFT JOIN bazaar_moderation_holds h ON h.listing_id=r.listing_id AND h.revision=r.hold_revision
-            WHERE r.state='pending' AND h.listing_id IS NULL
-            ORDER BY r.updated_at DESC, r.id DESC LIMIT $2
+            SELECT * FROM classified WHERE request_state='superseded'
+            ORDER BY updated_at DESC, id DESC LIMIT $2
          )
-         SELECT r.id, l.id AS listing, r.state AS request_state, l.state::text AS listing_state
+         SELECT id, listing_id AS listing, request_state, listing_state
          FROM (SELECT * FROM pending UNION ALL SELECT * FROM approved UNION ALL SELECT * FROM superseded) r
-         JOIN bazaar_listings l ON l.id=r.listing_id
-         ORDER BY r.state, CASE WHEN r.state='pending' THEN r.id END, r.updated_at DESC, r.id DESC",
+         ORDER BY request_state, CASE WHEN request_state='pending' THEN id END, updated_at DESC, id DESC",
     )
     .bind(pending_after)
     .bind(INVALIDATION_PAGE_SIZE as i64)
