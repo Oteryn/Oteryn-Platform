@@ -1,0 +1,14 @@
+{
+  "payload": [
+    {
+      "code": "fixture.rat-loot",
+      "algorithm": "IndependentBernoulliPpm",
+      "entries": [{"item": {"key": "fixture.alpha"}, "probability_ppm": 125000, "min_count": 1, "max_count": 1}]
+    },
+    {
+      "code": "fixture.wolf-loot",
+      "algorithm": "IndependentBernoulliPpm",
+      "entries": [{"item": {"key": "fixture.beta"}, "probability_ppm": 250000, "min_count": 1, "max_count": 1}]
+    }
+  ]
+}

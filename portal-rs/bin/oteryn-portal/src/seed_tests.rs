@@ -88,10 +88,26 @@ async fn query_catalog_seed_serializes_and_publishes_visibility_atomically() -> 
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
-    let (first, second) = tokio::join!(
-        seed_query_catalog_fixture(&db.pool),
-        seed_query_catalog_fixture(&db.pool)
-    );
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(QUERY_CATALOG_FIXTURE);
+    let seed = || seed_query_catalog_fixture(&db.pool, &root);
+    let refuse_beta =
+        "ALTER TABLE world_visibility ADD CONSTRAINT refuse_beta CHECK (key <> 'fixture.beta')";
+    let remove_refusal = "ALTER TABLE world_visibility DROP CONSTRAINT refuse_beta";
+    sqlx::query(refuse_beta).execute(&db.pool).await?;
+    assert!(seed().await.is_err());
+    for sql in [
+        "SELECT count(*) FROM world_active_version WHERE version_id IS NOT NULL OR previous_version_id IS NOT NULL",
+        "SELECT count(*) FROM world_versions",
+        "SELECT count(*) FROM world_entities",
+        "SELECT count(*) FROM world_visibility",
+    ] {
+        assert_eq!(db.count(sql).await?, 0, "{sql}");
+    }
+    sqlx::query(remove_refusal).execute(&db.pool).await?;
+
+    let (first, second) = tokio::join!(seed(), seed());
     let version = first?;
     assert_eq!(version, second?);
     assert_eq!(db.count("SELECT count(*) FROM world_versions").await?, 1);
@@ -102,18 +118,12 @@ async fn query_catalog_seed_serializes_and_publishes_visibility_atomically() -> 
     sqlx::query("DELETE FROM world_visibility")
         .execute(&db.pool)
         .await?;
-    sqlx::query(
-        "ALTER TABLE world_visibility ADD CONSTRAINT refuse_beta CHECK (key <> 'fixture.beta')",
-    )
-    .execute(&db.pool)
-    .await?;
-    assert!(seed_query_catalog_fixture(&db.pool).await.is_err());
+    sqlx::query(refuse_beta).execute(&db.pool).await?;
+    assert!(seed().await.is_err());
     assert_eq!(db.count(visible).await?, 0);
 
-    sqlx::query("ALTER TABLE world_visibility DROP CONSTRAINT refuse_beta")
-        .execute(&db.pool)
-        .await?;
-    assert_eq!(seed_query_catalog_fixture(&db.pool).await?, version);
+    sqlx::query(remove_refusal).execute(&db.pool).await?;
+    assert_eq!(seed().await?, version);
     assert_eq!(db.count(visible).await?, 2);
     db.close().await
 }

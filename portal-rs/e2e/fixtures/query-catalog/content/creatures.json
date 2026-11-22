@@ -1,0 +1,6 @@
+{
+  "payload": [
+    {"code": "fixture.rat", "loot": {"key": "fixture.rat-loot"}, "level": 5},
+    {"code": "fixture.wolf", "loot": {"key": "fixture.wolf-loot"}, "level": 10}
+  ]
+}

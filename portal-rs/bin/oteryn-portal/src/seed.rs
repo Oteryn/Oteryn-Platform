@@ -44,7 +44,11 @@ use oteryn_gameauth::{
 use oteryn_identity::mfa::Mfa;
 use serde_json::{Map, Value, json};
 use sqlx::{PgPool, Row};
-use std::{fmt, path::PathBuf, process::ExitCode};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 use uuid::Uuid;
 
 /// Witness directory shared with the native evidence producer.
@@ -201,62 +205,50 @@ async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedErro
             "query-catalog requires a disposable portal_e2e_ database",
         ));
     }
-    let version = seed_query_catalog_fixture(pool).await?;
+    let version = seed_query_catalog_fixture(pool, Path::new(QUERY_CATALOG_FIXTURE)).await?;
     Ok(json!({"versionId": version}))
 }
 
-async fn seed_query_catalog_fixture(pool: &PgPool) -> Result<Uuid, SeedError> {
-    use oteryn_world::{ImportMapping, SchemaScope, WorldOptions, WorldStore};
+// Both E2E launchers set the seed command's working directory to portal-rs.
+const QUERY_CATALOG_FIXTURE: &str = "e2e/fixtures/query-catalog";
 
-    const FIXTURE_REVISION: &str = "0000000000000000000000000000000000000001";
-    let mut transaction = pool.begin().await?;
-    // The importer owns its publication transaction. Hold a separate seed lock
-    // across the active-version lookup, import and visibility update.
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('oteryn:e2e:query-catalog', 0))")
-        .execute(&mut *transaction)
-        .await?;
-    let active: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT v.id, v.source_commit FROM world_active_version a
-         JOIN world_versions v ON a.version_id = v.id WHERE a.singleton",
-    )
-    .fetch_optional(&mut *transaction)
-    .await?;
-    let version = if let Some((version, revision)) = active {
-        if revision != FIXTURE_REVISION {
-            return Err(SeedError::Conflict(
-                "another world catalog is active".into(),
-            ));
-        }
-        version
-    } else {
-        WorldStore::new(pool.clone(), WorldOptions { enabled: true })
-            .import_directory(
-                PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-                    .join("../../crates/world/tests/fixtures/valid"),
-                FIXTURE_REVISION,
-                vec![ImportMapping {
-                    path_glob: "content/synthetic/*.json".into(),
-                    schema_file: "tools/content-schema/envelope.schema.json".into(),
-                    kind: "Item".into(),
-                    key_field: "code".into(),
-                    records_pointer: "/payload".into(),
-                    schema_scope: SchemaScope::Document,
-                    hidden_when_true: Vec::new(),
-                }],
-            )
-            .await
-            .map_err(|_| SeedError::Unavailable("query catalog import"))?
-            .version_id
-    };
-    sqlx::query(
-        "INSERT INTO world_visibility (kind, key, allowed)
-         VALUES ('Item', 'fixture.alpha', true), ('Item', 'fixture.beta', true)
-         ON CONFLICT (kind, key) DO UPDATE SET allowed = EXCLUDED.allowed, updated_at = now()",
-    )
-    .execute(&mut *transaction)
-    .await?;
-    transaction.commit().await?;
-    Ok(version)
+async fn seed_query_catalog_fixture(pool: &PgPool, root: &Path) -> Result<Uuid, SeedError> {
+    use oteryn_world::{ImportMapping, SchemaScope, WorldError, WorldOptions, WorldStore};
+
+    WorldStore::new(pool.clone(), WorldOptions { enabled: true })
+        .ensure_directory_with_visibility(
+            root,
+            "0000000000000000000000000000000000000002",
+            [
+                ("items", "Item"),
+                ("creatures", "Creature"),
+                ("loot", "Loot"),
+            ]
+            .into_iter()
+            .map(|(file, kind)| ImportMapping {
+                path_glob: format!("content/{file}.json"),
+                schema_file: "tools/content-schema/envelope.schema.json".into(),
+                kind: kind.into(),
+                key_field: "code".into(),
+                records_pointer: "/payload".into(),
+                schema_scope: SchemaScope::Document,
+                hidden_when_true: Vec::new(),
+            })
+            .collect(),
+            &[
+                ("Item", "fixture.alpha"),
+                ("Item", "fixture.beta"),
+                ("Creature", "fixture.rat"),
+                ("Creature", "fixture.wolf"),
+                ("Loot", "fixture.rat-loot"),
+                ("Loot", "fixture.wolf-loot"),
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            WorldError::InvalidInput(message) => SeedError::Conflict(message),
+            _ => SeedError::Unavailable("query catalog import or publication"),
+        })
 }
 
 /// A JSON object whose keys are checked against each command's allow-list.

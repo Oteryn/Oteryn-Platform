@@ -29,7 +29,9 @@ That is the exact browser command; it runs every project. `--project=pl-390` can
 Start the query-parameter matrix from the same default `node local.mjs` stack.
 The matrix selects its catalog listener and quota database from `env.json` for
 Wiki, Atlas and portal catalog searches. The listener serves the checked-in
-WorldStore fixture imported by `seed query-catalog '{}'`. `wiki-world.spec.mjs`
+WorldStore fixture imported by `seed query-catalog '{}'` from the launcher's
+checkout. A prebuilt `PORTAL_E2E_BINARY` can live outside that checkout.
+`wiki-world.spec.mjs`
 continues to use the default portal listener and pinned native fixture.
 
 ```sh
@@ -38,7 +40,11 @@ node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs specs/w
 
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
-For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. The Bazaar legacy spec also needs the matching
+For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and
+`PORTAL_E2E_DATABASE_URL`. To include the query matrix in `npm test`, also set
+`PORTAL_E2E_QUERY_ORIGIN` and `PORTAL_E2E_QUERY_DATABASE_URL` to the separate
+local listener and disposable database seeded with the query catalog. The
+Bazaar legacy spec also needs the matching
 `OTERYN_DATABASE_URL`, the built `PORTAL_E2E_BINARY`, and the local administrator
 URL for the fallback harness. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
 
