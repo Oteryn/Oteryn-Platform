@@ -239,9 +239,16 @@ mod tests {
         let state = crate::AppState {
             db: oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?,
         };
-        let app = secure_public(crate::router(state, "static"))
+        let register = surface::finish(crate::register::routes().with_state(state.clone()).layer(
+            middleware::from_fn_with_state(
+                crate::session::SessionLayer::new(state.db.clone()),
+                crate::session::middleware,
+            ),
+        ));
+        let recovery = crate::router(state, "static")
             .layer(axum::Extension(FeatureFlags::from([FEATURE.to_owned()])));
-        for path in ["/en/register", "/en/recovery-key"] {
+        for (app, path) in [(register, "/en/register"), (recovery, "/en/recovery-key")] {
+            let app = secure_public(app);
             let response = app
                 .clone()
                 .oneshot(

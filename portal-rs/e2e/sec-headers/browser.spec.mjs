@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { test, expect } from '@playwright/test';
-import { mailLink } from '../helpers.mjs';
+import { mailLink, password, seedPasswordRange } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { cookie, expectSession, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
 import { atlas, checkHeaders, checkIssued, deviceCookie, matchesPortalCsp, matchesPrivateCache, sameOrigin, sessionCookie, shellPolicy, stylesForm, surface } from './policy.mjs';
@@ -219,6 +219,7 @@ test('cache validator requires a complete configured directive set', () => {
 });
 
 test('anonymous form refusals do not create session rows or issue cookies', async ({ request }, info) => {
+  await seedPasswordRange(password());
   const locale = info.project.metadata.locale;
   const base = '/' + locale;
   const passkeys = base + '/account/passkeys';
