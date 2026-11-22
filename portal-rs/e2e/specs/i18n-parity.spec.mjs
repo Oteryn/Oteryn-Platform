@@ -1,7 +1,9 @@
 import fs from 'node:fs';
+import https from 'node:https';
+import path from 'node:path';
 import * as OTPAuth from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
-import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, pool, register, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -10,7 +12,7 @@ const expectations = JSON.parse(read('../route-expectations.json'));
 const workspace = new URL('../../', import.meta.url);
 const normalize = (value) => value.normalize('NFC').replace(/\s+/gu, ' ').trim();
 const catalogs = Object.fromEntries(['pl', 'en'].map((locale) => [locale, new Map()]));
-const keys = new Set();
+const catalogKeys = new Map();
 
 function readCatalogs(directory) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -21,6 +23,8 @@ function readCatalogs(directory) {
     }
     const locale = /(?:^|[._])(pl|en)\.ftl$/u.exec(entry.name)?.[1];
     if (!locale) continue;
+    const keys = new Set();
+    catalogKeys.set(url.href.slice(workspace.href.length), keys);
     for (const [, key, text] of fs.readFileSync(url, 'utf8').matchAll(/^([a-z][\w-]*)\s*=[ \t]*([^\r\n]*)/gmu)) {
       keys.add(key);
       const value = normalize(text);
@@ -33,6 +37,41 @@ function readCatalogs(directory) {
   }
 }
 for (const path of ['crates/', 'templates/']) readCatalogs(new URL(path, workspace));
+
+const pageRoutes = [...inventory.routes, ...expectations].map(({ route, crate }) => {
+  const segments = route.split('/');
+  const pattern = segments.map((segment) => {
+    if (segment.startsWith('{*')) return '.*';
+    if (segment.startsWith('{')) return '[^/]+';
+    return segment.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  }).join('/');
+  return {
+    crate,
+    pattern: new RegExp(`^${pattern}$`, 'u'),
+    specificity: segments.filter((segment) => !segment.startsWith('{')).length,
+  };
+}).sort((a, b) => b.specificity - a.specificity);
+
+function keysForPage(pathname) {
+  const own = pageRoutes.find(({ pattern }) => pattern.test(pathname))?.crate;
+  const page = pathname.replace(/^\/(?:pl|en)(?=\/|$)/u, '');
+  const [family] = page.split('/').filter(Boolean);
+  const roots = ['crates/ui/'];
+  if (own) roots.push(`crates/${own}/`);
+  if (family) roots.push(`templates/${family}/`);
+  if (family === 'native-account') roots.push('crates/payments/templates/coin/');
+  if (page.startsWith('/admin/announcements')) roots.push('crates/content/');
+  if (page === '' || page === '/' || ['legal', 'help', 'rules', 'server-information'].includes(family)) {
+    roots.push('templates/pages/');
+  }
+  return new Set([...catalogKeys].flatMap(([file, keys]) =>
+    roots.some((root) => file.startsWith(root)) ? [...keys] : []));
+}
+
+function rawKey(label, keys) {
+  return /^[a-z][\w]*(?:-[\w]+)+$/u.test(label) && keys.has(label);
+}
+
 
 // Exact labels and longer diagnostic phrases are deliberately chosen to avoid
 // flagging words shared by both languages, proper names or editorial content.
@@ -71,10 +110,9 @@ function catalogText(path, key) {
   return value;
 }
 
-function assertText(value, locale, scope, title = false) {
+function assertText(value, locale, scope, keys, title = false) {
   const text = normalize(value);
-  const tokens = text.match(/(?<![\w/-])[a-z][\w]*(?:-[\w]+)+(?![\w/-])/gu) ?? [];
-  expect.soft(tokens.filter((token) => keys.has(token)), `${scope}: rendered Fluent keys`).toEqual([]);
+  expect.soft(rawKey(text, keys), `${scope}: rendered Fluent key`).toBe(false);
   expect.soft(/\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text), `${scope}: unresolved interpolation`).toBe(false);
   expect.soft(wrongLocale(text, locale, title), `${scope}: opposite-locale catalog marker`).toBeUndefined();
 }
@@ -84,19 +122,20 @@ async function assertDocument(page, locale, target) {
   const title = await page.title();
   const titleLabel = normalize(title).replace(/\s*[·|–—]\s*Oteryn$/u, '').trim();
   expect.soft(titleLabel.length, `${target}: localized document title`).toBeGreaterThan(0);
-  assertText(title, locale, `${target}: title`, true);
+  const keys = keysForPage(new URL(page.url()).pathname);
+  assertText(titleLabel, locale, `${target}: title`, keys, true);
   // Text nodes preserve boundaries between labels and include closed menus.
   const values = await page.locator('body').evaluate((body, locale) => {
     const values = [];
-    const append = (element, value) => {
+    const append = (element, value, label = value) => {
       const declaredLanguage = element.closest('[lang]:not(html), [hreflang]');
       const declaredLocale = declaredLanguage?.getAttribute('lang') ?? declaredLanguage?.getAttribute('hreflang');
-      values.push({ value, checkLocale: !declaredLocale || declaredLocale === locale });
+      values.push({ value, label, checkLocale: !declaredLocale || declaredLocale === locale });
     };
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
       if (node.textContent.trim() && !node.parentElement.closest('script, style, template, noscript, code, pre, textarea')) {
-        append(node.parentElement, node.textContent);
+        append(node.parentElement, node.textContent, node.parentElement.textContent);
       }
     }
     for (const element of body.querySelectorAll('[aria-label], [alt], [title], [placeholder], input[type=submit]')) {
@@ -110,11 +149,10 @@ async function assertDocument(page, locale, target) {
   const rawKeys = new Set();
   const leaks = new Set();
   let interpolation = false;
-  for (const { value, checkLocale } of values) {
+  for (const { value, label, checkLocale } of values) {
     const text = normalize(value);
-    for (const token of text.match(/(?<![\w/-])[a-z][\w]*(?:-[\w]+)+(?![\w/-])/gu) ?? []) {
-      if (keys.has(token)) rawKeys.add(token);
-    }
+    const wholeLabel = normalize(label);
+    if (rawKey(wholeLabel, keys)) rawKeys.add(wholeLabel);
     const leak = checkLocale && wrongLocale(text, locale);
     if (leak) leaks.add(leak);
     interpolation ||= /\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text);
@@ -153,7 +191,6 @@ function destinations(actor, locale) {
       targets.set(sample(path, locale), path.endsWith('/edit') ? 404 : 200);
     }
   }
-  if (actor !== 'staff') targets.set(sample('/native-account/coin-checkout/{id}', locale), undefined);
   return targets;
 }
 
@@ -184,6 +221,7 @@ const localeQueryRoute = /^\/(?:news(?:\/[^/]+)?|today(?:\/(?:data|widget))?|ann
 const validationMessages = 'main [role=alert], main .op-error, main [aria-live]:not([aria-live=off])';
 
 async function nativeValidation(page, locale, checked, uncovered) {
+  const keys = keysForPage(new URL(page.url()).pathname);
   const forms = page.locator('form');
   for (let index = 0; index < await forms.count(); index++) {
     const form = forms.nth(index);
@@ -226,9 +264,9 @@ async function nativeValidation(page, locale, checked, uncovered) {
     expect.soft(result.message.length, name).toBeGreaterThan(0);
     // The browser supplies native UI strings. Check authored custom messages
     // and DOM feedback against the portal's catalogs.
-    if (result.custom) assertText(result.message, locale, name);
+    if (result.custom) assertText(result.message, locale, name, keys);
     for (const message of await page.locator(validationMessages).allInnerTexts()) {
-      assertText(message, locale, name);
+      assertText(message, locale, name, keys);
     }
     checked.add(name);
   }
@@ -287,8 +325,108 @@ async function serverValidation(page, locale, actor, target, targets) {
   }
 }
 
+const missingProfile = /^\/(?:pl\/|en\/)?account\/characters\/missing-e2e\/profile$/u;
+const checkoutPrefix = '/native-account/coin-checkout/';
+
+async function publishOwnershipFixture(route, fields) {
+  const base = new URL(process.env.PORTAL_ACCOUNT_CLOSURE_BASE_URL);
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(base.hostname)) {
+    throw new Error('Ownership fixtures require a loopback authority');
+  }
+  const directory = path.dirname(process.env.OTERYN_INTERNAL_TLS_CLIENT_CA_FILE);
+  const payload = JSON.stringify({
+    contract_version: 1,
+    source_authority: process.env.OTERYN_LCFA_SOURCE_AUTHORITY,
+    projection_epoch: '3',
+    ...fields,
+  });
+  const { status, body } = await new Promise((resolve, reject) => {
+    const request = https.request(new URL(`/internal/v1/game-auth/native-account-characters${route}`, base), {
+      method: 'POST',
+      ca: fs.readFileSync(process.env.OTERYN_INTERNAL_TLS_CLIENT_CA_FILE),
+      cert: fs.readFileSync(path.join(directory, 'closure-portfolio.pem')),
+      key: fs.readFileSync(path.join(directory, 'closure-portfolio-key.pem')),
+      minVersion: 'TLSv1.3',
+      ALPNProtocols: ['http/1.1'],
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) },
+      timeout: 10_000,
+    }, (response) => {
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => resolve({ status: response.statusCode, body }));
+      response.on('error', reject);
+    });
+    request.on('error', reject);
+    request.on('timeout', () => request.destroy(new Error('Ownership fixture publication timed out')));
+    request.end(payload);
+  });
+  expect(status, fields.operation).toBe(200);
+  expect(JSON.parse(body), fields.operation).toEqual({ contract_version: 1, result: 'accepted' });
+}
+
+const unixSeconds = () => String(Math.floor(Date.now() / 1000));
+
+async function publishOwnership(accountId) {
+  await publishOwnershipFixture('', {
+    operation: 'PublishAccountCharactersV1',
+    account_id: accountId,
+    projection_revision: '1',
+    source_observed_at: unixSeconds(),
+    characters: [],
+  });
+}
+
+async function refreshOwnership() {
+  const stamp = unixSeconds();
+  await publishOwnershipFixture('/watermark', {
+    operation: 'PublishProjectionWatermarkV1',
+    complete_through: stamp,
+    observed_at: stamp,
+  });
+}
+
+async function seedCheckout(page, email) {
+  const db = pool();
+  try {
+    // Persist the same quote and awaiting-payment order shape as the native API
+    // in the disposable database. The browser GET binds the real sandbox intent.
+    const { rows: [order] } = await db.query(`
+      WITH quote AS (
+        INSERT INTO coin_purchase_quotes
+          (id, payer_account_id, package_id, coins, minor_units, currency, exponent, environment, expires_at, consumed_at)
+        SELECT uuidv7(), id, uuidv7(), 12, 1000, 'PLN', 2, 'testing', now() + interval '5 minutes', now()
+        FROM accounts WHERE email = $1
+        RETURNING id, payer_account_id, package_id, coins, minor_units, currency, exponent, environment
+      ), fixture AS (SELECT *, uuidv7() AS order_id FROM quote)
+      INSERT INTO coin_purchase_orders
+        (id, payer_account_id, request_id, quote_id, package_id, coins, minor_units, currency, exponent,
+         environment, payment_intent_id, state, checkout_url, code)
+      SELECT order_id, payer_account_id, uuidv7(), id, package_id, coins, minor_units, currency, exponent,
+        environment, uuidv7(), 'awaiting_payment', $2 || order_id, 'COIN_ORDER_AWAITING_PAYMENT'
+      FROM fixture
+      RETURNING id, payer_account_id
+    `, [email, new URL(checkoutPrefix, page.url()).href]);
+    expect(order, 'disposable order belongs to the registered player').toBeDefined();
+    return order;
+  } finally {
+    await db.end();
+  }
+}
+
+async function assertCheckout(page, locale) {
+  const copy = (key) => catalogText(`crates/payments/templates/coin/${locale}.ftl`, `coin-checkout-${key}`);
+  await expect(page.locator('main h1')).toHaveText(copy('title'));
+  await expect(page.locator('main dt').filter({ hasText: new RegExp(`^${copy('status')}$`, 'u') }).locator('+ dd'))
+    .toHaveText(copy('awaiting_payment'));
+  await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=pay]') }).getByRole('button'))
+    .toHaveText(copy('pay'));
+  await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=fail]') }).getByRole('button'))
+    .toHaveText(copy('fail'));
+}
+
 async function assertAnonymousCheckoutRedirects(page) {
-  const target = sample('/native-account/coin-checkout/{id}', 'en');
+  const target = sample(`${checkoutPrefix}{id}`, 'en');
   expect((await page.goto('/language/en')).status()).toBe(200);
   expect((await page.goto('/en/login')).status()).toBe(200);
   const csrf = await page.locator('main form input[name=_csrf]').first().inputValue();
@@ -330,11 +468,19 @@ for (const actor of ['anonymous', 'player', 'staff']) {
     test.setTimeout(600_000);
     const locale = info.project.metadata.locale;
     if (actor === 'staff') await signInStaff(page, locale);
-    if (actor === 'player') await login(page, locale, await register(page, locale));
+    let checkout;
+    if (actor === 'player') {
+      const account = await register(page, locale);
+      await login(page, locale, account);
+      const order = await seedCheckout(page, account.email);
+      checkout = checkoutPrefix + order.id;
+      await publishOwnership(order.payer_account_id);
+    }
     if (actor === 'anonymous') await assertAnonymousCheckoutRedirects(page);
     const origin = new URL(`/${locale}/`, process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
     expect((await page.goto(`/language/${locale}`)).status()).toBe(200);
-    const targets = destinations(actor, locale);
+    const targets = new Map(checkout ? [[checkout, 200]] : []);
+    for (const [route, status] of destinations(actor, locale)) targets.set(route, status);
     const documents = new Set();
     const checked = new Set();
     const uncovered = new Set();
@@ -348,7 +494,17 @@ for (const actor of ['anonymous', 'player', 'staff']) {
           url.searchParams.set('lang', locale);
         }
         await waitForWikiBudget(target, 2);
+        if (actor === 'player' && missingProfile.test(url.pathname)) await refreshOwnership();
         const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
+        if (target === checkout) {
+          expect(probe.status()).toBe(200);
+          expect((await page.goto(url.href)).status()).toBe(200);
+          await assertDocument(page, locale, target);
+          await assertCheckout(page, locale);
+          documents.add(url.pathname);
+          await nativeValidation(page, locale, checked, uncovered);
+          return;
+        }
         if (status !== undefined && actor !== 'anonymous') expect.soft(probe.status(), target).toBe(status);
         if (!probe.headers()['content-type']?.startsWith('text/html')) return;
         const source = await probe.text();
