@@ -37,7 +37,7 @@ const views = {
 };
 
 export function isGameUnavailable(url, { status, headers, body }) {
-  if (status !== 503 ||
+  if (status !== 503 || headers.get('x-oteryn-game-data') !== 'unavailable' ||
       !/^text\/html(?:\s*;|$)/i.test(headers.get('content-type') || '') ||
       !headers.get('cache-control')?.split(',').some(value => value.trim().toLowerCase() === 'no-store')) {
     return false;

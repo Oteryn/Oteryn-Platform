@@ -225,7 +225,7 @@ async fn audit06_two_connection_requests_and_serving_age() -> TestResult {
                     sqlx::query("SELECT pg_sleep(0.1)")
                         .execute(&self.db)
                         .await
-                        .map_err(|_| online::Unavailable)?;
+                        .map_err(|_| online::Unavailable::Failure)?;
                 }
                 Ok(vec![false; refs.len()])
             })
@@ -319,6 +319,55 @@ async fn audit06_online_age_rechecked_after_privacy_wait() -> TestResult {
     let (status, html) = request(app, "/en/online").await?;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Data is stale"));
+    db.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn missing_feed_signal_requires_successful_database_reads() -> TestResult {
+    let Some((root, db, schema)) = database().await? else {
+        return Ok(());
+    };
+    sqlx::raw_sql(include_str!(
+        "../../../migrations/20261105145653_t18_account_characters.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::query("DELETE FROM public_snapshots")
+        .execute(&db)
+        .await?;
+    let app = online::router(
+        db.clone(),
+        Arc::new(oteryn_community::privacy::Authority::configured(db.clone())),
+        Config {
+            enabled: true,
+            ..Config::default()
+        },
+    );
+
+    let get = || async {
+        app.clone()
+            .oneshot(Request::get("/en/online").body(Body::empty())?)
+            .await
+            .map_err(Box::<dyn std::error::Error>::from)
+    };
+    let missing = get().await?;
+    assert_eq!(missing.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(missing.headers()["x-oteryn-game-data"], "unavailable");
+
+    sqlx::query("ALTER TABLE account_character_feed RENAME TO broken_character_feed")
+        .execute(&db)
+        .await?;
+    let failed = get().await?;
+    assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(!failed.headers().contains_key("x-oteryn-game-data"));
+    assert_eq!(
+        to_bytes(missing.into_body(), 64 * 1024).await?,
+        to_bytes(failed.into_body(), 64 * 1024).await?,
+    );
     db.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)

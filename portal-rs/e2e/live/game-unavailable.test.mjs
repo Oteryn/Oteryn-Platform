@@ -8,6 +8,7 @@ function response(lang, heading, refusal, overrides = {}) {
     headers: new Headers({
       'content-type': 'text/html; charset=utf-8',
       'cache-control': 'private, no-store',
+      'x-oteryn-game-data': 'unavailable',
     }),
     body: Buffer.from(`<html lang="${lang}"><main id="main"><h1>${heading}</h1>${refusal}</main></html>`),
     ...overrides,
@@ -46,4 +47,11 @@ test('requires HTML, a no-store directive, and refusal markup in the main conten
   assert.equal(isGameUnavailable(online, response(
     'en', 'Online characters', '<!-- <p role="status">Temporarily unavailable.</p> -->',
   )), false);
+});
+
+test('identical database-failure HTML is a hard smoke finding without the server signal', () => {
+  const result = unavailable();
+  assert.equal(isGameUnavailable(online, result), true);
+  result.headers.delete('x-oteryn-game-data');
+  assert.equal(isGameUnavailable(online, result), false);
 });
