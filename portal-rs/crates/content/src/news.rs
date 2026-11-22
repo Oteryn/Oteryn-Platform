@@ -488,6 +488,11 @@ async fn save(
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
+    let after = sqlx::query_scalar("SELECT to_jsonb(news) FROM news WHERE id=$1")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(storage)?;
     audit::append(
         &mut tx,
         Entry {
@@ -498,7 +503,7 @@ async fn save(
             action,
             target: &id.to_string(),
             before,
-            after: json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at}),
+            after,
         },
     )
     .await

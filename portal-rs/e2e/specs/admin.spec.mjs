@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {role} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -33,6 +34,15 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ await test.step('the populated audit table fits the viewport',async()=>{
+   await role(page, 'admin.access audit.view');
+   expect((await page.goto(`/admin/console/audit?lang=${lang}`)).status()).toBe(200);
+   const table=page.locator('main .op-table-wrap').first();
+   await expect(table).toBeVisible();
+   if (info.project.use.viewport.width === 390) {
+     expect(await table.evaluate(el=>el.scrollWidth>el.clientWidth)).toBe(true);
+   }
+ });
  const failures=[];
  const staffContext=page.context();
  const attempted=[];

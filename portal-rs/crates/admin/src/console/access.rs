@@ -534,6 +534,7 @@ pub(crate) struct Page {
     pub title: String,
     pub source: String,
     pub sections: Vec<Section>,
+    pub audit_diff: Option<super::audit::DiffLabels>,
     pub players: String,
     pub audit: String,
     pub access: String,
@@ -552,7 +553,13 @@ pub(crate) struct Page {
 #[derive(Debug)]
 pub(crate) struct Section {
     pub title: String,
-    pub lines: Vec<String>,
+    pub lines: Vec<SectionLine>,
+}
+
+#[derive(Debug)]
+pub(crate) struct SectionLine {
+    pub text: String,
+    pub changes: Vec<super::audit::Change>,
 }
 impl Page {
     pub fn new(lang: &'static str, title: &str) -> Self {
@@ -561,6 +568,7 @@ impl Page {
             title: tr(lang, title),
             source: tr(lang, "source"),
             sections: vec![],
+            audit_diff: None,
             players: tr(lang, "players"),
             audit: tr(lang, "audit"),
             access: tr(lang, "access"),
@@ -578,12 +586,33 @@ impl Page {
         }
     }
     pub fn section(&mut self, title: &str, lines: Option<Vec<String>>) {
+        let lines = lines.map(|lines| {
+            lines
+                .into_iter()
+                .map(|text| SectionLine {
+                    text,
+                    changes: vec![],
+                })
+                .collect()
+        });
+        self.section_with_lines(title, lines);
+    }
+    pub fn section_with_lines(&mut self, title: &str, lines: Option<Vec<SectionLine>>) {
         self.sections.push(Section {
             title: tr(self.lang, title),
             lines: match lines {
-                None => vec![tr(self.lang, "unavailable")],
-                Some(lines) if lines.is_empty() => vec![tr(self.lang, "empty")],
-                Some(lines) => lines,
+                Some(lines) if !lines.is_empty() => lines,
+                other => vec![SectionLine {
+                    text: tr(
+                        self.lang,
+                        if other.is_none() {
+                            "unavailable"
+                        } else {
+                            "empty"
+                        },
+                    ),
+                    changes: vec![],
+                }],
             },
         });
     }

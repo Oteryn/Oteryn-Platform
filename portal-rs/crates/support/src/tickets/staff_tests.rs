@@ -410,6 +410,18 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?,
         "accepted"
     );
+    let (prior, decided): (String, String) = sqlx::query_as(
+        "SELECT before->>'appeal_status', after->>'appeal_status' FROM audit_log
+         WHERE action='support.enforcement_appeal_updated' AND target=$1
+           AND after->>'appeal_status'='accepted'",
+    )
+    .bind(sanction.to_string())
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        (prior.as_str(), decided.as_str()),
+        ("reviewing", "accepted")
+    );
     let created = Uuid::now_v7();
     assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Created&moderator_notes=&effective_at=1794000000&expires_at=1894000000")).await?,StatusCode::SEE_OTHER);
     assert_eq!(
