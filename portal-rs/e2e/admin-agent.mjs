@@ -17,7 +17,7 @@ import { SMTPServer } from 'smtp-server';
 const agentId = 'staff-console-e2e';
 const worldId = '019b0760-0000-7000-8000-000000000001';
 export const nodeId = 'e2e-console-node';
-export const characterId = 'e2e-console-knight';
+export const characterId = '019b0760-0000-7000-8000-000000000010';
 export const characterName = 'E2E Console Knight';
 const build = 'staff-console-e2e-build';
 const player = { character_id: characterId, name: characterName, world_id: worldId, level: 42, online: true };
@@ -26,6 +26,7 @@ export const sanctionId = 'gm-e2e-sanction';
 export const wrongCharacterId = 'gm-e2e-wrong-character';
 export const wrongSanctionCharacterId = 'gm-e2e-wrong-sanction-target';
 export const accountSanctionId = 'gm-e2e-account-sanction';
+export const wrongAccountSanctionCharacterId = '019b0760-0000-7000-8000-000000000011';
 
 const results = {
   'player.search': ({ params }) => ({
@@ -41,15 +42,15 @@ const results = {
   'player.inventory.get': () => ({
     items: [{ instance_id: itemId, type_id: 42, parent_id: null, location: 'bag', count: '2' }],
   }),
-  'sanction.list': ({ target }) => ({
+  'sanction.list': ({ target }, accountRef) => ({
     sanctions: [{
       sanction_id: sanctionId, account_ref: null,
       character_id: target.character_id === wrongSanctionCharacterId ? characterId : target.character_id,
       kind: 'warning', active: true, starts_at: '2026-11-15T00:00:00Z', expires_at: null,
-    }, {
-      sanction_id: accountSanctionId, account_ref: null, character_id: null,
+    }, ...(accountRef ? [{
+      sanction_id: accountSanctionId, account_ref: accountRef, character_id: null,
       kind: 'notation', active: false, starts_at: '2026-11-15T00:00:00Z', expires_at: null,
-    }],
+    }] : [])],
   }),
 };
 const operations = Object.keys(results).map(operation => ({ operation, version: 1 }));
@@ -210,6 +211,42 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
   };
 }
 
+export async function publishStaffPortfolio({ internalPort, caFile, lcfaClient, lcfaAuthority }, account, epoch) {
+  const peer = new https.Agent({
+    ca: fs.readFileSync(caFile), cert: fs.readFileSync(lcfaClient.cert), key: fs.readFileSync(lcfaClient.key),
+    servername: 'localhost', minVersion: 'TLSv1.3',
+  });
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const common = { contract_version: 1, source_authority: lcfaAuthority, projection_epoch: epoch };
+  const publish = (suffix, document) => new Promise((resolve, reject) => {
+    const body = canonical(document);
+    const request = https.request({
+      host: '127.0.0.1', port: internalPort, agent: peer,
+      path: '/internal/v1/game-auth/native-account-characters' + suffix, method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
+    }, response => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode));
+      response.on('error', reject);
+    });
+    request.setTimeout(15000, () => request.destroy(new Error('LCFA publication timed out')));
+    request.on('error', reject);
+    request.end(body);
+  });
+  try {
+    assert.equal(await publish('', {
+      ...common, operation: 'PublishAccountCharactersV1', account_id: account,
+      projection_revision: '1', source_observed_at: timestamp,
+      characters: [{ character_id: characterId, world_id: worldId, name: characterName, availability: 'AVAILABLE' }],
+    }), 200);
+    assert.equal(await publish('/watermark', {
+      ...common, operation: 'PublishProjectionWatermarkV1', complete_through: timestamp, observed_at: timestamp,
+    }), 200);
+  } finally {
+    peer.destroy();
+  }
+}
+
 export function adminAgent({ internalPort, caFile, client, resultKey, signerKey }) {
   const tls = new https.Agent({
     ca: fs.readFileSync(caFile), cert: fs.readFileSync(client.cert), key: fs.readFileSync(client.key),
@@ -244,10 +281,13 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
     });
   }
   return {
-    hello: () => post('hello', {
-      ...session, build_revision: build, catalog_digest: catalogDigest, operations,
-      worlds: [worldId], nodes: [nodeId], clock: new Date().toISOString(),
-    }),
+    hello() {
+      session.owner_epoch = Math.max(Date.now(), session.owner_epoch + 1);
+      return post('hello', {
+        ...session, build_revision: build, catalog_digest: catalogDigest, operations,
+        worlds: [worldId], nodes: [nodeId], clock: new Date().toISOString(),
+      });
+    },
     heartbeat: () => post('heartbeat', { ...session, clock: new Date().toISOString() }),
     async poll(waitSeconds = 0) {
       const requests = await post('channel', { ...session, wait_seconds: waitSeconds });
@@ -258,7 +298,7 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
       }
       return requests;
     },
-    async answer(request, outcome) {
+    async answer(request, outcome, accountRef) {
       assert(['success', 'refusal'].includes(outcome));
       const success = outcome === 'success';
       const clock = new Date().toISOString();
@@ -267,7 +307,7 @@ export function adminAgent({ internalPort, caFile, client, resultKey, signerKey 
         request_id: request.request_id, admin_operation_id: request.admin_operation_id,
         status: success ? 'succeeded' : 'rejected',
         error: success ? null : { code: 'ADM_FORBIDDEN', message: 'AdmForbidden', retryable: false },
-        result: success ? results[request.operation](request) : null,
+        result: success ? results[request.operation](request, accountRef) : null,
         dry_run_preview: null, game_ledger_id: 'gm-e2e-ledger-' + request.request_id, audit_event_ids: [],
         effective_revision: success ? 'gm-e2e-revision' : null, progress: null,
         completed_at: completed, agent_id: agentId, agent_build: build,
