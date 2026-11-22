@@ -1,3 +1,4 @@
+import {randomBytes} from 'node:crypto';
 import {expect} from './fixtures.mjs';
 import {csrfRejected,login,register,submit,waitForLoginBudget} from './helpers.mjs';
 import {enrollMfa,query} from './staff-rbac-helpers.mjs';
@@ -49,6 +50,41 @@ export async function grantSeniorRole(admin, accountId) {
     ORDER BY p.permission
   `, [accountId]);
   expect(assigned).toEqual(seniorPermissions.map(permission => ({key:'game_master_senior', permission})));
+}
+
+export async function grantJourneyRole(admin, accountId, lang) {
+  const key = `e2e_gm_${randomBytes(8).toString('hex')}`;
+  const permissions = [...seniorPermissions, 'admin.access', 'support.tickets.manage', 'audit.view'].sort();
+  const creation = 'main form:has(button[value="create"])';
+  await submit(admin, creation, {key, permissions:permissions.join(' ')});
+  await expect(admin.locator(`${creation} input[name=key]`)).toHaveValue('');
+  const grant = admin.locator('main form:has(button[value="grant"])');
+  const option = grant.locator('option').filter({hasText:new RegExp(`^${key}$`)});
+  // The creation redirects to the first page of the role list.
+  while (!(await option.count())) {
+    const next = admin.locator('main a[href^="/admin/roles?after="]');
+    await expect(next).toBeVisible();
+    await next.click();
+  }
+  const role = await option.getAttribute('value');
+  const actual = await query('SELECT permission FROM role_permissions WHERE role_id=$1 ORDER BY permission', [role]);
+  expect(actual.map(row => row.permission)).toEqual(permissions);
+  await csrfRejected(admin, '/admin/roles', {account:accountId, role, action:'grant'});
+  await grant.locator('[name=account]').fill(accountId);
+  await grant.locator('select[name=role]').selectOption(role);
+  await grant.getByRole('button', {name:lang === 'pl' ? 'Przypisz rolę' : 'Assign role', exact:true}).click();
+  await expect(admin).toHaveURL(/\/admin\/roles$/);
+  const assigned = await query('SELECT r.key FROM account_roles ar JOIN roles r ON r.id=ar.role_id WHERE ar.account_id=$1 ORDER BY r.key', [accountId]);
+  expect(assigned.map(row => row.key)).toEqual([key, 'game_master_senior']);
+  return role;
+}
+
+export async function requestForm(page, endpoint, form, csrf) {
+  return page.request.post(new URL(endpoint, page.url()).href, {
+    form:{...form, _csrf:csrf},
+    headers:{origin:new URL(page.url()).origin},
+    maxRedirects:0,
+  });
 }
 
 export async function completeEnrollment(page, lang, account) {
