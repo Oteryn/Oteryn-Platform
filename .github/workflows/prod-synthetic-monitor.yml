@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      recovery_checkpoint:
+        description: 'Confirm deleted monitor runs FIRST..LAST and resume after LAST'
+        type: string
+        required: false
 
 permissions: {}
 
@@ -160,21 +165,39 @@ jobs:
               }
             }
 
-            let stateNumber;
+            const saved = state ? JSON.parse(state.body) : null;
+            const recoveries = saved?.recoveries ?? [];
+            const checkpointInput = context.eventName === 'workflow_dispatch'
+              ? context.payload.inputs?.recovery_checkpoint || '' : '';
+            if (checkpointInput && !/^[1-9][0-9]*\.\.[1-9][0-9]*$/.test(checkpointInput)) {
+              throw new Error('Recovery checkpoint must be the confirmed missing range FIRST..LAST');
+            }
+            const alreadyRecovered = recoveries.some(entry =>
+              entry.range === checkpointInput && entry.runId === context.runId);
+            const requestedRecovery = alreadyRecovered ? '' : checkpointInput;
+
+            let stateNumber = state?.number;
+            let lastOutcome = saved?.failed;
             async function save(record) {
-              await github.rest.issues.update({ ...repo, issue_number: stateNumber, body: JSON.stringify(record) });
+              const body = JSON.stringify({ ...record, ...(recoveries.length ? { recoveries } : {}) });
+              if (stateNumber) {
+                await github.rest.issues.update({ ...repo, issue_number: stateNumber, body });
+              } else {
+                await ensureLabel(stateLabel, '5319e7');
+                const { data: created } = await github.rest.issues.create({
+                  ...repo, title: stateTitle, body, labels: [stateLabel],
+                });
+                stateNumber = created.number;
+              }
             }
             async function complete(record) {
               await reconcile(record);
               await save({ sequence: record.sequence, failed: record.failed, createdAt: record.createdAt });
+              lastOutcome = record.failed;
             }
 
-            const saved = state ? JSON.parse(state.body) : null;
             const [lastRun, lastAttempt] = saved ? parseSequence(saved.sequence) : [0n, 0n];
-            if (state) {
-              stateNumber = state.number;
-              if (saved.pending) await complete(saved);
-            }
+            if (saved?.pending) await complete(saved);
             const [currentRun, currentAttempt] = parseSequence(
               `${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT}`);
             if (currentRun < lastRun) return;
@@ -226,12 +249,16 @@ jobs:
             let anchorTime = saved?.createdAt || (lastRun === currentRun ? current.created_at : undefined);
             if (!anchorTime) {
               // Legacy checkpoints did not store a timestamp. Prefer the checkpoint if
-              // retained, and otherwise start at the first unreconciled run.
+              // retained, and otherwise start at the earliest retained unreconciled run.
               let nextTime;
               for await (const { data } of github.paginate.iterator(github.rest.actions.listWorkflowRuns, workflow)) {
-                nextTime ||= data.find(run => BigInt(run.run_number) === firstUnreconciled)?.created_at;
+                const earliest = data.findLast(run => {
+                  const number = BigInt(run.run_number);
+                  return number >= firstUnreconciled && number <= currentRun;
+                });
+                if (earliest) nextTime = earliest.created_at;
                 const checkpoint = lastRun && data.find(run => BigInt(run.run_number) === lastRun);
-                if (checkpoint || (!lastRun && nextTime) ||
+                if (checkpoint || (!lastRun && earliest && BigInt(earliest.run_number) === firstUnreconciled) ||
                     data.some(run => BigInt(run.run_number) < lastRun)) {
                   anchorTime = checkpoint?.created_at || nextTime;
                   break;
@@ -272,37 +299,52 @@ jobs:
               const number = BigInt(run.run_number);
               return number >= firstUnreconciled && number <= currentRun;
             }).sort((a, b) => a.run_number - b.run_number);
-            let expected = firstUnreconciled;
-            for (const run of ordered) {
-              if (BigInt(run.run_number) !== expected) throw new Error(`Monitor history gap at run ${expected}`);
-              expected++;
-            }
-            if (expected !== currentRun + 1n || (currentRun > lastRun && !ordered.some(run =>
-              run.id === context.runId && BigInt(run.run_attempt) >= currentAttempt))) {
+            if (currentRun > lastRun && !ordered.some(run =>
+              run.id === context.runId && BigInt(run.run_attempt) >= currentAttempt)) {
               throw new Error(`Monitor history gap or incomplete current attempt at run ${currentRun}`);
             }
+            let expected = firstUnreconciled;
+            let recovery;
+            let nextGap;
+            const replay = [];
+            for (const run of ordered) {
+              const number = BigInt(run.run_number);
+              if (number < expected) throw new Error(`Duplicate monitor history run ${number}`);
+              if (number > expected) {
+                const range = `${expected}..${number - 1n}`;
+                const message = `Monitor history gap at run ${expected}. Missing range: ${range}`;
+                if (recovery) {
+                  nextGap = message;
+                  break;
+                }
+                if (requestedRecovery !== range) throw new Error(message);
+                recovery = { range, before: number };
+              }
+              replay.push(run);
+              expected = number + 1n;
+            }
+            if (requestedRecovery && !recovery) throw new Error('No monitor history gap matches the supplied checkpoint');
 
             const branch = context.payload.repository.default_branch;
-            async function apply(next) {
-              if (stateNumber) {
-                await save(next);
-              } else {
-                await ensureLabel(stateLabel, '5319e7');
-                const { data: created } = await github.rest.issues.create({
-                  ...repo, title: stateTitle, body: JSON.stringify(next), labels: [stateLabel],
-                });
-                stateNumber = created.number;
-              }
-              await complete(next);
-            }
-
             // Only unreconciled run numbers must be continuous. Replay any retained
             // attempts of the checkpoint run before processing the following runs.
-            const checkpoint = currentRun === lastRun ? current
+            const checkpointWasSkipped = recoveries.some(entry => entry.range.endsWith(`..${lastRun}`));
+            const checkpoint = checkpointWasSkipped ? undefined : currentRun === lastRun ? current
               : runs.find(run => BigInt(run.run_number) === lastRun);
-            for (const run of checkpoint ? [checkpoint, ...ordered] : ordered) {
-              if (run.head_branch !== branch) continue;
+            for (const run of checkpoint ? [checkpoint, ...replay] : replay) {
               const number = BigInt(run.run_number);
+              if (number === recovery?.before) {
+                recoveries.push({
+                  range: recovery.range,
+                  actor: context.actor,
+                  runId: context.runId,
+                  attempt: exactAttempt,
+                });
+                // Save the skip and its audit record atomically without changing the incident.
+                await save({ sequence: `${number - 1n}.1`, failed: lastOutcome, createdAt: run.created_at });
+                core.notice(`Recorded missing monitor runs ${recovery.range}. Resuming at run ${number}.`);
+              }
+              if (run.head_branch !== branch) continue;
               if (number < currentRun && run.status !== 'completed') {
                 throw new Error('An earlier monitor run has not completed');
               }
@@ -315,7 +357,7 @@ jobs:
                 if (!probe) continue;
                 if (probe.status !== 'completed') throw new Error('Monitor outcome is not yet durable');
                 if (!outcomes.includes(probe.conclusion)) continue;
-                await apply({
+                const record = {
                   sequence: `${run.run_number}.${attempt}`,
                   createdAt: run.created_at,
                   failed: probe.conclusion !== 'success',
@@ -323,9 +365,12 @@ jobs:
                     url: `${context.serverUrl}/${repo.owner}/${repo.repo}/actions/runs/${run.id}/attempts/${attempt}`,
                     step: probe.steps?.find(step => step.conclusion === 'failure')?.name || 'Run production monitor',
                   },
-                });
+                };
+                await save(record);
+                await complete(record);
               }
             }
+            if (nextGap) throw new Error(nextGap);
 
       - name: Deliver pending monitor email
         if: ${{ !cancelled() }}
@@ -445,11 +490,12 @@ jobs:
                 let rejection;
                 createInterface({ input: client.stderr, terminal: false }).on('line', (line) => {
                   if (phase === 'accepted' || phase === 'rejected') return;
-                  if (/^> (?:MAIL FROM:|RCPT TO:)/i.test(line)) {
+                  if (phase !== 'body' && /^> (?:MAIL FROM:|RCPT TO:)/i.test(line)) {
+                    phase = 'envelope';
                     envelopeReply = true;
                     return;
                   }
-                  if (/^> DATA\s*$/i.test(line)) {
+                  if (phase !== 'body' && /^> DATA\s*$/i.test(line)) {
                     envelopeReply = false;
                     phase = 'data';
                     return;
@@ -479,6 +525,11 @@ jobs:
                 }
                 if (code === 0 || phase === 'accepted') return 'accepted';
                 if (phase === 'rejected') return rejection === '5' ? 'permanent-rejection' : 'not-submitted';
+                // With a visible envelope or DATA command and no 354 reply, curl could
+                // not have sent the message body before the connection was lost.
+                if ((phase === 'envelope' || phase === 'data') && [52, 55, 56].includes(code)) {
+                  return 'not-submitted';
+                }
                 // curl failed to initialise, resolve, connect, validate TLS, or authenticate.
                 const beforeSubmission = [2, 3, 4, 5, 6, 7, 60, 67, 77];
                 return phase === 'connect' && beforeSubmission.includes(code) ? 'not-submitted' : 'uncertain';
