@@ -104,6 +104,7 @@ pub struct Restriction {
     pub state: StateLabel,
     pub current: StateLabel,
     pub expiry_pending: bool,
+    pub expiry_blocked: bool,
     pub received_at: Option<String>,
     pub current_received_at: Option<String>,
     pub effective_until: Option<String>,

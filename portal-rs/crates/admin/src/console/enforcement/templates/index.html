@@ -56,6 +56,9 @@
       {% if row.expiry_pending %}
       <p data-expiry-pending>{{ lang.text("Potwierdzenie wygaśnięcia przez grę jest w toku.", "Expiry is awaiting Game confirmation.") }}</p>
       {% endif %}
+      {% if row.expiry_blocked %}
+      <p data-expiry-blocked>{{ lang.text("Wygaśnięcie wymaga uzgodnienia. Sprawdź potwierdzenia z gry lub użyj cofnięcia, jeśli jest dostępne.", "Expiry requires reconciliation. Check Game receipts or use revoke when available.") }}</p>
+      {% endif %}
       {% for form in panel.forms %}
       {% let field_id = form.operation %}
       <form class="op-stack" action="{{ PATH }}?lang={{ lang.code() }}&amp;character={{ id }}" method="post" data-action="{{ form.intent.name() }}">
@@ -75,7 +78,7 @@
           <option value="disruptive_behavior">{{ lang.text("Zakłócanie gry", "Disruptive behavior") }}</option>
           <option value="rule_violation">{{ lang.text("Naruszenie zasad", "Rule violation") }}</option>
         </select>
-        <button class="op-button" type="submit">{{ lang.action(form.intent) }}</button>
+        <button class="op-button" type="submit">{% if row.expiry_blocked && form.intent == Action::Revoke %}{{ lang.text("Uzgodnij przez cofnięcie", "Reconcile by revoking") }}{% else %}{{ lang.action(form.intent) }}{% endif %}</button>
       </form>
       {% endfor %}
     </section>

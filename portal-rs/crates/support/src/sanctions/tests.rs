@@ -56,6 +56,7 @@ impl Database {
             include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
             include_str!("../../../../migrations/20261115100001_support_enforcement_commands.sql"),
             include_str!("../../../../migrations/20261122170100_support_enforcement_decisions.sql"),
+            include_str!("../../../../migrations/20261122170600_enforcement_expiry_block.sql"),
             include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
             include_str!("../../../../migrations/20261105220221_t08_sessions.sql"),
             include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),

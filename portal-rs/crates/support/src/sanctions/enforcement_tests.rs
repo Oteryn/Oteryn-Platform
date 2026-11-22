@@ -636,6 +636,7 @@ impl Database {
             include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
             include_str!("../../../../migrations/20261115100001_support_enforcement_commands.sql"),
             include_str!("../../../../migrations/20261122170100_support_enforcement_decisions.sql"),
+            include_str!("../../../../migrations/20261122170600_enforcement_expiry_block.sql"),
             include_str!("../../../../migrations/20261122170500_enforcement_overdue_cursor.sql"),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
@@ -1301,10 +1302,55 @@ async fn refused_successors_keep_the_original_timer_and_never_publish_a_stale_ex
             .restrictions(&mut tx, &target)
             .await
             .map_err(|e| format!("{e:?}"))?;
-        assert!(rows[0].expiry_pending);
+        assert!(!rows[0].expiry_pending);
+        assert!(rows[0].expiry_blocked);
         assert!(matches!(rows[0].state, StateLabel::Refused));
         assert!(matches!(rows[0].current, StateLabel::Applied));
-        assert!(rows[0].actions.contains(&Action::Revoke));
+        assert_eq!(rows[0].actions, &[Action::Revoke]);
+        let resolved = Uuid::now_v7();
+        journal
+            .submit(
+                &mut tx,
+                &target,
+                Decision {
+                    actor: id(0x501),
+                    profile: BrowserProfile::Mute,
+                    action: Action::Revoke,
+                    operation: resolved,
+                    version: rows[0].version,
+                    minutes: None,
+                    reason: oteryn_admin::console::enforcement::Reason::RuleViolation,
+                },
+            )
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        tx.commit().await?;
+        let bytes = read_command(&db.pool, resolved)
+            .await?
+            .ok_or("missing reconciliation revoke")?;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes)?["decision_revision"],
+            3
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes)?["prior_decision_revision"],
+            1
+        );
+        let revoked = std::str::from_utf8(RESULT_REVOKED)?
+            .replace(&revoke().operation_id.to_string(), &resolved.to_string())
+            .replace(&digest(COMMAND_REVOKE), &digest(&bytes))
+            .replace(
+                r#""accepted_decision_revision":2"#,
+                r#""accepted_decision_revision":3"#,
+            );
+        receive(&db, revoked.as_bytes()).await?;
+        let mut tx = db.pool.begin().await?;
+        let rows = journal
+            .restrictions(&mut tx, &target)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(!rows[0].expiry_blocked);
+        assert!(matches!(rows[0].current, StateLabel::Revoked));
         tx.commit().await?;
         db.cleanup().await?;
     }

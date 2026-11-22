@@ -808,16 +808,30 @@ pub async fn ingest(pool: &PgPool, receipt: &Receipt, bytes: &[u8]) -> Result<()
         let timed = matches!(receipt.state.as_str(), "APPLIED" | "REPLACED");
         sqlx::query(
             "UPDATE support_enforcement_decisions d
-             SET reconcile_at_ms=CASE WHEN d.operation_id=$1 AND $2 THEN d.expires_at_ms END
+             SET reconcile_at_ms=CASE WHEN d.operation_id=$1 AND $2 THEN d.expires_at_ms END,
+                 expiry_blocked_by=NULL
              FROM support_enforcement_commands decided,support_enforcement_commands source
              WHERE decided.operation_id=$1
                AND d.sanction_id=decided.sanction_stream_id
                AND d.decision_revision<=decided.decision_revision
-               AND (d.reconcile_at_ms IS NOT NULL OR (d.operation_id=$1 AND $2))
+               AND (d.reconcile_at_ms IS NOT NULL OR d.expiry_blocked_by IS NOT NULL OR (d.operation_id=$1 AND $2))
                AND source.operation_id=d.operation_id AND source.position<=decided.position",
         )
         .bind(receipt.operation_id)
         .bind(timed)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if intent == Intent::Expire && receipt.state == "REJECTED" {
+        sqlx::query(
+            "UPDATE support_enforcement_decisions d SET reconcile_at_ms=NULL,expiry_blocked_by=c.operation_id
+             FROM support_enforcement_commands c
+             WHERE c.operation_id=$1 AND d.sanction_id=c.sanction_stream_id
+               AND d.decision_revision=c.decision_revision AND d.expires_at_ms IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM support_enforcement_commands newer
+                   WHERE newer.sanction_stream_id=c.sanction_stream_id AND newer.position>c.position)",
+        )
+        .bind(receipt.operation_id)
         .execute(&mut *tx)
         .await?;
     }
@@ -1116,7 +1130,9 @@ struct Latest {
     operation_id: Uuid,
     sanction_stream_id: Uuid,
     decision_revision: i64,
+    intent: String,
     state: Option<String>,
+    expiry_blocked: bool,
     stream_state: Option<String>,
     result_code: Option<String>,
     accepted_revision: Option<i64>,
@@ -1136,7 +1152,8 @@ async fn latest(
     profile: BrowserProfile,
 ) -> Result<Option<Latest>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,r.state,
+        "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,c.intent,r.state,
+            d.expiry_blocked_by IS NOT NULL AS expiry_blocked,
             r.body->>'stream_state' AS stream_state,r.body->>'result_code' AS result_code,
             (r.body->>'accepted_decision_revision')::bigint AS accepted_revision,
             to_char(r.received_at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS received_at,
@@ -1170,7 +1187,9 @@ async fn latest(
               )
               AND h.terminal AND h.state<>'REJECTED'
             ORDER BY p.decision_revision DESC,p.position DESC LIMIT 1
-         ) h ON true",
+         ) h ON true
+         LEFT JOIN support_enforcement_decisions d
+           ON d.sanction_id=c.sanction_stream_id AND d.decision_revision=h.decision_revision",
     )
     .bind(account)
     .bind(character)
@@ -1201,6 +1220,7 @@ impl Latest {
             (Some("ACTIVE"), Some("APPLIED" | "REPLACED")) => match self.platform_status.as_deref()
             {
                 Some("revoked") => &[Action::Revoke],
+                Some("active") if self.expiry_blocked => &[Action::Revoke],
                 Some("active") => &[Action::Replace, Action::Revoke],
                 _ => &[],
             },
@@ -1356,7 +1376,6 @@ impl Backend for BrowserJournal {
         tx: &mut Transaction<'_, Postgres>,
         target: &Target,
     ) -> Result<Vec<Restriction>, BrowserError> {
-        let now = database_now(tx).await?;
         let mut restrictions = Vec::new();
         for profile in BrowserProfile::ALL {
             let mut actions: &'static [Action] = &[];
@@ -1370,6 +1389,7 @@ impl Backend for BrowserJournal {
                 state: StateLabel::None,
                 current: StateLabel::Unconfirmed,
                 expiry_pending: false,
+                expiry_blocked: false,
                 received_at: None,
                 current_received_at: None,
                 effective_until: None,
@@ -1378,8 +1398,9 @@ impl Backend for BrowserJournal {
             };
             if let Some(last) = latest(tx, target.account, target.character, profile).await? {
                 row.current = last.confirmed_state();
-                row.expiry_pending = matches!(row.current, StateLabel::Applied)
-                    && last.confirmed_until_ms.is_some_and(|until| until <= now);
+                let pending = matches!(last.state.as_deref(), None | Some("ACCEPTED_PENDING"));
+                row.expiry_pending = pending && last.intent == "EXPIRE";
+                row.expiry_blocked = last.expiry_blocked && !pending;
                 row.actions = if actions.is_empty() {
                     &[]
                 } else {
@@ -1827,11 +1848,15 @@ impl Expiry {
             .bind(self.profiles.enabled(Profile::Jail)).fetch_all(&mut *tx).await?;
         for item in due {
             sqlx::query(
-                "UPDATE support_enforcement_decisions SET reconcile_at_ms=NULL
+                "UPDATE support_enforcement_decisions SET reconcile_at_ms=NULL,expiry_blocked_by=$3
                  WHERE sanction_id=$1 AND decision_revision=$2",
             )
             .bind(item.sanction_id)
             .bind(item.decision_revision)
+            .bind(
+                (item.head_operation != item.operation_id && item.head_state == "REJECTED")
+                    .then_some(item.head_operation),
+            )
             .execute(&mut *tx)
             .await?;
             let stream = item.sanction_id;
