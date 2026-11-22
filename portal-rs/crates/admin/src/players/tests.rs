@@ -2062,6 +2062,14 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
     };
     kick_fixture(&db).await;
     let moderator = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+         VALUES($1,'moderator@example.test','test-only','active',now(),'en')",
+    )
+    .bind(moderator)
+    .execute(&db.pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator'")
         .bind(moderator)
         .execute(&db.pool)
@@ -2150,6 +2158,9 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
         .next()
         .unwrap()
         .to_owned();
+    crate::test_staff::browser(&db.pool, moderator, &cookie)
+        .await
+        .unwrap();
     // Support data and actions stay refused for the moderator.
     let search = app(moderator)
         .oneshot(
@@ -2167,7 +2178,10 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
             app(moderator),
             &path,
             &cookie,
-            format!("_csrf={csrf}&action=note&body=Note&reason=support_case")
+            format!(
+                "_csrf={csrf}&action=note&body=Note&reason=support_case&submission={}",
+                Uuid::now_v7()
+            )
         )
         .await,
         StatusCode::FORBIDDEN
