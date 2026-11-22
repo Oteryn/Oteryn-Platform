@@ -135,6 +135,8 @@ test('panel navigation enforces scope and role grants require a reason', async (
         await assertShell(admin,{status:403});
       }
     }
+    // Shell probes include the other language and may update the locale cookie.
+    await staffContext.addCookies([{name: 'portal_language', value: lang, url: origin}]);
     await query(
       "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_viewer'",
       [staff],
