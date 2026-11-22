@@ -335,6 +335,7 @@ async fn today_postgres_success_replay_history_and_public_render() -> Result {
             )
             .await?;
         assert_eq!(localized.status(), StatusCode::OK);
+        assert_eq!(localized.headers()["content-language"], locale);
         let localized = String::from_utf8(to_bytes(localized.into_body(), 65536).await?.to_vec())?;
         assert!(localized.contains(&format!("<html lang=\"{locale}\"")));
         assert!(localized.contains(&format!("aria-label=\"{widget}\"")));

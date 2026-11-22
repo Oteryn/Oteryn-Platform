@@ -302,6 +302,7 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
             )
             .await;
             assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["content-language"], lang);
             let html = body(response).await;
             std::fs::write(format!("/tmp/adm-p2d-{path}-{lang}.html"), &html).unwrap();
             assert!(html.contains("fixture-healthy"));

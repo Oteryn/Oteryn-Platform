@@ -7,7 +7,7 @@ use axum::{
         Path, Query, Request as HttpRequest, State,
         rejection::{FormRejection, PathRejection},
     },
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -124,17 +124,7 @@ fn enabled(name: &str) -> bool {
 struct Locale(&'static str);
 impl Locale {
     fn from_headers(headers: &HeaderMap) -> Self {
-        Self(
-            if headers
-                .get("accept-language")
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|s| s.starts_with("en"))
-            {
-                "en"
-            } else {
-                "pl"
-            },
-        )
+        Self(crate::web::language(headers))
     }
     fn text(self, key: &str) -> String {
         let source = if self.0 == "en" {
@@ -204,8 +194,7 @@ struct Page {
 struct QueueFilter {
     after: Option<Uuid>,
     // Site-wide locale switch parameter carried by admin navigation links.
-    #[serde(rename = "lang")]
-    _lang: Option<String>,
+    lang: Option<String>,
 }
 fn format_refund_amount(minor_units: i64, currency: &str) -> String {
     // ISO 4217 currencies whose minor units differ from the usual hundredths.
@@ -231,7 +220,11 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
     headers: HeaderMap,
     Query(filter): Query<QueueFilter>,
 ) -> Response {
-    let locale = Locale::from_headers(&headers);
+    let locale = match filter.lang.as_deref() {
+        Some("en") => Locale("en"),
+        Some("pl") => Locale("pl"),
+        _ => Locale::from_headers(&headers),
+    };
     let commands: Vec<_> = [
         ("grant", Command::Grant { days: 1 }),
         ("revoke", Command::Revoke),
@@ -309,7 +302,7 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         Ok(v) => v,
         Err(_) => return failure(locale, Error::Unavailable),
     };
-    oteryn_web::render(&Page {
+    let mut response = oteryn_web::render(&Page {
         lang: locale.0,
         title: locale.text("title"),
         note: locale.text("note"),
@@ -330,7 +323,11 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         csrf,
         actions,
         pending,
-    })
+    });
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(locale.0));
+    response
 }
 #[derive(Deserialize)]
 struct Input {

@@ -24,7 +24,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -450,16 +450,10 @@ struct QueryForm {
     _csrf: String,
 }
 fn lang(headers: &HeaderMap, selection: &Selection) -> &'static str {
-    if selection.lang.as_deref() == Some("en")
-        || (selection.lang.is_none()
-            && headers
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.starts_with("en")))
-    {
-        "en"
-    } else {
-        "pl"
+    match selection.lang.as_deref() {
+        Some("en") => "en",
+        Some(_) => "pl",
+        None => web::language(headers),
     }
 }
 fn text(lang: &str, key: &str) -> String {
@@ -691,7 +685,7 @@ async fn render<P: Permissions, C: Channel>(
             .unwrap_or_default()
     );
     let csrf = session.csrf_token().await.map_err(|_| Error::Unavailable)?;
-    Ok(oteryn_web::render(&Page {
+    let mut response = oteryn_web::render(&Page {
         lang: language,
         language_label: text(language, "language"),
         title: text(language, op.page()),
@@ -712,7 +706,11 @@ async fn render<P: Permissions, C: Channel>(
         target: q.target.unwrap_or_default(),
         path,
         poll,
-    }))
+    });
+    response
+        .headers_mut()
+        .insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(language));
+    Ok(response)
 }
 macro_rules! page_handler {
     ($name:ident, $base:expr, $detail:expr) => {

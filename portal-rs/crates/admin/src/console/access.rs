@@ -599,6 +599,7 @@ impl Page {
         Ok((
             [
                 (header::CONTENT_TYPE, "text/html; charset=utf-8"),
+                (header::CONTENT_LANGUAGE, self.lang),
                 (header::CACHE_CONTROL, "no-store"),
                 (header::REFERRER_POLICY, "no-referrer"),
             ],

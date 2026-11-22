@@ -216,11 +216,11 @@ struct Page<'a> {
 struct Options {
     lang: Option<String>,
 }
-fn language(lang: &str) -> Result<&str, StatusCode> {
-    if matches!(lang, "pl" | "en") {
-        Ok(lang)
-    } else {
-        Err(StatusCode::NOT_FOUND)
+fn language(lang: &str) -> Result<&'static str, StatusCode> {
+    match lang {
+        "pl" => Ok("pl"),
+        "en" => Ok("en"),
+        _ => Err(StatusCode::NOT_FOUND),
     }
 }
 pub fn router(pool: PgPool) -> Router {
@@ -266,7 +266,7 @@ async fn local_ticker(
         render_ticker(&pool, language(&lang)?, OffsetDateTime::now_utc()).await,
     ))
 }
-async fn digest(pool: &PgPool, lang: &str) -> Result<Response, StatusCode> {
+async fn digest(pool: &PgPool, lang: &'static str) -> Result<Response, StatusCode> {
     use askama::Template;
     let cards = cards(pool, lang, OffsetDateTime::now_utc()).await;
     let mut body = String::new();
@@ -304,7 +304,12 @@ async fn digest(pool: &PgPool, lang: &str) -> Result<Response, StatusCode> {
     }
     .render()
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(response(html))
+    let mut response = response(html);
+    response.headers_mut().insert(
+        axum::http::header::CONTENT_LANGUAGE,
+        HeaderValue::from_static(lang),
+    );
+    Ok(response)
 }
 fn response(html: String) -> Response {
     let mut r = Html(html).into_response();
