@@ -3909,3 +3909,142 @@ test('staff announcement forms keep drafts private and publish the reviewed bili
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+for (const prefix of ['locale', 'unprefixed']) {
+  test(`MFA ${prefix} aliases bind enrollment, emailed proof and remembered-device removal to the owner`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const base = prefix === 'locale' ? `/${lang}/mfa` : '/mfa';
+    const settings = `/${lang}/mfa`;
+    const challengePath = `${settings}/challenge`;
+    const contexts = [];
+    try {
+      const owner = await seededPlayer(page, lang);
+      const outsiders = [];
+      for (const role of [undefined, 'content_editor']) {
+        const context = await browser.newContext({
+          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        });
+        contexts.push(context);
+        const other = await context.newPage();
+        await seededPlayer(other, lang, role);
+        await other.goto(`/${lang}/account/privacy`);
+        outsiders.push({ other, role, token: (await prepare(other, formSelector)).fields._csrf });
+      }
+      const state = async () => ({
+        factor: await query('SELECT confirmed,generation FROM account_mfa_totp WHERE account_id=$1', [owner.id]),
+        codes: (await query('SELECT count(*)::int AS n FROM account_recovery_codes WHERE account_id=$1', [owner.id]))[0].n,
+        tokens: await query("SELECT purpose,count(*)::int AS count FROM account_mfa_tokens WHERE account_id=$1 GROUP BY purpose ORDER BY purpose", [owner.id]),
+        sessions: (await query('SELECT count(*)::int AS n FROM web_sessions WHERE account_id=$1', [owner.id]))[0].n,
+      });
+      const reserve = async (policy, remaining) => {
+        await expect.poll(async () => {
+          const [row] = await query(
+            "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name=$1 AND window_start=date_trunc('minute',clock_timestamp())",
+            [policy],
+          );
+          return row.count;
+        }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(remaining);
+      };
+      const error = lang === 'pl'
+        ? 'Nie udało się zweryfikować żądania. Sprawdź dane i spróbuj ponownie.'
+        : 'The request could not be verified. Check your details and try again.';
+      const refuse = async (form, name, values) => {
+        const data = await prepare(page, form, values);
+        const url = new URL(`${base}/${name}`, data.url).href;
+        const baseline = await state();
+        await rejected({ page, url, fields: data.fields, snapshot: state, baseline });
+        for (const { other, role, token } of outsiders) {
+          const response = await sendForm(other, url, { ...data.fields, _csrf: token });
+          const status = name === 'devices' ? (role ? 200 : 403) : 302;
+          expect(response.status()).toBe(status);
+          if (name === 'devices' && role) expect(await response.text()).toContain(error);
+          expect(await state()).toEqual(baseline);
+        }
+        return { ...data, target: url, baseline };
+      };
+      const enroll = 'main form[action$="/mfa/enroll"]';
+      expect((await page.goto(settings)).status()).toBe(200);
+      const enrollment = await refuse(enroll, 'enroll', { password: owner.password });
+      expect(enrollment.baseline).toEqual({ factor: [], codes: 0, tokens: [], sessions: 1 });
+      await reserve('identity-mfa-enrollment', 0);
+      for (const password of ['', 'x'.repeat(1025), '1', `${owner.password}x`]) {
+        const response = await sendForm(page, enrollment.target, { ...enrollment.fields, password });
+        expect(response.status()).toBe(302);
+        expect(response.headers().location).toBe(settings);
+        await page.goto(settings);
+        await expect(page.getByRole('alert')).toHaveText(error);
+        expect(await state()).toEqual(enrollment.baseline);
+      }
+      await useFormMethod(page, enrollment.url, 'POST', () => submit(page, enroll, { password: owner.password }), enrollment.target);
+      const confirm = 'main form[action$="/mfa/confirm"]';
+      await expect(page.locator(confirm)).toBeVisible();
+      const opened = await state();
+      expect(opened).toEqual({ ...enrollment.baseline, factor: [{ confirmed: false, generation: expect.any(String) }] });
+      const totp = new TOTP({ secret: await page.locator('main .op-prose').innerText(), algorithm: 'SHA1', digits: 6, period: 30 });
+      const verification = await refuse(confirm, 'confirm', { password: owner.password, code: '000000' });
+      await reserve('identity-mfa-enrollment', 0);
+      for (const code of ['', '1'.repeat(65), 'x', '99999']) {
+        const response = await sendForm(page, verification.target, { ...verification.fields, code });
+        expect(response.status()).toBe(302);
+        expect(response.headers().location).toBe(settings);
+        expect(await state()).toEqual(opened);
+      }
+      const values = { password: owner.password, code: totp.generate() };
+      await useFormMethod(page, verification.url, 'POST', () => submit(page, confirm, values), verification.target);
+      const recovery = page.locator('textarea[readonly]');
+      await expect(recovery).toHaveCount(8);
+      const confirmed = await state();
+      expect(confirmed).toEqual({
+        factor: [{ ...opened.factor[0], confirmed: true }], codes: 8, tokens: [], sessions: 0,
+      });
+      expect((await sendForm(page, verification.target, verification.fields)).status()).toBe(403);
+      expect(await state()).toEqual(confirmed);
+
+      await login(page, lang, owner);
+      await expect(page).toHaveURL(new URL(challengePath, page.url()).href);
+      const email = 'main form[action$="/mfa/email"]';
+      const dispatch = await refuse(email, 'email');
+      await useFormMethod(page, dispatch.url, 'POST', () => submit(page, email), dispatch.target);
+      await expect(page).toHaveURL(new URL(challengePath, page.url()).href);
+      const code = (await mailLink(page, owner.email, /(?:^|\r?\n)[a-f0-9]{64}(?:\r?\n|$)/)).trim();
+      expect((await state()).tokens).toEqual([{ purpose: 'challenge', count: 1 }, { purpose: 'email', count: 1 }]);
+      const challenge = 'main form[action$="/mfa/challenge"]';
+      const proof = await refuse(challenge, 'challenge', { code, remember: 'yes' });
+      await reserve('identity-mfa-challenge', 0);
+      for (const invalid of ['', 'x'.repeat(65), 'type', '12345']) {
+        const response = await sendForm(page, proof.target, { ...proof.fields, code: invalid });
+        expect(response.status()).toBe(302);
+        expect(response.headers().location).toBe(challengePath);
+        await page.goto(challengePath);
+        await expect(page.getByRole('alert')).toHaveText(error);
+        expect(await state()).toEqual(proof.baseline);
+      }
+      await useFormMethod(page, proof.url, 'POST', () => submit(page, challenge, { code, remember: true }), proof.target);
+      await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+      const signedIn = await state();
+      expect(signedIn.sessions).toBe(1);
+      expect(signedIn.tokens).toEqual([{ purpose: 'grant', count: 1 }, { purpose: 'trusted', count: 1 }]);
+      expect((await sendForm(page, proof.target, proof.fields)).status()).toBe(403);
+      expect(await state()).toEqual(signedIn);
+
+      expect((await page.goto(settings)).status()).toBe(200);
+      const device = 'main form[action$="/mfa/devices"]';
+      const remove = await refuse(device, 'devices');
+      for (const value of ['', '0'.repeat(65), '1', '0'.repeat(63)]) {
+        const response = await sendForm(page, remove.target, { ...remove.fields, device: value });
+        expect(response.status()).toBe(200);
+        expect(await response.text()).toContain(error);
+        expect(await state()).toEqual(signedIn);
+      }
+      await useFormMethod(page, remove.url, 'POST', () => submit(page, device), remove.target);
+      await expect(page.locator(device)).toHaveCount(0);
+      const cleared = { ...signedIn, tokens: [{ purpose: 'grant', count: 1 }] };
+      expect(await state()).toEqual(cleared);
+      expect((await sendForm(page, remove.target, remove.fields)).status()).toBe(200);
+      expect(await state()).toEqual(cleared);
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
