@@ -30,3 +30,5 @@ mod locking;
 
 #[cfg(test)]
 mod lifecycle_tests;
+
+pub mod activity;
