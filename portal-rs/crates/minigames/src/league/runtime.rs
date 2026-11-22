@@ -13,16 +13,26 @@ pub(super) fn now() -> Result<u64> {
 #[derive(Debug, Clone)]
 pub struct GameAuthority {
     pub(super) config: Option<Arc<Config>>,
+    unconfigured: bool,
 }
 impl GameAuthority {
     pub fn configured() -> Self {
         Self {
             config: Config::from_env().ok().map(Arc::new),
+            unconfigured: [
+                "OTERYN_LEAGUE_SOURCE_AUTHORITY",
+                "OTERYN_LEAGUE_BASE_URL",
+                "OTERYN_LEAGUE_CLIENT_SPKI_SHA256",
+                "OTERYN_LEAGUE_RECOVERY_FILE",
+            ]
+            .iter()
+            .all(|name| std::env::var_os(name).is_none()),
         }
     }
     pub fn new(config: Config) -> Self {
         Self {
             config: Some(Arc::new(config)),
+            unconfigured: false,
         }
     }
     async fn checked_fence(
@@ -31,7 +41,14 @@ impl GameAuthority {
         clock: u64,
         serving: bool,
     ) -> Result<Fence> {
-        let c = self.config.as_ref().ok_or(Error::Unavailable)?;
+        let c = self
+            .config
+            .as_ref()
+            .ok_or(if serving && self.unconfigured {
+                Error::MissingGameData
+            } else {
+                Error::Unavailable
+            })?;
         let recovery = c.recovery()?;
         let database_now: i64 =
             sqlx::query_scalar("SELECT extract(epoch FROM clock_timestamp())::bigint")

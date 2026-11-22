@@ -519,6 +519,7 @@ mod startup_tests {
                     .oneshot(axum::http::Request::get(path).body(Body::empty())?)
                     .await?;
                 assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(response.headers()["x-oteryn-game-data"], "unavailable");
                 assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
                 let html =
                     String::from_utf8(to_bytes(response.into_body(), 10000).await?.to_vec())?;
