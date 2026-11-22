@@ -136,3 +136,58 @@ test('League SQL refusals release connections and preserve the localized respons
     await db.end();
   }
 });
+
+test('Collection and Puzzles leave the pool ready when session refresh is locked', async ({ page, request }, info) => {
+  const lang = info.project.metadata.locale;
+  const account = await seedAccount(lang);
+  await login(page, lang, account);
+  const paths = ['collection', 'puzzles'].map(route => `/${lang}/${route}`);
+  const statuses = () => Promise.all(paths.map(async path => (await page.request.get(path)).status()));
+  expect(await statuses()).toEqual([200, 200]);
+  for (const path of paths) {
+    expect((await request.get(path, { maxRedirects: 0 })).status()).toBe(303);
+    const malformed = await request.get(path, {
+      headers: { Cookie: '__Host-oteryn_session=invalid-fixture' },
+      maxRedirects: 0,
+    });
+    expect(malformed.status()).toBe(400);
+  }
+
+  const db = pool();
+  const blocker = await db.connect();
+  try {
+    await blocker.query('BEGIN');
+    await blocker.query("SET LOCAL statement_timeout = '3s'");
+    // Row locks let the Chrome SELECT finish, so these requests reach the session UPDATE.
+    const locked = await blocker.query(
+      'SELECT session_id FROM web_sessions WHERE account_id=$1 FOR UPDATE', [account.accountId],
+    );
+    expect(locked.rowCount).toBeGreaterThan(0);
+    const refreshWaiters = async () => {
+      const { rows } = await db.query(`
+        SELECT count(*)::int AS waiting FROM pg_stat_activity
+        WHERE datname=current_database() AND wait_event_type='Lock'
+          AND query LIKE 'UPDATE web_sessions SET last_seen_at=%'
+      `);
+      return rows[0].waiting;
+    };
+    for (let wave = 0; wave < 5; wave++) {
+      const responses = Promise.allSettled([...paths, ...paths].map(async path =>
+        (await page.request.get(path, { maxRedirects: 0 })).status(),
+      ));
+      try {
+        if (wave === 0) {
+          await expect.poll(refreshWaiters, { message: 'the landing pages must reach the locked session UPDATE' }).toBeGreaterThan(0);
+        }
+      } finally {
+        expect(await responses).toEqual(Array.from({ length: 4 }, () => ({ status: 'fulfilled', value: 503 })));
+      }
+      expect(await refreshWaiters()).toBe(0);
+      expect((await request.get('/readyz', { timeout: 2000 })).status()).toBe(200);
+    }
+  } finally {
+    await blocker.query('ROLLBACK').finally(() => blocker.release());
+    await db.end();
+  }
+  expect(await statuses()).toEqual([200, 200]);
+});

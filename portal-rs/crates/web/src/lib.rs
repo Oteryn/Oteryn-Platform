@@ -18,29 +18,23 @@ use tower_http::{
     trace::TraceLayer,
 };
 
-/// Opts a public browser read into the bounded presentation session lookup.
+/// Shares the landing page's absolute deadline with its browser and SQL layers.
 #[derive(Clone, Copy, Debug)]
-pub struct BoundedBrowserRead;
+pub struct BoundedBrowserRead(pub tokio::time::Instant);
 
 async fn bounded_browser_query<T>(
     pool: &PgPool,
+    deadline: BoundedBrowserRead,
     query: impl AsyncFnOnce(&mut sqlx::PgConnection) -> Result<T, sqlx::Error>,
 ) -> Result<T, sqlx::Error> {
-    use sqlx::Connection;
-    oteryn_db::with_connection_deadline(
+    use std::time::Duration;
+    use tokio::time::Instant;
+    oteryn_db::with_transaction_deadline(
         pool,
-        std::time::Duration::from_secs(1),
-        async |connection| {
-            let mut tx = connection.begin().await?;
-            sqlx::raw_sql(
-                "SET LOCAL lock_timeout = '400ms'; SET LOCAL statement_timeout = '750ms'",
-            )
-            .execute(&mut *tx)
-            .await?;
-            let result = query(&mut tx).await?;
-            tx.commit().await?;
-            Ok(result)
-        },
+        deadline.0.min(Instant::now() + Duration::from_secs(1)),
+        Duration::from_millis(400),
+        Duration::from_millis(750),
+        async |tx| query(tx).await,
     )
     .await
 }

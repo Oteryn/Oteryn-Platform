@@ -247,6 +247,17 @@ impl RateLimiter {
         }
         check(self, policy, keys).await
     }
+    /// Charge a League browser request within its existing admission deadline.
+    pub async fn check_public_game_data(
+        &self,
+        keys: &[Keys],
+        deadline: crate::BoundedBrowserRead,
+    ) -> Result<(), Denial> {
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        check_with_deadline(self, NamedPolicy::PublicGameData, keys, Some(deadline)).await
+    }
     pub(crate) async fn check_recovery_submission(&self, keys: Keys) -> Result<(), Denial> {
         let policy = NamedPolicy::IdentityRecoveryKeyUse;
         let mut aggregate = Keys::source(keys.source);
@@ -275,6 +286,18 @@ pub async fn check(
     policy: NamedPolicy,
     keys: &[Keys],
 ) -> Result<(), Denial> {
+    let deadline = (policy == NamedPolicy::PublicGameData).then(|| {
+        crate::BoundedBrowserRead(tokio::time::Instant::now() + std::time::Duration::from_secs(1))
+    });
+    check_with_deadline(limiter, policy, keys, deadline).await
+}
+
+async fn check_with_deadline(
+    limiter: &RateLimiter,
+    policy: NamedPolicy,
+    keys: &[Keys],
+    deadline: Option<crate::BoundedBrowserRead>,
+) -> Result<(), Denial> {
     if keys.is_empty() || keys.len() > 32 {
         return Err(Denial::BadInput);
     }
@@ -296,8 +319,8 @@ pub async fn check(
              SET count = least(web_rate_limits.count + 1, $4 + 1) RETURNING count) \
              SELECT count, retry FROM charged CROSS JOIN bucket"
         ).bind(policy.name()).bind(hash).bind(policy.window_seconds()).bind(policy.limit());
-        let (count, delay) = if policy == NamedPolicy::PublicGameData {
-            crate::bounded_browser_query(&limiter.pool, async |connection| {
+        let (count, delay) = if let Some(deadline) = deadline {
+            crate::bounded_browser_query(&limiter.pool, deadline, async |connection| {
                 query.fetch_one(connection).await
             })
             .await

@@ -206,11 +206,18 @@ async fn page(
     State(state): State<HttpState>,
     Extension(session): Extension<BrowserSession>,
     Path(lang): Path<String>,
+    budget: Option<Extension<oteryn_web::BoundedBrowserRead>>,
 ) -> Result<Response, StatusCode> {
     locale(&lang)?;
     let account = account(&session).await?;
-    let daily = state.puzzles.today(account).await.map_err(status)?;
-    let progress = state.puzzles.progress(account).await.map_err(status)?;
+    let deadline = budget
+        .map(|Extension(budget)| budget.0)
+        .unwrap_or_else(crate::browser::landing_deadline);
+    let (daily, progress) = state
+        .puzzles
+        .landing(account, deadline)
+        .await
+        .map_err(status)?;
     let csrf = session
         .csrf_token()
         .await

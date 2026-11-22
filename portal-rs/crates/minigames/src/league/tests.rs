@@ -536,15 +536,31 @@ async fn league_samples_clock_after_pool_admission_and_still_rejects_skew() -> T
         runtime::GameAuthority::new(config),
     );
 
+    let expired = tokio::time::Instant::now();
+    let sampled = Cell::new(false);
+    assert!(
+        league
+            .read_with_clock(expired, || {
+                sampled.set(true);
+                runtime::now()
+            })
+            .await
+            .is_err()
+    );
+    assert!(!sampled.get());
+
     let mut held = Vec::new();
     for _ in 0..db.pool.options().get_max_connections() {
         held.push(db.pool.acquire().await?);
     }
     let sampled = Cell::new(false);
-    let mut read = std::pin::pin!(league.read_with_clock(|| {
-        sampled.set(true);
-        runtime::now()
-    }));
+    let mut read = std::pin::pin!(league.read_with_clock(
+        crate::browser::landing_deadline(),
+        || {
+            sampled.set(true);
+            runtime::now()
+        }
+    ));
     std::future::poll_fn(|cx| {
         assert!(matches!(read.as_mut().poll(cx), Poll::Pending));
         Poll::Ready(())
@@ -560,7 +576,9 @@ async fn league_samples_clock_after_pool_admission_and_still_rejects_skew() -> T
     assert!(sampled.get());
     assert!(matches!(
         league
-            .read_with_clock(|| Ok(runtime::now()?.saturating_sub(5)))
+            .read_with_clock(crate::browser::landing_deadline(), || Ok(
+                runtime::now()?.saturating_sub(5)
+            ))
             .await,
         Err(Error::Invalid)
     ));
@@ -605,6 +623,19 @@ async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
             .header("x-forwarded-for", forwarded)
             .body(Body::empty())
     };
+
+    let mut expired = request("pl", "198.51.100.1")?;
+    expired
+        .extensions_mut()
+        .insert(oteryn_web::BoundedBrowserRead(tokio::time::Instant::now()));
+    let refused = app.clone().oneshot(expired).await?;
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let charged: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM web_rate_limits WHERE limiter_name='public-game-data'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(charged, 0);
 
     for _ in 0..120 {
         let response = app.clone().oneshot(request("pl", "198.51.100.1")?).await?;

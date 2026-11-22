@@ -1,7 +1,9 @@
 use super::*;
-use oteryn_identity::accounts::Accounts;
+use oteryn_identity::accounts::{Account, Accounts};
 use oteryn_world::WorldStore;
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row, postgres::PgRow};
+use std::time::Duration;
+use tokio::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct Puzzles {
@@ -27,6 +29,9 @@ impl Puzzles {
         }
         .find_by_id(account)
         .await?;
+        Self::check_account(account)
+    }
+    fn check_account(account: Option<Account>) -> Result<(), Error> {
         if account.is_some_and(|account| {
             account.status == "active" && account.email_verified_at.is_some()
         }) {
@@ -36,14 +41,23 @@ impl Puzzles {
         }
     }
     async fn visible(&self, definition: &Definition) -> Result<(), Error> {
+        self.visible_using(definition, None).await
+    }
+    async fn visible_using(
+        &self,
+        definition: &Definition,
+        mut connection: Option<&mut PgConnection>,
+    ) -> Result<(), Error> {
         definition.validate()?;
         for choice in &definition.choices {
-            let entity = self
-                .world
-                .get_entity(&choice.source.kind, &choice.source.key)
-                .await
-                .map_err(|_| Error::Unavailable)?
-                .ok_or(Error::Unavailable)?;
+            let kind = &choice.source.kind;
+            let key = &choice.source.key;
+            let entity = match connection.as_deref_mut() {
+                Some(connection) => self.world.get_entity_using(connection, kind, key).await,
+                None => self.world.get_entity(kind, key).await,
+            }
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Unavailable)?;
             if entity.version_id != definition.world_version {
                 return Err(Error::Unavailable);
             }
@@ -117,12 +131,49 @@ impl Puzzles {
     }
     pub async fn today(&self, account: Uuid) -> Result<Vec<Daily>, Error> {
         self.eligible(account).await?;
-        let rows = sqlx::query("SELECT p.id,p.day,p.definition,p.image IS NOT NULL AS has_image,a.choice,a.correct FROM puzzles_daily p LEFT JOIN puzzles_answers a ON a.puzzle_id=p.id AND a.account_id=$1 WHERE p.day=(clock_timestamp() AT TIME ZONE 'UTC')::date ORDER BY p.kind")
-            .bind(account).fetch_all(&self.pool).await?;
+        self.daily_cards(Self::today_rows(&self.pool, account).await?, None)
+            .await
+    }
+    pub(super) async fn landing(
+        &self,
+        account: Uuid,
+        deadline: Instant,
+    ) -> Result<(Vec<Daily>, Progress), Error> {
+        self.enabled()?;
+        oteryn_db::with_transaction_deadline(
+            &self.pool,
+            deadline,
+            Duration::from_millis(500),
+            Duration::from_secs(2),
+            async |tx| {
+                Self::check_account(Accounts::find_by_id_in(tx, account).await?)?;
+                oteryn_db::check_deadline(deadline)?;
+                let rows = Self::today_rows(&mut **tx, account).await?;
+                let daily = self.daily_cards(rows, Some(tx)).await?;
+                oteryn_db::check_deadline(deadline)?;
+                let progress = Self::progress_in(&mut **tx, account).await?;
+                Ok((daily, progress))
+            },
+        )
+        .await
+    }
+    async fn today_rows<'e>(
+        executor: impl sqlx::PgExecutor<'e>,
+        account: Uuid,
+    ) -> Result<Vec<PgRow>, Error> {
+        Ok(sqlx::query("SELECT p.id,p.day,p.definition,p.image IS NOT NULL AS has_image,a.choice,a.correct FROM puzzles_daily p LEFT JOIN puzzles_answers a ON a.puzzle_id=p.id AND a.account_id=$1 WHERE p.day=(clock_timestamp() AT TIME ZONE 'UTC')::date ORDER BY p.kind")
+            .bind(account).fetch_all(executor).await?)
+    }
+    async fn daily_cards(
+        &self,
+        rows: Vec<PgRow>,
+        mut connection: Option<&mut PgConnection>,
+    ) -> Result<Vec<Daily>, Error> {
         let mut daily = Vec::new();
         for row in rows {
             let definition: sqlx::types::Json<Definition> = row.try_get("definition")?;
-            self.visible(&definition).await?;
+            self.visible_using(&definition, connection.as_deref_mut())
+                .await?;
             let choice: Option<i16> = row.try_get("choice")?;
             daily.push(Daily {
                 id: row.try_get("id")?,
@@ -251,8 +302,14 @@ impl Puzzles {
     }
     pub async fn progress(&self, account: Uuid) -> Result<Progress, Error> {
         self.eligible(account).await?;
+        Self::progress_in(&self.pool, account).await
+    }
+    async fn progress_in<'e>(
+        executor: impl sqlx::PgExecutor<'e>,
+        account: Uuid,
+    ) -> Result<Progress, Error> {
         let row: Option<(i32, i32)> = sqlx::query_as("SELECT CASE WHEN last_completed >= (clock_timestamp() AT TIME ZONE 'UTC')::date-1 THEN current_streak ELSE 0 END,best_streak FROM puzzles_streaks WHERE account_id=$1")
-            .bind(account).fetch_optional(&self.pool).await?;
+            .bind(account).fetch_optional(executor).await?;
         Ok(
             row.map_or_else(Progress::default, |(current, best)| Progress {
                 current,

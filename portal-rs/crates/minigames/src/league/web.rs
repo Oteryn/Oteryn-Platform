@@ -10,9 +10,12 @@ use axum::{
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_web::ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter};
+use oteryn_web::{
+    BoundedBrowserRead,
+    ratelimit::{self, ClientSource, Keys, RateLimiter},
+};
 use sqlx::PgPool;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 #[derive(Template)]
@@ -178,6 +181,7 @@ async fn page<A: Authority>(
     Path(lang): Path<String>,
     State(state): State<Arc<Surface<A>>>,
     Extension(limiter): Extension<RateLimiter>,
+    budget: Option<Extension<BoundedBrowserRead>>,
     source: std::result::Result<Option<ClientSource>, StatusCode>,
 ) -> Response {
     if !matches!(lang.as_str(), "pl" | "en") {
@@ -187,22 +191,31 @@ async fn page<A: Authority>(
         Ok(source) => source,
         Err(status) => return Page::new(&lang, None).response(status),
     };
-    let Ok(Ok(slot)) =
-        tokio::time::timeout(Duration::from_secs(3), state.read_slots.acquire()).await
-    else {
+    let deadline = budget
+        .map(|Extension(budget)| budget.0)
+        .unwrap_or_else(crate::browser::landing_deadline);
+    if oteryn_db::check_deadline(deadline).is_err() {
+        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let Ok(Ok(slot)) = tokio::time::timeout_at(deadline, state.read_slots.acquire()).await else {
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
     if let Some(ClientSource(ip)) = source {
         let keys = [Keys::source(ip)];
-        if let Err(denial) = limiter.check(NamedPolicy::PublicGameData, &keys).await {
+        if let Err(denial) = limiter
+            .check_public_game_data(&keys, BoundedBrowserRead(deadline))
+            .await
+        {
             return Page::new(&lang, None).response(denial.status());
         }
     }
 
     let snapshots = state
         .league
-        .read_with_clock(|| u64::try_from((state.clock)()).map_err(|_| Error::Unavailable))
+        .read_with_clock(deadline, || {
+            u64::try_from((state.clock)()).map_err(|_| Error::Unavailable)
+        })
         .await;
     drop(slot);
     match snapshots {

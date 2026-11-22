@@ -430,6 +430,10 @@ pub async fn middleware(
         csrf,
         pool: layer.pool,
     };
+    let bounded_read = request
+        .extensions()
+        .get::<crate::BoundedBrowserRead>()
+        .is_some();
     match run(&layer, &mut request).await {
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
@@ -447,6 +451,7 @@ pub async fn middleware(
         Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
             StatusCode::BAD_REQUEST.into_response()
         }
+        Err(_) if bounded_read => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -477,7 +482,7 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         if !valid_id(id) || identifiers.next().is_some() {
             return Err(sqlx::Error::Protocol("invalid session cookie".into()));
         }
-        let row: Option<(Uuid, String, Option<Uuid>)> = sqlx::query_as(
+        let query = sqlx::query_as::<_, (Uuid, String, Option<Uuid>)>(
             "UPDATE web_sessions SET last_seen_at=now(), updated_at=now(),
                 idle_expires_at=LEAST(absolute_expires_at,now()+make_interval(secs=>$2))
              WHERE id_hash=$1 AND idle_expires_at>clock_timestamp()
@@ -485,9 +490,15 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
              RETURNING session_id,csrf_token,account_id",
         )
         .bind(hash(id))
-        .bind(f64::from(layer.config.idle_seconds))
-        .fetch_optional(&layer.pool)
-        .await?;
+        .bind(f64::from(layer.config.idle_seconds));
+        let row = if let Some(deadline) = request.extensions().get::<crate::BoundedBrowserRead>() {
+            crate::bounded_browser_query(&layer.pool, *deadline, async |connection| {
+                query.fetch_optional(connection).await
+            })
+            .await?
+        } else {
+            query.fetch_optional(&layer.pool).await?
+        };
         if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
                 session_id,
@@ -531,12 +542,8 @@ pub(crate) async fn chrome_account(
     let query = sqlx::query_as::<_, (String, Option<Uuid>)>(
         "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
         .bind(hash(id));
-    let row = if request
-        .extensions()
-        .get::<crate::BoundedBrowserRead>()
-        .is_some()
-    {
-        crate::bounded_browser_query(&layer.pool, async |connection| {
+    let row = if let Some(deadline) = request.extensions().get::<crate::BoundedBrowserRead>() {
+        crate::bounded_browser_query(&layer.pool, *deadline, async |connection| {
             query.fetch_optional(connection).await
         })
         .await?

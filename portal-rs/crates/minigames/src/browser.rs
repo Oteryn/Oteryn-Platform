@@ -8,28 +8,28 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use sqlx::{PgPool, Postgres, Transaction};
-use tokio::sync::Semaphore;
+use tokio::{sync::Semaphore, time::Instant};
 
 // Reserve capacity for each landing page and leave half the portal pool
 // available to other modules. Match League's own concurrency limit.
 pub(crate) const LEAGUE_READ_SLOTS: usize = 4;
 
 pub(crate) struct LandingSlots {
-    collection: Semaphore,
-    puzzles: Semaphore,
+    collection: Arc<Semaphore>,
+    puzzles: Arc<Semaphore>,
     league: Arc<Semaphore>,
 }
 
 impl LandingSlots {
     pub(crate) fn new() -> Self {
         Self {
-            collection: Semaphore::new(2),
-            puzzles: Semaphore::new(2),
+            collection: Arc::new(Semaphore::new(2)),
+            puzzles: Arc::new(Semaphore::new(2)),
             league: Arc::new(Semaphore::new(LEAGUE_READ_SLOTS)),
         }
     }
 
-    fn for_module(&self, module: Option<&str>) -> Option<&Semaphore> {
+    fn for_module(&self, module: Option<&str>) -> Option<&Arc<Semaphore>> {
         match module {
             Some("collection") => Some(&self.collection),
             Some("puzzles") => Some(&self.puzzles),
@@ -40,6 +40,10 @@ impl LandingSlots {
 }
 
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(3);
+
+pub(crate) fn landing_deadline() -> Instant {
+    Instant::now() + OPERATION_TIMEOUT
+}
 
 fn unavailable() -> Response {
     (
@@ -59,6 +63,14 @@ pub(crate) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>, sq
     Ok(tx)
 }
 pub(crate) async fn deadline(req: Request, next: Next) -> Response {
+    // The shared landing layer owns the deadline and waits for SQL cleanup.
+    if req
+        .extensions()
+        .get::<oteryn_web::BoundedBrowserRead>()
+        .is_some()
+    {
+        return next.run(req).await;
+    }
     tokio::time::timeout(OPERATION_TIMEOUT, next.run(req))
         .await
         .unwrap_or_else(|_| unavailable())
@@ -77,35 +89,26 @@ pub(crate) async fn operation_deadline(
         && segments.next().is_none()
         && let Some(slots) = read_slots.for_module(module)
     {
-        if module == Some("league") {
-            let deadline = tokio::time::Instant::now() + OPERATION_TIMEOUT;
-            let Ok(Ok(slot)) =
-                tokio::time::timeout_at(deadline, read_slots.league.clone().acquire_owned()).await
-            else {
+        let deadline = landing_deadline();
+        let Ok(Ok(slot)) = tokio::time::timeout_at(deadline, slots.clone().acquire_owned()).await
+        else {
+            return unavailable();
+        };
+        req.extensions_mut()
+            .insert(oteryn_web::BoundedBrowserRead(deadline));
+        // The task owns admission until its bounded SQL has returned or closed
+        // its connection, even if the request times out or the client leaves.
+        let work = tokio::spawn(async move {
+            let _slot = slot;
+            if oteryn_db::check_deadline(deadline).is_err() {
                 return unavailable();
-            };
-            req.extensions_mut().insert(oteryn_web::BoundedBrowserRead);
-            // The response deadline and client disconnects must not release
-            // admission while the bounded queries are returning connections.
-            let work = tokio::spawn(async move {
-                let _slot = slot;
-                next.run(req).await
-            });
-            return match tokio::time::timeout_at(deadline, work).await {
-                Ok(Ok(response)) => response,
-                _ => unavailable(),
-            };
-        }
-        // Queue landing pages before session refresh and rate-limit writes can
-        // occupy pooled connections. Charge the wait to the existing deadline.
-        return tokio::time::timeout(OPERATION_TIMEOUT, async {
-            let Ok(_slot) = slots.acquire().await else {
-                return unavailable();
-            };
+            }
             next.run(req).await
-        })
-        .await
-        .unwrap_or_else(|_| unavailable());
+        });
+        return match tokio::time::timeout_at(deadline, work).await {
+            Ok(Ok(response)) => response,
+            _ => unavailable(),
+        };
     }
     if localized
         && matches!(
@@ -136,7 +139,7 @@ mod tests {
             .layer(axum::middleware::from_fn(
                 |_: axum::extract::Request, _: axum::middleware::Next| async {
                     // A stalled shared session/presentation dependency, outside the
-                    // module router's own deadline, must still be cancelled.
+                    // module router's own deadline, must still return a refusal.
                     std::future::pending::<axum::response::Response>().await
                 },
             ));

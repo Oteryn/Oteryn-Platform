@@ -5,6 +5,8 @@ use super::{
 use prost::Message;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
+use std::time::Duration;
+use tokio::time::Instant;
 
 /// Bound pool admission and each transaction's database waits.
 pub(super) async fn begin(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
@@ -195,54 +197,57 @@ impl<A: Authority> League<A> {
         Ok(())
     }
     pub async fn read(&self, now: u64) -> Result<Vec<Snapshot>> {
-        self.read_with_clock(|| Ok(now)).await
+        self.read_with_clock(crate::browser::landing_deadline(), || Ok(now))
+            .await
     }
 
     pub(super) async fn read_with_clock(
         &self,
+        deadline: Instant,
         clock: impl FnOnce() -> Result<u64>,
     ) -> Result<Vec<Snapshot>> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
-        oteryn_db::with_connection_deadline(
+        oteryn_db::with_transaction_deadline(
             &self.pool,
-            std::time::Duration::from_secs(3),
-            async |connection| self.read_inner(connection, clock).await,
+            deadline,
+            Duration::from_millis(400),
+            Duration::from_secs(2),
+            async |tx| self.read_inner(tx, deadline, clock).await,
         )
         .await
     }
     async fn read_inner(
         &self,
-        connection: &mut sqlx::PgConnection,
+        tx: &mut Transaction<'_, Postgres>,
+        deadline: Instant,
         clock: impl FnOnce() -> Result<u64>,
     ) -> Result<Vec<Snapshot>> {
-        use sqlx::Connection;
         // A short publication can finish without exhausting the read budget.
-        let mut tx = connection.begin().await?;
-        sqlx::raw_sql("SET LOCAL lock_timeout = '400ms'; SET LOCAL statement_timeout = '2s'")
-            .execute(&mut *tx)
-            .await?;
         sqlx::query(
             "SELECT pg_advisory_xact_lock_shared('league_subjects'::regclass::oid::int, 94000003)",
         )
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
         // Compare a fresh application clock with PostgreSQL after admission.
+        oteryn_db::check_deadline(deadline)?;
         let now = clock()?;
-        let fence = self.authority.fence(&mut tx, now).await?;
+        let fence = self.authority.fence(tx, now).await?;
         if !fence.valid(now) {
             return Err(Error::Unavailable);
         }
         // Check feed-wide completeness independently of the serving bound.
+        oteryn_db::check_deadline(deadline)?;
         let incomplete: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM league_subjects s WHERE (s.finalized_at IS NULL OR s.finalized_at>$1) AND NOT EXISTS(SELECT 1 FROM league_feed_withdrawals w WHERE w.authority=s.authority AND w.family=s.family AND w.world_id=s.world_id AND w.subject_id=s.subject_id AND w.withdrawn) AND (s.quarantined OR s.epoch<>$2::numeric OR s.recovery_generation<>$3::numeric OR (convert_from(s.wire,'UTF8')::jsonb->>'source_observed_at')::numeric>$4::numeric OR NOT EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=s.authority AND a.family=s.family AND a.world_id=s.world_id AND a.subject_id=s.subject_id AND a.epoch=s.epoch AND a.revision=s.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms/1000>$1)))")
             .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?)
-            .bind(fence.epoch.to_string()).bind(fence.recovery_generation.to_string()).bind(fence.complete_through.to_string()).fetch_one(&mut *tx).await?;
+            .bind(fence.epoch.to_string()).bind(fence.recovery_generation.to_string()).bind(fence.complete_through.to_string()).fetch_one(&mut **tx).await?;
         if incomplete {
             return Err(Error::Unavailable);
         }
+        oteryn_db::check_deadline(deadline)?;
         let rows = sqlx::query("SELECT family,wire,quarantined,epoch::text,recovery_generation::text,content_hash,record_hash,EXISTS(SELECT 1 FROM league_audit a WHERE a.authority=league_subjects.authority AND a.family=league_subjects.family AND a.world_id=league_subjects.world_id AND a.subject_id=league_subjects.subject_id AND a.epoch=league_subjects.epoch AND a.revision=league_subjects.revision AND octet_length(a.signature)>0 AND a.occurred_at_unix_ms / 1000 > $1) AS audit_available FROM league_subjects WHERE (finalized_at IS NULL OR finalized_at > $1) AND NOT EXISTS(SELECT 1 FROM league_feed_withdrawals w WHERE w.authority=league_subjects.authority AND w.family=league_subjects.family AND w.world_id=league_subjects.world_id AND w.subject_id=league_subjects.subject_id AND w.withdrawn) ORDER BY authority,family,world_id,subject_id LIMIT $2")
-            .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?).bind(SERVING_LIMIT as i64).fetch_all(&mut *tx).await?;
+            .bind(i64::try_from(now.saturating_sub(90*86400)).map_err(|_| Error::Invalid)?).bind(SERVING_LIMIT as i64).fetch_all(&mut **tx).await?;
         let mut out = vec![];
         for row in rows {
             if !row.try_get::<bool, _>("audit_available")?
@@ -259,7 +264,8 @@ impl<A: Authority> League<A> {
                 row.try_get::<String, _>("family")? == "guild_season",
                 now,
             )?;
-            self.authority.verify_served(&mut tx, &s, &wire).await?;
+            oteryn_db::check_deadline(deadline)?;
+            self.authority.verify_served(tx, &s, &wire).await?;
             if schema::hash(&s.content()?) != row.try_get::<String, _>("content_hash")?
                 || schema::hash(&s.record()?) != row.try_get::<String, _>("record_hash")?
             {
@@ -278,7 +284,6 @@ impl<A: Authority> League<A> {
                 out.push(s);
             }
         }
-        tx.commit().await?;
         Ok(out)
     }
     /// Scheduler-owned cleanup; never removes replay/final-state controls.
