@@ -7,6 +7,21 @@ fn fixture(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
     out.into_inner()
 }
 #[test]
+fn png_with_missing_scanline_reaches_pixel_decoder() {
+    let bytes = include_bytes!("../../../e2e/fixtures/uploads/truncated-pixels.png");
+    assert_eq!(image::guess_format(bytes).unwrap(), ImageFormat::Png);
+    assert!(bytes.len() <= MAX_BYTES);
+    assert!(bytes.ends_with(b"\0\0\0\0IEND\xaeB`\x82"));
+    let reader = || ImageReader::with_format(Cursor::new(bytes), ImageFormat::Png);
+    assert_eq!(reader().into_dimensions().unwrap(), (2, 2));
+    assert!(reader().decode().is_err());
+    assert_eq!(
+        process("truncated-pixels.png", bytes).err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+}
+
+#[test]
 fn normalizes_supported_images_and_variants() {
     for (format, name) in [
         (ImageFormat::Png, "x.png"),

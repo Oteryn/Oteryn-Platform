@@ -11,10 +11,10 @@ import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 const route = '/admin/media';
 const form = `main form[enctype="multipart/form-data"][action^="${route}"]`;
 const maxFileBytes = 8 * 1024 * 1024;
-const file = (ext, mimeType) => ({
-  name: `editorial.${ext}`,
+const file = (ext, mimeType, basename = 'editorial') => ({
+  name: `${basename}.${ext}`,
   mimeType,
-  buffer: readFileSync(new URL(`../fixtures/uploads/editorial.${ext}`, import.meta.url)),
+  buffer: readFileSync(new URL(`../fixtures/uploads/${basename}.${ext}`, import.meta.url)),
 });
 const png = file('png', 'image/png');
 const mediaLabel = () => `Editorial upload ${randomUUID()}`;
@@ -184,6 +184,7 @@ const rejectedImages = [
     ...png,
     buffer: Buffer.concat([png.buffer, Buffer.from('end of fixture')]),
   }), 422],
+  ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
   ['zero-byte PNG', () => ({ ...png, buffer: Buffer.alloc(0) }), 422],
 ];
 
