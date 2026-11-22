@@ -2,6 +2,8 @@ import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login } from '../helpers.mjs';
 import { cookie, expectSession, otherBrowser, postForm, seedAccount } from './auth-fixtures.mjs';
 
+test.use({ trace: 'off', screenshot: 'off' });
+
 test('auth form POST aliases reject missing CSRF and login rejects another browser’s token', async ({ page, context, browser }, info) => {
   const lang = info.project.metadata.locale;
   const account = await seedAccount(lang);

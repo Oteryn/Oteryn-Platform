@@ -3,6 +3,8 @@ import { csrfRejected, mailLink, password, seedPasswordRange, submit, waitForLog
 import { query } from '../staff-rbac-helpers.mjs';
 import { emailAddress, postForm, seedAccount } from './auth-fixtures.mjs';
 
+test.use({ trace: 'off', screenshot: 'off' });
+
 test('login gives a localized, identical refusal for wrong credentials and unknown accounts', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   const account = await seedAccount(lang);

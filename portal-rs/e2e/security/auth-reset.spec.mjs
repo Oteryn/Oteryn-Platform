@@ -3,6 +3,8 @@ import { csrfRejected, login, mailLink, password, seedPasswordRange } from '../h
 import { query } from '../staff-rbac-helpers.mjs';
 import { cookie, emailAddress, expectSession, postForm, seedAccount } from './auth-fixtures.mjs';
 
+test.use({ trace: 'off', screenshot: 'off' });
+
 async function requestReset(page, lang, email) {
   const route = `/${lang}/forgot-password`;
   expect((await page.goto(route)).status()).toBe(200);
@@ -30,6 +32,9 @@ test('reset request has a generic localized confirmation and the token is bound,
 
   const pattern = /https:\/\/localhost:18443\/(?:pl|en)\/reset-password\/[a-f0-9]+/;
   const link = await mailLink(page, owner.email, pattern);
+  await requestReset(page, lang, other.email);
+  const otherLink = await mailLink(page, other.email, pattern);
+  expect(otherLink !== link, 'both accounts received distinct reset tokens').toBe(true);
   await requestReset(page, lang, expired.email);
   const expiredLink = await mailLink(page, expired.email, pattern);
   const [advanced] = await query(
@@ -55,7 +60,26 @@ test('reset request has a generic localized confirmation and the token is bound,
     }
   }
 
+  async function resetState(account) {
+    const [row] = await query(`
+      SELECT a.password_hash,r.token_hash,r.used_at,r.expires_at,
+             r.expires_at>clock_timestamp() AS live
+      FROM accounts a JOIN account_password_resets r ON r.account_id=a.id
+      WHERE a.id=$1
+    `, [account.id]);
+    expect(row.live).toBe(true);
+    expect(row.used_at).toBeNull();
+    return row;
+  }
+  const accounts = [owner, other];
+  const before = await Promise.all(accounts.map(resetState));
   await complete(link, other.email, false);
+  const after = await Promise.all(accounts.map(resetState));
+  for (const [index, row] of before.entries()) {
+    expect(row.password_hash === after[index].password_hash, 'password was preserved').toBe(true);
+    expect(row.token_hash.equals(after[index].token_hash), 'live reset token was preserved').toBe(true);
+    expect(after[index].expires_at).toEqual(row.expires_at);
+  }
   await complete(expiredLink, expired.email, false);
   await complete(link, owner.email, true);
   await complete(link, owner.email, false);

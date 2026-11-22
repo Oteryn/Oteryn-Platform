@@ -1,7 +1,9 @@
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login, logout, password, seedPasswordRange, submit } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
-import { cookie, expectSession, hash, otherBrowser, seedAccount } from './auth-fixtures.mjs';
+import { cookie, expectSession, hash, otherBrowser, postForm, seedAccount } from './auth-fixtures.mjs';
+
+test.use({ trace: 'off', screenshot: 'off' });
 
 test('login and sudo rotate sessions, and logout removes the active session', async ({ page, context, browser }, info) => {
   const lang = info.project.metadata.locale;
@@ -25,6 +27,11 @@ test('login and sudo rotate sessions, and logout removes the active session', as
     await expectSession(await cookie(second), account.id);
 
     await page.goto(`/${lang}/account/sudo`);
+    const refused = await postForm(page, 'main form', { current_password: password() });
+    expect(refused.status()).toBe(302);
+    expect(refused.headers().location).toBe(`/${lang}/account/sudo`);
+    await expectSession(signedIn, account.id);
+    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
     await submit(page, 'main form', { current_password: account.password });
     await expect(page).toHaveURL(new RegExp(`/${lang}/password/change$`));
     const elevated = await cookie(context);
@@ -67,6 +74,23 @@ test('session list and targeted revoke preserve the current browser, then passwo
       'SELECT session_id FROM web_sessions WHERE id_hash=$1 AND account_id=$2',
       [hash(secondary), account.id],
     );
+
+    const outsider = await seedAccount(lang);
+    const third = await otherBrowser(browser, info);
+    try {
+      const foreign = await third.newPage();
+      await login(foreign, lang, outsider);
+      expect((await foreign.goto(sessionsPath)).status()).toBe(200);
+      const refused = await postForm(foreign, 'main form[action$="/others"]', {}, {
+        action: `${sessionsPath}/${id}`,
+      });
+      expect(refused.status()).toBe(302);
+      expect(refused.headers().location).toBe(sessionsPath);
+      await expectSession(secondary, account.id);
+      expect((await other.request.get(sessionsPath, { maxRedirects: 0 })).status()).toBe(200);
+    } finally {
+      await third.close();
+    }
 
     expect((await page.goto(sessionsPath)).status()).toBe(200);
     await expect(page.locator('main li form')).toHaveCount(2);

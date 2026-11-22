@@ -11,6 +11,9 @@ export const hash = value => createHash('sha256').update(value).digest();
 
 export async function seedEntity(entity, input) {
   await pool().end();
+  if ((process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443') !== 'https://localhost:18443') {
+    throw new Error('Auth qualification requires the loopback HTTPS browser launcher');
+  }
   const binary = process.env.PORTAL_E2E_BINARY;
   if (!binary || process.env.OTERYN_ENV !== 'testing' ||
       !process.env.OTERYN_DATABASE_URL ||
@@ -54,14 +57,14 @@ export async function otherBrowser(browser, info) {
   });
 }
 
-export async function postForm(page, selector, values) {
+export async function postForm(page, selector, values, { headers = {}, action: override } = {}) {
   const form = page.locator(selector);
-  const action = await form.getAttribute('action') || new URL(page.url()).pathname;
+  const action = override || await form.getAttribute('action') || new URL(page.url()).pathname;
   const target = new URL(action, page.url());
   const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
   return page.request.post(target.href, {
     form: { ...fields, ...values },
-    headers: { origin: target.origin },
+    headers: { origin: target.origin, ...headers },
     maxRedirects: 0,
   });
 }
