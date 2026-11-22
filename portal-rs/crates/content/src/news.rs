@@ -184,9 +184,10 @@ async fn local_index(
     State(pool): State<PgPool>,
     Path(lang): Path<String>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     language(&lang)?;
-    listing(&pool, &lang, &q).await
+    let html = listing(&pool, &lang, &q).await?;
+    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang)], html))
 }
 /// Newest published entries for the home page, under the same language rule
 /// as the public listing. The excerpt is plain text; templates escape it.
@@ -271,9 +272,10 @@ async fn show(
 async fn local_show(
     State(pool): State<PgPool>,
     Path((lang, slug)): Path<(String, String)>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     language(&lang)?;
-    article(&pool, &lang, &slug).await
+    let html = article(&pool, &lang, &slug).await?;
+    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang)], html))
 }
 async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, StatusCode> {
     if !slug_valid(slug) {
