@@ -38,8 +38,8 @@ cross_repository_tasks: []
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T14:52:35Z
-head: 7b59b122
+updated_at: 2026-11-22T15:09:54Z
+head: 5cc991b049ec1154b6ccf28773cf340e00e86bbc
 branch: codex/feat-season-pass
 pr: none
 status: waiting
@@ -67,6 +67,9 @@ validation:
   - command: cargo test --locked -p oteryn-minigames --lib pass::
     result: PASS
     evidence: All 12 focused tests passed against PostgreSQL 18.6.
+  - command: RUST_TEST_THREADS=1 cargo test --locked -p oteryn-minigames --lib
+    result: PASS
+    evidence: All 82 library tests passed against PostgreSQL 18.6. The earlier parallel run encountered two pool acquisition timeouts.
   - command: Playwright season-pass.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 passed against the native local browser launcher.
