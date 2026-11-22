@@ -3,3 +3,8 @@
 {% include "components/icons.html" %}
 {% let interior = true %}
 {% include "components/thais-header.html" %}
+
+{% let panel_links = chrome.player_navigation %}
+{% let panel_label = chrome.text("panel-player") %}
+{% let panel_name = "player" %}
+{% if !panel_links.is_empty() %}<div class="op-panel">{% include "components/panel-navigation.html" %}</div>{% endif %}

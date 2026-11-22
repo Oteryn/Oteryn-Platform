@@ -76,6 +76,7 @@ pub enum Permission {
     ImportStoreCatalog,
     ActivateStoreCatalog,
     GenerateStoreCodes,
+    GrantRoles,
 }
 
 impl Permission {
@@ -160,6 +161,7 @@ impl Permission {
         Self::ImportStoreCatalog,
         Self::ActivateStoreCatalog,
         Self::GenerateStoreCodes,
+        Self::GrantRoles,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -232,6 +234,7 @@ impl Permission {
             Self::ImportStoreCatalog => "store.catalog.import",
             Self::ActivateStoreCatalog => "store.catalog.activate",
             Self::GenerateStoreCodes => "store.codes.generate",
+            Self::GrantRoles => "admin.roles.grant",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
@@ -348,11 +351,13 @@ impl BuiltInRole {
                 Permission::ImportStoreCatalog,
                 Permission::ActivateStoreCatalog,
                 Permission::GenerateStoreCodes,
+                Permission::GrantRoles,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,
                 Permission::ManageRoles,
                 Permission::ViewAudit,
+                Permission::GrantRoles,
             ],
             Self::ContentEditor => &[
                 Permission::ManageNews,
@@ -503,6 +508,74 @@ impl BuiltInRole {
                 Permission::GameSanctionRead,
             ],
             Self::GameRelease => &[Permission::Access, Permission::GameNodeDeploy],
+        }
+    }
+}
+
+/// Platform and Game panel sections reuse the permissions enforced by their routes.
+pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
+    ("/admin", "panel-admin", Permission::Access, None),
+    ("/admin/roles", "panel-roles", Permission::ManageRoles, None),
+    (
+        "/admin/players",
+        "panel-accounts",
+        Permission::ManageSupportTickets,
+        Some("OTERYN_ADMIN_PLAYERS"),
+    ),
+    (
+        "/admin/{lang}/bazaar",
+        "panel-bazaar",
+        Permission::ManageMarketplace,
+        Some("OTERYN_BAZAAR_MODERATION"),
+    ),
+];
+
+pub const GM_PANEL_SECTIONS: &[(&str, &str, Permission)] = &[
+    (
+        "/console/dashboard?lang={lang}",
+        "panel-game-overview",
+        Permission::GameOpsRead,
+    ),
+    (
+        "/console/worlds?lang={lang}",
+        "panel-worlds",
+        Permission::GameWorldRead,
+    ),
+    (
+        "/console/nodes?lang={lang}",
+        "panel-nodes",
+        Permission::GameNodeRead,
+    ),
+    (
+        "/console/database?lang={lang}",
+        "panel-database",
+        Permission::GameDbRead,
+    ),
+];
+
+#[cfg(test)]
+mod panel_permissions {
+    use super::*;
+
+    #[test]
+    fn panel_sections_and_grant_round_trip_through_the_catalog() {
+        for permission in ADMIN_PANEL_SECTIONS
+            .iter()
+            .map(|entry| entry.2)
+            .chain(GM_PANEL_SECTIONS.iter().map(|entry| entry.2))
+            .chain([Permission::GrantRoles])
+        {
+            assert_eq!(
+                permission.as_str().parse::<Permission>().ok(),
+                Some(permission)
+            );
+        }
+        assert_ne!(Permission::GrantRoles, Permission::ManageRoles);
+        for role in BuiltInRole::ALL {
+            assert_eq!(
+                role.permissions().contains(&Permission::GrantRoles),
+                role.permissions().contains(&Permission::ManageRoles)
+            );
         }
     }
 }
