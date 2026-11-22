@@ -71,10 +71,16 @@ pub fn configured_router(pool: PgPool) -> Router {
     )
 }
 async fn private_headers(request: axum::extract::Request, next: Next) -> Response {
+    let stylesheet = request.uri().path() == "/static/playerdata/hunts.css";
     let mut response = next.run(request).await;
+    let cache = if stylesheet && response.status().is_success() {
+        "public, max-age=300, must-revalidate"
+    } else {
+        "private, no-store"
+    };
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        header::HeaderValue::from_static("private, no-store"),
+        header::HeaderValue::from_static(cache),
     );
     response.headers_mut().insert(header::CONTENT_SECURITY_POLICY, header::HeaderValue::from_static("default-src 'none'; style-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"));
     response.headers_mut().insert(
@@ -405,6 +411,37 @@ async fn styles() -> impl IntoResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn hunt_styles_are_cacheable_without_a_browser_session()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool = PgPool::connect_lazy("postgres://localhost:1/unreachable")?;
+        let response = router(
+            pool,
+            Flags {
+                read: true,
+                party: false,
+            },
+            Arc::new(Unpriced),
+        )
+        .oneshot(
+            axum::http::Request::get("/static/playerdata/hunts.css")
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/css; charset=utf-8"
+        );
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "public, max-age=300, must-revalidate"
+        );
+        assert!(!response.headers().contains_key(header::SET_COOKIE));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn localized_pages_escape_untrusted_values() -> Result<(), Box<dyn std::error::Error>> {
