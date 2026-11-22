@@ -148,7 +148,7 @@ const proxy=https.createServer(tls,(req,res)=>{
  if(req.method==='POST'){
   if(/^\/(?:pl\/|en\/)?login$/.test(req.url)&&['127.0.0.2','127.0.0.3'].includes(loginPeer)){
    localAddress=loginPeer;
-  }else if(/^\/(?:admin\/staff-invites|(?:pl|en)\/staff-invite)$/.test(req.url)
+  }else if(/^\/(?:admin\/staff-invites|(?:pl|en)\/staff-invite)$/.test(req.url.split('?',1)[0])
    && /^127\.0\.0\.(?:[2-9]\d|1\d{2}|2[0-4]\d)$/.test(invitePeer)){
    localAddress=invitePeer;
   }
