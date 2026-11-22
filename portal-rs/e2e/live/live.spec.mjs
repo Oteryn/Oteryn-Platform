@@ -3,13 +3,12 @@ import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isGameUnavailable } from './game-unavailable.mjs';
+import { diagnosticURL, publicURL, redactURLs } from './crawl-url.mjs';
 
 const require = createRequire(import.meta.url);
 const { test, expect } = require('@playwright/test');
 const budgetPath = join(process.env.OTERYN_SMOKE_RUN_DIR, 'budget.json');
 const legalPath = /^\/(?:pl\/|en\/)?legal\/(?:terms|privacy|cookies)\/?$/;
-const statefulPath = /(?:^|\/)(?:admin|internal|oauth|logout|sign-out|signout|language|verify-email|confirm-email|unsubscribe|callback|challenge|revoke|restore|delete|publish|unpublish|checkout|webhooks?)(?:\/|$)/i;
-const statefulQuery = /^(?:token|code|signature|action|access_token|csrf|_csrf)$/i;
 const redirects = [301, 302, 303, 307, 308];
 const assetSelector = 'img[src], script[src], link[rel~="stylesheet"][href], link[rel~="icon"][href], link[rel~="preload"][href], link[rel~="modulepreload"][href]';
 
@@ -20,21 +19,14 @@ try {
   if (error.code !== 'MODULE_NOT_FOUND') throw error;
 }
 
-function publicURL(url, origins) {
-  if (!origins.has(url.origin) || url.username || url.password) return false;
-  // Decode encoded route separators/names before checking state-changing GETs.
-  const path = decodeURIComponent(url.pathname);
-  return !statefulPath.test(path) && ![...url.searchParams.keys()].some(key => statefulQuery.test(key));
-}
-
 function requestGate(origins, language, userAgent) {
   let tail = Promise.resolve();
   const cache = new Map();
   return (url, method = 'GET') => {
     if (!['GET', 'HEAD'].includes(method) || !publicURL(url, origins)) {
-      throw new Error(`read-only gate rejected ${method} ${url.href}`);
+      throw new Error(`read-only gate rejected ${method} ${diagnosticURL(url)}`);
     }
-    const key = `${method} ${url.href}`;
+    const key = `${method} ${diagnosticURL(url)}`;
     if (cache.has(key)) return cache.get(key);
     const response = tail.then(async () => {
       const [count, lastStart] = JSON.parse(readFileSync(budgetPath, 'utf8'));
@@ -191,7 +183,7 @@ async function checkRegistration(page, url, language, defect) {
   }
 }
 
-async function openPage(context, source, report, request, responseNote) {
+async function openPage(context, source, report, note, request, responseNote, origins) {
   const page = await context.newPage();
   const session = await context.newCDPSession(page);
   const documentResponses = new Map();
@@ -203,7 +195,7 @@ async function openPage(context, source, report, request, responseNote) {
     const value = message.text();
     if (message.type() === 'error' || /mixed content/i.test(value)) {
       const location = message.location();
-      requestFailure(location.url || source, value);
+      if (!policyBlocks.has(location.url)) requestFailure(location.url || source, value);
     }
   });
   page.on('pageerror', error => requestFailure(source, error.message));
@@ -225,6 +217,12 @@ async function openPage(context, source, report, request, responseNote) {
     const task = (async () => {
       const { requestId, resourceType, request: intercepted } = event;
       const url = new URL(intercepted.url);
+      if (!publicURL(url, origins)) {
+        policyBlocks.add(url.href);
+        note(source, `excluded URL ${diagnosticURL(url)}`);
+        await session.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }).catch(() => {});
+        return;
+      }
       try {
         const response = await request(url, intercepted.method);
         if (resourceType === 'Document') documentResponses.set(url.href, response);
@@ -283,10 +281,10 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
   const findings = new Map();
   const notes = new Set();
   const defect = (category, url, evidence) => {
-    const key = JSON.stringify([category, String(url), evidence]);
-    findings.set(key, { category, url: String(url), evidence });
+    const finding = { category, url: diagnosticURL(url), evidence: redactURLs(evidence) };
+    findings.set(JSON.stringify(finding), finding);
   };
-  const note = (url, evidence) => notes.add(JSON.stringify({ url: String(url), evidence }));
+  const note = (url, evidence) => notes.add(JSON.stringify({ url: diagnosticURL(url), evidence: redactURLs(evidence) }));
 
   function responseNote(url, result) {
     if (legalPath.test(url.pathname) && [404, 410].includes(result.status)) {
@@ -311,6 +309,10 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         if (redirects.includes(result.status) && location) {
           url = new URL(location, url);
           if (!origins.has(url.origin)) return result;
+          if (!publicURL(url, origins)) {
+            note(source, `excluded redirect destination ${diagnosticURL(url)}`);
+            return;
+          }
           continue;
         }
         if ((result.status < 200 || result.status >= 400) && !(document && responseNote(url, result))) {
@@ -365,7 +367,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       defect('other', url, `expected a rendered HTML page, received ${first.headers.get('content-type') || '(no content-type)'}`);
       continue;
     }
-    const browser = await openPage(context, url.href, defect, request, responseNote);
+    const browser = await openPage(context, url.href, defect, note, request, responseNote, origins);
     const { page, documentResponses } = browser;
     try {
       await page.goto(url.href, { waitUntil: 'load', timeout: 90_000 });
@@ -381,7 +383,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       const result = documentResponses.get(final.href);
       if (!result || result.status >= 400 || inspected.has(final.href)) continue;
       inspected.add(final.href);
-      console.log(`LIVE PAGE ${info.project.name} ${final.href}`);
+      console.log(`LIVE PAGE ${info.project.name} ${diagnosticURL(final)}`);
       const data = await page.evaluate(inspectPage, { language, assetSelector });
       if (final.pathname === `/${language}` || final.pathname.startsWith(`/${language}/`)) {
         checkLanguage(final, data, language, defect);
@@ -423,7 +425,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         }
         if (target.origin !== home.origin || target.href === final.href) continue;
         if (!publicURL(target, origins)) {
-          note(final, `excluded stateful URL ${target.origin}${target.pathname}`);
+          note(final, `excluded stateful URL ${diagnosticURL(target)}`);
           continue;
         }
         const link = data.links.includes(value);
