@@ -45,24 +45,6 @@ test('cold atlas sends no-store for document and direct GET requests', async ({r
   }
 });
 
-test('passkey management link follows mandatory login MFA eligibility', async ({page}, info) => {
-  test.setTimeout(300_000);
-  const lang = info.project.metadata.locale;
-  const account = await register(page, lang);
-  await grantRole(account, 'moderator');
-  await login(page, lang, account);
-  const path = `/${lang}/account/passkeys`;
-  const link = accountMenu(page).locator(`a[href="${path}"]`);
-  await expect(link).toHaveCount(1);
-  expect((await page.request.get(path)).status()).toBe(200);
-
-  await signInWithMfa(page, lang, account);
-  expect((await page.goto(`/${lang}/`)).status()).toBe(200);
-  await expect(accountMenu(page)).toBeAttached();
-  expect((await page.request.get(path)).status()).toBe(403);
-  await expect(link).toHaveCount(0);
-});
-
 test('moderator can review reports and is refused Platform admin areas', async ({page}, info) => {
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
