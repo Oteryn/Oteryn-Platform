@@ -5,10 +5,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test as base, expect } from '../fixtures.mjs';
 import { password, submit, waitForLoginBudget } from '../helpers.mjs';
-import { localDatabaseURL } from '../local-database.mjs';
 import { membership, query } from '../staff-rbac-helpers.mjs';
 import {
-  adminAgent, agentId, characterId, characterName, ledgerId, nodeId, resultRevision, startStaffConsoleHarness, worldId,
+  adminAgent, agentId, characterId, characterName, ledgerId, nodeId, resultRevision, staffSeedEnvironment,
+  startStaffConsoleHarness, worldId,
 } from '../admin-agent.mjs';
 
 const copies = {
@@ -48,9 +48,7 @@ async function unavailableSection(page, heading, unavailable) {
 function harness(directory) {
   const secret = name => fs.readFileSync(path.join(directory, 'secrets', name), 'utf8');
   const settings = JSON.parse(secret('admin-agent.json'));
-  const env = JSON.parse(secret('env.json'));
-  assert(localDatabaseURL(env.OTERYN_DATABASE_URL).pathname.startsWith('/portal_e2e_'),
-    'Staff console fixtures require a local portal_e2e_ database');
+  const env = staffSeedEnvironment(JSON.parse(secret('env.json')));
   const seedBinary = secret('seed-binary');
   return {
     ...settings,
@@ -188,7 +186,7 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
     expect((await deniedPage.goto(url(players, { lang }))).status()).toBe(200);
     await expect(deniedPage.locator('main form')).toHaveCount(0);
     expect((await auditPage.goto(url(audit, { lang }))).status()).toBe(200);
-    await expect(auditPage.getByText(copy.unavailable, { exact: true }).first()).toBeVisible();
+    await unavailableSection(auditPage, copy.source, copy.unavailable);
     expect(await agent.hello()).toEqual({ status: 'registered' });
     expect((await managerPage.goto(url('/admin/console/access', { lang }))).status()).toBe(200);
     for (const [, operation] of operations) {

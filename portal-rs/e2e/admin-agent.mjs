@@ -79,6 +79,19 @@ function signingBytes({ signature, ...envelope }) {
   return Buffer.from(canonical(envelope));
 }
 
+export function staffSeedEnvironment(saved) {
+  assert(saved.OTERYN_ENV === 'testing' && saved.APP_ENV === 'testing',
+    'Staff console seeding requires OTERYN_ENV=testing and APP_ENV=testing');
+  const database = localDatabaseURL(saved.OTERYN_DATABASE_URL);
+  assert(database.pathname.startsWith('/portal_e2e_'), 'Staff console fixtures require a local portal_e2e_ database');
+  return {
+    OTERYN_ENV: 'testing',
+    APP_ENV: 'testing',
+    OTERYN_DATABASE_URL: database.href,
+    OTERYN_MFA_KEY: saved.OTERYN_MFA_KEY,
+  };
+}
+
 // The browser qualification launcher already supplies a disposable database.
 // Start a separate harness so attaching an agent cannot change another spec.
 export async function startStaffConsoleHarness(databaseURL) {
@@ -100,7 +113,8 @@ export async function startStaffConsoleHarness(databaseURL) {
   }
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'staff-console-e2e-'));
   const out = path.join(directory, 'run');
-  const log = fs.openSync(path.join(directory, 'harness.log'), 'a', 0o600);
+  const logPath = path.join(directory, 'harness.log');
+  const log = fs.openSync(logPath, 'a', 0o600);
   const env = { ...process.env, ...portEnv, PORTAL_E2E_OUT: out, PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href };
   delete env.PORTAL_E2E_SEED_PLAN;
   delete env.PORTAL_E2E_KEEP_DATABASE;
@@ -111,15 +125,22 @@ export async function startStaffConsoleHarness(databaseURL) {
   const lines = createInterface({ input: child.stdout });
   async function stop() {
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
-    await closed;
+    return closed;
   }
   try {
     const ready = await Promise.race([
       once(lines, 'line').then(([line]) => JSON.parse(line).status),
-      closed.then(([code]) => { throw new Error(`Staff console harness exited (${code}). See ${directory}/harness.log`); }),
+      closed.then(([code, signal]) => { throw new Error(`Staff console harness exited (${signal || code}). See ${logPath}`); }),
     ]);
     assert.equal(ready, 'ready');
-    return { out, async close() { await stop(); fs.rmSync(directory, { recursive: true, force: true }); } };
+    return {
+      out,
+      async close() {
+        const [code, signal] = await stop();
+        if (code !== 0) throw new Error(`Staff console harness teardown failed (${signal || code}). See ${logPath}`);
+        fs.rmSync(directory, { recursive: true, force: true });
+      },
+    };
   } catch (error) {
     await stop();
     throw error;

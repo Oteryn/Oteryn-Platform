@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { startStaffConsoleHarness } from './admin-agent.mjs';
+import { staffSeedEnvironment, startStaffConsoleHarness } from './admin-agent.mjs';
 import { localDatabaseURL } from './local-database.mjs';
 
 function refusedBeforeProvisioning(t, databaseURL, overrides, message) {
@@ -48,4 +48,30 @@ test('staff harness refuses either production environment flag before provisioni
     refusedBeforeProvisioning(t, 'postgres://localhost/postgres', { [flag]: 'production' },
       /requires OTERYN_ENV=testing and APP_ENV=testing/);
   }
+});
+
+test('external staff seed fixture forwards only the validated URL, testing flags and MFA key', () => {
+  const databaseURL = 'postgres://127.0.0.1/portal_e2e_guard';
+  const env = staffSeedEnvironment({
+    OTERYN_ENV: 'testing', APP_ENV: 'testing', OTERYN_DATABASE_URL: databaseURL, OTERYN_MFA_KEY: 'test-key',
+    PGHOSTADDR: '192.0.2.1', PGHOST: 'remote.invalid', PGPORT: '1', PGDATABASE: 'other', PGOPTIONS: '-c statement_timeout=1',
+  });
+  assert.deepEqual(env, {
+    OTERYN_ENV: 'testing', APP_ENV: 'testing', OTERYN_DATABASE_URL: databaseURL, OTERYN_MFA_KEY: 'test-key',
+  });
+});
+
+test('external staff seed fixture requires both testing flags and a disposable database', () => {
+  const saved = {
+    OTERYN_ENV: 'testing', APP_ENV: 'testing', OTERYN_DATABASE_URL: 'postgres://127.0.0.1/portal_e2e_guard',
+  };
+  for (const flag of ['OTERYN_ENV', 'APP_ENV']) {
+    for (const value of [undefined, 'production']) {
+      assert.throws(() => staffSeedEnvironment({ ...saved, [flag]: value }), /seeding requires .*testing/);
+    }
+  }
+  assert.throws(() => staffSeedEnvironment({ ...saved, OTERYN_DATABASE_URL: 'postgres://127.0.0.1/postgres' }),
+    /require a local portal_e2e_ database/);
+  assert.throws(() => staffSeedEnvironment({ ...saved, OTERYN_DATABASE_URL: saved.OTERYN_DATABASE_URL + '?host=remote.invalid' }),
+    /Local PostgreSQL only/);
 });

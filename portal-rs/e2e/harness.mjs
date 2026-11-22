@@ -71,6 +71,31 @@ function readJSON(source, label) {
   }
 }
 
+async function dropDatabase(dbName) {
+  for (let remaining = 3; remaining > 0; remaining--) {
+    const client = new pg.Client({
+      connectionString: adminURL,
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 5_000,
+    });
+    // An unexpected disconnect can also emit an idle-client error between
+    // connect and query. The awaited operations determine whether to retry.
+    client.on('error', () => {});
+    try {
+      await client.connect();
+      await client.query({
+        text: `DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`,
+        query_timeout: 6_000,
+      });
+      return;
+    } catch (error) {
+      if (remaining === 1) throw error;
+    } finally {
+      await client.end();
+    }
+  }
+}
+
 function launch(program, args, options) {
   abort.signal.throwIfAborted();
   const child = spawn(program, args, { cwd: root, ...options });
@@ -90,7 +115,7 @@ async function close(code) {
   await Promise.all(children.values());
   for (const action of cleanup.reverse()) {
     try {
-      await action();
+      await action(code);
     } catch (error) {
       log('cleanup failed', error.code ?? error.name);
       code = 1;
@@ -119,8 +144,8 @@ async function start() {
     fs.rmSync(out, { recursive: true, force: true });
   }
   const dirs = { certs: path.join(out, 'certs'), clients: path.join(out, 'certs', 'clients'), witness: path.join(out, 'witness'), logs: path.join(out, 'logs'), secrets: path.join(out, 'secrets'), bin: path.join(out, 'bin') };
-  onCleanup(() => {
-    if (!ready) {
+  onCleanup(code => {
+    if (!ready || code !== 0) {
       for (const dir of [dirs.secrets, dirs.clients, dirs.witness, dirs.bin]) {
         fs.rmSync(dir, { recursive: true, force: true });
       }
@@ -190,7 +215,7 @@ async function start() {
   await admin.query(`CREATE DATABASE "${dbName}"`);
   onCleanup(async () => {
     if (!ready || process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
-      await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+      await dropDatabase(dbName);
     }
   });
   abort.signal.throwIfAborted();

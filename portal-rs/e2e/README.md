@@ -126,8 +126,12 @@ binary paths are resolved from `portal-rs` for services and browser seeds.
 `--staff-console` requires both `OTERYN_ENV` and `APP_ENV` to be `testing`.
 `--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
 services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it after
-readiness). A startup failure or interruption drops the database and removes
-generated credentials, leaving diagnostic logs in the output directory.
+readiness). A startup failure or interruption triggers database cleanup and
+removes generated credentials. Database cleanup retries with fresh connections.
+Managed staff-console teardown reports a failed harness exit and retains its
+diagnostic log.
+Browser seeding validates both testing flags and forwards only the local
+disposable database URL, testing flags, and MFA key.
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
