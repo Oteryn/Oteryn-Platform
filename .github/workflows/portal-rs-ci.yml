@@ -1,24 +1,8 @@
 name: Portal RS CI
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - 'portal-rs/**'
-      # Rust tests read committed contract fixtures and documents byte for byte.
-      - 'docs/contracts/**'
-      - '.github/workflows/portal-rs-ci.yml'
-  push:
-    branches:
-      - main
-    paths:
-      - 'portal-rs/**'
-      # Rust tests read committed contract fixtures and documents byte for byte.
-      - 'docs/contracts/**'
-      - '.github/workflows/portal-rs-ci.yml'
-  # The CI workflow calls this one for every merge group, so the required platform-gate
-  # covers the Rust portal on the exact merge candidate.
+  # Called by the CI workflow for every pull request, push to main and merge group, so the
+  # required platform-gate covers the Rust portal; no separate triggers, which would run it twice.
   workflow_call:
 
 permissions:
@@ -41,8 +25,9 @@ env:
   PORTAL_SHARD_5: oteryn-community oteryn-store oteryn-gameauth
 
 concurrency:
-  group: portal-rs-ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: portal-rs-ci-${{ github.event.pull_request.number || github.sha }}
+  # A new pull request head cancels the old run; runs on main are never cancelled.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
