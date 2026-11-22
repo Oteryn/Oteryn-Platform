@@ -1376,6 +1376,63 @@ async fn refund_row(h: &Harness, operation: Uuid) -> (String, Option<Uuid>, Opti
     .await
     .unwrap()
 }
+#[tokio::test]
+async fn postgres_refund_dispatch_locks_payer_before_refund() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let h = Harness::new().await.expect("PostgreSQL required");
+    let (operation, payment) = queued_refund(&h).await;
+    let adapter = h.effects().payments;
+    let stub = RefundStub::default();
+    let mut reconciliation = h.pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(h.target)
+        .execute(&mut *reconciliation)
+        .await
+        .unwrap();
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reconciliation)
+        .await
+        .unwrap();
+    let probe = async {
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(blocker)
+                .fetch_one(&h.pool)
+                .await
+                .unwrap();
+                if waiting {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("dispatch waits for the payer lock");
+        let locked = sqlx::query(
+            "SELECT operation_id FROM commerce_refunds WHERE operation_id=$1 FOR UPDATE NOWAIT",
+        )
+        .bind(operation)
+        .fetch_optional(&mut *reconciliation)
+        .await;
+        reconciliation.rollback().await.unwrap();
+        assert!(
+            locked
+                .expect("dispatch must not lock the refund before the payer")
+                .is_some()
+        );
+    };
+    let (delivered, ()) = tokio::join!(
+        adapter.deliver_refund_with(&stub, &h.pool, operation),
+        probe
+    );
+    delivered.unwrap();
+    assert_eq!(stub.keys(), vec![payment]);
+    assert_eq!(dispatched_audits(&h).await, 1);
+    h.close().await;
+}
+
 /// Another session can lock the refund row with NOWAIT while the provider call
 /// is in flight: the external call holds no row lock and no open transaction.
 #[tokio::test]
