@@ -45,8 +45,8 @@ for(const row of rows)test(row.case??`route ${row.crate} ${row.route}`,async({pa
  expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
  if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
- if (row.method === 'GET' && ['staff', 'gm'].includes(row.actor)) {
-   expect(documentPath, 'terminal staff route').toBe(new URL(target, response.url()).pathname);
+ if (row.method === 'GET' && (row.exactPath || ['staff', 'gm'].includes(row.actor))) {
+   expect(documentPath, 'terminal route').toBe(new URL(target, response.url()).pathname);
  }
  const text=await response.text();
  if(row.method==='GET'&&response.headers()['content-type']?.startsWith('text/html')&&/<html[\s>]/i.test(text)) {

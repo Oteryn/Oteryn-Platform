@@ -1133,7 +1133,8 @@
     "actor": "player",
     "method": "GET",
     "status": 200,
-    "reason": "active owner can open profile settings"
+    "reason": "active owner can open profile settings",
+    "exactPath": true
   },
   {
     "crate": "identity",
