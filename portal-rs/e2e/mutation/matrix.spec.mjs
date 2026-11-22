@@ -44,6 +44,23 @@ async function seededPlayer(page, lang, role) {
 
 const formSelector = 'main form[method=post]';
 
+async function foreignActors(browser, project, lang, contexts, role) {
+  const actors = [];
+  for (const staffRole of [undefined, role]) {
+    const context = await browser.newContext({
+      baseURL: project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const account = await seededPlayer(screen, lang, staffRole);
+    expect((await screen.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+    const { fields } = await prepare(screen, formSelector);
+    actors.push({ screen, account, csrf: fields._csrf });
+  }
+  return actors;
+}
+
+
 for (const method of ['POST', 'PUT']) {
   test(`account privacy preferences (${method})`, async ({ page, browser }, info) => {
     const lang = info.project.metadata.locale;
@@ -251,17 +268,11 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
 
 for (const action of ['pay', 'reject', 'cancel']) {
   test(`test-provider checkout decision ${action} settles once`, async ({ page, browser }, info) => {
-    test.setTimeout(180_000);
+    test.setTimeout(300_000);
     const lang = info.project.metadata.locale;
-    const foreign = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
-    });
+    const contexts = [];
     try {
-      const other = await foreign.newPage();
-      await seededPlayer(other, lang);
-      await other.goto(`/${lang}/shop/coins`);
-      const foreignToken = await other.locator(`${packageForm} [name=_csrf]`).inputValue();
-
+      const actors = await foreignActors(browser, info.project, lang, contexts, 'support');
       const owner = await seededPlayer(page, lang);
       await page.goto(`/${lang}/shop/coins`);
       await submit(page, packageForm);
@@ -279,8 +290,10 @@ for (const action of ['pay', 'reject', 'cancel']) {
       const baseline = await snapshot();
       expect(baseline).toEqual([{ state: 'pending', events: 0, credits: 0, coins: '0' }]);
       await rejected({ page, url, fields, snapshot, baseline });
-      expect((await sendForm(other, url, { ...fields, _csrf: foreignToken })).status()).toBe(404);
-      expect(await snapshot()).toEqual(baseline);
+      for (const { screen, csrf } of actors) {
+        expect((await sendForm(screen, url, { ...fields, _csrf: csrf })).status()).toBe(404);
+        expect(await snapshot()).toEqual(baseline);
+      }
       await invalid({
         page, url, fields, snapshot, baseline, message: storeError[lang],
         samples: [
@@ -303,23 +316,18 @@ for (const action of ['pay', 'reject', 'cancel']) {
       expect((await sendForm(page, url, fields)).status()).toBe(303);
       expect(await snapshot()).toEqual(settled);
     } finally {
-      await foreign.close();
+      await Promise.all(contexts.map(context => context.close()));
     }
   });
 }
 
 for (const statusMethod of ['POST', 'PUT']) {
   test(`ticket owner reply, close, and reopen enforce ownership and version (${statusMethod})`, async ({ page, browser }, info) => {
+    test.setTimeout(300_000);
     const lang = info.project.metadata.locale;
-    const foreign = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
-    });
+    const contexts = [];
     try {
-      const other = await foreign.newPage();
-      await seededPlayer(other, lang);
-      await other.goto(`/${lang}/support/tickets/create`);
-      const foreignToken = await other.locator(`${formSelector} [name=_csrf]`).inputValue();
-
+      const actors = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
       const owner = await seededPlayer(page, lang);
       await page.goto(`/${lang}/support/tickets/create`);
       await submit(page, formSelector, { subject: 'Ticket mutation ownership', body: 'Original question' });
@@ -377,8 +385,10 @@ for (const statusMethod of ['POST', 'PUT']) {
           const { url, fields } = await prepare(page, selector, variant.fields);
           const method = variant.action === 'status' ? statusMethod : 'POST';
           await rejected({ page, url, fields, snapshot, baseline, method });
-          expect((await sendForm(other, url, { ...fields, _csrf: foreignToken }, method)).status()).toBe(404);
-          expect(await snapshot()).toEqual(baseline);
+          for (const { screen, csrf } of actors) {
+            expect((await sendForm(screen, url, { ...fields, _csrf: csrf }, method)).status()).toBe(404);
+            expect(await snapshot()).toEqual(baseline);
+          }
           await invalid({ page, url, fields, samples: variant.samples, message: error, snapshot, baseline, method });
           await useFormMethod(page, url, method, () => variant.submit(selector));
           await expect(page.locator('main')).toContainText(variant.visible);
@@ -388,7 +398,7 @@ for (const statusMethod of ['POST', 'PUT']) {
         });
       }
     } finally {
-      await foreign.close();
+      await Promise.all(contexts.map(context => context.close()));
     }
   });
 }
@@ -662,19 +672,16 @@ test('player report persists one private report for the submitted request key', 
 });
 
 test('wallet transfer binds one debit and credit to the sending actor', async ({ page, browser }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const recipientContext = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
-  const otherContext = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
-  });
+  const contexts = [recipientContext];
   try {
     const sender = await seededPlayer(page, lang);
     const recipient = await seededPlayer(await recipientContext.newPage(), lang);
-    const otherPage = await otherContext.newPage();
-    await seededPlayer(otherPage, lang, 'content_editor');
+    const actors = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
 
     await page.goto(`/${lang}/shop/coins`);
     await submit(page, packageForm);
@@ -691,8 +698,6 @@ test('wallet transfer binds one debit and credit to the sending actor', async ({
 
     const transfer = `/${lang}/shop/transfer`;
     const selector = 'main form[action$="/shop/transfer"]';
-    expect((await otherPage.goto(transfer)).status()).toBe(200);
-    const otherToken = await otherPage.locator(`${selector} [name=_csrf]`).inputValue();
     expect((await page.goto(transfer)).status()).toBe(200);
     const values = { recipient: recipient.id, amount: '34' };
     const { url, fields } = await prepare(page, selector, values);
@@ -707,8 +712,10 @@ test('wallet transfer binds one debit and credit to the sending actor', async ({
     const baseline = { entries: [], sender: [{ available: '1234' }], recipient: [{ available: '0' }] };
     expect(await snapshot()).toEqual(baseline);
     await rejected({ page, url, fields, snapshot, baseline });
-    expect((await sendForm(otherPage, url, { ...fields, _csrf: otherToken })).status()).toBe(403);
-    expect(await snapshot()).toEqual(baseline);
+    for (const { screen, csrf } of actors) {
+      expect((await sendForm(screen, url, { ...fields, _csrf: csrf })).status()).toBe(403);
+      expect(await snapshot()).toEqual(baseline);
+    }
     await invalid({ page, url, fields, snapshot, baseline, message: storeError[lang], samples: [
       { name: 'empty amount', patch: { amount: '' } },
       { name: 'overlong amount', patch: { amount: '9'.repeat(128) } },
@@ -730,10 +737,12 @@ test('wallet transfer binds one debit and credit to the sending actor', async ({
     expect(await snapshot()).toEqual(done);
     expect((await sendForm(page, url, fields)).status()).toBe(303);
     expect(await snapshot()).toEqual(done);
-    expect((await sendForm(otherPage, url, { ...fields, _csrf: otherToken })).status()).toBe(409);
-    expect(await snapshot()).toEqual(done);
+    for (const { screen, csrf } of actors) {
+      expect((await sendForm(screen, url, { ...fields, _csrf: csrf })).status()).toBe(409);
+      expect(await snapshot()).toEqual(done);
+    }
   } finally {
-    await Promise.all([otherContext.close(), recipientContext.close()]);
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -2292,6 +2301,103 @@ test('WebAuthn browser ceremonies save, authenticate and remove only the owner c
   }
 });
 
+test('account termination queues once and a fresh owner session cancels the pending request', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const path = `/${lang}/account/privacy/delete`;
+  const contexts = [];
+  try {
+    const owner = await seededPlayer(page, lang);
+    const outsiders = [];
+    for (const role of [undefined, 'content_editor']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const other = await context.newPage();
+      await seededPlayer(other, lang, role);
+      await other.goto(`/${lang}/account/privacy`);
+      outsiders.push({ other, token: (await prepare(other, formSelector)).fields._csrf });
+    }
+    const sudo = async (screen, account) => {
+      expect((await screen.goto(`/${lang}/account/sudo`)).status()).toBe(200);
+      await submit(screen, formSelector, { current_password: account.password });
+      await expect(screen).toHaveURL(new RegExp(`/${lang}/password/change$`));
+      expect((await screen.goto(path)).status()).toBe(200);
+    };
+    const state = (account = owner) => query(
+      `SELECT id,cancelled_at IS NOT NULL AS cancelled,finalized_at IS NOT NULL AS finalized,
+              scheduled_for>clock_timestamp() AND cancelled_at IS NULL AS grace
+       FROM account_terminations WHERE account_id=$1 ORDER BY id`,
+      [account.id],
+    );
+    const crossAccount = async (url, fields, expected, baseline) => {
+      for (const { other, token } of outsiders) {
+        expect((await sendForm(other, url, { ...fields, _csrf: token })).status()).toBe(expected);
+        expect(await state()).toEqual(baseline);
+      }
+    };
+    const validation = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    await sudo(page, owner);
+    const create = 'main form:has([name=confirmation])';
+    const values = { current_password: owner.password, confirmation: 'TERMINATE' };
+    const request = await prepare(page, create, values);
+    expect(await state()).toEqual([]);
+    await rejected({ page, ...request, snapshot: state, baseline: [] });
+    await crossAccount(request.url, request.fields, 403, []);
+    await invalid({ page, ...request, snapshot: state, baseline: [], message: validation, samples: [
+      { name: 'empty confirmation', patch: { confirmation: '' } },
+      { name: 'confirmation beyond the exact keyword boundary', patch: { confirmation: 'TERMINATE ' } },
+    ] });
+    const sampleContext = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    contexts.push(sampleContext);
+    const sample = await sampleContext.newPage();
+    const sampleOwner = await seededPlayer(sample, lang);
+    await sudo(sample, sampleOwner);
+    const negative = await prepare(sample, create, { current_password: sampleOwner.password });
+    await invalid({ page: sample, ...negative, snapshot: () => state(sampleOwner), baseline: [], message: validation, samples: [
+      { name: 'overlong confirmation', patch: { confirmation: 'x'.repeat(513) } },
+      { name: 'numeric confirmation', patch: { confirmation: '1' } },
+    ] });
+    await submit(page, create, values);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
+    const pending = [{ id: expect.any(String), cancelled: false, finalized: false, grace: true }];
+    expect(await state()).toEqual(pending);
+    expect(await query('SELECT session_id FROM web_sessions WHERE account_id=$1', [owner.id])).toEqual([]);
+    expect((await sendForm(page, request.url, request.fields)).status()).toBe(403);
+    expect(await state()).toEqual(pending);
+
+    await login(page, lang, owner);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    await sudo(page, owner);
+    const cancel = 'main form[action$="/cancel"]';
+    const cancellation = await prepare(page, cancel, { current_password: owner.password });
+    await rejected({ page, ...cancellation, snapshot: state, baseline: pending });
+    await crossAccount(cancellation.url, cancellation.fields, 404, pending);
+    for (const [current_password, status] of [['', 422], ['x'.repeat(1025), 422], ['1', 403], [`${owner.password}x`, 403]]) {
+      const refused = await sendForm(page, cancellation.url, { ...cancellation.fields, current_password });
+      expect(refused.status()).toBe(status);
+      const denied = lang === 'pl' ? 'Nie masz uprawnień do wyświetlenia tej strony.'
+        : 'You do not have permission to view this page.';
+      expect(await refused.text()).toContain(status === 422 ? validation : denied);
+      expect(await state()).toEqual(pending);
+    }
+    await submit(page, cancel, { current_password: owner.password });
+    await expect(page).toHaveURL(new URL(path, cancellation.url).href);
+    await expect(page.locator(cancel)).toHaveCount(0);
+    const cancelled = [{ ...pending[0], cancelled: true, grace: false }];
+    expect(await state()).toEqual(cancelled);
+    expect((await sendForm(page, cancellation.url, cancellation.fields)).status()).toBe(404);
+    expect(await state()).toEqual(cancelled);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
 test('other players and unrelated staff cannot name an owner in account settings', async ({ page, browser }, info) => {
   test.setTimeout(420_000);
   const lang = info.project.metadata.locale;
@@ -2631,3 +2737,133 @@ for (const prefix of ['locale', 'unprefixed']) {
     }
   });
 }
+
+test('wiki editorial forms persist bilingual revisions and each review action under the correct authority', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const editor = await seededPlayer(page, lang, 'content_editor');
+    const wrong = [];
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const screen = await context.newPage();
+      await seededPlayer(screen, lang, role);
+      await screen.goto(`/${lang}/account/privacy`);
+      wrong.push({ screen, csrf: (await prepare(screen, formSelector)).fields._csrf });
+    }
+    const slug = `matrix-wiki-${randomUUID()}`;
+    const content = {
+      en_title: 'Matrix editorial guide', en_slug: slug, en_summary: 'Bilingual editorial guide.',
+      en_markdown: '## Guide details\n\nDrafted through the staff form.',
+      pl_title: 'Poradnik redakcyjny', pl_slug: slug, pl_summary: 'Poradnik w dwóch językach.',
+      pl_markdown: '## Szczegóły poradnika\n\nTreść z formularza zespołu.',
+      note: 'Local mutation matrix editorial qualification.',
+    };
+    const snapshot = () => query(
+      `SELECT g.id,g.status,g.version::int,g.revision_version::int,g.entity_key,
+         (SELECT jsonb_agg(jsonb_build_object('version',v.version,'locale',v.locale,'title',v.title,
+            'editor',v.editor,'source',v.source_version) ORDER BY v.version,v.locale)
+          FROM wiki_revisions v WHERE v.guide_id=g.id) AS revisions,
+         ARRAY(SELECT action FROM wiki_reviews WHERE guide_id=g.id ORDER BY id) AS reviews
+       FROM wiki_guides g WHERE EXISTS(SELECT 1 FROM wiki_revisions r WHERE r.guide_id=g.id AND r.slug=$1)`,
+      [slug],
+    );
+    const validation = lang === 'pl' ? 'Sprawdź dane.' : 'Check the input.';
+    const check = async (selector, values, samples) => {
+      const prepared = await prepare(page, selector, values);
+      const baseline = await snapshot();
+      await rejected({ page, ...prepared, snapshot, baseline });
+      for (const { screen, csrf } of wrong) {
+        expect((await sendForm(screen, prepared.url, { ...prepared.fields, _csrf: csrf })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await invalid({ page, ...prepared, samples, message: validation, snapshot, baseline });
+      return prepared;
+    };
+    const draftSamples = [
+      { name: 'empty English title', patch: { en_title: '' } },
+      { name: 'overlong Polish title', patch: { pl_title: 'x'.repeat(201) } },
+      { name: 'wrong version type', patch: { lock_version: 'text' } },
+      { name: 'invalid slug boundary', patch: { en_slug: '-invalid' } },
+    ];
+    const versionSamples = [
+      { name: 'empty version', patch: { lock_version: '' } },
+      { name: 'overlong version', patch: { lock_version: '1'.repeat(80) } },
+      { name: 'wrong version type', patch: { lock_version: 'text' } },
+      { name: 'first version above signed 64-bit limit', patch: { lock_version: '9223372036854775808' } },
+    ];
+    const phase = {
+      draft: lang === 'pl' ? 'Szkic' : 'Draft',
+      in_review: lang === 'pl' ? 'W przeglądzie' : 'In review',
+      published: lang === 'pl' ? 'Opublikowany' : 'Published',
+      archived: lang === 'pl' ? 'Zarchiwizowany' : 'Archived',
+    };
+    const article = `/${lang}/wiki/articles/${slug}`;
+    const create = 'main form[action="/admin/wiki/articles"]';
+    expect((await page.goto('/admin/wiki/articles/create')).status()).toBe(200);
+    await check(create, content, draftSamples);
+    expect(await snapshot()).toEqual([]);
+    await submit(page, create, content);
+    await expect(page).toHaveURL(/\/admin\/wiki\/articles\/[a-f0-9-]+\/edit$/);
+    await expect(page.locator('main h1 + p')).toContainText(phase.draft);
+    const edit = new URL(page.url()).pathname;
+    const id = edit.split('/').at(-2);
+    const revisions = (version, en, source = null) => ['en', 'pl'].map(locale => ({
+      version, locale, title: locale === 'en' ? en : content.pl_title, editor: editor.id, source,
+    }));
+    let row = { id, status: 'draft', version: 1, revision_version: 1, entity_key: null,
+      revisions: revisions(1, content.en_title), reviews: [] };
+    expect(await snapshot()).toEqual([row]);
+    expect((await page.request.get(article)).status()).toBe(404);
+
+    const update = `main form[action="/admin/wiki/articles/${id}"]`;
+    const title = 'Revised editorial guide';
+    const changed = await check(update, { en_title: title }, draftSamples);
+    await submit(page, update, { en_title: title });
+    await expect(page.locator(`${update} [name=en_title]`)).toHaveValue(title);
+    row = { ...row, version: 2, revision_version: 2,
+      revisions: [...row.revisions, ...revisions(2, title)] };
+    expect(await snapshot()).toEqual([row]);
+    expect((await sendForm(page, changed.url, changed.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual([row]);
+
+    expect((await page.goto(edit.replace(/\/edit$/, '/revisions'))).status()).toBe(200);
+    const restore = 'main form[action$="/revisions/1/restore"]';
+    const first = `main article:has(h2:text-is("${content.en_title} (en) · 1")) ${restore.replace('main ', '')}`;
+    const restoring = await check(first, {}, versionSamples);
+    await submit(page, first);
+    await expect(page.locator(`${update} [name=en_title]`)).toHaveValue(content.en_title);
+    row = { ...row, version: 3, revision_version: 3,
+      revisions: [...row.revisions, ...revisions(3, content.en_title, 1)] };
+    expect(await snapshot()).toEqual([row]);
+    expect((await sendForm(page, restoring.url, restoring.fields)).status()).toBe(409);
+    expect(await snapshot()).toEqual([row]);
+
+    for (const [action, status] of [
+      ['submit-review', 'in_review'], ['return-draft', 'draft'], ['submit-review', 'in_review'],
+      ['publish', 'published'], ['unpublish', 'draft'], ['archive', 'archived'],
+    ]) {
+      const selector = `main form[action$="/${action}"]`;
+      const transition = await check(selector, {}, versionSamples);
+      await submit(page, selector);
+      await expect(page.locator('main h1 + p')).toContainText(phase[status]);
+      row = { ...row, status, version: row.version + 1, reviews: [...row.reviews, action] };
+      expect(await snapshot()).toEqual([row]);
+      const visibility = await page.request.get(article);
+      expect(visibility.status()).toBe(status === 'published' ? 200 : 404);
+      if (status === 'published') {
+        expect((await page.goto(article)).status()).toBe(200);
+        await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? content.pl_title : content.en_title);
+        await page.goto(edit);
+      }
+      expect((await sendForm(page, transition.url, transition.fields)).status()).toBe(409);
+      expect(await snapshot()).toEqual([row]);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});

@@ -39,11 +39,12 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | Password change POST and PUT, both prefixes | Real form changes the credential, transaction records the security event and revokes old sessions | Yes | Other player and content editor refused | Localized input validation | Old request cannot change the credential again |
 | Forgot password POST, both prefixes | Actual form queues a capability delivered to the local mailbox | Yes | Signed-in foreign player and content editor are refused | Localized generic confirmation preserves account privacy and malformed input queues nothing | Each newly authorized request can issue a capability |
 | Reset password POST, both prefixes | Mailed form changes the password and revokes the earlier session | Yes | Signed-in foreign player and content editor are refused | Localized refusal for malformed fields and mismatched passwords | The capability is accepted once |
+| Account termination request and cancellation | The request returns the owner to login and persists one scheduled termination. A fresh owner session cancels it before finalization | Yes | Foreign player and content editor are refused | Localized confirmation and password errors | The request revokes the issuing session. Replayed cancellation leaves the cancelled row unchanged |
 | WebAuthn registration, authentication and removal | Chromium authenticator completes real ceremonies, and credential and session records change | Yes | Other player and content editor cannot operate on the owner challenge or credential | Structured authenticator errors and malformed references | Challenge or credential state changes once |
 | `/{lang}/unsubscribe` | Signed confirmation form | Signed capability missing or forged | Possession of the signed link grants access | Malformed and overlength capabilities | No additional change on replay |
 | `/{lang}/support/tickets` | Yes | Yes | Anonymous | Yes | Request-key replay |
-| `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player | Yes | Stale lock version |
-| `/{lang}/support/tickets/{id}/status` (POST and PUT, close and reopen) | Yes | Yes | Foreign player | Yes | Stale lock version |
+| `/{lang}/support/tickets/{id}/reply` | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
+| `/{lang}/support/tickets/{id}/status` (POST and PUT, close and reopen) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/admin/support/tickets/{id}/reply` (public reply) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/admin/support/tickets/{id}/status` (POST resolve and PUT reopen) | Yes | Yes | Foreign player and content editor | Yes | Stale lock version |
 | `/{lang}/support/tickets/{id}/read` | Yes | Yes | Foreign player and content editor | Yes | Unread flag clears once |
@@ -51,14 +52,15 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/{lang}/shop/coins` | Yes | Yes | Anonymous | Yes | Operation replay |
 | Gift code issuance | Staff form returns a coin or premium-days batch. Exactly one code and audit record persist | Yes | Player and content editor | Localized feedback for empty, overlong, malformed and out-of-range values | Matching replay returns the same batch without issuing another code |
 | Gift code redemption | Browser JSON request followed by visible wallet credit or premium end date, backed by its ledger | Yes | A valid unused code authorizes redemption. Both a different player and content editor are refused after it is consumed | Localized feedback and unchanged ledger | Replayed operation returns the first receipt and grants value once |
-| `/{lang}/shop/transfer` | Yes | Yes | Content editor with a separate wallet | Yes | One debit and one credit |
-| `/{lang}/shop/test-checkout/{intent}` (pay) | Yes | Yes | Foreign player | Yes | One event and one credit |
-| `/{lang}/shop/test-checkout/{intent}` (reject) | Yes | Yes | Foreign player | Yes | One event and zero credits |
-| `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player | Yes | One event and zero credits |
+| `/{lang}/shop/transfer` | Yes | Yes | Foreign player and content editor with separate wallets | Yes | One debit and one credit |
+| `/{lang}/shop/test-checkout/{intent}` (pay) | Yes | Yes | Foreign player and support staff | Yes | One event and one credit |
+| `/{lang}/shop/test-checkout/{intent}` (reject) | Yes | Yes | Foreign player and support staff | Yes | One event and zero credits |
+| `/{lang}/shop/test-checkout/{intent}` (cancel) | Yes | Yes | Foreign player and support staff | Yes | One event and zero credits |
 | `/native-account/coin-checkout/{order_id}` (pay and fail) | Real test-provider form and visible terminal outcome | Yes | Foreign player and support staff | Four localized invalid decision cases | Exactly one provider event. Pay credits once and fail leaves no credit |
 | News create and update (POST and PUT) | Both languages, persisted text and staff audit | Yes | Foreign player and support staff | Malformed title, time and slug refused | Stale revision refused on update |
 | News deletion (POST and DELETE) | Editor index and public 404, durable row removed and audited | Yes | Foreign player and support staff | Missing, overlength, malformed and stale revisions conflict | Repeat returns 404 with one deletion |
 | Event create, update and status (POST and PUT) | Draft, edit, schedule, publish, archive and return to draft. Status, version, translation and staff IDs checked | Yes | Foreign player and support staff | Localized validation of dates, titles and states | Stale revisions refused on updates and status changes |
+| Wiki create, update, revision restore and review actions | Visible draft, review, published and archived states. Changes persist bilingual revisions and a review history | Yes | Foreign player and support staff | Localized malformed text, slug and revision feedback | Stale edits, restores and transitions are refused |
 | Staff roles (create, set permissions, grant and revoke) | Role and membership forms are visible. Permissions, members and each audit action persist | Yes | Player and content editor | Empty, overlong and malformed values refused | Each deliberate administrative change is audited |
 | `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
 

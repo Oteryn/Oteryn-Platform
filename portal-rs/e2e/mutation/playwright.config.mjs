@@ -5,4 +5,5 @@ export default defineConfig({
   ...shared,
   testDir: '.',
   testMatch: 'matrix.spec.mjs',
+  timeout: 300_000,
 });
