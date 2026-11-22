@@ -88,6 +88,7 @@ pub struct Registry {
     pub login: bool,
     pub registration: bool,
     pub account: bool,
+    pub staff_panel_url: Option<String>,
 }
 impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
@@ -139,6 +140,9 @@ impl Registry {
                     || !matches!(
                         account,
                         Account::SignedIn {
+                            passkeys_eligible: false,
+                            ..
+                        } | Account::Staff {
                             passkeys_eligible: false,
                             ..
                         }
@@ -214,6 +218,7 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
+            staff_panel_url: self.staff_panel_url.clone(),
         }
     }
 }
@@ -223,6 +228,10 @@ pub enum Account {
     #[default]
     Anonymous,
     SignedIn {
+        csrf: String,
+        passkeys_eligible: bool,
+    },
+    Staff {
         csrf: String,
         passkeys_eligible: bool,
     },
@@ -263,6 +272,7 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
+    pub staff_panel_url: Option<String>,
 }
 impl Default for Chrome {
     fn default() -> Self {
@@ -274,12 +284,22 @@ impl Chrome {
         text(&self.lang, key)
     }
     pub fn signed_in(&self) -> bool {
-        matches!(self.account, Account::SignedIn { .. })
+        matches!(
+            self.account,
+            Account::SignedIn { .. } | Account::Staff { .. }
+        )
+    }
+    pub fn staff_panel_link(&self) -> Option<&str> {
+        if matches!(self.account, Account::Staff { .. }) {
+            self.staff_panel_url.as_deref()
+        } else {
+            None
+        }
     }
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf, .. } => csrf,
+            Account::SignedIn { csrf, .. } | Account::Staff { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -778,6 +798,33 @@ mod tests {
                 assert!(html.contains(&title));
                 assert!(html.contains("href=\"#main\""));
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn account_menu_renders_staff_link_only_when_enabled_and_authorized()
+    -> Result<(), askama::Error> {
+        for (enabled, staff) in [(true, true), (true, false), (false, true)] {
+            let mut registry = registry();
+            let url = "https://staff.example.test:8443/admin";
+            registry.staff_panel_url = enabled.then(|| url.into());
+            let csrf = "fixture".into();
+            let account = if staff {
+                Account::Staff {
+                    csrf,
+                    passkeys_eligible: false,
+                }
+            } else {
+                Account::SignedIn {
+                    csrf,
+                    passkeys_eligible: false,
+                }
+            };
+            let chrome = registry.chrome("en", "/en/", account);
+            let html = Home::new(&chrome, &HomeData::default()).render()?;
+            assert_eq!(html.contains(&format!("href=\"{url}\"")), enabled && staff);
+            assert_eq!(html.contains("Staff panel"), enabled && staff);
         }
         Ok(())
     }

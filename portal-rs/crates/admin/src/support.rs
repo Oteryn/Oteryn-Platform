@@ -28,12 +28,31 @@ pub enum Area {
     Enforcement,
 }
 impl Area {
-    pub fn permission(self) -> Permission {
+    pub(crate) fn permissions(self) -> &'static [Permission] {
         match self {
-            Self::Tickets => Permission::ManageSupportTickets,
-            Self::Reports => Permission::ManageSupportReports,
-            Self::Enforcement => Permission::ManageSupportEnforcement,
+            Self::Tickets => &[Permission::ManageSupportTickets],
+            Self::Reports => &[
+                Permission::ReviewSupportReports,
+                Permission::ManageSupportReports,
+            ],
+            Self::Enforcement => &[Permission::ManageSupportEnforcement],
         }
+    }
+
+    /// Check an area grant after locking the resources and authorizing panel access.
+    pub async fn check_in<A: AccountStateReader>(
+        self,
+        tx: &mut Transaction<'_, Postgres>,
+        auth: &Authorizer<A>,
+        context: CheckContext,
+    ) -> Result<(), Error> {
+        for &permission in self.permissions() {
+            match auth.check_in(tx, context, permission).await {
+                Err(crate::rbac::Error::Denied) => continue,
+                result => return result.map_err(authorization_error),
+            }
+        }
+        Err(Error::Denied)
     }
 }
 #[derive(Debug, Clone, Deserialize)]
@@ -122,6 +141,7 @@ impl Command {
     }
     pub fn permissions(&self) -> &[Permission] {
         match self {
+            Self::Moderate { .. } => &[Permission::Access],
             Self::LinkSanction { .. } => &[
                 Permission::Access,
                 Permission::ManageSupportReports,
@@ -134,6 +154,20 @@ impl Command {
             },
         }
     }
+    /// Report status review accepts either report grant. Target verification and
+    /// sanction linking retain their separate, mandatory mutation permissions.
+    pub async fn check_report_review_in<A: AccountStateReader>(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        auth: &Authorizer<A>,
+        context: CheckContext,
+    ) -> Result<(), Error> {
+        if matches!(self, Self::Moderate { .. }) {
+            Area::Reports.check_in(tx, auth, context).await?;
+        }
+        Ok(())
+    }
+
     fn creates_sanction(&self) -> bool {
         matches!(
             self,
@@ -387,6 +421,13 @@ impl Backend for PendingSupport {
         Err(Error::Unavailable)
     }
 }
+fn authorization_error(error: crate::rbac::Error) -> Error {
+    match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    }
+}
+
 /// Authorization is rechecked while holding the role-writer lock. Domain writes and
 /// audit commit together; an unavailable dependency cannot produce a success.
 pub async fn execute<A: AccountStateReader, B: Backend>(
@@ -419,10 +460,14 @@ async fn execute_audited<A: AccountStateReader, B: Backend>(
     }
     let permissions = command.permissions();
     for &permission in permissions {
-        auth.check(context, permission).await.map_err(|e| match e {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
+        auth.check(context, permission)
+            .await
+            .map_err(authorization_error)?;
+    }
+    if matches!(command, Command::Moderate { .. }) {
+        auth.check_any(context, Area::Reports.permissions())
+            .await
+            .map_err(authorization_error)?;
     }
     let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     // Preparation precedes the RBAC fence, but retains its bounded lock waits.
@@ -432,18 +477,10 @@ async fn execute_audited<A: AccountStateReader, B: Backend>(
     backend.prepare(&mut tx, context, id, command).await?;
     crate::rbac::authorize_mutation(&mut tx, &[context.account], auth, context, permissions)
         .await
-        .map_err(|error| match error {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
-    for &permission in permissions {
-        auth.check_in(&mut tx, context, permission)
-            .await
-            .map_err(|e| match e {
-                crate::rbac::Error::Storage(_) => Error::Unavailable,
-                _ => Error::Denied,
-            })?;
-    }
+        .map_err(authorization_error)?;
+    command
+        .check_report_review_in(&mut tx, auth, context)
+        .await?;
     if let Command::AssignTicket {
         assignee: Some(assignee),
     } = command
@@ -451,10 +488,7 @@ async fn execute_audited<A: AccountStateReader, B: Backend>(
         for &permission in permissions {
             auth.check_subject_in(&mut tx, *assignee, permission)
                 .await
-                .map_err(|error| match error {
-                    crate::rbac::Error::Storage(_) => Error::Unavailable,
-                    _ => Error::Denied,
-                })?;
+                .map_err(authorization_error)?;
         }
     }
     let (before, mut after) = backend
@@ -484,10 +518,10 @@ async fn execute_audited<A: AccountStateReader, B: Backend>(
     .map_err(|_| Error::Unavailable)?;
     crate::rbac::authorize_mutation(&mut tx, &[context.account], auth, context, permissions)
         .await
-        .map_err(|error| match error {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
+        .map_err(authorization_error)?;
+    command
+        .check_report_review_in(&mut tx, auth, context)
+        .await?;
     tx.commit().await.map_err(|_| Error::Unavailable)
 }
 

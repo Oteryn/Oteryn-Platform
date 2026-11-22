@@ -644,7 +644,8 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
             .env(CHILD, "1")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
             .env("OTERYN_PUBLIC_ORIGIN", "https://pub.test")
-            .env("OTERYN_ADMIN_HOST", "staff.test")
+            .env("OTERYN_ADMIN_PANEL", "true")
+            .env("OTERYN_ADMIN_HOST", "staff.test:443")
             .status()?;
         assert!(status.success());
         return Ok(());

@@ -2,8 +2,9 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode},
+    extract::{ConnectInfo, Request, State},
+    http::{HeaderMap, StatusCode, header},
+    middleware::Next,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -24,16 +25,37 @@ pub fn configured_router(pool: PgPool) -> Router {
         .ok()
         .into_iter()
         .collect();
-    if let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
-        && let Ok(authority) = host.parse::<axum::http::uri::Authority>()
-    {
-        sessions
-            .csrf
-            .trusted_origins
-            .push(format!("https://{authority}"));
-    }
     router(pool, enabled, sessions)
 }
+
+pub(crate) fn configured_staff_authority() -> Option<String> {
+    if std::env::var("OTERYN_ADMIN_PANEL").as_deref() != Ok("true") {
+        return None;
+    }
+    oteryn_web::csrf::https_authority(&std::env::var("OTERYN_ADMIN_HOST").ok()?)
+}
+
+pub(crate) async fn staff_session(
+    State((layer, staff_authority)): State<(SessionLayer, Option<String>)>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let mut hosts = request.headers().get_all(header::HOST).iter();
+    if let Some(authority) = staff_authority
+        && hosts
+            .next()
+            .and_then(|value| value.to_str().ok())
+            .and_then(oteryn_web::csrf::https_authority)
+            .as_ref()
+            == Some(&authority)
+        && hosts.next().is_none()
+    {
+        let csrf = request.extensions_mut().get_or_insert(layer.csrf.clone());
+        csrf.trusted_origins = vec![format!("https://{authority}")];
+    }
+    session::middleware(State(layer), request, next).await
+}
+
 fn router(pool: PgPool, enabled: bool, sessions: SessionLayer) -> Router {
     if !enabled {
         return Router::new();
@@ -47,8 +69,8 @@ fn router(pool: PgPool, enabled: bool, sessions: SessionLayer) -> Router {
         .route("/pl/logout", post(logout))
         .route("/en/logout", post(logout))
         .route_layer(axum::middleware::from_fn_with_state(
-            sessions,
-            session::middleware,
+            (sessions, configured_staff_authority()),
+            staff_session,
         ))
         .layer(axum::middleware::from_fn_with_state(
             limiter,

@@ -27,6 +27,7 @@ ALTER TABLE role_permissions ADD CONSTRAINT role_permissions_permission_check
         'support.content.manage',
         'support.tickets.manage',
         'support.reports.manage',
+        'support.reports.review',
         'support.enforcement.manage',
         'marketplace.manage',
         'products.premium.manage',

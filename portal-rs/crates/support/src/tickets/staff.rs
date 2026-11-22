@@ -222,6 +222,7 @@ impl Backend for StaffSupport {
             oteryn_admin::rbac::Error::Storage(_) => StaffError::Unavailable,
             _ => StaffError::Denied,
         })?;
+        command.check_report_review_in(tx, &auth, context).await?;
         // Include implicit author FK locks and RBAC's actor SHARE lock. Every
         // domain uses the same UUID order before joining the role-writer fence.
         if matches!(

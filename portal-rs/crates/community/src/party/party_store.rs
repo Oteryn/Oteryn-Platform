@@ -261,6 +261,11 @@ impl Board {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or(Error::Missing)?;
+        let resolved = sqlx::query("UPDATE pd_party_reports SET status='resolved',updated_at=now() WHERE post_id=$1 AND status='open' AND id=ANY($2)")
+            .bind(id).bind(report_ids).execute(&mut *tx).await?;
+        if action == "remove" && resolved.rows_affected() == 0 {
+            return Err(Error::Missing);
+        }
         let after = if action == "remove" {
             "removed"
         } else {
@@ -271,8 +276,6 @@ impl Board {
             .bind(after)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE pd_party_reports SET status='resolved',updated_at=now() WHERE post_id=$1 AND status='open' AND id=ANY($2)")
-            .bind(id).bind(report_ids).execute(&mut *tx).await?;
         audit::append(
             &mut tx,
             Entry {

@@ -128,14 +128,46 @@ async fn host_flag_session_and_mfa_boundaries() {
     .unwrap();
     assert!(body.contains("wieloskładnikowe"));
 }
+#[tokio::test]
+async fn configured_https_port_matches_browser_host_and_csrf_origin() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+        .unwrap();
+    let config = config_from(&|name| match name {
+        "OTERYN_ADMIN_PANEL" => Some("true".into()),
+        "OTERYN_ADMIN_HOST" => Some("Staff.Example.test:443".into()),
+        _ => None,
+    })
+    .unwrap();
+    assert_eq!(
+        config.landing_url().as_deref(),
+        Some("https://staff.example.test/admin")
+    );
+    assert_eq!(config.csrf_origin(), "https://staff.example.test");
+    let app = router(pool, config, PendingAuthentication, PendingAuthentication);
+    for host in ["staff.example.test", "STAFF.Example.test:443"] {
+        assert_eq!(
+            request(app.clone(), "/admin", host).await.status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert_eq!(
+        request(app, "/admin", "staff.example.test:8443")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
 #[test]
 fn localized_responsive_labelled_template() {
-    for lang in ["pl", "en"] {
+    for (lang, reports_label) in [("pl", "Zgłoszenia graczy"), ("en", "Player reports")] {
         let html = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
             invites_label: text(lang, "invite-title"),
+            reports_label: text(lang, "player-reports"),
+            reports_url: Some(REPORTS_PATH),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -147,6 +179,7 @@ fn localized_responsive_labelled_template() {
         }
         .render()
         .unwrap();
+        assert!(html.contains(&format!(r#"href="{REPORTS_PATH}">{reports_label}</a>"#)));
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
         assert!(html.contains(&format!("href=\"/admin/staff-invites?lang={lang}\"")));
@@ -423,6 +456,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let panel = Panel {
         config: PanelConfig::default(),
         required: None,
+        reports_enabled: false,
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),

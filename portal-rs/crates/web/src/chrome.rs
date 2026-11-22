@@ -21,7 +21,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let account = crate::session::chrome_account(
+        &shell.sessions,
+        &mut request,
+        shell.registry.staff_panel_url.is_some(),
+    )
+    .await;
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")
@@ -101,12 +106,32 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .entry(axum::http::HeaderName::from_static(name))
                     .or_insert(axum::http::HeaderValue::from_static(value));
             }
-            replacement.headers_mut().insert(
-                header::CACHE_CONTROL,
-                axum::http::HeaderValue::from_static("no-store"),
-            );
+            if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
+                for name in [header::CACHE_CONTROL, header::PRAGMA] {
+                    for value in response.headers().get_all(&name) {
+                        replacement.headers_mut().append(&name, value.clone());
+                    }
+                }
+            } else {
+                replacement.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    axum::http::HeaderValue::from_static("no-store"),
+                );
+            }
             response = replacement;
         }
+    }
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE
+        && !response
+            .headers()
+            .get_all(header::CACHE_CONTROL)
+            .iter()
+            .any(has_no_store)
+    {
+        response.headers_mut().append(
+            header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
     }
     let mut response = wrap_document(response, &chrome).await;
     if response
@@ -125,6 +150,27 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+fn has_no_store(value: &header::HeaderValue) -> bool {
+    let mut quoted = false;
+    let mut escaped = false;
+    value
+        .as_bytes()
+        .split(|byte| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            match byte {
+                b'"' => quoted = !quoted,
+                b'\\' if quoted => escaped = true,
+                b',' if !quoted => return true,
+                _ => {}
+            }
+            false
+        })
+        .any(|directive| directive.trim_ascii().eq_ignore_ascii_case(b"no-store"))
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
@@ -469,6 +515,86 @@ mod response_tests {
         assert_eq!(html.matches("class=\"foot foot-interior\"").count(), 1);
         assert!(html.contains("components.css"));
         assert!(html.contains("<p>op-theme op-shell</p>"));
+        Ok(())
+    }
+
+    #[test]
+    fn no_store_must_be_a_directive_not_quoted_text() {
+        for value in [
+            r#"private, ext="v,no-store,v""#,
+            r#"private, ext="escaped\",no-store,text""#,
+        ] {
+            assert!(!has_no_store(&header::HeaderValue::from_static(value)));
+        }
+        assert!(has_no_store(&header::HeaderValue::from_static(
+            r#"private, ext="v,no-store,v", NO-STORE"#
+        )));
+    }
+
+    #[tokio::test]
+    async fn unavailable_responses_preserve_cache_directives()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = Router::new()
+            .route(
+                "/en/analytics/data",
+                get(|| async {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        [
+                            (header::CACHE_CONTROL, "no-store, private"),
+                            (header::PRAGMA, "no-cache"),
+                        ],
+                    )
+                }),
+            )
+            .route(
+                "/en/private",
+                get(|| async {
+                    let mut headers = axum::http::HeaderMap::new();
+                    for value in ["private", "max-age=0"] {
+                        headers.append(
+                            header::CACHE_CONTROL,
+                            header::HeaderValue::from_static(value),
+                        );
+                    }
+                    (StatusCode::SERVICE_UNAVAILABLE, headers)
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        for accept in ["text/html", "application/json"] {
+            for (path, expected) in [
+                ("/en/analytics/data", &["no-store, private"][..]),
+                ("/en/private", &["private", "max-age=0", "no-store"][..]),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::get(path)
+                            .header(header::ACCEPT, accept)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                let actual = response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .map(|value| value.to_str())
+                    .collect::<Result<Vec<_>, _>>()?;
+                assert_eq!(actual, expected);
+                if path == "/en/analytics/data" {
+                    assert_eq!(response.headers()[header::PRAGMA], "no-cache");
+                }
+            }
+        }
         Ok(())
     }
 

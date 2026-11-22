@@ -1202,3 +1202,17 @@ async fn r8_grant_invalidates_existing_staff_session() {
     tx.rollback().await.unwrap();
     db.close().await;
 }
+
+#[test]
+fn moderator_report_review_does_not_grant_party_moderation() {
+    let permissions = BuiltInRole::Moderator.permissions();
+    assert!(permissions.contains(&Permission::ReviewSupportReports));
+    assert!(!permissions.contains(&Permission::ManageSupportReports));
+    assert_eq!(
+        crate::support::Area::Reports.permissions(),
+        &[
+            Permission::ReviewSupportReports,
+            Permission::ManageSupportReports
+        ]
+    );
+}

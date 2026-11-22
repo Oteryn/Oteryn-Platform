@@ -583,25 +583,41 @@ pub async fn read_only_middleware(
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
+    staff_panel_enabled: bool,
 ) -> oteryn_ui::Account {
     let Ok(Some(session)) = read_signed_in(layer, request).await else {
         return oteryn_ui::Account::Anonymous;
     };
-    let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
-        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+    let policy: Result<Option<(String, bool, bool, bool)>, _> = sqlx::query_as(
+        "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true),
+                $2 AND EXISTS (
+                    SELECT 1 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
+                    WHERE ar.account_id=$1 AND rp.permission='admin.access'
+                )
          FROM accounts WHERE id=$1",
     )
     .bind(session.account_id)
+    .bind(staff_panel_enabled)
     .fetch_optional(&layer.pool)
     .await;
-    let passkeys_eligible = matches!(
-        policy,
-        Ok(Some((status, verified, mfa_required)))
-            if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
-    );
-    oteryn_ui::Account::SignedIn {
-        csrf: session.csrf,
-        passkeys_eligible,
+    let Ok(Some((status, verified, mfa_required, staff))) = policy else {
+        return oteryn_ui::Account::SignedIn {
+            csrf: session.csrf,
+            passkeys_eligible: false,
+        };
+    };
+    let passkeys_eligible =
+        oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required);
+    if staff {
+        oteryn_ui::Account::Staff {
+            csrf: session.csrf,
+            passkeys_eligible,
+        }
+    } else {
+        oteryn_ui::Account::SignedIn {
+            csrf: session.csrf,
+            passkeys_eligible,
+        }
     }
 }
 

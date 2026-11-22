@@ -5,6 +5,10 @@ use crate::{
         AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, Change,
         CheckContext, Error, Permission,
     },
+    support::{
+        Area,
+        web::{REPORTS_FLAG, REPORTS_PATH},
+    },
 };
 use askama::Template;
 use axum::{
@@ -15,7 +19,10 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::{
+    csrf::https_authority,
+    session::{BrowserSession, SessionLayer},
+};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -130,15 +137,29 @@ pub struct PanelConfig {
     pub host: String,
 }
 impl PanelConfig {
-    pub(crate) fn csrf_origin(&self) -> String {
-        format!("https://{}", self.host.to_ascii_lowercase())
+    fn landing_url(&self) -> Option<String> {
+        self.admin_panel
+            .then(|| format!("{}/admin", self.csrf_origin()))
     }
+
+    pub(crate) fn csrf_origin(&self) -> String {
+        format!(
+            "https://{}",
+            https_authority(&self.host).unwrap_or_default()
+        )
+    }
+}
+
+/// The staff landing URL derived from the same host configuration as the panel guard.
+pub fn configured_landing_url() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    Ok(config_from_env()?.landing_url())
 }
 
 struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
-    required: Option<Permission>,
+    required: Option<Vec<Permission>>,
+    reports_enabled: bool,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -153,7 +174,7 @@ pub(crate) fn config_from(
 ) -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
     let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
-    if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
+    if enabled && https_authority(&host).is_none() {
         return Err("invalid admin host".into());
     }
     Ok(PanelConfig {
@@ -163,11 +184,12 @@ pub(crate) fn config_from(
 }
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+    Ok(router_with_reports(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
+        std::env::var(REPORTS_FLAG).is_ok_and(|value| value == "true"),
     ))
 }
 
@@ -188,13 +210,22 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
+    configured_guard_any_from(routes, pool, &[permission], lookup)
+}
+
+pub(crate) fn configured_guard_any_from(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded_any(
         routes,
         pool.clone(),
         config_from(lookup)?,
         PortalIdentity::configured_from(pool.clone(), lookup),
         PortalIdentity::configured_from(pool, lookup),
-        permission,
+        permissions,
     ))
 }
 
@@ -211,12 +242,24 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permission: Permission,
 ) -> Router {
+    guarded_any(routes, pool, config, identity, accounts, &[permission])
+}
+
+pub(crate) fn guarded_any<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: Some(permission),
+        required: Some(permissions.to_vec()),
+        reports_enabled: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -240,12 +283,23 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    router_with_reports(pool, config, identity, accounts, false)
+}
+
+fn router_with_reports<I: StaffSession, A: AccountStateReader + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    reports_enabled: bool,
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
+        reports_enabled,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -297,14 +351,16 @@ pub(crate) async fn host_guard(
     next: Next,
 ) -> Response {
     let hosts = request.headers().get_all(header::HOST);
+    let configured = https_authority(&config.host);
+    let incoming = hosts
+        .iter()
+        .next()
+        .and_then(|value| value.to_str().ok())
+        .and_then(https_authority);
     if !config.admin_panel
-        || config.host.is_empty()
         || hosts.iter().count() != 1
-        || !hosts
-            .iter()
-            .next()
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&config.host))
+        || configured.is_none()
+        || incoming != configured
     {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -360,29 +416,28 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
     }
     let context = staff_context(session, identity).await;
-    let permission = s
+    let path = request.uri().path();
+    let required = s
         .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
-    for required in [Permission::Access, permission] {
-        if let Err(error) = s.auth.check(context, required).await {
-            if matches!(error, Error::Storage(_)) {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
-            let path = request.uri().path();
-            let target = if path.starts_with(audit::EDITORIAL_PAGE_PATH_PREFIX) {
-                audit::EDITORIAL_PAGE_ROUTE
-            } else {
-                path
-            };
-            return match refusal(&s.pool, context.account, target).await {
-                Ok(()) => StatusCode::FORBIDDEN.into_response(),
-                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            };
+        .as_deref()
+        .or_else(|| (path == "/admin/roles").then_some(&[Permission::ManageRoles][..]));
+    let authorized = match (s.auth.check(context, Permission::Access).await, required) {
+        (Ok(()), Some(required)) => s.auth.check_any(context, required).await,
+        (result, _) => result,
+    };
+    if let Err(error) = authorized {
+        if matches!(error, Error::Storage(_)) {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
+        let target = if path.starts_with(audit::EDITORIAL_PAGE_PATH_PREFIX) {
+            audit::EDITORIAL_PAGE_ROUTE
+        } else {
+            path
+        };
+        return match refusal(&s.pool, context.account, target).await {
+            Ok(()) => StatusCode::FORBIDDEN.into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        };
     }
     request.extensions_mut().insert(context);
     request
@@ -496,6 +551,8 @@ struct Page {
     title: String,
     roles_label: String,
     invites_label: String,
+    reports_label: String,
+    reports_url: Option<&'static str>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -549,6 +606,15 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let reports_url = if s.reports_enabled {
+        match s.auth.check_any(context, Area::Reports.permissions()).await {
+            Ok(()) => Some(REPORTS_PATH),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        None
+    };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
             Ok(v) => v,
@@ -571,6 +637,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         invites_label: text(lang, "invite-title"),
+        reports_label: text(lang, "player-reports"),
+        reports_url,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
@@ -752,6 +820,28 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     }
     tx.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod landing_tests {
+    use super::*;
+
+    #[test]
+    fn staff_landing_uses_configured_admin_origin_only_when_enabled()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for enabled in [false, true] {
+            let config = config_from(&|name| match name {
+                "OTERYN_ADMIN_PANEL" => Some(enabled.to_string()),
+                "OTERYN_ADMIN_HOST" => Some("Staff.Example.test:8443".into()),
+                _ => None,
+            })?;
+            assert_eq!(
+                config.landing_url().as_deref(),
+                enabled.then_some("https://staff.example.test:8443/admin")
+            );
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

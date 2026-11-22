@@ -17,6 +17,8 @@ struct Panel<A, B> {
     backend: B,
 }
 const MAX_PAGE: u32 = 10000;
+pub(crate) const REPORTS_FLAG: &str = "OTERYN_REPORTS_ENABLED";
+pub(crate) const REPORTS_PATH: &str = "/admin/moderation/reports";
 
 #[derive(Deserialize, Default)]
 struct Paging {
@@ -72,7 +74,7 @@ pub fn configured_router_from<B: Backend>(
         // Fence disabled surfaces before staff authorization and form extraction.
         let flag = match area {
             Area::Tickets => Some("OTERYN_SUPPORT_TICKETS"),
-            Area::Reports => Some("OTERYN_REPORTS_ENABLED"),
+            Area::Reports => Some(REPORTS_FLAG),
             Area::Enforcement => None,
         };
         if flag.is_some_and(|flag| lookup(flag).as_deref() != Some("true")) {
@@ -86,10 +88,10 @@ pub fn configured_router_from<B: Backend>(
             ),
             backend: backend.clone(),
         });
-        routes = routes.merge(web::configured_guard_from(
+        routes = routes.merge(web::configured_guard_any_from(
             area_routes(area, state),
             pool.clone(),
-            area.permission(),
+            area.permissions(),
             lookup,
         )?);
     }
@@ -110,13 +112,13 @@ pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static, B: Backe
             auth: Authorizer::new(pool.clone(), accounts.clone()),
             backend: backend.clone(),
         });
-        routes = routes.merge(web::guarded(
+        routes = routes.merge(web::guarded_any(
             area_routes(area, state),
             pool.clone(),
             config.clone(),
             identity.clone(),
             accounts.clone(),
-            area.permission(),
+            area.permissions(),
         ));
     }
     routes
@@ -124,7 +126,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static, B: Backe
 fn base(area: Area) -> &'static str {
     match area {
         Area::Tickets => "/admin/support/tickets",
-        Area::Reports => "/admin/moderation/reports",
+        Area::Reports => REPORTS_PATH,
         Area::Enforcement => "/admin/moderation/enforcement",
     }
 }

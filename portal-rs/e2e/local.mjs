@@ -52,6 +52,8 @@ Object.assign(env,{
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',allowed_worlds:['019b0760-0000-7000-8000-000000000001'],allowed_nodes:[],identity:{san:'spiffe://local.test/admin/e2e'}}]),
 });
+const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
+if(splitStaffOrigin) env.OTERYN_ADMIN_HOST='127.0.0.1:443';
 {
  // The pinned lane producer still emits an unsupported negative compatibility candidate.
  // Never read raw Game content or fabricate a Today producer/catalogue.
@@ -161,7 +163,7 @@ function forward(req,res,port,headers=req.headers,localAddress='127.0.0.1'){
  const upstream=http.request({hostname:'127.0.0.1',port,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 }
-const proxy=https.createServer(tls,(req,res)=>{
+function proxyRequest(req,res) {
  // Browser fixture controls invoke the producer, which makes the mTLS exchanges.
  if(req.url.startsWith('/__bazaar_game/')){
   void bazaarGame.control(req,res,req.url.slice('/__bazaar_game'.length));
@@ -180,7 +182,8 @@ const proxy=https.createServer(tls,(req,res)=>{
   }
  }
  forward(req,res,18080,headers,localAddress);
-});
+}
+const proxy=https.createServer(tls,proxyRequest);
 proxy.listen(18443,'127.0.0.1');
 const queryProxy=https.createServer(tls,(req,res)=>forward(req,res,queryPort));
 queryProxy.listen(queryProxyPort,'127.0.0.1');
@@ -191,6 +194,10 @@ function start(role,instanceEnv,log){
 }
 const children=[start('serve',env,'serve'),start('worker',env,'worker'),start('serve',queryEnv,'query-serve')];
 league.start();
+if(splitStaffOrigin){
+ const staffProxy=https.createServer(tls,proxyRequest).listen(443,'127.0.0.1');
+ proxy.once('close',()=>staffProxy.close());
+}
 await gameProducer.start();
 const outbox = startLocalOutbox(scratch, binary);
 let closing=false;

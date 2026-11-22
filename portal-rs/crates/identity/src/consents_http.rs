@@ -25,7 +25,7 @@ use unic_langid::langid;
     ext = "html"
 )]
 struct Page<'a> {
-    chrome: oteryn_ui::Chrome,
+    chrome: &'a oteryn_ui::Chrome,
     lang: &'a str,
     csrf: &'a str,
     items: Vec<Item<'a>>,
@@ -79,6 +79,7 @@ pub async fn show(
     account: Option<uuid::Uuid>,
     lang: &str,
     csrf: &str,
+    chrome: Option<&oteryn_ui::Chrome>,
 ) -> Response {
     let account = match access(config, account, lang) {
         Ok(id) => id,
@@ -101,8 +102,11 @@ pub async fn show(
             date: decision.map(|d| d.decided_at).unwrap_or_default(),
         });
     }
-    match (Page {
-        chrome: oteryn_ui::Chrome {
+    let fallback;
+    let chrome = if let Some(chrome) = chrome {
+        chrome
+    } else {
+        fallback = oteryn_ui::Chrome {
             lang: lang.into(),
             alternate_lang: if lang == "en" { "pl" } else { "en" }.into(),
             alternate_url: format!(
@@ -114,7 +118,11 @@ pub async fn show(
                 passkeys_eligible: false,
             },
             ..oteryn_ui::Chrome::default()
-        },
+        };
+        &fallback
+    };
+    match (Page {
+        chrome,
         lang,
         csrf,
         items,

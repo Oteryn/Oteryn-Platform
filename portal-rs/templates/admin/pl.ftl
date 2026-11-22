@@ -1,5 +1,6 @@
 title = Panel zespołu
 roles = Role
+player-reports = Zgłoszenia graczy
 account = UUID konta członka zespołu
 role = Rola
 grant = Przypisz rolę

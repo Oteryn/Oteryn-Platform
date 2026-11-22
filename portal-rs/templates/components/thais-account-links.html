@@ -1,4 +1,7 @@
 <a class="account-overview" href="/account"{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("shell-account-overview") }}</a>
+{% if let Some(url) = chrome.staff_panel_link() %}
+<a class="account-overview" href="{{ url }}">{{ chrome.text("shell-staff-panel") }}</a>
+{% endif %}
 <nav class="account-grid" aria-label="{{ chrome.text("thais-account-nav") }}">
   {% for (title, keys) in [
     ("thais-account-play", "create-character,hirelings,hunts,reports,account-bazaar"),
