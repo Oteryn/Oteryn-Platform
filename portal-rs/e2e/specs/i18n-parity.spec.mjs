@@ -487,7 +487,8 @@ function routeContract(target, inventoryStatus, actor, locale) {
   const [, prefix] = /^\/(en|pl)(?=\/|$)/u.exec(target) ?? [];
   const lang = prefix ?? locale;
   const route = prefix ? target.slice(prefix.length + 1) : target;
-  let status = inventoryStatus ?? (route === '/wiki/creatures' ? 503 : 200);
+  const coldProjection = route === '/wiki/creatures' || /^\/characters\/[^/]+\/skills$/u.test(route);
+  let status = inventoryStatus ?? (coldProjection ? 503 : 200);
   let pathname = target;
   if (target === '/') pathname = `/${locale}/`;
   if (/^\/events(?:\/|$)/u.test(target)) pathname = `/${locale}${target}`;
@@ -761,7 +762,7 @@ async function serverValidation(page, locale, actor, target, targets) {
     await submit(page, 'main form', { subject: ' ', body: 'Parity fixture' });
     expect((await response).status()).toBe(422);
     await expect(page.locator('main h1')).toHaveText(catalogText(ui, 'error-422-title'));
-    await expect(page.locator('main p').first()).toHaveText(catalogText(ui, 'error-422-description'));
+    await expect(page.locator('main h1 + p')).toHaveText(catalogText(ui, 'error-422-description'));
     await assertDocument(page, locale, 'ticket validation refusal', actor);
     expect((await page.goto(target)).status()).toBe(200);
     await submit(page, 'main form', { subject: 'Parity fixture', body: 'Synthetic support inquiry' });

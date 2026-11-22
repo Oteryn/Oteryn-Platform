@@ -92,15 +92,28 @@ impl Page<'_> {
 
 async fn localize_refusal(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_owned();
+    let chrome = request.extensions().get::<oteryn_ui::Chrome>().cloned();
     let mut response = next.run(request).await;
     let status = response.status();
     if matches!(
         status,
         StatusCode::FORBIDDEN | StatusCode::SERVICE_UNAVAILABLE
-    ) && !response.headers().contains_key(header::CONTENT_TYPE)
-        && let Some(lang @ ("en" | "pl")) = path.split('/').nth(1)
+    ) && let Some(lang @ ("en" | "pl")) = path.split('/').nth(1)
     {
-        let localized = refusal(lang, &path, status, None);
+        let custom = response
+            .extensions()
+            .get::<oteryn_ui::RefusalMessage>()
+            .map(|message| message.0.as_str());
+        let localized = match chrome {
+            Some(chrome) => match custom {
+                Some(message) => oteryn_ui::error_with_message(&chrome, status, message),
+                None => oteryn_ui::error(&chrome, status),
+            },
+            None if !response.headers().contains_key(header::CONTENT_TYPE) => {
+                refusal(lang, &path, status, custom)
+            }
+            None => return response,
+        };
         let (parts, body) = localized.into_parts();
         response.headers_mut().remove(header::CONTENT_LENGTH);
         response.headers_mut().extend(parts.headers);
