@@ -321,8 +321,14 @@ jobs:
           persist-credentials: false
       - name: Install pinned toolchain
         run: rustup show active-toolchain || rustup toolchain install
-      - name: Run workspace library tests
-        run: cargo test --locked --workspace --lib
+      - name: Run database-free library tests
+        # Keep the fast job on small libraries without a PostgreSQL dependency.
+        # The heavy shards run the complete workspace suite, including gateway capacity tests.
+        run: >-
+          cargo test --locked --lib
+          -p oteryn-core
+          -p oteryn-internal-api
+          -p oteryn-ui
 
   platform_gate:
     name: platform-gate

@@ -291,7 +291,8 @@ assert "pull_request:" not in trigger_prefix(portal_rust_heavy)
 ci = (WORKFLOW_ROOT / "ci.yml").read_text(encoding="utf-8")
 ci_trigger = trigger_prefix(ci)
 portal_fast = ci.split("\n  portal_rs:\n", 1)[1].split("\n  platform_gate:\n", 1)[0]
-assert "cargo test --locked --workspace --lib" in portal_fast
+assert re.search(r"(?m)^          cargo test --locked --lib(?:\n          -p oteryn-[a-z-]+)+\n", portal_fast)
+assert "--workspace" not in portal_fast
 assert "PORTAL_TEST_DATABASE_URL" not in portal_fast
 assert "cargo clippy --locked --all-targets -- -D warnings" in portal_fast
 assert "portal-rs-ci.yml" not in portal_fast
