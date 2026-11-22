@@ -137,6 +137,29 @@ for (const { image, width, height, thumbnailHeight } of [
   });
 }
 
+test('an upload filename with path segments cannot select the stored media path', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  const csrf = await page.locator(form).locator('input[name=_csrf]').inputValue();
+  const image = { ...png, name: '../editorial.png' };
+  expect((await postImage(page, image, alt, csrf)).status()).toBe(302);
+  const rows = await query('SELECT id FROM media WHERE alt_text=$1', [alt]);
+  expect(rows).toEqual([{ id: expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/) }]);
+  const media = `${route}/${rows[0].id}`;
+
+  await openMedia(page, lang);
+  const thumbnail = page.getByRole('img', { name: alt, exact: true });
+  await expect(thumbnail).toBeVisible();
+  await expect(thumbnail).toHaveAttribute('src', `${media}/thumbnail`);
+  const response = await page.request.get(`${media}/content`, { maxRedirects: 0 });
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-disposition']).toBe('inline');
+  const localeQuery = lang === 'en' ? '?lang=en' : '';
+  await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
+  await expectNoMedia(alt);
+});
+
 test('media pagination uses the selected language', async ({ page }, { project }) => {
   const lang = project.metadata.locale;
   const alt = mediaLabel();
