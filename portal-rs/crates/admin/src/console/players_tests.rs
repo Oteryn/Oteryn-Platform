@@ -308,13 +308,13 @@ async fn postgres_masked_view_writes_exactly_one_read_audit()
     Ok(())
 }
 
-struct Database {
-    pool: sqlx::PgPool,
+pub(in crate::console) struct Database {
+    pub(in crate::console) pool: sqlx::PgPool,
     root: sqlx::PgPool,
     schema: String,
 }
 impl Database {
-    async fn open(url: &str) -> Result<Self, sqlx::Error> {
+    pub(in crate::console) async fn open(url: &str) -> Result<Self, sqlx::Error> {
         let root = PgPoolOptions::new().max_connections(2).connect(url).await?;
         let schema = format!("console_{}", Uuid::now_v7().simple());
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
@@ -339,7 +339,7 @@ impl Database {
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         Ok(Self { pool, root, schema })
     }
-    async fn close(self) -> Result<(), sqlx::Error> {
+    pub(in crate::console) async fn close(self) -> Result<(), sqlx::Error> {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",

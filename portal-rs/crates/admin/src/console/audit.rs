@@ -82,20 +82,25 @@ pub(crate) struct Change {
 // Keep the legal targets aligned with content::pages::legal.
 const LEGAL_PAGE_TARGETS: &[&str] = &["terms-of-service", "privacy-policy", "cookie-policy"];
 
-fn editorial_page_action(action: &str) -> bool {
-    matches!(action, "cms.page.saved" | "cms.page.deleted")
-}
+const EDITORIAL_PAGE_ACTIONS: &[&str] = &["cms.page.saved", "cms.page.deleted"];
+const LEGAL_PAGE_FIELDS: &[&str] = &["legal_version", "legal_effective_date"];
 
-// Match the stored action, even when the list uses a separate operation label.
-fn fields(action: &str, target: &str) -> &'static [&'static str] {
-    match action {
-        "rbac.role.created" => &["key", "permissions"],
-        "rbac.role.permissions_changed" => &["permissions"],
-        "rbac.role.granted" | "rbac.role.revoked" => &["assigned"],
-        "players.kick" => &["native_security_generation"],
-        "support.enforcement_created"
-        | "support.enforcement_updated"
-        | "support.enforcement_appeal_updated" => &[
+// The same allowlist drives snapshot projection and localized rendering.
+const ACTION_FIELDS: &[(&[&str], &[&str])] = &[
+    (&["rbac.role.created"], &["key", "permissions"]),
+    (&["rbac.role.permissions_changed"], &["permissions"]),
+    (
+        &["rbac.role.granted", "rbac.role.revoked"],
+        &["assigned", "role"],
+    ),
+    (&["players.kick"], &["native_security_generation"]),
+    (
+        &[
+            "support.enforcement_created",
+            "support.enforcement_updated",
+            "support.enforcement_appeal_updated",
+        ],
+        &[
             "category",
             "status",
             "pending",
@@ -104,29 +109,45 @@ fn fields(action: &str, target: &str) -> &'static [&'static str] {
             "appeal_status",
             "lock_version",
         ],
-        "support.enforcement_approved" | "support.enforcement_revoked" => {
-            &["status", "lock_version"]
-        }
-        "cms.news_created" | "cms.news_updated" | "cms.news_deleted" => &[
+    ),
+    (
+        &[
+            "support.enforcement_approved",
+            "support.enforcement_revoked",
+        ],
+        &["status", "lock_version"],
+    ),
+    (
+        &["cms.news_created", "cms.news_updated", "cms.news_deleted"],
+        &[
             "slug",
             "title",
             "title_pl",
             "published_at",
             "translation_published_at",
         ],
-        "cms.page.saved" | "cms.page.deleted" if LEGAL_PAGE_TARGETS.contains(&target) => &[
-            "locale",
-            "title",
-            "published_at",
-            "legal_version",
-            "legal_effective_date",
-        ],
-        "cms.page.saved" | "cms.page.deleted" => &["locale", "title", "published_at"],
-        "events.event_created" | "events.event_updated" => &["status"],
-        "events.status_changed" => &["status", "version"],
-        "portal.announcement_saved" => &["state"],
-        _ => &[],
-    }
+    ),
+    (EDITORIAL_PAGE_ACTIONS, &["locale", "title", "published_at"]),
+    (
+        &["events.event_created", "events.event_updated"],
+        &["status"],
+    ),
+    (&["events.status_changed"], &["status", "version"]),
+    (&["portal.announcement_saved"], &["state"]),
+];
+
+fn fields(action: &str, target: &str) -> impl Iterator<Item = &'static str> {
+    let base = ACTION_FIELDS
+        .iter()
+        .find(|(actions, _)| actions.contains(&action))
+        .map_or(&[][..], |(_, fields)| *fields);
+    let legal = if EDITORIAL_PAGE_ACTIONS.contains(&action) && LEGAL_PAGE_TARGETS.contains(&target)
+    {
+        LEGAL_PAGE_FIELDS
+    } else {
+        &[]
+    };
+    base.iter().chain(legal).copied().chain(["email"])
 }
 
 #[derive(PartialEq, Eq)]
@@ -260,11 +281,7 @@ fn changes(lang: &str, action: &str, target: &str, before: &Value, after: &Value
     } else {
         after
     };
-    // Only the explicitly named top-level email field may be displayed masked.
     fields(action, target)
-        .iter()
-        .copied()
-        .chain(["email"])
         .filter_map(|field| {
             let previous = before.get(field).unwrap_or(&Value::Null);
             let current = after.get(field).unwrap_or(&Value::Null);
@@ -329,7 +346,7 @@ struct AuditRow {
 
 impl AuditRow {
     fn target_summary(&self, lang: &str) -> std::borrow::Cow<'_, str> {
-        if editorial_page_action(&self.action)
+        if EDITORIAL_PAGE_ACTIONS.contains(&self.action.as_str())
             && !LEGAL_PAGE_TARGETS.contains(&self.target.as_str())
         {
             tr(lang, "audit-target-hidden").into()
@@ -354,6 +371,29 @@ impl AuditRow {
     }
 }
 
+async fn platform_rows(pool: &sqlx::PgPool, filter: &Filter) -> Result<Vec<AuditRow>, sqlx::Error> {
+    let allowed: serde_json::Map<String, Value> = ACTION_FIELDS
+        .iter()
+        .flat_map(|(actions, fields)| {
+            let fields = serde_json::json!(fields);
+            actions
+                .iter()
+                .map(move |action| ((*action).to_owned(), fields.clone()))
+        })
+        .collect();
+    sqlx::query_as(include_str!("audit_rows.sql"))
+        .bind(filter.request_id)
+        .bind(filter.admin)
+        .bind(&filter.operation)
+        .bind(&filter.target)
+        .bind(Value::Object(allowed))
+        .bind(EDITORIAL_PAGE_ACTIONS)
+        .bind(LEGAL_PAGE_TARGETS)
+        .bind(serde_json::json!(LEGAL_PAGE_FIELDS))
+        .fetch_all(pool)
+        .await
+}
+
 pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
@@ -371,23 +411,7 @@ pub(crate) async fn page<B: Backend>(
     let mut page = Page::new(lang, "audit");
     page.filters = true;
     if platform {
-        let rows: Vec<AuditRow> = sqlx::query_as(
-            "SELECT request_id, actor, action, COALESCE(operation,action) AS operation,
-                    COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target) AS target,
-                    created_at::text AS recorded_at, before, after
-             FROM audit_log
-             WHERE ($1::uuid IS NULL OR request_id=$1)
-               AND ($2::uuid IS NULL OR actor=$2)
-               AND ($3::text IS NULL OR COALESCE(operation,action)=$3)
-               AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4)
-             ORDER BY created_at DESC, id DESC LIMIT 100",
-        )
-        .bind(filter.request_id)
-        .bind(filter.admin)
-        .bind(&filter.operation)
-        .bind(&filter.target)
-        .fetch_all(&state.pool)
-        .await?;
+        let rows = platform_rows(&state.pool, &filter).await?;
         page.audit_diff = Some(DiffLabels {
             field: tr(lang, "audit-diff-field"),
             before: tr(lang, "audit-diff-before"),
@@ -484,6 +508,93 @@ mod tests {
 
     fn diff(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Change> {
         changes(lang, action, "terms-of-service", before, after)
+    }
+
+    #[tokio::test]
+    async fn postgres_audit_projects_only_fields_for_the_stored_action_and_target()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let _guard = oteryn_db::test_support::global_lock_guard().await?;
+        let db = super::super::players::tests::Database::open(&std::env::var(
+            "PORTAL_TEST_DATABASE_URL",
+        )?)
+        .await?;
+        let request_id = Uuid::now_v7();
+        for (action, target, before, after) in [
+            (
+                "cms.news_updated",
+                "news",
+                json!({"body":"x".repeat(100_000),"body_pl":"y".repeat(100_000),"status":"active","title":"old"}),
+                json!({"body":"x".repeat(100_000),"body_pl":"y".repeat(100_000),"title_pl":"new","totp_secret":"excluded"}),
+            ),
+            (
+                "cms.page.saved",
+                "draft-client-case-4821",
+                Value::Null,
+                json!({"body":"excluded", "title":"draft","legal_version":"discarded","legal_effective_date":"2020-01-01"}),
+            ),
+            (
+                "cms.page.saved",
+                "privacy-policy",
+                json!({"body":"excluded"}),
+                json!({"legal_version":"v1","legal_effective_date":"2020-01-01","title":"Policy"}),
+            ),
+            (
+                "rbac.role.granted",
+                "account",
+                json!({"assigned":false,"permissions":["excluded"]}),
+                json!({"assigned":true,"role":"00000000-0000-7000-8000-000000000001"}),
+            ),
+        ] {
+            let mut tx = db.pool.begin().await?;
+            crate::audit::append(
+                &mut tx,
+                crate::audit::Entry {
+                    context: crate::audit::AuditContext {
+                        actor: None,
+                        request_id,
+                    },
+                    action,
+                    target,
+                    before,
+                    after,
+                },
+            )
+            .await?;
+            tx.commit().await?;
+        }
+        let rows = platform_rows(
+            &db.pool,
+            &Filter {
+                request_id: Some(request_id),
+                ..Default::default()
+            },
+        )
+        .await?;
+        assert_eq!(rows.len(), 4);
+        assert_eq!(
+            (&rows[3].before, &rows[3].after),
+            (&json!({"title":"old"}), &json!({"title_pl":"new"}))
+        );
+        assert_eq!(
+            (&rows[2].before, &rows[2].after),
+            (&Value::Null, &json!({"title":"draft"}))
+        );
+        assert_eq!(
+            (&rows[1].before, &rows[1].after),
+            (
+                &json!({}),
+                &json!({"legal_version":"v1","legal_effective_date":"2020-01-01","title":"Policy"})
+            )
+        );
+        assert_eq!(
+            (&rows[0].before, &rows[0].after),
+            (
+                &json!({"assigned":false}),
+                &json!({"assigned":true,"role":"00000000-0000-7000-8000-000000000001"})
+            )
+        );
+        db.close().await?;
+        Ok(())
     }
 
     #[test]

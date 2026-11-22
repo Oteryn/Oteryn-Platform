@@ -347,4 +347,4 @@ pub(super) async fn search<B: Backend>(
 
 #[cfg(test)]
 #[path = "players_tests.rs"]
-mod tests;
+pub(super) mod tests;
