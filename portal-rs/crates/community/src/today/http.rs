@@ -273,8 +273,7 @@ async fn widget(
 fn public_html_path(path: &str) -> bool {
     ["/pl/", "/en/"].iter().any(|prefix| {
         path.strip_prefix(prefix).is_some_and(|p| {
-            p.is_empty()
-                || p == "today"
+            p == "today"
                 || [
                     "wiki", "atlas", "news", "events", "stats", "rankings", "online", "worlds",
                 ]
@@ -341,12 +340,7 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
         }
     }
     let widget = render_widget(view, lang);
-    const HOME_SLOT: &str = "<!-- portal-daily-feature -->";
-    if matches!(uri.path(), "/pl/" | "/en/")
-        && let Some(i) = html.find(HOME_SLOT)
-    {
-        html.replace_range(i..i + HOME_SLOT.len(), &widget);
-    } else if let Some(i) = html.find("</header>") {
+    if let Some(i) = html.find("</header>") {
         html.insert_str(i, &widget);
     } else if today && let Some(i) = html.find("<body>") {
         html.insert_str(i + 6, &format!("<header>{widget}</header>"));

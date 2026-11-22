@@ -26,7 +26,13 @@
   --line: #384549;
   --text: #f4f2ea;
   --soft: #b9c6c7;
-  --copper: #ffc59e;
+  --gilt-light: #f6dda1;
+  --gilt-edge: #c6a05a;
+  --gilt-dark: #69501c;
+  --gilt-ink: #251c0d;
+  --gilt-surface: linear-gradient(105deg, #fff1bd45 0%, #fff1bd08 43%, #77572022 79%, #fff1bd29 100%),
+    url("/static/thais/gilt-grain.webp"), linear-gradient(105deg, var(--gilt-light), var(--gilt-edge));
+  --copper: var(--gilt-light);
   --inset: clamp(24px, 6vw, 100px);
   --max: 1440px;
   --om-bar-height: 84px;
@@ -39,7 +45,7 @@
 body.op-shell a.skip:focus {
   color: #102026;
   background: #fff;
-  outline: 3px solid #855333;
+  outline: 3px solid var(--gilt-dark);
   outline-offset: 2px;
 }
 :is(.om-mast, .foot) .brand { display: inline-flex; align-items: center; gap: 11px; font: 800 25px/1 Manrope, sans-serif; letter-spacing: .15em; }
@@ -50,8 +56,8 @@ body.op-shell a.skip:focus {
   --om-paper: linear-gradient(125deg, #faf7edeb, #f0ede2d9);
   --om-mobile-paper: linear-gradient(125deg, #faf7edf0, #f0ede2e6);
   --om-ink: #243832;
-  --om-accent: #865735;
-  --om-gold: #f7cda5;
+  --om-accent: var(--gilt-dark);
+  --om-gold: var(--gilt-light);
   position: sticky;
   inset-block-start: 0;
   z-index: 8;
@@ -75,7 +81,8 @@ body.op-shell a.skip:focus {
   position: absolute;
   inset: auto var(--om-edge) 0;
   height: 1px;
-  background: linear-gradient(90deg, #edf9f42c, #edf9f412);
+  background-image: var(--gilt-surface);
+  opacity: .24;
   pointer-events: none;
 }
 .om-mast [hidden] { display: none !important; }
@@ -108,7 +115,8 @@ body.op-shell a.skip:focus {
   bottom: -5px;
   width: 100%;
   height: 1.5px;
-  background: var(--om-gold);
+  background-color: var(--om-gold);
+  background-image: var(--gilt-surface);
   transform: scaleX(0);
   transform-origin: left;
 }
@@ -155,7 +163,7 @@ body.op-shell a.skip:focus {
   text-transform: uppercase;
   letter-spacing: .115em;
 }
-.om-heading::before { content: ""; width: 13px; height: 1px; background: #b28c64; }
+.om-heading::before { content: ""; width: 13px; height: 1px; background: var(--gilt-edge); }
 .om-column ul { list-style: none; margin: 0; padding: 0; }
 .om-column a {
   position: relative;
@@ -179,7 +187,7 @@ body.op-shell a.skip:focus {
 @media (hover: hover) {
   .om-column a:hover::before { transform: translateY(-50%) rotate(45deg) scale(1); }
 }
-.om-panel a:focus-visible { outline-color: #7d5739; }
+.om-panel a:focus-visible { outline-color: var(--gilt-dark); }
 @media (min-width: 961px) {
   #portal-world-panel .om-column:first-child ul {
     display: grid;
@@ -238,7 +246,7 @@ body.op-shell a.skip:focus {
     border-radius: 12px;
     box-shadow: 0 8px 24px #09130f32;
   }
-  .om-nav :is(a,button):focus-visible { outline-color: #7d5739; }
+  .om-nav :is(a,button):focus-visible { outline-color: var(--gilt-dark); }
   .om-nav .om-mobile-only { display: inline-flex; }
   .om-tools {
     display: flex;
@@ -331,14 +339,14 @@ body.op-shell a.skip:focus {
   font-size: clamp(1.5rem, 2.2vw, 2rem);
   letter-spacing: .18em;
 }
-.foot .foot-identity .brand svg { width: 32px; height: 38px; color: #f2c9a0; }
+.foot .foot-identity .brand svg { width: 32px; height: 38px; color: var(--gilt-light); }
 .foot .foot-tagline { margin: 5px 0 13px; color: #b5c4c0; font-size: .92rem; }
 .foot .foot-social { display: grid; justify-items: start; gap: 0; }
 .foot .foot-social a, .foot .foot-community-status {
   display: inline-flex; align-items: center; gap: 10px;
   min-height: 38px; color: #dce5df; font-size: .9375rem; font-weight: 600;
 }
-.foot .foot-social svg { width: 18px; height: 18px; color: #ecc39f; }
+.foot .foot-social svg { width: 18px; height: 18px; color: var(--gilt-edge); }
 .foot .foot-community-status { color: #b5c4c0; font-weight: 500; }
 .foot .foot-community-status svg { flex-shrink: 0; color: currentColor; }
 .foot .foot-links {
@@ -350,7 +358,7 @@ body.op-shell a.skip:focus {
 .foot .foot-group { min-width: 0; }
 .foot .foot-group h2 {
   margin: 0 0 9px;
-  color: #f2d2b3;
+  color: var(--gilt-light);
   font: 600 1.35rem/1.25 Alegreya, Georgia, serif;
   letter-spacing: normal; text-transform: none;
 }
@@ -368,7 +376,7 @@ body.op-shell a.skip:focus {
 }
 .foot .foot-bottom::before {
   position: absolute; inset: 0 var(--inset) auto; height: 1px; content: "";
-  background: linear-gradient(90deg, #78765a, #394d4b 65%, #394d4b);
+  background: linear-gradient(90deg, transparent, #394d4b 78%), var(--gilt-surface);
 }
 .foot .foot-copyright {
   flex: 1 1 320px; margin: 0; max-width: 68ch;
@@ -383,8 +391,8 @@ body.op-shell a.skip:focus {
 .foot .foot-langs { gap: 2px; white-space: nowrap; }
 .foot .foot-langs svg { width: 17px; height: 17px; margin-right: 3px; color: #c9d5d0; }
 .foot .foot-langs a { min-width: 36px; justify-content: center; }
-.foot .foot-langs [aria-current] { color: var(--copper); text-decoration: underline; text-underline-offset: 5px; }
-.foot a:focus-visible { outline: 2px solid var(--copper); outline-offset: 3px; border-radius: 2px; }
+.foot .foot-langs [aria-current] { color: var(--gilt-light); text-decoration: underline; text-underline-offset: 5px; }
+.foot a:focus-visible { outline: 2px solid var(--gilt-light); outline-offset: 3px; border-radius: 2px; }
 @media (max-width: 900px) {
   .foot .foot-inner { grid-template-columns: 1fr; gap: 26px; }
   .foot .foot-identity { display: grid; grid-template-columns: 1fr auto; align-items: center; }
@@ -423,7 +431,7 @@ body:has(.account-sheet[open]) { overflow: hidden; }
 .account-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .account-heading h2 { font-size: clamp(36px, 4vw, 50px); margin-top: 8px; }
 .account-kicker, .account-grid h3 {
-  color: #865735;
+  color: var(--gilt-dark);
   font: 720 .7rem/1.5 Manrope, sans-serif;
   letter-spacing: .1em;
   text-transform: uppercase;
@@ -442,8 +450,8 @@ body:has(.account-sheet[open]) { overflow: hidden; }
 .account-grid h3 { margin-bottom: 6px; }
 .account-grid ul { list-style: none; margin: 0; padding: 0; }
 .account-grid a { display: inline-block; padding: 4px 0; font-size: .94rem; }
-.account-sheet a:hover, .account-base button:hover { color: #865735; text-decoration: underline; }
-.account-sheet :is(a,button):focus-visible { outline-color: #865735; outline-offset: 2px; }
+.account-sheet a:hover, .account-base button:hover { color: var(--gilt-dark); text-decoration: underline; }
+.account-sheet :is(a,button):focus-visible { outline-color: var(--gilt-dark); outline-offset: 2px; }
 .account-base { padding-top: 10px; border-top: 1px solid #c9cec2; }
 .account-base button { border: 0; background: none; color: #536458; padding: 5px 0; font-size: 14px; }
 @media (max-width: 520px) {
@@ -488,7 +496,8 @@ body:has(.account-sheet[open]) { overflow: hidden; }
 }
 .om-mast:not(.is-enhanced) .om-mobile-toggle,
 .om-mast:not(.is-enhanced) .om-chevron { display: none; }
-.om-mast:not(.is-enhanced) .om-heading { color: var(--copper); }
+.om-mast:not(.is-enhanced) .om-heading { color: var(--gilt-light); }
+.om-mast:not(.is-enhanced):not(:has(.om-fallback-menu)) .om-panel a:focus-visible { outline-color: var(--gilt-light); }
 @media (max-width: 960px) {
   .om-mast:not(.is-enhanced) .om-bar,
   .om-mast:not(.is-enhanced) .om-nav { flex-direction: column; gap: 12px; }
@@ -504,8 +513,9 @@ body.op-shell :is(.om-mast, .foot, .account-sheet) a:not(.op-button) {
 }
 body.op-shell :is(.foot, .account-sheet, .om-tools) a:hover { text-decoration: underline; text-underline-offset: 4px; }
 body.op-shell .om-mast .om-top-link:is(:hover, :focus, :active, [aria-current]) { text-decoration: none; }
-body.op-shell .foot-langs a[aria-current] { color: var(--copper); text-decoration: underline; }
-body.op-shell .account-grid h3 { color: var(--om-accent, #865735); }
+body.op-shell .foot a:hover { color: var(--gilt-light); }
+body.op-shell .foot-langs a[aria-current] { color: var(--gilt-light); text-decoration: underline; }
+body.op-shell .account-grid h3 { color: var(--gilt-dark); }
 body.op-shell .account-sheet h2 { margin-block: 8px 0; color: #253a32; font: 600 clamp(36px,4vw,50px)/1 var(--display); }
 :is(.om-mast, .account-sheet) button { color: inherit; font-family: inherit; cursor: pointer; }
 :is(.om-mast, .foot, .account-sheet) svg {
@@ -522,15 +532,16 @@ body.op-shell .account-sheet h2 { margin-block: 8px 0; color: #253a32; font: 600
 
 body.op-shell .om-tools a.om-register {
   padding-inline: .85rem;
-  color: #1c2c25;
-  background: var(--om-gold);
+  color: var(--gilt-ink);
+  background-color: var(--om-gold);
+  background-image: var(--gilt-surface);
   border-radius: 24px;
 }
-body.op-shell .om-tools a.om-register:hover { background: #ffddc0; text-decoration: none; }
+body.op-shell .om-tools a.om-register:hover { box-shadow: inset 0 0 0 2px var(--gilt-ink); text-decoration: none; }
 body.op-shell .account-sheet a.account-overview { color: #395644; }
 @media (max-width: 960px) {
   body.op-shell .om-tools a.om-register { color: #fffdf4; background: #334e42; }
-  body.op-shell .om-tools a.om-register:hover { background: #273d33; }
+  body.op-shell .om-tools a.om-register:hover { background: #273d33; box-shadow: none; }
 }
 .om-mast .om-brand, .om-fallback-menu > summary {
   flex-shrink: 0;
@@ -544,7 +555,7 @@ body.op-shell .account-sheet a.account-overview { color: #395644; }
 .coin-icon {
   display: block;
   flex: none;
-  color: #dcad86;
+  color: var(--gilt-light);
   fill: none;
   stroke: currentColor;
   stroke-width: 1.55;
@@ -556,6 +567,112 @@ body.op-shell .account-sheet a.account-overview { color: #395644; }
   .om-tools .om-shop .coin-icon { color: var(--om-accent); }
 }
 
+/* Put the metallic finish inside the two existing coin silhouettes. */
+@media (forced-colors: none) {
+  @supports (mask-image: radial-gradient(black, transparent)) {
+    .om-tools .om-shop .coin-icon, .shop-wallet .coin-icon {
+      color: var(--gilt-ink);
+      background-image: var(--gilt-surface);
+      mask-image: radial-gradient(ellipse 31% 31% at 39.2% 59.6%, black 96%, transparent 100%),
+        radial-gradient(ellipse 30.8% 30.8% at 65.2% 37.3%, black 96%, transparent 100%);
+    }
+  }
+  @supports (background-clip: text) {
+    .foot .foot-group h2 {
+      background-image: linear-gradient(#fff1c24d, #fff1c24d), var(--gilt-surface);
+      background-clip: text;
+      color: transparent;
+    }
+  }
+}
+
 .brand .oteryn-emblem { display: block; width: auto; height: 48px; }
 .foot .brand .oteryn-emblem { height: 64px; }
 @media (max-width: 600px) { .brand .oteryn-emblem { height: 40px; } }
+
+@media (forced-colors: none) {
+  .om-mast .om-top-link { text-decoration: none; }
+  .om-label::after {
+    left: 0;
+    bottom: -4px;
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, #bc9456 12%, #ead1a0 46%, #ba9155 78%, transparent);
+    transform-origin: center;
+  }
+  .om-heading::before { background: linear-gradient(90deg, transparent, #bd995f); }
+}
+
+@media (forced-colors: none) {
+  .om-tools .om-shop { position: relative; }
+  body .om-mast .om-tools a:is(.om-shop,.om-login):is(:hover,:focus-visible,[aria-current]) { text-decoration: none; }
+  .om-tools .om-shop::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 calc(50% - .88em) 28px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, currentColor 30%, currentColor 70%, transparent);
+    color: var(--om-gold);
+    opacity: 0;
+  }
+  .om-tools .om-shop:is(:hover,:focus-visible,[aria-current="page"])::after { opacity: .85; }
+  .om-tools .om-shop .coin-icon { background: none; mask: none; color: var(--gilt-edge); }
+  @media (min-width: 961px) {
+    .om-tools .om-login { border-color: #bd995f85; background: #101b1b38; }
+    .om-tools .om-login svg { color: var(--gilt-edge); }
+    .om-tools .om-login:is(:hover,:focus-visible) { border-color: #d5b77e; background: #322e2566; }
+  }
+  @media (max-width: 960px) {
+    .om-tools .om-shop .coin-icon, .om-tools .om-shop::after { color: var(--om-accent); }
+  }
+}
+
+@media (forced-colors: none) {
+  body.op-shell .om-tools a.om-register,
+  .shop-actions a.shop-account,
+  .op-shell :is(.op-shell__page,main.op-main) :is(.op-button:not([class*="op-button--"]),button:not([class]),input[type="submit"]):not(:disabled) {
+    border: 1px solid var(--gilt-edge);
+    border-radius: 5px;
+    color: var(--gilt-light);
+    background: rgb(16 31 31 / 91%);
+  }
+  body.op-shell .om-tools a.om-register:hover, .shop-actions a.shop-account:hover {
+    color: #fff1c8;
+    background: #28352f;
+    box-shadow: none;
+  }
+}
+
+.foot .brand .oteryn-emblem { height: 48px; }
+.foot .foot-group h2 {
+  color: #f6f4eb;
+  background: none;
+  font: 600 1.25rem/1.35 Alegreya, Georgia, serif;
+}
+.foot .foot-group a {
+  position: relative;
+  font: 500 1.0625rem/1.4 Alegreya, Georgia, serif;
+}
+.foot .foot-bottom::before { background: rgb(240 225 198 / 22%); }
+@media (forced-colors: none) {
+  body .foot, body #main + .foot { background: rgb(12 25 29 / 88%); }
+  body.op-shell .foot .foot-group a:is(:hover,:focus-visible) {
+    color: #f6f4eb;
+    text-decoration: none;
+  }
+  .foot .foot-group a:is(:hover,:focus-visible)::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 2px;
+    height: 1px;
+    background: linear-gradient(90deg,transparent,#bc9456 12%,#ead1a0 46%,#ba9155 78%,transparent);
+  }
+}
+@media (prefers-reduced-transparency: no-preference) and (forced-colors: none) {
+  @supports (backdrop-filter: blur(1px)) {
+    body .foot, body #main + .foot { background-color: rgb(12 25 29 / 76%); backdrop-filter: blur(12px) saturate(110%); }
+  }
+}
+@media (max-width: 600px) {
+  .foot .brand .oteryn-emblem { height: 40px; }
+}

@@ -110,17 +110,10 @@ test('Thais homepage opens the world menu and selects a profession', async ({pag
     await expect(stories).toHaveCount(0);
     await expect(news.locator('.hero-news-status')).toHaveText(lang === 'pl'
       ? 'Brak opublikowanych aktualności.' : 'No news has been published yet.');
-    await expect(page.locator('#aktualnosci a[href="#jak-zaczac"]')).toBeVisible();
+    await expect(page.locator('#aktualnosci .actions')).toHaveCount(0);
   }
   await expect(page.locator('#portal-header aside')).toHaveCount(0);
-  const today = page.locator('#aktualnosci .hero-today');
-  const dailyWidget = today.locator('aside');
-  await expect(dailyWidget).toHaveCount(1);
-  await expect(dailyWidget).toBeHidden();
-  await today.locator('summary').click();
-  await expect(dailyWidget).toBeVisible();
-  await expect(today.locator(`a[href="/${lang}/today"]`).last()).toBeVisible();
-  await today.locator('summary').click();
+  await expect(page.locator('#aktualnosci .hero-today')).toHaveCount(0);
   const mobileToggle = page.locator('#portal-menu-toggle');
   const mobile = info.project.use.viewport.width === 390;
   if (mobile) {
