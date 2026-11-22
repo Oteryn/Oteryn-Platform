@@ -111,7 +111,10 @@ impl Mailer {
                 .parse()
                 .map_err(|_| "invalid account-exists recipient")?)
             .subject(subject)
-            .singlepart(SinglePart::plain(format!("{body}\n\n{}/{locale}/login", self.origin)))
+            .singlepart(SinglePart::plain(format!(
+                "{body}\n\n{}/{locale}/login",
+                self.origin
+            )))
             .map(Some)
             .map_err(|_| "account-exists message unavailable".into())
     }

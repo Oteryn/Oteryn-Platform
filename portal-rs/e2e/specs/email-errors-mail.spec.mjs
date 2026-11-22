@@ -95,14 +95,19 @@ function absoluteLink(page, candidate, path) {
   return target;
 }
 
+function assertPlainMime(message) {
+  expect(message.headers.get('mime-version')).toBe('1.0');
+  expect(message.parts.find(part => part.type === 'text/plain').contentType)
+    .toMatch(/^text\/plain;\s*charset="?utf-8"?$/i);
+}
+
 function bearerLink(page, message, lang, kind) {
   const [, body] = copy[kind][lang === 'pl' ? 0 : 1];
   const [intro, candidate, ...extra] = message.text.split('\n\n');
   expect(intro === body && extra.length === 0, 'only the localized copy and one link').toBe(true);
   expect(message.headers.has('list-unsubscribe')).toBe(false);
   if (kind === 'verification' || kind === 'reset') {
-    expect(message.parts.find(part => part.type === 'text/plain').contentType)
-      .toMatch(/^text\/plain;\s*charset="?utf-8"?$/i);
+    assertPlainMime(message);
   }
   const path = {
     verification: new RegExp(`^/${lang}/verify-email$`),
@@ -292,12 +297,24 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(conflict.headers()['content-language']).toBe(lang);
     expect(conflict.headers()['cache-control']).toBe('no-store');
     const conflictHtml = await conflict.text();
-    const [heading, description] = lang === 'pl'
-      ? ['Konflikt zmian', 'Dane zostały zmienione. Odśwież stronę i spróbuj ponownie.']
-      : ['Update conflict', 'The data has changed. Reload the page and try again.'];
+    const [heading, description, openForm] = lang === 'pl'
+      ? ['Konflikt zmian', 'Ten formularz jest nieaktualny.', 'Otwórz aktualny formularz']
+      : ['Update conflict', 'This form is out of date.', 'Open the latest form'];
     expect(conflictHtml).toContain(`<h1>${heading}</h1>`);
     expect(conflictHtml).toContain(`<p>${description}</p>`);
     expect(conflictHtml).not.toContain(staleBody);
+    await staffPage.setContent(conflictHtml);
+    const recoveryLink = staffPage.getByRole('link', { name: openForm, exact: true });
+    await expect(recoveryLink).toHaveAttribute('href', `/admin/support/tickets/${id}`);
+    const [current] = await Promise.all([
+      staffPage.waitForResponse(response =>
+        new URL(response.url()).pathname === `/admin/support/tickets/${id}`
+        && response.request().method() === 'GET'),
+      recoveryLink.click(),
+    ]);
+    expect(current.status()).toBe(200);
+    await expect(staffPage.locator('form:has(input[value=reply]) [name=lock_version]'))
+      .not.toHaveValue(stale.lock_version);
     await action(staffPage, 'form:has(input[value=ticket_status])', { status: 'resolved' });
 
     const messages = [];
@@ -424,6 +441,7 @@ test('duplicate registration and referral invitations deliver localized, absolut
     'This email address already belongs to an account. If you tried to register, sign in or reset your password.',
   ];
   const existing = await mail(page, account.email, existingSubject, existingCopy);
+  assertPlainMime(existing);
   const destination = absoluteLink(page, existing.text.split('\n\n').at(-1), new RegExp(`^/${lang}/login$`));
   expect(existing.text === `${existingCopy}\n\n${destination.href}`, 'login link contains only the public destination').toBe(true);
   expect(existing.headers.has('list-unsubscribe')).toBe(false);
