@@ -413,6 +413,27 @@ async fn player_entries(
         .await?)
 }
 
+async fn browser_session_live<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    actor: Uuid,
+    session_hash: &[u8],
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (
+            SELECT 1 FROM web_sessions s JOIN accounts a ON a.id = s.account_id
+            WHERE s.id_hash = $1 AND s.account_id = $2
+              AND a.status IN ('active', 'suspended')
+              AND s.authorization_generation = a.native_security_generation
+              AND s.idle_expires_at > clock_timestamp()
+              AND s.absolute_expires_at > clock_timestamp()
+         )",
+    )
+    .bind(session_hash)
+    .bind(actor)
+    .fetch_one(db)
+    .await
+}
+
 async fn submit_player(
     pool: &sqlx::PgPool,
     actor: Uuid,
@@ -429,31 +450,24 @@ async fn submit_player(
     }
     text(message, true)?;
     let mut tx = pool.begin().await?;
-    let account: Option<String> =
-        sqlx::query_scalar("SELECT status FROM accounts WHERE id = $1 FOR UPDATE")
-            .bind(actor)
-            .fetch_optional(&mut *tx)
-            .await?;
-    if !matches!(account.as_deref(), Some("active" | "suspended")) {
-        return Err(Error::NotFound);
-    }
-    // Revalidate the exact server-derived session after acquiring the account lock.
-    // Retain the session row lock through commit so logout serializes with submission.
-    let live = sqlx::query_scalar::<_, bool>(
-        "SELECT true FROM web_sessions s JOIN accounts a ON a.id = s.account_id
-         WHERE s.id_hash = $1 AND s.account_id = $2
-           AND s.authorization_generation = a.native_security_generation
-           AND s.idle_expires_at > clock_timestamp()
-           AND s.absolute_expires_at > clock_timestamp()
-         FOR UPDATE OF s",
+    oteryn_db::mutation_budget(&mut tx).await?;
+    sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE")
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    // Lock the exact session first, then evaluate its eligibility using the live clock.
+    sqlx::query(
+        "SELECT id_hash FROM web_sessions WHERE id_hash = $1 AND account_id = $2 FOR UPDATE",
     )
     .bind(session_hash)
     .bind(actor)
-    .fetch_optional(&mut *tx)
+    .execute(&mut *tx)
     .await?;
-    if live.is_none() {
+    if !browser_session_live(&mut *tx, actor, session_hash).await? {
         return Err(Error::SessionRevoked);
     }
+    oteryn_db::mutation_budget(&mut tx).await?;
     let query = format!(
         "WITH locked AS MATERIALIZED (
             SELECT status, effective_at, expires_at FROM sanctions
@@ -470,6 +484,7 @@ async fn submit_player(
     if !active {
         return Err(Error::Conflict);
     }
+    oteryn_db::mutation_budget(&mut tx).await?;
     let state: Option<String> = sqlx::query_scalar(
         "SELECT status FROM support_appeal_workflows WHERE sanction_id = $1 AND owner_id = $2 FOR UPDATE",
     )
@@ -477,15 +492,18 @@ async fn submit_player(
     .bind(actor)
     .fetch_optional(&mut *tx)
     .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     let appeals = Appeals { enabled: true };
     match state.as_deref() {
         None => appeals.register(&mut tx, id, actor).await?,
         Some("none") => {}
         Some(_) => return Err(Error::Conflict),
     }
+    oteryn_db::mutation_budget(&mut tx).await?;
     let history = appeals
         .change(&mut tx, actor, id, version, Action::Submit(message))
         .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     audit::append(
         &mut tx,
         audit::Entry {
@@ -501,6 +519,10 @@ async fn submit_player(
     )
     .await
     .map_err(|_| Error::AuditUnavailable)?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    if !browser_session_live(&mut *tx, actor, session_hash).await? {
+        return Err(Error::SessionRevoked);
+    }
     tx.commit().await?;
     Ok(())
 }

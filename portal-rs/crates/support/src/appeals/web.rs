@@ -1,10 +1,10 @@
-use super::{Entry, Error, player_entries, submit_player};
+use super::{Entry, Error, browser_session_live, player_entries, submit_player};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State, rejection::FormRejection},
+    extract::{Path, Query, Request, State, rejection::FormRejection},
     http::{StatusCode, header},
-    middleware,
+    middleware::{self, Next},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -27,15 +27,8 @@ pub fn router(pool: PgPool, origin: &str) -> Router {
             session,
             oteryn_web::session::middleware,
         ))
-        .layer(middleware::map_response(
-            |mut response: Response| async move {
-                response.headers_mut().insert(
-                    header::CACHE_CONTROL,
-                    header::HeaderValue::from_static("no-store"),
-                );
-                response
-            },
-        ))
+        .route_layer(middleware::from_fn(localize_refusal))
+        .layer(middleware::from_fn(crate::tickets::private))
         .with_state(pool)
 }
 
@@ -78,20 +71,69 @@ impl Page<'_> {
     }
 }
 
-async fn actor(pool: &PgPool, session: &BrowserSession, lang: &str) -> Result<Uuid, StatusCode> {
+async fn localize_refusal(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_owned();
+    let mut response = next.run(request).await;
+    if response.status() == StatusCode::FORBIDDEN
+        && !response.headers().contains_key(header::CONTENT_TYPE)
+        && let Some(lang @ ("en" | "pl")) = path.split('/').nth(1)
+    {
+        let localized = refusal(lang, &path, StatusCode::FORBIDDEN, None);
+        let (parts, body) = localized.into_parts();
+        response.headers_mut().remove(header::CONTENT_LENGTH);
+        response.headers_mut().extend(parts.headers);
+        *response.body_mut() = body;
+    }
+    response
+}
+
+fn refusal(lang: &str, path: &str, status: StatusCode, message: Option<&str>) -> Response {
+    let chrome = oteryn_ui::Registry::default().chrome(lang, path, oteryn_ui::Account::Anonymous);
+    match message {
+        Some(message) => {
+            let mut response = oteryn_ui::error_with_message(&chrome, status, message);
+            response
+                .extensions_mut()
+                .insert(oteryn_ui::RefusalMessage(message.to_owned()));
+            response
+        }
+        None => oteryn_ui::error(&chrome, status),
+    }
+}
+
+fn reauthenticate(lang: &str, path: &str) -> Response {
+    let message = if lang == "pl" {
+        "Zaloguj się ponownie, aby skorzystać z odwołań."
+    } else {
+        "Sign in again to use appeals."
+    };
+    refusal(lang, path, StatusCode::FORBIDDEN, Some(message))
+}
+
+async fn actor(
+    pool: &PgPool,
+    session: &BrowserSession,
+    lang: &str,
+    path: &str,
+) -> Result<(Uuid, Vec<u8>), Response> {
     if !matches!(lang, "en" | "pl") {
-        return Err(StatusCode::NOT_FOUND);
+        return Err(StatusCode::NOT_FOUND.into_response());
     }
-    let id = session.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
-    let account: Option<String> = sqlx::query_scalar("SELECT status FROM accounts WHERE id = $1")
-        .bind(id)
-        .fetch_optional(pool)
+    let id = session
+        .account_id()
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if !matches!(account.as_deref(), Some("active" | "suspended")) {
-        return Err(StatusCode::FORBIDDEN);
+        .ok_or_else(|| reauthenticate(lang, path))?;
+    let hash = session
+        .identity_hash()
+        .await
+        .ok_or_else(|| reauthenticate(lang, path))?;
+    if !browser_session_live(pool, id, &hash)
+        .await
+        .map_err(|_| refusal(lang, path, StatusCode::SERVICE_UNAVAILABLE, None))?
+    {
+        return Err(reauthenticate(lang, path));
     }
-    Ok(id)
+    Ok((id, hash))
 }
 
 fn status(error: Error) -> StatusCode {
@@ -109,11 +151,12 @@ async fn index(
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
     Query(paging): Query<Paging>,
-) -> Result<Response, StatusCode> {
-    let actor = actor(&pool, &session, &lang).await?;
+) -> Result<Response, Response> {
+    let path = format!("/{lang}/support/appeals");
+    let (actor, _) = actor(&pool, &session, &lang, &path).await?;
     let mut rows = player_entries(&pool, actor, None, i64::from(paging.page) * 20)
         .await
-        .map_err(status)?;
+        .map_err(|error| status(error).into_response())?;
     let next = if rows.len() > 20 {
         rows.truncate(20);
         paging.page.checked_add(1)
@@ -134,17 +177,20 @@ async fn detail(
     State(pool): State<PgPool>,
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
-) -> Result<Response, StatusCode> {
-    let actor = actor(&pool, &session, &lang).await?;
+) -> Result<Response, Response> {
+    let path = format!("/{lang}/support/appeals/{id}");
+    let (actor, _) = actor(&pool, &session, &lang, &path).await?;
     let rows = player_entries(&pool, actor, Some(id), 0)
         .await
-        .map_err(status)?;
-    let row = rows.first().ok_or(StatusCode::NOT_FOUND)?;
+        .map_err(|error| status(error).into_response())?;
+    let row = rows
+        .first()
+        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
     let csrf = if row.can_submit {
         session
             .csrf_token()
             .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?
     } else {
         String::new()
     };
@@ -180,20 +226,9 @@ async fn submit(
         _ => return Err(StatusCode::NOT_FOUND.into_response()),
     };
     let path = format!("/{lang}/support/appeals/{id}");
-    let error = |status| {
-        let chrome = oteryn_ui::Registry::default().chrome(
-            language.code(),
-            &path,
-            oteryn_ui::Account::Anonymous,
-        );
-        oteryn_ui::error(&chrome, status)
-    };
+    let error = |status| refusal(&lang, &path, status, None);
     let Form(input) = form.map_err(|rejection| error(rejection.status()))?;
-    let actor = actor(&pool, &session, &lang).await.map_err(error)?;
-    let session_hash = session
-        .identity_hash()
-        .await
-        .ok_or_else(|| error(StatusCode::FORBIDDEN))?;
+    let (actor, session_hash) = actor(&pool, &session, &lang, &path).await?;
     let peer = peer.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let mut keys = Keys::source(peer.0);
     keys.account = Some(actor.to_string());
@@ -210,6 +245,9 @@ async fn submit(
         &input.message,
     )
     .await
-    .map_err(|failure| error(status(failure)))?;
+    .map_err(|failure| match failure {
+        Error::SessionRevoked => reauthenticate(&lang, &path),
+        other => error(status(other)),
+    })?;
     Ok(Redirect::to(&path))
 }

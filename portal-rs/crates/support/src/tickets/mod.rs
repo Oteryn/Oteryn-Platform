@@ -12,6 +12,7 @@ use uuid::Uuid;
 pub(crate) mod staff;
 mod web;
 pub use staff::{StaffSupport, configured_staff_router, configured_staff_router_from};
+pub(crate) use web::private;
 pub use web::{configured_router, router, staff_router};
 #[cfg(test)]
 mod tests;
@@ -392,7 +393,7 @@ impl Tickets {
             } else {
                 // Queue mutations use the locked account snapshot, so a caller
                 // holding the sole pool connection never re-enters the pool.
-                staff::notify(tx, &self.notifications, ticket.account_id, body)
+                staff::notify(tx, &self.notifications, ticket.account_id, |_| body)
                     .await
                     .map_err(|_| Error::Notification)?;
             }

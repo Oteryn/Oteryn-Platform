@@ -826,6 +826,12 @@ async fn browser_appeals(
     assert_eq!(get("").await?.status(), StatusCode::FORBIDDEN);
     let page = get(&owner_cookie).await?;
     assert_eq!(page.status(), StatusCode::OK);
+    assert!(
+        page.headers()["content-security-policy"]
+            .to_str()?
+            .contains("frame-ancestors 'none'")
+    );
+    assert_eq!(page.headers()["cache-control"], "no-store");
     let html = String::from_utf8(to_bytes(page.into_body(), 100000).await?.to_vec())?;
     assert!(html.contains("Submit appeal"));
     assert!(!html.contains("Private note"));
@@ -845,6 +851,34 @@ async fn browser_appeals(
         async move { Ok::<_, Box<dyn std::error::Error + Send + Sync>>(app.oneshot(request?).await?) }
     };
     let valid = format!("_csrf={csrf}&version=1&message=Please+review");
+    let stale_csrf = format!("_csrf={}&version=1&message=Please+review", "b".repeat(64));
+    let stale = player_app
+        .clone()
+        .oneshot(request(&owner_cookie, "pl", sanction, &stale_csrf, 1)?)
+        .await?;
+    assert_eq!(stale.status(), StatusCode::FORBIDDEN);
+    let html = String::from_utf8(to_bytes(stale.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("Brak dostępu"));
+
+    sqlx::query(
+        "UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1",
+    )
+    .bind(owner)
+    .execute(pool)
+    .await?;
+    for stale in [
+        get(&owner_cookie).await?,
+        send(&owner_cookie, &valid).await?,
+    ] {
+        assert_eq!(stale.status(), StatusCode::FORBIDDEN);
+        let html = String::from_utf8(to_bytes(stale.into_body(), 100000).await?.to_vec())?;
+        assert!(html.contains("Sign in again to use appeals."));
+        assert!(!html.contains("Submit appeal"));
+    }
+    // Bind the fixture to the new generation before exercising the successful flow.
+    sqlx::query("UPDATE web_sessions s SET authorization_generation=a.native_security_generation FROM accounts a WHERE a.id=s.account_id AND s.id_hash=$1")
+        .bind(oteryn_identity::mfa::digest(&bearer)).execute(pool).await?;
+
     assert_eq!(
         send(&owner_cookie, "version=1&message=Please+review")
             .await?
@@ -954,6 +988,53 @@ async fn browser_appeals(
     let application: String = sqlx::query_scalar("SELECT current_setting('application_name')")
         .fetch_one(pool)
         .await?;
+    // The submission must roll back if the session expires after the write,
+    // while the audit append is blocked.
+    let expiring_bearer = oteryn_identity::mfa::random_token()?;
+    let expiring_hash = oteryn_identity::mfa::digest(&expiring_bearer);
+    let expiring_cookie = format!("__Host-oteryn_session={expiring_bearer}");
+    let mut audit_lock = pool.begin().await?;
+    sqlx::query("LOCK TABLE audit_log IN SHARE MODE")
+        .execute(&mut *audit_lock)
+        .await?;
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,authorization_generation) SELECT $1,id,clock_timestamp()+interval '2 seconds',clock_timestamp()+interval '2 seconds','test',$2,native_security_generation FROM accounts WHERE id=$3")
+        .bind(&expiring_hash).bind(csrf).bind(owner).execute(pool).await?;
+    let pending = tokio::spawn(player_app.clone().oneshot(request(
+        &expiring_cookie,
+        "en",
+        fresh,
+        &valid,
+        3,
+    )?));
+    wait_staff_locks(pool, &application, 1).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            let expired: bool = sqlx::query_scalar("SELECT absolute_expires_at <= clock_timestamp() FROM web_sessions WHERE id_hash=$1")
+                .bind(&expiring_hash).fetch_one(pool).await?;
+            if expired {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    }).await??;
+    audit_lock.commit().await?;
+    assert_eq!(pending.await??.status(), StatusCode::FORBIDDEN);
+
+    let mut sanction_lock = pool.begin().await?;
+    sqlx::query("SELECT id FROM sanctions WHERE id=$1 FOR UPDATE")
+        .bind(fresh)
+        .execute(&mut *sanction_lock)
+        .await?;
+    let timed_out = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        player_app
+            .clone()
+            .oneshot(request(&owner_cookie, "en", fresh, &valid, 4)?),
+    )
+    .await??;
+    assert_eq!(timed_out.status(), StatusCode::SERVICE_UNAVAILABLE);
+    sanction_lock.rollback().await?;
+
     let mut lock = lock_appeal_owner(pool, owner).await?;
     let pending = tokio::spawn(player_app.oneshot(request(&owner_cookie, "en", fresh, &valid, 2)?));
     wait_staff_locks(pool, &application, 1).await?;

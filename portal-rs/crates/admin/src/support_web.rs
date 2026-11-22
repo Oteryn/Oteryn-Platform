@@ -449,6 +449,7 @@ async fn change<A: AccountStateReader, B: Backend>(
     Extension(area): Extension<Area>,
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
     Form(input): Form<Input>,
 ) -> Response {
     if input.command.area() != area {
@@ -466,6 +467,16 @@ async fn change<A: AccountStateReader, B: Backend>(
     .await
     {
         Ok(()) => Redirect::to(&format!("{}/{id}", base(area))).into_response(),
+        Err(Error::Conflict) => {
+            let lang = language(&headers);
+            let body = format!(
+                "<p>{}</p><a href=\"{}/{id}\">{}</a>",
+                escape(&text(lang, "conflict")),
+                base(area),
+                escape(&text(lang, "reload"))
+            );
+            (StatusCode::CONFLICT, shell(lang, body)).into_response()
+        }
         Err(e) => status(e),
     }
 }

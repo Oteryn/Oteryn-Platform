@@ -39,12 +39,20 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       const list = await page.goto(index);
       expect(list.status()).toBe(200);
       expect(list.headers()['cache-control']).toContain('no-store');
+      expect(list.headers()['content-security-policy']).toContain("frame-ancestors 'none'");
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
       await page.getByRole('link', { name: reason, exact: true }).click();
       await expect(page).toHaveURL(playerPath);
       await expect(page.locator('main')).not.toContainText(privateNote);
       if (decision === 'accepted') {
         const fields = await page.locator('main form').evaluate(form => Object.fromEntries(new FormData(form)));
+        const staleCsrf = await page.request.post(playerPath, {
+          form: { ...fields, _csrf: '0'.repeat(64), message },
+          headers: { origin: new URL(page.url()).origin },
+          maxRedirects: 0,
+        });
+        expect(staleCsrf.status()).toBe(403);
+        expect(await staleCsrf.text()).toContain(lang === 'pl' ? 'Brak dostępu' : 'Access denied');
         const invalid = await page.request.post(playerPath, {
           form: { ...fields, message: '   ' },
           headers: { origin: new URL(page.url()).origin },
@@ -79,10 +87,16 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
 
       const repeated = await staff.page.request.post(staffPath, {
         form: { ...fields, appeal_status: decision, appeal_outcome: outcome },
-        headers: { origin: new URL(staff.page.url()).origin },
+        headers: { origin: new URL(staff.page.url()).origin, 'accept-language': lang },
         maxRedirects: 0,
       });
       expect(repeated.status()).toBe(409);
+      expect(await repeated.text()).toContain(lang === 'pl' ? 'Ta strona uległa zmianie' : 'This page has changed');
+      const decisionLabel = decision === 'accepted'
+        ? (lang === 'pl' ? 'Odwołanie uwzględnione' : 'Appeal accepted')
+        : (lang === 'pl' ? 'Odwołanie odrzucone' : 'Appeal rejected');
+      const notices = await query("SELECT body FROM notifications WHERE account_id=$1 AND category='support'", [owner.id]);
+      expect(notices.some(notice => notice.body.includes(`${decisionLabel}: ${outcome}`))).toBe(true);
       expect((await query('SELECT status FROM sanctions WHERE id=$1', [id]))[0].status).toBe(sanctionStatus);
       await page.reload();
       await expect(page.locator('main')).toContainText(label);
@@ -98,6 +112,19 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
         'SELECT action FROM audit_log WHERE action=$1 AND target=$2',
         ['support.enforcement_appeal_updated', id],
       )).toHaveLength(1);
+    }
+    const detail = new URL(page.url()).pathname;
+    const playerAdmin = `/admin/players/${owner.id}`;
+    expect((await staff.page.goto(playerAdmin)).status()).toBe(200);
+    await action(staff.page, 'form:has(button[value=kick])', { reason: 'Close game sessions' }, 'kick');
+    await audit(staff.page, 'players.kick', owner.id);
+    for (const path of [index, detail]) {
+      const staleSession = await page.goto(path);
+      expect(staleSession.status()).toBe(403);
+      await expect(page.locator('main')).toContainText(
+        lang === 'pl' ? 'Zaloguj się ponownie, aby skorzystać z odwołań.' : 'Sign in again to use appeals.',
+      );
+      await expect(page.locator('main form')).toHaveCount(0);
     }
   } finally {
     await staff.context.close();

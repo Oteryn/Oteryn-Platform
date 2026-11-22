@@ -39,3 +39,5 @@ requested = Oczekuje na rozpatrzenie
 overturn = Uchylenie sankcji
 uphold = Utrzymanie sankcji
 choose_decision = Wybierz decyzję
+conflict = Ta strona uległa zmianie.
+reload = Odśwież stronę

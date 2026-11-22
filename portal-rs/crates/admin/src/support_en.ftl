@@ -39,3 +39,5 @@ requested = Awaiting review
 overturn = Overturn sanction
 uphold = Uphold sanction
 choose_decision = Choose a decision
+conflict = This page has changed.
+reload = Reload the page
