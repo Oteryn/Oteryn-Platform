@@ -11,6 +11,7 @@ test('Platform audit shows role changes and keeps them from Game audit staff', a
     const id = await role(staff.page, 'admin.access audit.view');
     await audit(staff.page, 'rbac.role.created', id, { lang });
     const auditUrl = new URL(staff.page.url());
+    expect((await page.goto('/admin/console/audit')).status()).toBe(403);
     expect((await page.goto(auditUrl.pathname + auditUrl.search)).status()).toBe(403);
     const codes = await enrollMfa(page, lang, account);
 

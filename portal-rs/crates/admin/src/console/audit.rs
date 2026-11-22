@@ -9,6 +9,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 use std::sync::Arc;
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,9 +121,8 @@ fn fields(action: &str) -> &'static [&'static str] {
     }
 }
 
-fn publication_time(text: &str) -> Option<String> {
-    use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
-
+fn publication_time(value: &Value) -> Option<OffsetDateTime> {
+    let text = value.as_str()?;
     // The old news editor round-tripped PostgreSQL text such as "2020-01-01 00:00:00+00".
     let mut timestamp = text.replacen(' ', "T", 1);
     if timestamp
@@ -134,11 +134,7 @@ fn publication_time(text: &str) -> Option<String> {
     {
         timestamp.push_str(":00");
     }
-    OffsetDateTime::parse(&timestamp, &Rfc3339)
-        .ok()?
-        .to_offset(UtcOffset::UTC)
-        .format(&Rfc3339)
-        .ok()
+    OffsetDateTime::parse(&timestamp, &Rfc3339).ok()
 }
 
 fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
@@ -176,9 +172,6 @@ fn display(lang: &str, field: &str, value: &Value) -> Option<String> {
             | "version",
             Value::Number(value),
         ) => Some(value.to_string()),
-        ("published_at" | "translation_published_at", Value::String(text)) => {
-            publication_time(text)
-        }
         ("title" | "title_pl" | "legal_version", Value::String(text)) if !text.is_empty() => {
             Some(tr(lang, "audit-diff-hidden"))
         }
@@ -215,8 +208,22 @@ fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Chang
             if previous == current {
                 return None;
             }
-            let mut previous_display = display(lang, field, previous);
-            let mut current_display = display(lang, field, current);
+            let (mut previous_display, mut current_display) =
+                if matches!(field, "published_at" | "translation_published_at") {
+                    let previous = publication_time(previous);
+                    let current = publication_time(current);
+                    if previous == current {
+                        return None;
+                    }
+                    let format =
+                        |time: OffsetDateTime| time.to_offset(UtcOffset::UTC).format(&Rfc3339).ok();
+                    (previous.and_then(format), current.and_then(format))
+                } else {
+                    (
+                        display(lang, field, previous),
+                        display(lang, field, current),
+                    )
+                };
             if matches!(field, "title" | "title_pl" | "legal_version") && current_display.is_some()
             {
                 current_display = Some(tr(lang, "audit-diff-hidden-change"));
@@ -226,6 +233,11 @@ fn changes(lang: &str, action: &str, before: &Value, after: &Value) -> Vec<Chang
                 && previous.is_null()
                 && current_display.is_some()
             {
+                // Legacy sanction edits recorded the current workflow status only in after.
+                // An appeal decision can still show its recorded outcome with an unknown prior value.
+                if action != "support.enforcement_appeal_updated" {
+                    return None;
+                }
                 previous_display = Some(tr(lang, "audit-diff-unknown"));
             }
             if (previous_display.is_none() && current_display.is_none())
@@ -471,8 +483,48 @@ mod tests {
         assert!(changes("en", "cms.news_updated", &before, &after).is_empty());
         assert!(changes("en", "cms.page.saved", &before, &after).is_empty());
         assert_eq!(
-            publication_time("2020-01-02T01:00:00+01:00").as_deref(),
-            Some("2020-01-02T00:00:00Z")
+            changes(
+                "en",
+                "cms.page.saved",
+                &before,
+                &json!({"published_at":"2020-01-02T01:00:00+01:00"})
+            ),
+            [Change {
+                field: "Publication time".into(),
+                before: "2020-01-01T00:00:00Z".into(),
+                after: "2020-01-02T00:00:00Z".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn diff_hides_embedded_pii_in_legal_versions() {
+        assert_eq!(
+            changes(
+                "en",
+                "cms.page.saved",
+                &json!({"legal_version":"v1 reviewer@example.invalid"}),
+                &json!({"legal_version":"v2 2001:db8::42"}),
+            ),
+            [Change {
+                field: "Legal version".into(),
+                before: "Value hidden".into(),
+                after: "Changed (value hidden)".into(),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_legacy_sanction_edit_does_not_infer_an_appeal_status_change() {
+        let before = json!({"status":"active"});
+        let after = json!({"status":"revoked","appeal_status":"reviewing"});
+        assert_eq!(
+            changes("en", "support.enforcement_updated", &before, &after),
+            [Change {
+                field: "Status".into(),
+                before: "active".into(),
+                after: "revoked".into()
+            }]
         );
     }
 
