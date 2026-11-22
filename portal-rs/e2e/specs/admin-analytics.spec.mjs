@@ -72,7 +72,7 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  } finally {await seed.end();}
  const response=await page.goto(`/admin/analytics/economy?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
  expect(response.status()).toBe(200);
- for(const text of ['48210377','4500','low-n (below five)','depot source coverage not yet delivered by Game','spent_in_game/coin','Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
+ for(const text of ['48210377','4500',lang==='pl'?'mała liczebność (poniżej pięciu)':'low-n (below five)',lang==='pl'?'depot — Gra nie dostarczyła jeszcze danych z tego źródła':'depot source coverage not yet delivered by Game' ,'spent_in_game/coin',lang==='pl'?'rejestr portfela Platformy':'Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
 });

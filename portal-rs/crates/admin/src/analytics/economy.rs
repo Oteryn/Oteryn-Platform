@@ -28,12 +28,32 @@ struct Group {
 #[template(path = "admin/analytics_economy.html", config = "src/web_askama.toml")]
 struct EconomyPage {
     lang: &'static str,
+    copy: Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>,
     world: String,
     from: String,
     to: String,
     policy: String,
     groups: Vec<Group>,
 }
+impl EconomyPage {
+    fn text(&self, key: &str) -> String {
+        crate::web::translated(self.copy.as_ref(), key)
+    }
+
+    fn state(&self, state: &str) -> String {
+        self.text(&format!("economy-state-{state}"))
+    }
+
+    fn columns(&self, group: &Group) -> String {
+        let key = if group.source == "Platform" {
+            "economy-columns-purchased".into()
+        } else {
+            format!("economy-columns-{}", group.family)
+        };
+        self.text(&key)
+    }
+}
+
 pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     s: Arc<Context<I, A>>,
     request: Request,
@@ -216,8 +236,10 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
         .is_some_and(|v| v.starts_with("en"));
+    let lang = if english { "en" } else { "pl" };
     let page = EconomyPage {
-        lang: if english { "en" } else { "pl" },
+        lang,
+        copy: crate::web::translations(lang),
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: input_time(start),
         to: input_time(end),
@@ -227,5 +249,51 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     match page.render() {
         Ok(html) => Html(html).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn economy_unavailable_copy_follows_the_page_locale() -> Result<(), askama::Error> {
+        for (lang, expected, other) in [
+            (
+                "pl",
+                "Wymagana jest zaakceptowana baza ponownej synchronizacji",
+                "accepted resync baseline",
+            ),
+            (
+                "en",
+                "accepted resync baseline",
+                "Wymagana jest zaakceptowana baza ponownej synchronizacji",
+            ),
+        ] {
+            let html = EconomyPage {
+                lang,
+                copy: crate::web::translations(lang),
+                world: String::new(),
+                from: String::new(),
+                to: String::new(),
+                policy: String::new(),
+                groups: vec![Group {
+                    family: "economy_circulation_daily".into(),
+                    source: "Game",
+                    columns: "",
+                    state: "unavailable",
+                    epoch: String::new(),
+                    revision: String::new(),
+                    cut: String::new(),
+                    age: 0,
+                    cells: vec![],
+                }],
+            }
+            .render()?;
+            assert!(html.contains(expected), "{lang}");
+            assert!(!html.contains(other), "{lang}");
+            assert!(html.contains(r#"data-state="unavailable""#));
+        }
+        Ok(())
     }
 }
