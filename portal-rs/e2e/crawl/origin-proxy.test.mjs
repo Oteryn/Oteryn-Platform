@@ -24,11 +24,11 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
     execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
       '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' });
     const tls = { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
-    let outsideRequests = 0;
+    let outsideConnections = 0;
     canary = https.createServer(tls, (_request, response) => {
-      outsideRequests += 1;
       response.end('outside');
     });
+    canary.on('connection', () => { outsideConnections += 1; });
     const outside = await listen(canary);
     fixture = https.createServer(tls, (incoming, response) => {
       if (incoming.url === '/same-origin') response.writeHead(302, { Location: '/page' });
@@ -55,7 +55,7 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
       const rejected = await client.post('/first-hop', { form: { probe: 'local-canary' } });
       assert.equal(rejected.status(), 403);
     }
-    assert.equal(outsideRequests, 0);
+    assert.equal(outsideConnections, 0);
   } finally {
     await api?.dispose();
     await browser?.close();

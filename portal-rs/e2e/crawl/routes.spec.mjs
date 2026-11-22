@@ -78,9 +78,9 @@ function inspectDocument({ html, view, privateValues }) {
   };
 }
 
-function unavailableMatches(response, contents) {
+function unavailableMatches(response, contents, html, privateValues) {
   const noStore = response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store');
-  return noStore && contents.empty;
+  return noStore && contents.empty && !privateValues.some(value => html.includes(value));
 }
 
 function seed(entity, args) {
@@ -268,10 +268,10 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         const redirectPath = redirectDestination(url, actor, locale);
         const expectedStatus = forbidden && !redirectPath ? 403 : view ? 503 : 200;
         const target = redirectPath ? new URL(redirectPath, origin) : url;
-        const isAlternateLocale = documentLocale(target, locale) !== locale
-          && /^(?:\/(?:pl|en)(?:\/|$)|\/admin\/(?:pl|en)\/)/.test(target.pathname);
-        const headers = { accept: 'text/html', 'accept-language': locale };
         const expectedLang = documentLocale(target, locale);
+        const isAlternateLocale = expectedLang !== locale
+          && /^(?:\/(?:pl|en)(?:\/|$)|\/admin\/(?:pl|en)\/)/.test(target.pathname);
+        const headers = { accept: 'text/html', 'accept-language': isAlternateLocale ? expectedLang : locale };
         const inspection = { view, privateValues };
 
         if (redirectPath) {
@@ -300,9 +300,10 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
               defects.add(`${from} → ${current} alternate language expected HTML with HTTP ${expectedStatus}, got ${response.status()}`);
               continue;
             }
-            const contents = await offlinePage.evaluate(inspectDocument, { ...inspection, html: await response.text() });
+            const html = await response.text();
+            const contents = await offlinePage.evaluate(inspectDocument, { ...inspection, html });
             if (!contents.shell || !contents.title || contents.lang !== expectedLang
-              || (view && !unavailableMatches(response, contents))) {
+              || (view && !unavailableMatches(response, contents, html, privateValues))) {
               defects.add(`${from} → ${current} invalid ${expectedLang} alternate document`);
             }
             covered.push({ path: label(target), status: expectedStatus, locale: expectedLang, ...(view && { reason: view.reason }) });
@@ -333,7 +334,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
         if (rendered.lang !== expectedLang) defects.add(`${current} document language should be ${expectedLang}`);
         if (rendered.overflow) defects.add(`${current} overflows the viewport`);
         if (rendered.csp.length) defects.add(`${current} violated CSP (${rendered.csp.join(', ')})`);
-        if (view && !unavailableMatches(response, rendered)) {
+        if (view && !unavailableMatches(response, rendered, await response.text(), privateValues)) {
           defects.add(`${current} invalid unavailable view (${view.reason})`);
         }
         for (const href of rendered.links) enqueue(href, label(target));

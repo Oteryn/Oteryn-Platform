@@ -248,12 +248,15 @@ async function close(code = 0) {
   const closeBrowserNetwork = await browserNetwork?.catch(() => {});
   closeBrowserNetwork?.();
   if ((createRequested || crawlDatabase?.roleRequested) && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+    const reconcile = () => withAdminConnection(async admin => {
+      await lockDatabaseName(admin);
+      if (createRequested) await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      await crawlDatabase?.dropRole(admin);
+    });
     try {
-      await withAdminConnection(async admin => {
-        await lockDatabaseName(admin);
-        if (createRequested) await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
-        await crawlDatabase?.dropRole(admin);
-      });
+      // A concurrent fixture can briefly delay PostgreSQL database deletion.
+      // Both drops are idempotent, so retry once on a fresh bounded connection.
+      await (crawl ? reconcile().catch(reconcile) : reconcile());
     } catch {
       log('failed to reconcile disposable database', dbName);
       code = 1;
