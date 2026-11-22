@@ -271,6 +271,7 @@ async fn browser_lifecycle(pool: &PgPool) {
     let html =
         String::from_utf8(to_bytes(page.into_body(), 100000).await.unwrap().to_vec()).unwrap();
     assert!(html.contains("Alternative text"));
+    assert!(html.contains(r#"action="/admin/media?lang=en""#));
     let csrf = html
         .split("name=\"_csrf\" value=\"")
         .nth(1)
@@ -282,7 +283,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{token}\r\n--boundary\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"x.png\"\r\nContent-Type: {mime}\r\n\r\n").into_bytes();
         body.extend(fixture(ImageFormat::Png, 640, 160));
         body.extend_from_slice(b"\r\n--boundary--\r\n");
-        Request::post("/admin/media")
+        Request::post("/admin/media?lang=en")
             .header("host", "staff.test")
             .header("origin", "https://staff.test")
             .header("cookie", &cookie)
@@ -325,14 +326,13 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap()
     );
-    assert_eq!(
-        app.clone()
-            .oneshot(make(csrf, "Image", "image/png"))
-            .await
-            .unwrap()
-            .status(),
-        StatusCode::FOUND
-    );
+    let uploaded = app
+        .clone()
+        .oneshot(make(csrf, "Image", "image/png"))
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), StatusCode::FOUND);
+    assert_eq!(uploaded.headers()[header::LOCATION], "/admin/media?lang=en");
     let id: Uuid = sqlx::query_scalar(
         "SELECT id FROM media WHERE alt_text='Image' ORDER BY created_at DESC LIMIT 1",
     )

@@ -204,7 +204,7 @@ struct Options {
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">Next / Następna</a>{% endif %}</main></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media{% if lang == \"en\" %}?lang=en{% endif %}\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">Next / Następna</a>{% endif %}</main></html>",
     ext = "html"
 )]
 struct MediaPage {
@@ -305,6 +305,7 @@ async fn upload(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
+    Query(options): Query<Options>,
     mut multipart: Multipart,
 ) -> Result<Response, StatusCode> {
     let mut image = None;
@@ -401,7 +402,12 @@ async fn upload(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
+    let location = if options.lang.as_deref() == Some("en") {
+        "/admin/media?lang=en"
+    } else {
+        "/admin/media"
+    };
+    Ok((StatusCode::FOUND, [(header::LOCATION, location)]).into_response())
 }
 async fn tokio_process(name: String, bytes: Vec<u8>) -> Result<ProcessedImage, StatusCode> {
     let permit = DECODERS
