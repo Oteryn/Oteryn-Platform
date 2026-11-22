@@ -41,6 +41,12 @@ with retry admission. Browser tests cover a suspended owner, overlapping
 snapshots, a mismatched account reference and both permitted and revoked
 sanction retries. The route matrix tracks the CSRF-protected retry POST.
 
+The result review requires LCFA completion coverage for account-scoped
+sanctions and holds the control ownership fence through result verification.
+The operations dashboard reports unverified successes as unavailable.
+Browser coverage checks the watermark boundary and matches dossier children
+by operation.
+
 Owned paths include the admin console and control channel, LCFA ownership
 lookup, and GM browser tests and harness. The existing ADM framing is ratified.
 The pinned staff-actions v1
@@ -52,8 +58,8 @@ separate Support enforcement implementation, outside this GM read scenario.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T19:13:00Z
-head: 4d85c60cafb884155a674d1b05278936bd312776
+updated_at: 2026-11-22T20:37:30Z
+head: 7510db3891a3d1ae5cb62b382b9bd8cb72102c59
 branch: codex/feat-gm-character
 pr: none
 status: ready
@@ -88,6 +94,7 @@ changed_paths:
   - portal-rs/crates/admin/src/console/access.en.ftl
   - portal-rs/crates/admin/src/console/access.pl.ftl
   - portal-rs/crates/admin/src/console/access.rs
+  - portal-rs/crates/admin/src/console/mod.rs
   - portal-rs/crates/admin/src/console/players.rs
   - portal-rs/crates/admin/src/console/projection.rs
   - portal-rs/crates/admin/src/console/stored.rs
@@ -110,24 +117,12 @@ validation:
   - command: cargo build --locked -p oteryn-portal
     result: PASS
     evidence: Built the portal binary exercised by the harness.
-  - command: cargo test --locked -p oteryn-admin --lib console::
+  - command: cargo test --locked --no-fail-fast -p oteryn-admin -p oteryn-characters --lib
     result: PASS
-    evidence: All 19 console tests passed against PostgreSQL 18.6.
-  - command: cargo test --locked -p oteryn-admin --lib postgres_hello_and_rollups_wait_for_control_before_http_ownership
-    result: PASS
-    evidence: PostgreSQL 18.6 proves a rollup waits for retry admission to release the ownership lock.
-  - command: cargo test --locked -p oteryn-characters --lib
-    result: PASS
-    evidence: 121 tests passed on PostgreSQL 18.6, including ownership ambiguity, invalid snapshots and recovery.
+    evidence: PostgreSQL 18.6 and Rust 1.100.0 passed 235 admin and 121 characters tests.
   - command: Playwright gm-player-console.spec.mjs
     result: PASS
-    evidence: pl-1440, pl-390, en-1440 and en-390 each passed on the first attempt. No runner errors.
-  - command: Playwright routes.spec.mjs for the retry route
-    result: PASS
-    evidence: All four projects confirmed POST returns 403 without CSRF. No runner errors.
-  - command: node --test cli/harness-safety.test.mjs
-    result: PASS
-    evidence: Six tests passed. The staff and outbox launcher modes also started and exited cleanly.
+    evidence: pl-1440, pl-390, en-1440 and en-390 passed with zero runner errors. The harness exited cleanly.
 blockers: []
 next_action: Coordinator reviews the retained branch evidence for Issue #2002.
 ```
