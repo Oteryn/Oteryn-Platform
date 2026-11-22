@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { login, logout, password, pool, submit, waitForLoginBudget } from '../helpers.mjs';
-import { enrollMfa, loginWithRecoveryCode, player, query } from '../staff-rbac-helpers.mjs';
+import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 
 import { prepare, sendForm, useFormMethod, rejected, wrongActor, invalid } from './matrix-helpers.mjs';
@@ -1919,6 +1919,106 @@ test('Game player search refuses unqualified actors and exposes the unavailable 
     await expect(page.locator('main')).toContainText(unavailable);
     await expect(page.locator(formSelector)).toHaveCount(0);
     expect(await state()).toEqual(baseline);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('staff roles create, edit, grant and revoke only under admin.roles.manage', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const open = async role => {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      viewport: info.project.use.viewport,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const player = await seededPlayer(screen, lang, role);
+    await screen.goto(`/${lang}/account/privacy`);
+    const { fields } = await prepare(screen, formSelector);
+    return { screen, player, token: fields._csrf };
+  };
+  try {
+    const manager = await seededPlayer(page, lang, 'security_admin');
+    const target = await open();
+    const editor = await open('content_editor');
+    const player = await open();
+    const unauthorized = [player, editor];
+    const key = `matrix_${randomUUID().replaceAll('-', '')}`;
+    const url = new URL('/admin/roles', page.url()).href;
+    const state = async () => {
+      const [record] = await query('SELECT id FROM roles WHERE key=$1', [key]);
+      if (!record) return null;
+      return {
+        id: record.id,
+        permissions: (await query('SELECT permission FROM role_permissions WHERE role_id=$1 ORDER BY permission', [record.id])).map(r => r.permission),
+        members: (await query('SELECT account_id FROM account_roles WHERE role_id=$1 ORDER BY account_id', [record.id])).map(r => r.account_id),
+      };
+    };
+    const verify = async (selector, values, samples) => {
+      const baseline = await state();
+      const { fields } = await prepare(page, selector, values);
+      await rejected({ page, url, fields, snapshot: state, baseline });
+      for (const { screen, token } of unauthorized) {
+        expect((await sendForm(screen, url, { ...fields, _csrf: token })).status()).toBe(403);
+        expect(await state()).toEqual(baseline);
+      }
+      for (const [patch, status] of samples) {
+        expect((await sendForm(page, url, { ...fields, ...patch })).status()).toBe(status);
+        expect(await state()).toEqual(baseline);
+      }
+    };
+
+    expect((await page.goto(url)).status()).toBe(200);
+    expect(await state()).toBeNull();
+    const create = 'main form:has([name=key])';
+    const first = 'admin.access';
+    const invalidPermissions = [
+      [{ permissions: 'x'.repeat(500) }, 400],
+      [{ permissions: '42' }, 400],
+    ];
+    await verify(create, { action: 'create', key, permissions: first }, [
+      [{ key: '' }, 400], [{ key: 'x'.repeat(129) }, 400], ...invalidPermissions,
+    ]);
+    await submit(page, create, { key, permissions: first });
+    await expect(page).toHaveURL(url);
+    const created = await state();
+    expect(created).toEqual({ id: expect.any(String), permissions: [first], members: [] });
+    await rolePage(page, created.id);
+    await expect(page.locator('main')).toContainText(key);
+
+    const edit = 'main form:has(select[name=role]):has([name=permissions])';
+    const next = 'admin.access audit.view';
+    await verify(edit, { action: 'set-permissions', role: created.id, permissions: next }, [
+      ...invalidPermissions, [{ role: 'x' }, 422],
+      [{ role: '00000000-0000-0000-0000-000000000000' }, 400],
+    ]);
+    await action(page, edit, { role: created.id, permissions: next }, 'set-permissions');
+    await rolePage(page, created.id);
+    const amended = { ...created, permissions: [first, 'audit.view'] };
+    expect(await state()).toEqual(amended);
+    await expect(page.locator('main')).toContainText(key);
+
+    const membership = 'main form:has([name=account])';
+    for (const operation of ['grant', 'revoke']) {
+      await verify(membership, { action: operation, account: target.player.id, role: created.id }, [
+        [{ action: '' }, 400], [{ action: 'x'.repeat(129) }, 400],
+        [{ role: 'x' }, 422], [{ account: '00000000-0000-0000-0000-000000000000' }, 400],
+      ]);
+      await action(page, membership, { account: target.player.id, role: created.id }, operation);
+      await rolePage(page, created.id);
+      expect(await state()).toEqual({ ...amended, members: operation === 'grant' ? [target.player.id] : [] });
+      await expect(page.locator('main')).toContainText(key);
+    }
+    expect(await query(
+      "SELECT action FROM audit_log WHERE actor=$1 AND target IN ($2,$3) AND action LIKE 'rbac.role.%' ORDER BY created_at,id",
+      [manager.id, created.id, target.player.id],
+    )).toEqual([
+      { action: 'rbac.role.created' }, { action: 'rbac.role.permissions_changed' },
+      { action: 'rbac.role.granted' }, { action: 'rbac.role.revoked' },
+    ]);
   } finally {
     await Promise.all(contexts.map(context => context.close()));
   }
