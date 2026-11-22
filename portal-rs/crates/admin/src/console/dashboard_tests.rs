@@ -94,7 +94,7 @@ impl Channel for Fixture {
                     name: RecordName::Text("<script>alert(1)</script>".into()),
                     fields: vec![Field {
                         label: FieldLabel::Health,
-                        value: "fixture-healthy".into(),
+                        value: FieldValue::Text("fixture-healthy".into()),
                     }],
                 }],
             }),

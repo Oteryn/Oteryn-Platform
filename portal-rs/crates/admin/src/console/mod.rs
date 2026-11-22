@@ -179,7 +179,12 @@ impl<A: AccountStateReader + 'static> Permissions for PgPermissions<A> {
 #[derive(Debug, Clone)]
 pub struct Field {
     pub label: FieldLabel,
-    pub value: String,
+    pub value: FieldValue,
+}
+#[derive(Debug, Clone)]
+pub enum FieldValue {
+    Text(String),
+    Label(&'static str),
 }
 #[derive(Debug, Clone, Copy)]
 pub enum FieldLabel {
@@ -622,7 +627,13 @@ async fn render<P: Permissions, C: Channel>(
                             .fields
                             .into_iter()
                             .take(32)
-                            .map(|f| (text(language, f.label.key()), f.value))
+                            .map(|f| {
+                                let value = match f.value {
+                                    FieldValue::Text(value) => value,
+                                    FieldValue::Label(key) => text(language, key),
+                                };
+                                (text(language, f.label.key()), value)
+                            })
                             .collect(),
                     })
                     .collect();

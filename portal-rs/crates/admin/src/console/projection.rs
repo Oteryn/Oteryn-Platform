@@ -1,6 +1,6 @@
 //! Allowlisted presentation of the pinned ADM-01 OperationResult union.
 use super::{
-    Field, FieldLabel as L, Operation, Record, RecordName,
+    Field, FieldLabel as L, FieldValue, Operation, Record, RecordName,
     access::{Error, Policy},
     audit::LedgerRow,
     players,
@@ -40,7 +40,16 @@ fn list(v: &Value, key: &str) -> Result<String, Error> {
         .map(|v| v.join(", "))
 }
 fn field(label: L, value: String) -> Field {
-    Field { label, value }
+    Field {
+        label,
+        value: FieldValue::Text(value),
+    }
+}
+fn flag(label: L, value: bool, yes: &'static str, no: &'static str) -> Field {
+    Field {
+        label,
+        value: FieldValue::Label(if value { yes } else { no }),
+    }
 }
 fn world(v: &Value) -> Result<Record, Error> {
     Ok(Record {
@@ -65,7 +74,12 @@ fn node(v: &Value) -> Result<Record, Error> {
     Ok(Record {
         name: RecordName::Text(text(v, "node_id")?),
         fields: vec![
-            field(L::Health, boolean(v, "ready")?.to_string()),
+            flag(
+                L::Health,
+                boolean(v, "ready")?,
+                "node-ready",
+                "node-not-ready",
+            ),
             field(L::Build, text(v, "build")?),
             field(L::Cpu, number(v, "cpu_percent")?),
             field(L::Memory, text(v, "memory_bytes")?),
@@ -83,7 +97,12 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
             name: RecordName::Label("record-overview"),
             fields: vec![
                 field(L::Players, number(v, "players_online")?),
-                field(L::Health, boolean(v, "db_available")?.to_string()),
+                flag(
+                    L::Health,
+                    boolean(v, "db_available")?,
+                    "available",
+                    "unavailable",
+                ),
                 field(L::Alerts, array(v, "alerts")?.len().to_string()),
             ],
         }]),
@@ -131,8 +150,8 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
                 Ok(Record {
                     name: RecordName::Text(text(m, "version")?),
                     fields: vec![
-                        field(L::Applied, boolean(m, "applied")?.to_string()),
-                        field(L::Drift, boolean(m, "checksum_drift")?.to_string()),
+                        flag(L::Applied, boolean(m, "applied")?, "yes", "no"),
+                        flag(L::Drift, boolean(m, "checksum_drift")?, "yes", "no"),
                     ],
                 })
             })

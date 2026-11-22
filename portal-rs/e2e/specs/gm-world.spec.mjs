@@ -185,6 +185,13 @@ test('ratified Game agent results render in every ops read view', async ({page},
       await expect(record.getByText(expected, {exact: true})).toBeVisible();
       await expect(record.getByText('verified-fixture-revision', {exact: true})).toBeVisible();
       if (heading) await expect(record.getByRole('heading', {level: 3, name: heading, exact: true})).toBeVisible();
+      if (operation === 'node.list' || operation === 'node.get') {
+        await expect(record.getByText(lang === 'pl' ? 'Gotowy' : 'Ready', {exact: true})).toBeVisible();
+      }
+      if (operation === 'db.migrations.list') {
+        const values = record.locator('article dd');
+        await expect(values).toHaveText(lang === 'pl' ? ['Tak', 'Nie'] : ['Yes', 'No']);
+      }
     }
 
     for (const [route, operation, expected] of [
