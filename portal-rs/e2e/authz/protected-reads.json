@@ -641,7 +641,9 @@
     "target": "/{lang}/account/referrals",
     "status": 200,
     "anonymousStatus": 303,
-    "source": "crates/community/src/referrals/web.rs:137"
+    "source": "crates/community/src/referrals/web.rs:137",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
   },
   {
     "path": "/{lang}/account/security/wizard",
@@ -684,7 +686,9 @@
     "target": "/{lang}/collection-pvp",
     "status": 200,
     "anonymousStatus": 303,
-    "source": "crates/minigames/src/collection_pvp/http.rs:43"
+    "source": "crates/minigames/src/collection_pvp/http.rs:43",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
   },
   {
     "path": "/{lang}/panel/hirelings",
@@ -726,28 +730,36 @@
     "target": "/{lang}/shop",
     "status": 200,
     "anonymousStatus": 303,
-    "source": "crates/store/src/web.rs:146"
+    "source": "crates/store/src/web.rs:146",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
   },
   {
     "path": "/{lang}/shop/coins",
     "target": "/{lang}/shop/coins",
     "status": 200,
     "anonymousStatus": 303,
-    "source": "crates/store/src/web.rs:147"
+    "source": "crates/store/src/web.rs:147",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
   },
   {
     "path": "/{lang}/shop/history",
     "target": "/{lang}/shop/history",
     "status": 200,
     "anonymousStatus": 303,
-    "source": "crates/store/src/web.rs:148"
+    "source": "crates/store/src/web.rs:148",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
   },
   {
     "path": "/{lang}/shop/transfer",
     "target": "/{lang}/shop/transfer",
     "status": 200,
     "anonymousStatus": 303,
-    "source": "crates/store/src/web.rs:149"
+    "source": "crates/store/src/web.rs:149",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
   },
   {
     "path": "/{lang}/support/reports",

@@ -22,6 +22,7 @@ function fixturePath(target, locale) {
 function expectedRead(fixture, definition) {
   if (definition.key === 'anonymous') return fixture.anonymousStatus;
   if (definition.role && fixture.mfaStatus) return fixture.mfaStatus;
+  if (definition.restricted && fixture.restrictedStatus) return fixture.restrictedStatus;
   const { guard } = fixture;
   if (guard.kind !== 'staff') return fixture.status;
   const allowed = guard.all.every(permission => definition.permissions.includes(permission))
@@ -45,7 +46,8 @@ test.describe('protected reads and identity writes', () => {
             const response = await request.get(target, { maxRedirects: 0 });
             try {
               const status = expectedRead(fixture, definition);
-              expect.soft(response.status(), `GET ${target} (${fixture.source})`).toBe(status);
+              const source = (definition.restricted && fixture.restrictedSource) || fixture.source;
+              expect.soft(response.status(), `GET ${target} (${source})`).toBe(status);
               if (status === 302 || status === 303) {
                 const location = response.headers().location;
                 if (anonymous) expect.soft(location, target).toMatch(/^\/(?:pl\/|en\/)?login$/);

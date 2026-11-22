@@ -76,5 +76,5 @@ Resource-bound browser reads and mutations still need route-specific
 fixtures, including owned resources and minimally valid payloads. The
 inventory also includes registration variants and other listeners that require
 their own deployment profiles and fixtures. [Local limitations](local-limitations.json)
-records five entries with source references. The other 253 entries still need
+records 13 entries with source references. The other 245 entries still need
 an executable fixture or a confirmed local limitation.

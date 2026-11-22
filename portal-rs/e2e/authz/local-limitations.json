@@ -7,6 +7,13 @@
     "reason": "Runtime authorization uses this router as an in-process probe. There is no HTTP listener for this registration."
   },
   {
+    "listener": "public",
+    "method": "GET",
+    "path": "/wiki/{slug}",
+    "source": "crates/wiki/src/entities.rs:120",
+    "reason": "The portal unconditionally mounts the concrete /wiki/{kind} entity route before falling back to the legacy redirect table. The identical path shape prevents the legacy article redirect from dispatching."
+  },
+  {
     "listener": "native",
     "method": "POST",
     "path": "/api/v1/game-auth/device-sessions",
@@ -33,5 +40,54 @@
     "path": "/api/v1/game-auth/device-sessions/revoke",
     "source": "crates/gameauth/src/devices_http.rs:222",
     "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/email-change/confirm/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/email-change/revert/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/email-change/confirm/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/email-change/revert/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/email-change/confirm/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/email-change/revert/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/unsubscribe",
+    "source": "crates/identity/src/account_lifecycle_http.rs:435",
+    "reason": "The one-click endpoint charges a persisted rate-limit bucket before it verifies the signed unsubscribe token. None of the browser actors holds that credential, and its refusal changes a non-exempt table."
   }
 ]
