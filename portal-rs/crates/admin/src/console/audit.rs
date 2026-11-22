@@ -1,5 +1,5 @@
 //! Combined Platform audit and verified Game ledger, joined visually by request id.
-use super::access::{Backend, Console, Error, Page, request_language, tr};
+use super::access::{Backend, Console, Error, Page, language, request_language, tr};
 use crate::rbac::CheckContext;
 use axum::{
     Extension,
