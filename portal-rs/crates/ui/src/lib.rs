@@ -13,9 +13,10 @@ pub fn accepts_html(headers: &HeaderMap) -> bool {
             .get_all(header::ACCEPT)
             .iter()
             .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(','))
+            .filter_map(|value| split_quoted(value, b','))
+            .flatten()
             .filter_map(|value| {
-                let mut parts = value.split(';').map(str::trim);
+                let mut parts = split_quoted(value, b';')?.into_iter().map(str::trim);
                 let media = parts.next()?;
                 let specificity = if media.eq_ignore_ascii_case("text/html") {
                     2
@@ -39,6 +40,34 @@ pub fn accepts_html(headers: &HeaderMap) -> bool {
             })
             .max()
             .is_some_and(|(_, acceptable)| acceptable)
+}
+
+// A quoted media parameter may contain separators and escaped quotes.
+fn split_quoted(value: &str, separator: u8) -> Option<Vec<&str>> {
+    let mut parts = Vec::new();
+    let mut start = 0;
+    let mut quoted = false;
+    let mut escaped = false;
+    for (index, byte) in value.bytes().enumerate() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        match byte {
+            b'\\' if quoted => escaped = true,
+            b'"' => quoted = !quoted,
+            byte if byte == separator && !quoted => {
+                parts.push(&value[start..index]);
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    if quoted {
+        return None;
+    }
+    parts.push(&value[start..]);
+    Some(parts)
 }
 
 /// Translate through the portal's existing Fluent catalogues.
@@ -415,6 +444,25 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn html_negotiation_respects_quoted_media_parameters() {
+        for (accept, expected) in [
+            (r#"application/json; profile="one,text/html,two""#, false),
+            (r#"application/json; profile="one\",text/html,two""#, false),
+            (r#"application/json; profile="unclosed, text/html"#, false),
+            (
+                r#"application/json; profile="one,text/html,two", text/html;q=1"#,
+                true,
+            ),
+            (r#"text/html; profile="one;q=0;two"; q=1"#, true),
+            (r#"text/html; profile="one;two"; q=0, */*; q=1"#, false),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::ACCEPT, axum::http::HeaderValue::from_static(accept));
+            assert_eq!(accepts_html(&headers), expected, "{accept}");
+        }
+    }
+
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
