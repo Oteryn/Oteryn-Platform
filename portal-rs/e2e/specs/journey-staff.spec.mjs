@@ -7,9 +7,14 @@ import { post as gamePost } from '../game-sim-helpers.mjs';
 import { paidTopup, uuid7 } from '../staff-commerce-helpers.mjs';
 import { fixtureDatabase, withSoleRoleHolder } from '../staff-fixture-database.mjs';
 
+async function openInteriorNavigation(page) {
+  const toggle = page.locator('.om-fallback-menu:not([open]) > summary');
+  if (await toggle.isVisible()) await toggle.click();
+}
+
 async function openAccountMenu(page) {
   if (await page.locator('#portal-header.om-interior').count()) {
-    await page.locator('.om-fallback-menu > summary').click();
+    await openInteriorNavigation(page);
     await page.locator('.om-fallback-account > summary').click();
     return page.locator('.om-fallback-account[open]');
   }
@@ -29,8 +34,11 @@ async function followAccountLink(page, path) {
 }
 
 async function followPartyLink(page, path) {
-  await page.locator('.om-fallback-menu > summary').click();
-  await page.locator(`#portal-navigation a[href="${path}"]`).click();
+  await openInteriorNavigation(page);
+  const community = page.locator('#portal-navigation details.om-section:not([open])')
+    .filter({ has: page.locator('#portal-community-panel') });
+  if (await community.count()) await community.locator(':scope > summary').click();
+  await page.locator(`#portal-community-panel a[href="${path}"]`).click();
   await expect(page).toHaveURL(new RegExp(`${path}$`));
 }
 
@@ -60,7 +68,7 @@ test('staff publish content and handle a player’s support, safety and account 
       await expect(main.getByRole('status')).toHaveText(pl
         ? 'Twój adres e-mail został zweryfikowany.'
         : 'Your e-mail has been verified.');
-      await page.locator('.om-fallback-menu > summary').click();
+      await openInteriorNavigation(page);
       await page.locator(`#portal-navigation a.om-login[href="/${lang}/login"]`).click();
       await waitForLoginBudget();
       await submit(page, 'main form', { email: account.email, password: account.password });

@@ -5,15 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
 import { csrfRejected, password } from './helpers.mjs';
 import { query } from './staff-rbac-helpers.mjs';
-import { fixtureDatabase } from './staff-fixture-database.mjs';
+import { fixtureProcessEnv } from './staff-fixture-database.mjs';
 
 function seed(entity, args) {
-  const database = fixtureDatabase();
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY || path.resolve(target, 'debug/oteryn-portal');
   const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
     encoding: 'utf8',
-    env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: database.href },
+    env: fixtureProcessEnv(),
   });
   if (result.status !== 0) throw new Error(`Seed ${entity} failed with exit code ${result.status}`);
   return JSON.parse(result.stdout);

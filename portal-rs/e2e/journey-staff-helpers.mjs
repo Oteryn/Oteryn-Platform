@@ -4,7 +4,7 @@ import * as OTPAuth from 'otpauth';
 import { expect } from '@playwright/test';
 import { action, loginWithRecoveryCode, membership, query } from './staff-rbac-helpers.mjs';
 import { login, password, submit } from './helpers.mjs';
-import { fixtureDatabase } from './staff-fixture-database.mjs';
+import { fixtureProcessEnv } from './staff-fixture-database.mjs';
 
 export function actorContext(browser, info) {
   return browser.newContext({
@@ -18,9 +18,8 @@ export function actorContext(browser, info) {
 export function portalCommand(args) {
   const binary = process.env.PORTAL_E2E_BINARY
     || new URL('../target/debug/oteryn-portal', import.meta.url).pathname;
-  const database = fixtureDatabase();
   return spawnSync(binary, args, {
-    env: { ...process.env, OTERYN_DATABASE_URL: database.href },
+    env: fixtureProcessEnv(),
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });

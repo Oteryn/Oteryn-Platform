@@ -6,12 +6,12 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { csrfRejected, login, password } from './helpers.mjs';
 import { loginWithRecoveryCode, query } from './staff-rbac-helpers.mjs';
-import { fixtureDatabase } from './staff-fixture-database.mjs';
+import { fixtureProcessEnv } from './staff-fixture-database.mjs';
 
 const portal = fileURLToPath(new URL('../', import.meta.url));
 
 export async function actor(browser, info, role, use, { mfa = Boolean(role) } = {}) {
-  const database = fixtureDatabase();
+  const seedEnv = fixtureProcessEnv();
   const locale = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
@@ -28,11 +28,7 @@ export async function actor(browser, info, role, use, { mfa = Boolean(role) } = 
     const seed = (entity, values) => {
       const result = spawnSync(binary, ['seed', entity, JSON.stringify(values)], {
         encoding: 'utf8',
-        env: {
-          ...process.env,
-          OTERYN_ENV: 'testing',
-          OTERYN_DATABASE_URL: database.href,
-        },
+        env: seedEnv,
       });
       expect(result.status, `seed CLI creates a disposable ${entity} fixture`).toBe(0);
       return JSON.parse(result.stdout);

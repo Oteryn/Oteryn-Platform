@@ -92,19 +92,27 @@ test('roles page labels, validation, self-grant and last administrator protectio
   await staff.locator('main details summary').click();
   expect((await staff.locator('main details code').allTextContents()).sort()).toEqual(permissionCatalog);
   expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
+  const denialCount = async () => (await query(
+    "SELECT count(*)::int AS count FROM audit_log WHERE action='admin.access.denied' AND actor=$1 AND target='/admin/roles'",
+    [manager.id],
+  ))[0].count;
+  const beforeRevoke = await denialCount();
   await withSoleRoleHolder(role, manager.id, async () => {
     const [{ count }] = await query('SELECT count(*)::int AS count FROM account_roles WHERE role_id=$1', [role]);
     expect(count).toBe(1);
     await roleAction(staff, 'revoke', { account: manager.id, role }, 403);
     expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
   });
+  expect(await denialCount()).toBe(beforeRevoke + 1);
   await roleAudit(staff, lang, {
     action: 'admin.access.denied', actor: manager.id, target: '/admin/roles',
     before: null, after: { allowed: false },
   });
 
   await rolePage(staff, roles.support);
+  const beforeGrant = await denialCount();
   await roleAction(staff, 'grant', { account: manager.id, role: roles.support }, 403);
+  expect(await denialCount()).toBe(beforeGrant + 1);
   expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
   await roleAudit(staff, lang, {
     action: 'admin.access.denied', actor: manager.id, target: '/admin/roles',

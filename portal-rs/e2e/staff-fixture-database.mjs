@@ -1,7 +1,7 @@
 import { query } from './staff-rbac-helpers.mjs';
 
-export function fixtureDatabase() {
-  const connectionString = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
+export function fixtureDatabase(env = process.env) {
+  const connectionString = env.PORTAL_E2E_DATABASE_URL || env.OTERYN_DATABASE_URL;
   const database = URL.parse(connectionString);
   const addressOptions = ['host', 'hostaddr', 'port', 'dbname', 'database'];
   if (!database
@@ -12,6 +12,12 @@ export function fixtureDatabase() {
     throw new Error('Staff fixtures require a local portal_e2e_ database');
   }
   return database;
+}
+
+export function fixtureProcessEnv(inherited = process.env) {
+  const database = fixtureDatabase(inherited);
+  const env = Object.fromEntries(Object.entries(inherited).filter(([name]) => !name.startsWith('PG')));
+  return { ...env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: database.href };
 }
 
 // Exercise the real last-role-holder guard even when earlier specs left grants.

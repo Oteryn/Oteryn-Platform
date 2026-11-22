@@ -239,15 +239,42 @@ async fn postgres_support_atomic_audit_and_refusal() {
         execute(&pool, &auth, &TestBackend, without_mfa, id, 1, &command).await,
         Err(Error::Denied)
     );
-    let mut grants = pool.begin().await.unwrap();
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(actor)
-        .execute(&mut *grants)
+        .execute(&pool)
         .await
         .unwrap();
+    assert_eq!(
+        execute(&pool, &auth, &TestBackend, context, id, 1, &command).await,
+        Err(Error::Denied)
+    );
     sqlx::query("INSERT INTO account_roles (account_id,role_id) SELECT $1,id FROM roles WHERE key='game_support'")
-        .bind(actor).execute(&mut *grants).await.unwrap();
-    grants.commit().await.unwrap();
+        .bind(actor).execute(&pool).await.unwrap();
+    auth.check(context, Permission::Access).await.unwrap();
+    assert_eq!(
+        execute(&pool, &auth, &TestBackend, context, id, 1, &command).await,
+        Err(Error::Denied)
+    );
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES('support_ticket_only') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,$2)")
+        .bind(role)
+        .bind(Permission::ManageSupportTickets.as_str())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE account_roles SET role_id=$1 WHERE account_id=$2")
+        .bind(role)
+        .bind(actor)
+        .execute(&pool)
+        .await
+        .unwrap();
+    auth.check(context, Permission::ManageSupportTickets)
+        .await
+        .unwrap();
     assert_eq!(
         execute(&pool, &auth, &TestBackend, context, id, 1, &command).await,
         Err(Error::Denied)
