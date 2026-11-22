@@ -2,7 +2,7 @@
 use axum::{
     Router,
     extract::OriginalUri,
-    http::{StatusCode, header},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -52,7 +52,7 @@ pub const MAPPINGS: &[(&str, &str)] = &[
 /// Fallback handler: answers a legacy path with a permanent redirect and any
 /// other unmatched path with 404. Used as the site fallback so that concrete
 /// module routes always take precedence over legacy aliases.
-pub async fn redirect(OriginalUri(uri): OriginalUri) -> Response {
+pub async fn redirect(OriginalUri(uri): OriginalUri, headers: HeaderMap) -> Response {
     for (old, new) in MAPPINGS {
         let mut target = new.to_string();
         let matched = if let Some((prefix, parameter)) = old.split_once('{') {
@@ -71,7 +71,13 @@ pub async fn redirect(OriginalUri(uri): OriginalUri) -> Response {
             uri.path() == *old
         };
         if matched {
-            let mut location = format!("/pl{target}");
+            let localized = *old == "/forgot-password";
+            let lang = if localized {
+                crate::negotiate(&headers).code()
+            } else {
+                "pl"
+            };
+            let mut location = format!("/{lang}{target}");
             // Preserve only non-sensitive pagination/search parameters, never redirect controls.
             if let Some(query) = uri.query() {
                 let query: Vec<_> = query
@@ -87,11 +93,17 @@ pub async fn redirect(OriginalUri(uri): OriginalUri) -> Response {
                     location.push_str(&query.join("&"));
                 }
             }
-            return (
+            let mut response = (
                 StatusCode::MOVED_PERMANENTLY,
                 [(header::LOCATION, location)],
             )
                 .into_response();
+            if localized {
+                response
+                    .headers_mut()
+                    .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            }
+            return response;
         }
     }
     StatusCode::NOT_FOUND.into_response()
@@ -106,6 +118,28 @@ mod tests {
     use super::*;
     use axum::{body::Body, http::Request};
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn forgot_password_uses_the_saved_or_requested_locale()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for (accept, cookie) in [
+            ("en-GB,pl;q=0.5", "unrelated=value"),
+            ("pl", "portal_language=en"),
+        ] {
+            let response = router()
+                .oneshot(
+                    Request::get("/forgot-password")
+                        .header(header::ACCEPT_LANGUAGE, accept)
+                        .header(header::COOKIE, cookie)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::MOVED_PERMANENTLY);
+            assert_eq!(response.headers()[header::LOCATION], "/en/forgot-password");
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn all_mappings_and_refusals() -> Result<(), Box<dyn std::error::Error>> {
         for (old, new) in MAPPINGS {

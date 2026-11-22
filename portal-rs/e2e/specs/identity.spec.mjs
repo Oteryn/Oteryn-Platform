@@ -14,6 +14,12 @@ test('registration, mail verification, wrong password, login, logout, reset and 
  const token=await page.locator('[name=_csrf]').first().inputValue();
  const out=await page.request.post(`/${lang}/logout`,{form:{_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
  expect(out.status()).toBe(302);
+ const forgot=await page.request.get('/forgot-password',{
+  headers:{'accept-language':lang},maxRedirects:0,
+ });
+ expect(forgot.status()).toBe(301);
+ expect(forgot.headers().location).toBe(`/${lang}/forgot-password`);
+ expect(forgot.headers()['cache-control']).toBe('no-store');
  await page.goto(`/${lang}/forgot-password`);
  await submit(page,'main form',{email:account.email});
  const link=await mailLink(page,account.email,/https:\/\/localhost:18443\/(?:pl|en)\/reset-password\/[a-f0-9]+/);
