@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
-import { submit } from '../helpers.mjs';
+import { pool, submit } from '../helpers.mjs';
 import { action, audit, isolatedAdmin, player, query, unique } from '../staff-rbac-helpers.mjs';
 import https from 'node:https';
 
@@ -34,6 +34,26 @@ async function unfinishedAppeal(page, csrfHeader) {
     // Keep the transport open after sending a partial form body.
     request.write('version=1&message=Incomplete');
   });
+}
+
+async function appealWhileSessionLookupIsBlocked(page, path, form) {
+  const db = pool();
+  const lock = await db.connect();
+  try {
+    await lock.query('BEGIN');
+    // A row lock would leave the shared chrome SELECT free to complete.
+    await lock.query('LOCK TABLE web_sessions IN ACCESS EXCLUSIVE MODE');
+    return await page.request.post(path, {
+      form,
+      headers: { origin: new URL(page.url()).origin },
+      maxRedirects: 0,
+      timeout: 4500,
+    });
+  } finally {
+    await lock.query('ROLLBACK');
+    lock.release();
+    await db.end();
+  }
 }
 
 test('players appeal their own sanctions and staff uphold or overturn them', async ({ page, browser }, info) => {
@@ -99,6 +119,10 @@ test('players appeal their own sanctions and staff uphold or overturn them', asy
       await expect(page.locator('main')).not.toContainText(privateNote);
       if (decision === 'accepted') {
         const fields = await page.locator('main form').evaluate(form => Object.fromEntries(new FormData(form)));
+        const blocked = await appealWhileSessionLookupIsBlocked(page, playerPath, { ...fields, message });
+        expect(blocked.status()).toBe(503);
+        expect(blocked.headers()['cache-control']).toContain('no-store');
+        expect(await blocked.text()).toContain(lang === 'pl' ? 'Usługa chwilowo niedostępna' : 'Temporarily unavailable');
         for (const csrfHeader of [undefined, fields._csrf]) {
           const unfinished = await unfinishedAppeal(page, csrfHeader);
           expect(unfinished.status).toBe(503);
