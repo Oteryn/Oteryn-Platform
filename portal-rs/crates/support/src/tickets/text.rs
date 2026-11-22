@@ -1,6 +1,6 @@
 use fluent_bundle::{FluentBundle, FluentResource};
 
-pub(super) fn text(lang: &str, key: &str) -> String {
+pub(crate) fn text(lang: &str, key: &str) -> String {
     let source = match lang {
         "pl" => include_str!("pl.ftl"),
         "en" => include_str!("en.ftl"),

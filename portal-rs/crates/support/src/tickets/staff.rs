@@ -372,7 +372,7 @@ pub(crate) async fn notify(
     tx: &mut Transaction<'_, Postgres>,
     notifications: &Notifications,
     recipient: Uuid,
-    body: String,
+    body: impl FnOnce(&str) -> String,
 ) -> std::result::Result<(), StaffError> {
     let (email, locale, verified, status): (String, String, bool, String) = sqlx::query_as(
         "SELECT email,locale,email_verified_at IS NOT NULL,status FROM accounts WHERE id=$1",
@@ -387,12 +387,15 @@ pub(crate) async fn notify(
     ) {
         return Err(StaffError::Denied);
     }
-    let locale = match locale.as_str() {
+    let locale_code = locale.as_str();
+    let locale = match locale_code {
         "pl" => oteryn_notify::Locale::Pl,
         "en" => oteryn_notify::Locale::En,
         _ => return Err(StaffError::Denied),
     };
-    let template = EmailTemplate::Support { body };
+    let template = EmailTemplate::Support {
+        body: body(locale_code),
+    };
     if !verified || status == "closed" {
         let portal:bool=sqlx::query_scalar("SELECT coalesce((SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support'),true)").bind(recipient).fetch_one(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         if portal {

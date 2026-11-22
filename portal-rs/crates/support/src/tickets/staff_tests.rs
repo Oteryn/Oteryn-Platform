@@ -350,6 +350,24 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
     );
     sqlx::query("CREATE FUNCTION reject_appeal_audit() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''audit unavailable''; END'").execute(&pool).await?;
     sqlx::query("CREATE TRIGGER reject_appeal_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION reject_appeal_audit()").execute(&pool).await?;
+    let public_mail: Vec<String> = sqlx::query_scalar("SELECT text_body FROM email_outbox")
+        .fetch_all(&pool)
+        .await?;
+    assert!(
+        public_mail
+            .iter()
+            .any(|body| body.contains("Rejected: Reviewed"))
+    );
+    assert!(
+        public_mail
+            .iter()
+            .any(|body| body.contains("Appeal under review"))
+    );
+    assert!(
+        !public_mail
+            .iter()
+            .any(|body| body.contains("moderation note"))
+    );
     let notification_count: i64 = sqlx::query_scalar("SELECT count(*) FROM notifications")
         .fetch_one(&pool)
         .await?;
