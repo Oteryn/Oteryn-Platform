@@ -8,6 +8,7 @@
 
 use oteryn_identity::AccountId;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -249,6 +250,34 @@ impl Reports {
 #[cfg(test)]
 mod tests;
 
+#[derive(sqlx::FromRow)]
+struct ModerationRecord {
+    status: String,
+    lock_version: i64,
+    report_type: String,
+    target_reference: String,
+    assigned_to: Option<Uuid>,
+    sanction_id: Option<Uuid>,
+    public_outcome: Option<String>,
+    moderator_notes: Option<String>,
+}
+
+impl ModerationRecord {
+    fn audit(&self) -> serde_json::Value {
+        let digest = |value: Option<&str>| {
+            value.map(|text| format!("{:x}", Sha256::digest(text.as_bytes())))
+        };
+        serde_json::json!({
+            "status": self.status,
+            "lock_version": self.lock_version,
+            "assigned_to": self.assigned_to,
+            "sanction_id": self.sanction_id,
+            "public_outcome_sha256": digest(self.public_outcome.as_deref()),
+            "moderator_notes_sha256": digest(self.moderator_notes.as_deref()),
+        })
+    }
+}
+
 impl Reports {
     /// Staff domain mutation in the caller's authorization/audit transaction.
     pub async fn staff_apply(
@@ -302,19 +331,20 @@ impl Reports {
         ) {
             return Err(StaffError::Denied);
         }
-        let row: (String, i64, String, String, Option<Uuid>) = sqlx::query_as(
-            "SELECT status,lock_version,report_type,target_reference,sanction_id FROM player_reports WHERE id=$1 FOR UPDATE",
+        let before: ModerationRecord = sqlx::query_as(
+            "SELECT status,lock_version,report_type,target_reference,assigned_to,sanction_id,public_outcome,moderator_notes
+             FROM player_reports WHERE id=$1 FOR UPDATE",
         )
         .bind(id)
         .fetch_one(&mut **tx)
         .await
         .map_err(|_| StaffError::Unavailable)?;
-        if row.1 != version {
+        if before.lock_version != version {
             return Err(StaffError::Conflict);
         }
-        command.transition(&row.0)?;
+        command.transition(&before.status)?;
         if let Some(sanction) = linked {
-            if row.2 != "player" {
+            if before.report_type != "player" {
                 return Err(StaffError::Invalid);
             }
             let account: Uuid = sqlx::query_scalar(
@@ -327,12 +357,29 @@ impl Reports {
             .ok_or(StaffError::NotFound)?;
             // A display name does not establish ownership. The report must
             // identify the same Platform account as the stored sanction.
-            if row.3.parse::<Uuid>() != Ok(account) {
+            if before.target_reference.parse::<Uuid>() != Ok(account) {
                 return Err(StaffError::Invalid);
             }
         }
-        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=CASE WHEN $4::text IS NULL THEN moderator_notes ELSE nullif(btrim($4),'') END,assigned_to=$5,sanction_id=coalesce($6,sanction_id),lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
-            .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).bind(linked).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        let after: ModerationRecord = sqlx::query_as(
+            "UPDATE player_reports
+             SET status=$2,public_outcome=nullif(btrim($3),''),
+                 moderator_notes=CASE WHEN $4::text IS NULL THEN moderator_notes ELSE nullif(btrim($4),'') END,
+                 assigned_to=$5,sanction_id=coalesce($6,sanction_id),lock_version=lock_version+1,
+                 processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,
+                 updated_at=clock_timestamp()
+             WHERE id=$1
+             RETURNING status,lock_version,report_type,target_reference,assigned_to,sanction_id,public_outcome,moderator_notes",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(public_outcome)
+        .bind(moderator_notes)
+        .bind(actor)
+        .bind(linked)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
         crate::tickets::staff::notify(
             tx,
             notifications,
@@ -340,12 +387,6 @@ impl Reports {
             web::moderation_notice(&locale, status, public_outcome),
         )
         .await?;
-        let mut before = serde_json::json!({"status":row.0,"lock_version":version});
-        let mut after = serde_json::json!({"status":status,"lock_version":version+1});
-        if let Some(sanction) = linked {
-            before["sanction_id"] = serde_json::json!(row.4);
-            after["sanction_id"] = serde_json::json!(sanction);
-        }
-        Ok((before, after))
+        Ok((before.audit(), after.audit()))
     }
 }

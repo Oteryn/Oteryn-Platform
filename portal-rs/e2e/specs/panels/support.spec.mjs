@@ -83,6 +83,19 @@ async function audit(id, action, actor, reason, before, after) {
   expect(JSON.stringify(rows)).not.toContain(reason);
 }
 
+function reportAuditState(status, lockVersion, {
+  assignee = null, sanction = null, outcome = null, notes = null,
+} = {}) {
+  return {
+    status,
+    lock_version: lockVersion,
+    assigned_to: assignee,
+    sanction_id: sanction,
+    public_outcome_sha256: outcome === null ? null : digest(outcome),
+    moderator_notes_sha256: notes === null ? null : digest(notes),
+  };
+}
+
 async function submitReport(page, lang, target, evidence) {
   await visit(page, `/${lang}/support/reports/create`, lang);
   await submit(page, 'main form', { target_reference: target, evidence_summary: evidence });
@@ -247,9 +260,14 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     await visit(page, report.path, lang, dismiss.public_outcome);
     await expect(page.locator('main')).not.toContainText(dismiss.moderator_notes);
     await audit(report.id, 'support.report_status_changed', ticketTeam.id, escalated,
-      { status: 'submitted', lock_version: 1 }, { status: 'reviewing', lock_version: 2 });
+      reportAuditState('submitted', 1), reportAuditState('reviewing', 2, {
+        assignee: ticketTeam.id, notes: escalated,
+      }));
     await audit(report.id, 'support.report_status_changed', ticketTeam.id, dismiss.moderator_notes,
-      { status: 'reviewing', lock_version: 2 }, { status: 'rejected', lock_version: 3 });
+      reportAuditState('reviewing', 2, { assignee: ticketTeam.id, notes: escalated }),
+      reportAuditState('rejected', 3, {
+        assignee: ticketTeam.id, outcome: dismiss.public_outcome, notes: dismiss.moderator_notes,
+      }));
 
     await visit(moderator.page, `${sanctions}/create`, lang, pl ? 'Kary platformy' : 'Platform sanctions');
     const applied = { target: target.id, category: 'restriction', duration_hours: '3',
@@ -298,6 +316,23 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
       "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support' RETURNING role_id",
       [moderator.id],
     )).toHaveLength(1);
+    await visit(moderator.page, reportPath, lang);
+    const closure = { status: 'closed', public_outcome: unique(), moderator_notes: unique() };
+    await mutate(moderator.page, 'moderate', closure);
+    await audit(report.id, 'support.report_status_changed', moderator.id, closure.moderator_notes,
+      reportAuditState('rejected', 3, {
+        assignee: ticketTeam.id, outcome: dismiss.public_outcome, notes: dismiss.moderator_notes,
+      }),
+      reportAuditState('closed', 4, {
+        assignee: moderator.id, outcome: closure.public_outcome, notes: closure.moderator_notes,
+      }));
+    const history = await query(
+      "SELECT before,after FROM audit_log WHERE target=$1 AND action='support.report_status_changed'",
+      [report.id],
+    );
+    for (const text of [dismiss.public_outcome, dismiss.moderator_notes, closure.public_outcome, closure.moderator_notes]) {
+      expect(JSON.stringify(history)).not.toContain(text);
+    }
     const unrelated = await submitReport(page, lang, reporter.id, unique());
     await visit(moderator.page, `${reports}/${unrelated.id}`, lang);
     await refused(moderator.page, 'link_sanction', linking, 422);
@@ -310,8 +345,8 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     expect(await query('SELECT sanction_id FROM player_reports WHERE id=$1', [linkedReport.id]))
       .toEqual([{ sanction_id: sanction }]);
     await audit(linkedReport.id, 'support.report_sanction_linked', moderator.id, linking.reason,
-      { status: 'submitted', lock_version: 1, sanction_id: null },
-      { status: 'actioned', lock_version: 2, sanction_id: sanction });
+      reportAuditState('submitted', 1),
+      reportAuditState('actioned', 2, { assignee: moderator.id, sanction, outcome: linking.public_outcome }));
     await visit(page, linkedReport.path, lang, linking.public_outcome);
     await expect(page.locator('main')).not.toContainText(sanction);
     await expect(page.locator('main')).not.toContainText(linking.reason);
