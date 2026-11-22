@@ -7,10 +7,16 @@ import { csrfRejected, password } from './helpers.mjs';
 import { query } from './staff-rbac-helpers.mjs';
 
 function seed(entity, args) {
+  const database = new URL(process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL);
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(database.hostname)
+      || !database.pathname.startsWith('/portal_e2e_')) {
+    throw new Error('Admin fixtures require a local portal_e2e_ database');
+  }
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY || path.resolve(target, 'debug/oteryn-portal');
   const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
     encoding: 'utf8',
+    env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: database.href },
   });
   if (result.status !== 0) throw new Error(`Seed ${entity} failed with exit code ${result.status}`);
   return JSON.parse(result.stdout);

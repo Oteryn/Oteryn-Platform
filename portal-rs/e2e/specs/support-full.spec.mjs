@@ -16,8 +16,9 @@ const ticketForm = (page, action) => page.locator(`main form[action$="/${action}
 
 async function openAccountLink(page, lang, path, name) {
   await open(page, `/${lang}/`);
-  const menu = page.locator('#portal-menu-toggle');
-  if (await menu.isVisible()) await menu.click();
+  await expect(page.locator('#portal-header')).toHaveClass(/\bis-enhanced\b/);
+  const mobile = await page.evaluate(() => matchMedia('(max-width: 960px)').matches);
+  if (mobile) await page.locator('#portal-menu-toggle').click();
   await page.locator('[data-account-link]').click();
   const account = page.getByRole('dialog');
   await expect(account).toBeVisible();

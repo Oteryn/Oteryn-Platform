@@ -91,10 +91,23 @@ test('roles page labels, validation, self-grant and last administrator protectio
   await staff.locator('main details summary').click();
   expect((await staff.locator('main details code').allTextContents()).sort()).toEqual(permissionCatalog);
   expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
-  const [{ count }] = await query('SELECT count(*)::int AS count FROM account_roles WHERE role_id=$1', [role]);
-  expect(count).toBe(1);
-  await roleAction(staff, 'revoke', { account: manager.id, role }, 403);
-  expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
+  // Other specs can leave signed-in administrators in the disposable database.
+  // Preserve their grants while exercising the last-admin guard against the real panel.
+  const otherGrants = await query(
+    'DELETE FROM account_roles WHERE role_id=$1 AND account_id<>$2 RETURNING to_jsonb(account_roles) AS membership',
+    [role, manager.id],
+  );
+  try {
+    const [{ count }] = await query('SELECT count(*)::int AS count FROM account_roles WHERE role_id=$1', [role]);
+    expect(count).toBe(1);
+    await roleAction(staff, 'revoke', { account: manager.id, role }, 403);
+    expect(await accountRoles(manager.id)).toEqual(['platform_admin']);
+  } finally {
+    await query(
+      'INSERT INTO account_roles SELECT * FROM jsonb_populate_recordset(NULL::account_roles,$1::jsonb)',
+      [JSON.stringify(otherGrants.map(row => row.membership))],
+    );
+  }
   await roleAudit(staff, lang, {
     action: 'admin.access.denied', actor: manager.id, target: '/admin/roles',
     before: null, after: { allowed: false },
@@ -601,7 +614,15 @@ test('roles pagination follows the cursor and keeps later roles actionable', asy
     await staff.goto('/admin/roles');
     await expect(staff.locator(`select[name=role] option[value="${last.id}"]`)).toHaveCount(0);
     const next = staff.getByRole('link', { name: lang === 'pl' ? 'Następna strona' : 'Next page', exact: true });
-    await next.click();
+    const lastRole = staff.locator(`select[name=role] option[value="${last.id}"]`);
+    do {
+      await expect(next).toBeVisible();
+      const destination = new URL(await next.getAttribute('href'), staff.url()).href;
+      await Promise.all([
+        staff.waitForURL(destination, { waitUntil: 'domcontentloaded' }),
+        next.click(),
+      ]);
+    } while (!(await lastRole.count()));
     await expect(staff).toHaveURL(/\/admin\/roles\?after=[a-f0-9-]+$/);
     const cursorPage = staff.url();
     await expect(staff.locator('main section > ul > li').filter({ hasText: new RegExp(`^${last.key}$`) })).toBeVisible();
