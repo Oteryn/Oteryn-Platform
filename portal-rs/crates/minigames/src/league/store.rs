@@ -34,6 +34,7 @@ pub struct League<A> {
     pub(super) pool: PgPool,
     pub(super) flags: Flags,
     pub(super) authority: A,
+    read_clock: fn() -> Result<u64>,
 }
 impl<A: Authority> League<A> {
     pub fn new(pool: PgPool, flags: Flags, authority: A) -> Self {
@@ -41,7 +42,13 @@ impl<A: Authority> League<A> {
             pool,
             flags,
             authority,
+            read_clock: super::runtime::now,
         }
+    }
+    #[cfg(test)]
+    pub(super) fn with_read_clock(mut self, clock: fn() -> Result<u64>) -> Self {
+        self.read_clock = clock;
+        self
     }
     pub async fn ingest(&self, d: Delivery<'_>, now: u64) -> Result<()> {
         if !self.flags.ready() || !self.flags.ingest {
@@ -197,12 +204,14 @@ impl<A: Authority> League<A> {
         tx.commit().await?;
         Ok(())
     }
-    pub async fn read(&self, now: u64) -> Result<Vec<Snapshot>> {
-        tokio::time::timeout(std::time::Duration::from_secs(3), self.read_inner(now))
+    /// Read the projection using the store's clock. The existing route passes
+    /// its request timestamp for compatibility with this signature.
+    pub async fn read(&self, _request_time: u64) -> Result<Vec<Snapshot>> {
+        tokio::time::timeout(std::time::Duration::from_secs(3), self.read_inner())
             .await
             .map_err(|_| Error::Unavailable)?
     }
-    async fn read_inner(&self, now: u64) -> Result<Vec<Snapshot>> {
+    async fn read_inner(&self) -> Result<Vec<Snapshot>> {
         if !self.flags.ready() || !self.flags.public {
             return Err(Error::Unavailable);
         }
@@ -212,6 +221,8 @@ impl<A: Authority> League<A> {
         )
         .execute(&mut *tx)
         .await?;
+        // Check freshness at the time we can read the locked projection.
+        let now = (self.read_clock)()?;
         let fence = self.authority.fence(&mut tx, now).await?;
         if !fence.valid(now) {
             return Err(Error::Unavailable);

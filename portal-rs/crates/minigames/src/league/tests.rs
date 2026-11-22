@@ -32,6 +32,9 @@ fn flags() -> Flags {
         accepted_pki: true,
     }
 }
+fn frozen_league<A: Authority>(pool: PgPool, authority: A) -> League<A> {
+    League::new(pool, flags(), authority).with_read_clock(|| Ok(NOW))
+}
 #[test]
 fn exact_pinned_files_and_wire_hashes() -> TestResult {
     for (bytes, expected) in [
@@ -300,9 +303,8 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
-    let league = League::new(
+    let league = frozen_league(
         db.pool.clone(),
-        flags(),
         Trusted {
             generation: 1,
             complete: NOW,
@@ -332,17 +334,13 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
-    let app = web::router_with_clock(
-        League::new(
-            db.pool.clone(),
-            flags(),
-            Trusted {
-                generation: 1,
-                complete: NOW,
-            },
-        ),
-        || NOW as i64,
-    );
+    let app = web::router(frozen_league(
+        db.pool.clone(),
+        Trusted {
+            generation: 1,
+            complete: NOW,
+        },
+    ));
     for lang in ["pl", "en"] {
         let response = app
             .clone()
@@ -367,27 +365,24 @@ async fn database_replay_correction_freeze_and_retention() -> TestResult {
         .await?;
     assert_eq!(count, 4);
     // Restart reconstructs exclusively from durable accepted evidence.
-    let restarted = League::new(
+    let restarted = frozen_league(
         db.pool.clone(),
-        flags(),
         Trusted {
             generation: 1,
             complete: NOW,
         },
     );
     assert_eq!(restarted.read(NOW).await?.len(), 2);
-    let restored = League::new(
+    let restored = frozen_league(
         db.pool.clone(),
-        flags(),
         Trusted {
             generation: 2,
             complete: NOW,
         },
     );
     assert!(restored.read(NOW).await.is_err());
-    let stale = League::new(
+    let stale = frozen_league(
         db.pool.clone(),
-        flags(),
         Trusted {
             generation: 1,
             complete: NOW - 30,
@@ -444,17 +439,13 @@ async fn league_quota_isolated_by_trusted_client_source() -> TestResult {
     let proxy = "192.0.2.1:443".parse::<SocketAddr>()?;
     let mut limiter = RateLimiter::new(db.pool.clone());
     limiter.trusted_proxies = TrustedProxies(vec![proxy.ip()]);
-    let app = web::router_with_clock(
-        League::new(
-            db.pool.clone(),
-            flags(),
-            Trusted {
-                generation: 1,
-                complete: NOW,
-            },
-        ),
-        || NOW as i64,
-    )
+    let app = web::router(frozen_league(
+        db.pool.clone(),
+        Trusted {
+            generation: 1,
+            complete: NOW,
+        },
+    ))
     .layer(Extension(limiter));
     let request = |lang, forwarded| {
         Request::get(format!("/{lang}/league"))
@@ -522,9 +513,8 @@ async fn database_bad_evidence_rolls_back_and_pair_conflict_quarantines() -> Tes
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
-    let league = League::new(
+    let league = frozen_league(
         db.pool.clone(),
-        flags(),
         Trusted {
             generation: 1,
             complete: NOW,
@@ -1267,7 +1257,7 @@ async fn postgres_serving_projection_bounds_rows_bytes_and_verification() -> Tes
         return Ok(());
     };
     let count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let league = League::new(db.pool.clone(), flags(), CountedAuthority(count.clone()));
+    let league = frozen_league(db.pool.clone(), CountedAuthority(count.clone()));
     let mut last = Uuid::nil();
     let mut wire_size = 0;
     for _ in 0..(128 + 135) {
@@ -1312,10 +1302,10 @@ async fn postgres_serving_projection_bounds_rows_bytes_and_verification() -> Tes
     assert!(bytes <= 128 * wire_size);
     count.store(0, std::sync::atomic::Ordering::SeqCst);
     use tower::ServiceExt;
-    let app = web::router_with_clock(
-        League::new(db.pool.clone(), flags(), CountedAuthority(count.clone())),
-        || NOW as i64,
-    );
+    let app = web::router(frozen_league(
+        db.pool.clone(),
+        CountedAuthority(count.clone()),
+    ));
     let response = app
         .oneshot(
             axum::http::Request::builder()
@@ -1353,11 +1343,7 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     let Some(db) = Db::new().await? else {
         return Ok(());
     };
-    let league = League::new(
-        db.pool.clone(),
-        flags(),
-        CountedAuthority(Default::default()),
-    );
+    let league = frozen_league(db.pool.clone(), CountedAuthority(Default::default()));
     let mut blocker = db.pool.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
         .execute(&mut *blocker)
@@ -1367,7 +1353,7 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     for _ in 0..8 {
         let pool = db.pool.clone();
         requests.spawn(async move {
-            League::new(pool, flags(), CountedAuthority(Default::default()))
+            frozen_league(pool, CountedAuthority(Default::default()))
                 .read(NOW)
                 .await
         });
@@ -1395,6 +1381,89 @@ async fn postgres_league_lock_contention_has_a_deadline_and_releases_pool() -> T
     blocker.rollback().await?;
     assert!(league.read(NOW).await?.is_empty());
     db.close().await
+}
+
+#[tokio::test]
+async fn postgres_league_watermark_expires_while_waiting_for_projection_lock() -> TestResult {
+    use axum::{body::Body, http::Request, http::StatusCode};
+    use std::{
+        sync::atomic::{AtomicI64, Ordering},
+        time::Duration,
+    };
+    use tower::ServiceExt;
+
+    static CLOCK: AtomicI64 = AtomicI64::new(0);
+    static SAMPLED_AT: AtomicI64 = AtomicI64::new(0);
+    fn read_clock() -> Result<u64> {
+        let now = CLOCK.load(Ordering::Relaxed);
+        SAMPLED_AT.store(now, Ordering::Relaxed);
+        u64::try_from(now).map_err(|_| Error::Unavailable)
+    }
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Db::new()
+        .await?
+        .ok_or("PostgreSQL is required for league clock regression")?;
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    runtime::initialize(&db.pool, &c).await?;
+    // Make the empty projection serveable at exactly the last fresh second.
+    let before: i64 = sqlx::query_scalar(
+        "WITH clock AS (SELECT extract(epoch FROM clock_timestamp())::bigint AS now)
+         UPDATE league_feed_state SET ready=true, event_complete=clock.now-29,
+             season_complete=clock.now-29 FROM clock WHERE authority=$1 RETURNING clock.now",
+    )
+    .bind(&c.authority)
+    .fetch_one(&db.pool)
+    .await?;
+    CLOCK.store(before, Ordering::Relaxed);
+    let app = web::router_with_clock(
+        League::new(db.pool.clone(), flags(), runtime::GameAuthority::new(c))
+            .with_read_clock(read_clock),
+        || CLOCK.load(Ordering::Relaxed),
+    );
+    let request = || Request::builder().uri("/en/league").body(Body::empty());
+    assert_eq!(
+        app.clone().oneshot(request()?).await?.status(),
+        StatusCode::OK
+    );
+
+    let mut writer = db.pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *writer)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
+        .execute(&mut *writer)
+        .await?;
+    let expire_and_release = async {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_locks WHERE locktype='advisory'
+                     AND mode='ShareLock' AND NOT granted AND $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(blocker)
+                .fetch_one(&mut *writer)
+                .await?;
+                if waiting {
+                    return Ok::<_, sqlx::Error>(());
+                }
+            }
+        })
+        .await
+        .map_err(|_| "league read did not wait for the projection lock")??;
+        CLOCK.store(before + 1, Ordering::Relaxed);
+        writer.rollback().await?;
+        Ok::<_, Box<dyn std::error::Error>>(())
+    };
+    let (response, released) = tokio::join!(app.oneshot(request()?), expire_and_release);
+    released?;
+    let status = response?.status();
+    db.close().await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(SAMPLED_AT.load(Ordering::Relaxed), before + 1);
+    Ok(())
 }
 
 #[tokio::test]
@@ -1476,11 +1545,7 @@ async fn postgres_independent_schemas_do_not_share_league_fences() -> TestResult
     sqlx::query("SELECT pg_advisory_xact_lock('league_subjects'::regclass::oid::int, 94000003)")
         .execute(&mut *blocker)
         .await?;
-    let league = League::new(
-        b.pool.clone(),
-        flags(),
-        CountedAuthority(Default::default()),
-    );
+    let league = frozen_league(b.pool.clone(), CountedAuthority(Default::default()));
     assert!(league.read(NOW).await?.is_empty());
     blocker.rollback().await?;
     a.close().await?;
