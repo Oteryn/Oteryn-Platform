@@ -346,17 +346,17 @@ struct CatalogueQuery {
     before: Option<String>,
 }
 impl CatalogueQuery {
-    fn cursor(&self) -> Result<Option<(OffsetDateTime, Uuid)>, Error> {
+    fn cursor(&self) -> Result<Option<(OffsetDateTime, Uuid)>, StatusCode> {
         self.before
             .as_deref()
             .map(|v| {
-                let (time, id) = v.split_once(':').ok_or(Error::Invalid)?;
+                let (time, id) = v.split_once(':').ok_or(StatusCode::BAD_REQUEST)?;
                 Ok((
                     OffsetDateTime::from_unix_timestamp_nanos(
-                        time.parse().map_err(|_| Error::Invalid)?,
+                        time.parse().map_err(|_| StatusCode::BAD_REQUEST)?,
                     )
-                    .map_err(|_| Error::Invalid)?,
-                    id.parse().map_err(|_| Error::Invalid)?,
+                    .map_err(|_| StatusCode::BAD_REQUEST)?,
+                    id.parse().map_err(|_| StatusCode::BAD_REQUEST)?,
                 ))
             })
             .transpose()
@@ -374,7 +374,7 @@ async fn index(
     let mut page = Page::new(&lang);
     let cursor = match query.cursor() {
         Ok(c) => c,
-        Err(e) => return failure(&lang, e),
+        Err(status) => return status.into_response(),
     };
     match runtime
         .cards(session.account_id().await, None, false, cursor)
@@ -403,7 +403,7 @@ async fn own(
     let mut page = Page::new(&lang);
     let cursor = match query.cursor() {
         Ok(c) => c,
-        Err(e) => return failure(&lang, e),
+        Err(status) => return status.into_response(),
     };
     match runtime.cards(Some(actor), None, true, cursor).await {
         Ok((cards, next)) => {
@@ -625,6 +625,20 @@ async fn candidate_page(
 #[cfg(test)]
 mod catalogue_tests {
     use super::*;
+    #[test]
+    fn malformed_catalogue_cursors_are_bad_requests() {
+        for before in [
+            "unknown",
+            "1:unknown",
+            "invalid:019b0760-0000-7000-8000-000000000001",
+        ] {
+            let query = CatalogueQuery {
+                before: Some(before.into()),
+            };
+            assert_eq!(query.cursor(), Err(StatusCode::BAD_REQUEST));
+        }
+    }
+
     #[tokio::test]
     async fn postgres_terminal_history_cannot_hide_active_catalogue_candidate()
     -> Result<(), Box<dyn std::error::Error>> {
