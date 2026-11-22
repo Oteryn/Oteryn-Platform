@@ -1,10 +1,23 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { test, expect } from '@playwright/test';
+import { test as base, expect } from '@playwright/test';
 import { disposableDatabaseUrl, login, password, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { localeOf, projectionPaths, redirectDestination, routeOf, unavailableView } from './contracts.mjs';
+
+const test = base.extend({
+  offlinePage: async ({ browser }, use) => {
+    // Parse alternate HTML without applying the currently rendered page's CSP
+    // or allowing detached document resources to reach the network.
+    const context = await browser.newContext({ offline: true });
+    try {
+      await use(await context.newPage());
+    } finally {
+      await context.close();
+    }
+  },
+});
 
 const { sections } = JSON.parse(fs.readFileSync(new URL('../inventory.json', import.meta.url)));
 const expectations = JSON.parse(fs.readFileSync(new URL('../route-expectations.json', import.meta.url)));
@@ -111,7 +124,7 @@ async function authenticate(page, locale, actor) {
 }
 
 for (const actor of ['anonymous', 'player', 'platform_admin']) {
-  test(`crawl as ${actor}`, async ({ page, baseURL }, info) => {
+  test(`crawl as ${actor}`, async ({ page, baseURL, offlinePage }, info) => {
     const locale = info.project.metadata.locale;
     const origin = new URL(baseURL).origin;
     const email = actor === 'anonymous' ? undefined : await authenticate(page, locale, actor);
@@ -240,7 +253,7 @@ for (const actor of ['anonymous', 'player', 'platform_admin']) {
               defects.add(`${from} → ${current} alternate language expected HTML with HTTP ${expectedStatus}, got ${response.status()}`);
               continue;
             }
-            const contents = await page.evaluate(inspectDocument, { ...inspection, html: await response.text() });
+            const contents = await offlinePage.evaluate(inspectDocument, { ...inspection, html: await response.text() });
             if (!contents.shell || !contents.title || contents.lang !== expectedLang
               || (view && !unavailableMatches(view, response, contents))) {
               defects.add(`${from} → ${current} invalid ${expectedLang} alternate document`);
