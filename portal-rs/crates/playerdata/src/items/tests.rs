@@ -133,6 +133,46 @@ fn bank() -> Record {
         }),
     )
 }
+fn market_and_trade() -> [Record; 2] {
+    let mut market = record(
+        1,
+        Payload::Market(Market {
+            event_id: ident(212),
+            offer_id: ident(213),
+            side: "SELL".into(),
+            state: "CREDIT_HELD".into(),
+            end_state: Some("FILLED".into()),
+            definition_family: "ITEM".into(),
+            definition_production_key: "item.coin".into(),
+            definition_revision_ref: "rev-1".into(),
+            amount: 10,
+            remaining: 0,
+            piece_price: "2".into(),
+            fee_gold: "0".into(),
+            held_credit_gold: "20".into(),
+        }),
+    );
+    market.record_id = ident(210);
+    let line = |n| Line {
+        item_instance_id: ident(n),
+        definition_family: "ITEM".into(),
+        definition_production_key: "item.coin".into(),
+        definition_revision_ref: "rev-1".into(),
+        quantity: 10,
+    };
+    let mut trade = record(
+        1,
+        Payload::Trade(Trade {
+            occurrence_id: ident(214),
+            transaction_id: ident(215),
+            event_id: ident(216),
+            given: vec![line(217)],
+            received: vec![line(218)],
+        }),
+    );
+    trade.record_id = ident(211);
+    [market, trade]
+}
 fn bytes(r: &Record) -> Vec<u8> {
     serde_json::to_vec(r).unwrap()
 }
@@ -287,6 +327,7 @@ struct TestEvidence {
     deny: AtomicBool,
     now: std::sync::atomic::AtomicU64,
     unpriced: AtomicBool,
+    second_bank_account: Option<Uuid>,
 }
 impl TestEvidence {
     fn new() -> Self {
@@ -294,14 +335,20 @@ impl TestEvidence {
             deny: AtomicBool::new(false),
             now: NOW.into(),
             unpriced: AtomicBool::new(false),
+            second_bank_account: None,
         }
+    }
+
+    fn permits_account(&self, account: Uuid, family: &str) -> bool {
+        account == actor() || (family == "BANK" && self.second_bank_account == Some(account))
     }
 }
 #[async_trait]
 impl Evidence for TestEvidence {
     async fn authorize(&self, _: &mut PgConnection, s: &Scope, a: Access) -> Result<Proof> {
+        let account = s.account_id.parse::<Uuid>().map_err(|_| Error::Denied)?;
         if self.deny.load(Ordering::SeqCst)
-            || s.account_id != ident(1)
+            || !self.permits_account(account, &s.family)
             || s.world_id != ident(2)
             || s.recovery_generation != "1"
             || (s.family != "BANK"
@@ -309,7 +356,7 @@ impl Evidence for TestEvidence {
         {
             return Err(Error::Denied);
         }
-        if matches!(a,Access::Read(who) if who!=actor()) {
+        if matches!(a, Access::Read(who) if who != account) {
             return Err(Error::Denied);
         }
         Ok(Proof {
@@ -335,7 +382,7 @@ impl Evidence for TestEvidence {
         c: Option<Uuid>,
         family: &str,
     ) -> Result<Scope> {
-        if a != actor() {
+        if !self.permits_account(a, family) {
             return Err(Error::Denied);
         }
         Ok(Scope {
@@ -405,7 +452,10 @@ impl TestDb {
         })
     }
     fn projection(&self) -> (Projection, Arc<TestEvidence>) {
-        let e = Arc::new(TestEvidence::new());
+        self.projection_with(TestEvidence::new())
+    }
+    fn projection_with(&self, evidence: TestEvidence) -> (Projection, Arc<TestEvidence>) {
+        let e = Arc::new(evidence);
         (
             Projection {
                 pool: self.pool.clone(),
@@ -742,7 +792,11 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     let Some(db) = TestDb::new().await else {
         return;
     };
-    let (p, e) = db.projection();
+    let second = Uuid::parse_str(&ident(99)).unwrap();
+    let (p, e) = db.projection_with(TestEvidence {
+        second_bank_account: Some(second),
+        ..TestEvidence::new()
+    });
     // Browser rotation now retains the real identity resource before sessions.
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105155256_t03_accounts.sql"
@@ -762,17 +816,37 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     .execute(&db.pool)
     .await
     .unwrap();
-    for account in [actor(), Uuid::parse_str(&ident(99)).unwrap()] {
+    for account in [actor(), second] {
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
             .bind(account).execute(&db.pool).await.unwrap();
     }
     for r in snapshot(vec![item(11)]) {
         ingest(&p, &r).await.unwrap();
     }
+    let mut bank_entry = bank();
+    bank_entry.record_id = ident(209);
+    if let Payload::Bank(entry) = &mut bank_entry.payload {
+        entry.amount = "73199".into();
+        entry.balance_after = "73199".into();
+    }
+    ingest(&p, &bank_entry).await.unwrap();
+    bank_entry.account_id = second.to_string();
+    bank_entry.record_id = ident(219);
+    if let Payload::Bank(entry) = &mut bank_entry.payload {
+        entry.operation_occurrence_id = ident(220);
+        entry.event_id = ident(221);
+        entry.entry_id = ident(222);
+        entry.amount = "84627".into();
+        entry.balance_after = "84627".into();
+    }
+    ingest(&p, &bank_entry).await.unwrap();
+    for record in market_and_trade() {
+        ingest(&p, &record).await.unwrap();
+    }
     let uri = format!("/en/panel/items/{}/{}", world(), character());
     let app = web::router(p);
     let owner = cookie(db.pool.clone(), actor()).await;
-    let foreign = cookie(db.pool.clone(), Uuid::parse_str(&ident(99)).unwrap()).await;
+    let foreign = cookie(db.pool.clone(), second).await;
     let request = |cookie: &str| {
         Request::get(&uri)
             .header("cookie", cookie)
@@ -794,6 +868,81 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     assert!(!std::str::from_utf8(&body).unwrap().contains("backpack"));
     let r = app.clone().oneshot(request("")).await.unwrap();
     assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    let snapshot = || async {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT jsonb_build_object(
+                'streams',(SELECT jsonb_agg(s ORDER BY s.stream_key) FROM pd_t76_streams s),
+                'records',(SELECT jsonb_agg(r ORDER BY r.stream_key,r.source_revision) FROM pd_t76_records r),
+                'events',(SELECT jsonb_agg(e ORDER BY e.stream_key,e.event_id) FROM pd_t76_events e)
+            )",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .unwrap()
+    };
+    let before = snapshot().await;
+    for lang in ["en", "pl"] {
+        for (path, private) in [
+            (
+                format!("/{lang}/panel/items/{}/{}", world(), character()),
+                "backpack",
+            ),
+            (
+                format!("/{lang}/panel/history/{}/market/{}", world(), character()),
+                "item.coin",
+            ),
+            (
+                format!("/{lang}/panel/history/{}/trades/{}", world(), character()),
+                "item.coin",
+            ),
+        ] {
+            for (cookie, expected) in [(&owner, StatusCode::OK), (&foreign, StatusCode::NOT_FOUND)]
+            {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::get(&path)
+                            .header("cookie", cookie)
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), expected, "{path}");
+                assert_eq!(response.headers()["cache-control"], "private, no-store");
+                let body = response.into_body().collect().await.unwrap().to_bytes();
+                assert_eq!(
+                    std::str::from_utf8(&body).unwrap().contains(private),
+                    expected == StatusCode::OK,
+                    "{path}",
+                );
+                assert_eq!(snapshot().await, before, "{path}");
+            }
+        }
+        let path = format!("/{lang}/panel/history/{}/bank", world());
+        for (cookie, own, other) in [(&owner, "73199", "84627"), (&foreign, "84627", "73199")] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(&path)
+                        .header("cookie", cookie)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "{path}");
+            assert_eq!(response.headers()["cache-control"], "private, no-store");
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let html = std::str::from_utf8(&body).unwrap();
+            assert!(html.contains(own), "{path} omitted the actor's entry");
+            assert!(
+                !html.contains(other),
+                "{path} exposed the other account's entry"
+            );
+            assert_eq!(snapshot().await, before, "{path}");
+        }
+    }
     e.deny.store(true, Ordering::SeqCst);
     let r = app.oneshot(request(&owner)).await.unwrap();
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
@@ -853,45 +1002,9 @@ async fn pg_multiple_pages_market_and_trade_are_not_wealth() {
     for r in snapshot((11..44).map(item).collect()) {
         ingest(&p, &r).await.unwrap();
     }
-    let mut market = record(
-        1,
-        Payload::Market(Market {
-            event_id: ident(212),
-            offer_id: ident(213),
-            side: "SELL".into(),
-            state: "CREDIT_HELD".into(),
-            end_state: Some("FILLED".into()),
-            definition_family: "ITEM".into(),
-            definition_production_key: "item.coin".into(),
-            definition_revision_ref: "rev-1".into(),
-            amount: 10,
-            remaining: 0,
-            piece_price: "2".into(),
-            fee_gold: "0".into(),
-            held_credit_gold: "20".into(),
-        }),
-    );
-    market.record_id = ident(210);
+    let [market, trade] = market_and_trade();
     ingest(&p, &market).await.unwrap();
     ingest(&p, &market).await.unwrap();
-    let line = |n| Line {
-        item_instance_id: ident(n),
-        definition_family: "ITEM".into(),
-        definition_production_key: "item.coin".into(),
-        definition_revision_ref: "rev-1".into(),
-        quantity: 10,
-    };
-    let mut trade = record(
-        1,
-        Payload::Trade(Trade {
-            occurrence_id: ident(214),
-            transaction_id: ident(215),
-            event_id: ident(216),
-            given: vec![line(217)],
-            received: vec![line(218)],
-        }),
-    );
-    trade.record_id = ident(211);
     ingest(&p, &trade).await.unwrap();
     assert_eq!(
         p.history(actor(), world(), Some(character()), "MARKET")

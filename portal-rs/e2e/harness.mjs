@@ -243,6 +243,14 @@ async function close(code = 0) {
   // A signal can arrive while CREATE DATABASE is in flight.
   await creation.catch(() => {});
   await Promise.all([...children].map(stopChild));
+  const browsers = await Promise.allSettled([
+    outboxBrowser?.catch(() => {}).then(closeBrowser => closeBrowser?.()),
+    gameDataBrowser?.catch(() => {}).then(browser => browser?.close()),
+  ]);
+  if (browsers.some(result => result.status === 'rejected')) {
+    log('could not close browser harness resources');
+    code = 1;
+  }
   if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
       await withAdminConnection(async admin => {
@@ -258,14 +266,6 @@ async function close(code = 0) {
       log('failed to reconcile disposable database', dbName, error.code ?? error.name);
       code = 1;
     }
-  }
-  const browsers = await Promise.allSettled([
-    outboxBrowser?.catch(() => {}).then(closeBrowser => closeBrowser?.()),
-    gameDataBrowser?.catch(() => {}).then(browser => browser?.close()),
-  ]);
-  if (browsers.some(result => result.status === 'rejected')) {
-    log('could not close browser harness resources');
-    code = 1;
   }
   process.exit(code);
 }

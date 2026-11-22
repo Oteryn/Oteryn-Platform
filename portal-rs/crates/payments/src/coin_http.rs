@@ -49,11 +49,20 @@ pub fn router(pool: PgPool, service: Service) -> Router {
 }
 
 async fn private(request: Request, next: Next) -> Response {
+    let checkout_page = request.method() == axum::http::Method::GET
+        && request.uri().path().starts_with(CHECKOUT_PATH);
     let mut response = next.run(request).await;
+    // Chromium sends Origin: null on form submissions from a no-referrer page.
+    // Retain the origin of same-origin checkout POSTs for the shared CSRF guard.
+    let referrer = if checkout_page && response.status() == StatusCode::OK {
+        "same-origin"
+    } else {
+        "no-referrer"
+    };
     for (name, value) in [
         (header::CACHE_CONTROL, "no-store"),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
+        (header::REFERRER_POLICY, referrer),
     ] {
         response
             .headers_mut()
@@ -254,5 +263,35 @@ async fn act(
     match service.sandbox_complete(account, order, paid).await {
         Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),
         Err(error) => refusal(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn checkout_form_retains_the_same_origin_for_csrf() -> Result<(), axum::http::Error> {
+        let checkout = format!("{CHECKOUT_PATH}{{order_id}}");
+        let api = format!("{API}/catalogue");
+        let app = Router::new()
+            .route(&checkout, get(|| async { StatusCode::OK }))
+            .route(&api, get(|| async { StatusCode::OK }))
+            .layer(middleware::from_fn(private));
+        for (path, policy) in [
+            (
+                checkout.replace("{order_id}", &Uuid::now_v7().to_string()),
+                "same-origin",
+            ),
+            (api, "no-referrer"),
+        ] {
+            let request = axum::http::Request::get(path).body(Body::empty())?;
+            let Ok(response) = app.clone().oneshot(request).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::REFERRER_POLICY], policy);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        }
+        Ok(())
     }
 }
