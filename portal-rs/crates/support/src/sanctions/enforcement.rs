@@ -1232,6 +1232,43 @@ fn utc(ms: Option<i64>) -> Option<String> {
         .ok()
 }
 
+// Match the character receipt order (restore, issuance, feed, command rows).
+// The caller already holds the account locks. Shed on either fence rather than
+// wait behind a restore or transfer that may need an account lock in turn.
+pub(super) async fn lock_ownership(
+    connection: &mut sqlx::PgConnection,
+) -> Result<(), BrowserError> {
+    let restore = sqlx::query_scalar::<_, i16>(
+        "SELECT id FROM character_restore_locks WHERE id=1 FOR SHARE NOWAIT",
+    )
+    .fetch_optional(&mut *connection)
+    .await?;
+    if restore.is_none()
+        || !sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock_shared(22005160000)")
+            .fetch_one(&mut *connection)
+            .await?
+        || sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM character_restore_notices WHERE acknowledged_at IS NULL)",
+        )
+        .fetch_one(&mut *connection)
+        .await?
+    {
+        return Err(BrowserError::Unavailable);
+    }
+    Ok(())
+}
+
+pub(super) async fn prove_ownership(
+    connection: &mut sqlx::PgConnection,
+    account: Uuid,
+    character: Uuid,
+) -> Result<(), BrowserError> {
+    match oteryn_playerdata::authority::ownership(connection, account, character).await {
+        Ok(oteryn_playerdata::authority::Ownership::Owner(_)) => Ok(()),
+        _ => Err(BrowserError::Unavailable),
+    }
+}
+
 impl Backend for BrowserJournal {
     async fn candidate_account(
         &self,
@@ -1257,6 +1294,7 @@ impl Backend for BrowserJournal {
         &self,
         connection: &mut sqlx::PgConnection,
     ) -> Result<(), BrowserError> {
+        lock_ownership(connection).await?;
         sqlx::query("SELECT 1 FROM account_character_feed WHERE id=1 FOR SHARE")
             .execute(connection)
             .await?;
@@ -1303,6 +1341,14 @@ impl Backend for BrowserJournal {
             [] => Err(BrowserError::NotFound),
             _ => Err(BrowserError::Unavailable),
         }
+    }
+
+    async fn prove_owner(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        target: &Target,
+    ) -> Result<(), BrowserError> {
+        prove_ownership(connection, target.account, target.character).await
     }
 
     async fn restrictions(

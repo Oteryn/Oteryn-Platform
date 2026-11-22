@@ -17,6 +17,7 @@ oteryn-db.workspace = true
 oteryn-identity.workspace = true
 oteryn-web.workspace = true
 oteryn-admin.workspace = true
+oteryn-playerdata.workspace = true
 oteryn-notify.workspace = true
 oteryn-gameauth = { path = "../gameauth" }
 axum = "0.8.9"

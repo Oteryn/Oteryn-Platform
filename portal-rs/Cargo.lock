@@ -3282,6 +3282,7 @@ dependencies = [
  "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-notify",
+ "oteryn-playerdata",
  "oteryn-ui",
  "oteryn-web",
  "serde",

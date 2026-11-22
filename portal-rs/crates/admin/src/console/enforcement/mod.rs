@@ -167,6 +167,12 @@ pub trait Backend: Send + Sync + 'static {
         character: Uuid,
     ) -> impl Future<Output = Result<Target, Error>> + Send;
 
+    fn prove_owner(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        target: &Target,
+    ) -> impl Future<Output = Result<(), Error>> + Send;
+
     fn restrictions(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -581,6 +587,7 @@ async fn submit<B: Backend>(
         if target.account != candidate {
             return Err(Error::Conflict);
         }
+        state.backend.prove_owner(&mut tx, &target).await?;
         let claim = Claim {
             account: target.account,
             character,

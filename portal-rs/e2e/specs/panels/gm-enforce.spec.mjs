@@ -64,6 +64,15 @@ async function staffActor(screen, lang, role) {
   return { account, totp: new TOTP({ secret: Secret.fromBase32(enrolled.totpSecret) }) };
 }
 
+async function seedOwnershipBaseline(account, character, world) {
+  await query(
+    `INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,
+       from_projection_revision,to_projection_revision,projection_epoch,recovery_generation,accepted_at)
+     VALUES($1,$2,$3,1,1,1,1,1,clock_timestamp()-interval '1 hour')`,
+    [character, account, world],
+  );
+}
+
 async function formPayload(form) {
   const target = await form.getAttribute('action');
   const fields = await form.evaluate(node => Object.fromEntries(new FormData(node)));
@@ -195,6 +204,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   const character = uuid7();
   const name = 'Aldric <Archive>';
   const world = uuid7();
+  await seedOwnershipBaseline(target.id, character, world);
   const url = `${path}?lang=${lang}&character=${character}`;
   const readGame = enforcementGame();
   async function expectAccountEligible(eligible) {
@@ -494,6 +504,8 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
   )).toHaveLength(1);
   const account = await seededAccount(lang);
   const character = uuid7();
+  const world = uuid7();
+  await seedOwnershipBaseline(account.id, character, world);
   const lcfa = gamePeer('lcfa');
   const head = {
     contract_version: 1, source_authority: process.env.OTERYN_LCFA_SOURCE_AUTHORITY,
@@ -502,7 +514,7 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
   await gameJson(lcfa, portfolio, {
     ...head, operation: 'PublishAccountCharactersV1', account_id: account.id,
     projection_revision: '1', source_observed_at: sourceTime(),
-    characters: [{ character_id: character, world_id: uuid7(), name: 'Appeal fixture', availability: 'AVAILABLE' }],
+    characters: [{ character_id: character, world_id: world, name: 'Appeal fixture', availability: 'AVAILABLE' }],
   });
   const at = sourceTime();
   await gameJson(lcfa, `${portfolio}/watermark`, {
@@ -556,4 +568,88 @@ test('An accepted appeal needs fresh step-up through the Game revoke audit write
   await revoking.publish({ state: 'REVOKED', stream_state: 'REVOKED' });
   expect(await query('SELECT status FROM support_appeal_workflows WHERE sanction_id=$1', [stream]))
     .toEqual([{ status: 'accepted' }]);
+});
+
+test('GM rejects a stale seller until transfer receipt and both projections agree', async ({ page }, info) => {
+  const lang = info.project.metadata.locale;
+  const gm = await staffActor(page, lang, 'game_master_senior');
+  const seller = await seededAccount(lang);
+  const buyer = await seededAccount(lang);
+  const character = uuid7();
+  const world = uuid7();
+  await seedOwnershipBaseline(seller.id, character, world);
+  const lcfa = gamePeer('lcfa');
+  const commandPeer = gamePeer('character-commands');
+  const head = {
+    contract_version: 1, source_authority: process.env.OTERYN_LCFA_SOURCE_AUTHORITY, projection_epoch: '1',
+  };
+  const entry = { character_id: character, world_id: world, name: 'Transfer fixture', availability: 'AVAILABLE' };
+  const publish = (account, revision, characters) => gameJson(lcfa, portfolio, {
+    ...head, operation: 'PublishAccountCharactersV1', account_id: account,
+    projection_revision: revision, source_observed_at: sourceTime(), characters,
+  });
+  const watermark = () => {
+    const at = sourceTime();
+    return gameJson(lcfa, `${portfolio}/watermark`, {
+      ...head, operation: 'PublishProjectionWatermarkV1', complete_through: at, observed_at: at,
+    });
+  };
+  await publish(seller.id, '1', [entry]);
+  await watermark();
+  expect((await page.goto(`${path}?lang=${lang}&character=${character}`)).status()).toBe(200);
+  await browserSubmit(page, page.locator('form[action*="/step-up?"]'),
+    { code: gm.totp.generate() }, `${path}/step-up`);
+  const apply = () => page.locator('[data-profile=MUTE] [data-action=apply]');
+  const stale = await formPayload(apply());
+  const transfer = uuid7();
+  const intent = JSON.parse(await readFile(new URL(
+    '../../../crates/characters/src/commands/fixtures/transfer-intent.json', import.meta.url,
+  )));
+  Object.assign(intent, {
+    operation_id: transfer, issuer_decision_id: uuid7(), character_id: character,
+    expected_from_account_id: seller.id, to_account_id: buyer.id, issued_at_source: sourceTime(),
+    expires_at_source: String(Number(sourceTime()) + 300),
+  });
+  // Stage an issued CC1 command. Game commits it through the mTLS receipt route below.
+  const [{ source_revision }] = await query(
+    `INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json)
+     VALUES($1,$2,$1::uuid::text,'TransferCharacterOwnership',$3,$4,$5,$5) RETURNING source_revision`,
+    [transfer, intent.issuer_decision_id, seller.id, buyer.id, JSON.stringify(intent)],
+  );
+  intent.source_revision = source_revision;
+  await query('UPDATE character_commands SET intent_json=$2 WHERE id=$1', [transfer, JSON.stringify(intent)]);
+  const decision = { ...stale.fields, minutes: '15', reason: 'rule_violation' };
+  const refusedSeller = async () => {
+    await watermark();
+    expect((await post(page, stale.target, decision)).status()).toBe(503);
+    expect(await query('SELECT id FROM audit_log WHERE request_id=$1', [stale.fields.operation])).toEqual([]);
+    expect(await query('SELECT position FROM support_enforcement_commands WHERE character_id=$1', [character])).toEqual([]);
+    expect(await query('SELECT id FROM sanctions WHERE enforcement_character_id=$1', [character])).toEqual([]);
+    expect(await query('SELECT sanction_stream_id FROM support_sanction_export_revisions WHERE character_id=$1', [character])).toEqual([]);
+  };
+  await refusedSeller();
+  const receipt = JSON.parse(await readFile(new URL(
+    '../../../crates/characters/src/commands/fixtures/transfer-receipt.json', import.meta.url,
+  )));
+  Object.assign(receipt, {
+    source_authority: process.env.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
+    operation_id: transfer, character_id: character, from_account_id: seller.id, to_account_id: buyer.id,
+    character_revision: '2', from_projection_revision: '2', to_projection_revision: '1',
+    recovery_generation: '1', decided_at: sourceTime(),
+  });
+  await gameJson(commandPeer, '/internal/v1/game-auth/character-commands/receipt', receipt);
+  expect(await query('SELECT state FROM character_commands WHERE id=$1', [transfer])).toEqual([{ state: 'TERMINAL' }]);
+  await refusedSeller();
+  await publish(seller.id, '2', []);
+  await publish(buyer.id, '1', [entry]);
+  await watermark();
+  expect((await page.reload()).status()).toBe(200);
+  const accepted = await formPayload(apply());
+  await browserSubmit(page, apply(), { minutes: '15', reason: 'rule_violation' }, path);
+  const applied = await enforcementGame()(accepted.fields.operation, {
+    account_id: buyer.id, character_id: character, profile: 'MUTE', intent: 'APPLY',
+  });
+  await applied.publish({ state: 'APPLIED' });
+  expect(await query('SELECT owner_id FROM support_appeal_workflows WHERE sanction_id=$1',
+    [applied.command.sanction_stream_id])).toEqual([{ owner_id: buyer.id }]);
 });

@@ -724,6 +724,12 @@ impl Service {
                                 rbac::Error::Storage(_) => StaffError::Unavailable,
                                 _ => StaffError::Denied,
                             })?;
+                        super::enforcement::lock_ownership(tx)
+                            .await
+                            .map_err(|_| StaffError::Unavailable)?;
+                        super::enforcement::prove_ownership(tx, target, *character)
+                            .await
+                            .map_err(|_| StaffError::Unavailable)?;
                         super::enforcement::prepare_appeal_revoke(
                             tx, id, target, *character, profile,
                         )
