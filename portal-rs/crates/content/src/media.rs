@@ -217,7 +217,6 @@ struct MediaPage {
     alt: String,
     upload: String,
     delete: String,
-    next_label: String,
     csrf: String,
     items: Vec<(Uuid, String)>,
 }
@@ -274,7 +273,6 @@ async fn index(
         alt: label(lang, "alt"),
         upload: label(lang, "upload"),
         delete: label(lang, "delete"),
-        next_label: label(lang, "next"),
         csrf: session.csrf_token().await.map_err(unavailable)?,
         items: rows
             .iter()
