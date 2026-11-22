@@ -493,7 +493,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
   let status = inventoryStatus ?? (coldProjection ? 503 : missingFixture ? 404 : missingInvite ? 403 : 200);
   let pathname = target;
   if (target === '/') pathname = `/${locale}/`;
-  if (/^\/events(?:\/|$)/u.test(target)) pathname = `/${locale}${target}`;
+  if (target === '/forgot-password' || /^\/events(?:\/|$)/u.test(target)) pathname = `/${locale}${target}`;
   if (actor === 'anonymous') {
     if (signInRequired.test(route) || route === '/password/change') {
       return { status: 200, pathname: route === '/password/change' ? '/login' : `/${lang}/login`, document: true };
