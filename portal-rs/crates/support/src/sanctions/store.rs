@@ -597,7 +597,7 @@ impl Service {
                 return Err(StaffError::Conflict);
             }
         }
-        let before = current.as_ref().map_or(Value::Null,|r|json!({"status":r.0,"lock_version":version,"sanction_version":r.1,"appeal_version":workflow.as_ref().map(|w|w.1),"category":r.3,"effective_at_ms":r.4,"expires_at_ms":r.5}));
+        let before = current.as_ref().map_or(Value::Null,|r|json!({"status":r.0,"lock_version":version,"sanction_version":r.1,"appeal_version":workflow.as_ref().map(|w|w.1),"appeal_status":workflow.as_ref().map_or("none", |w|w.0.as_str()),"category":r.3,"effective_at_ms":r.4,"expires_at_ms":r.5}));
         let next = match command {
             Command::Sanction {
                 create,
