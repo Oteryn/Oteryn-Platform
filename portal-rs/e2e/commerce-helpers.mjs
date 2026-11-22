@@ -13,7 +13,7 @@ import { csrfRejected, fixtureDatabaseURL, login, password } from './helpers.mjs
 
 const exec = promisify(execFile);
 const portalRoot = fileURLToPath(new URL('../', import.meta.url));
-const binary = process.env.PORTAL_E2E_BINARY ??
+const binary = process.env.PORTAL_GAMEAPI_REAL_BINARY ?? process.env.PORTAL_E2E_BINARY ??
   resolve(portalRoot, process.env.CARGO_TARGET_DIR ?? 'target', 'debug/oteryn-portal');
 
 async function seed(entity, args, databaseURL) {
