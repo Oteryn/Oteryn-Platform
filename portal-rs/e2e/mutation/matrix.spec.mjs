@@ -4384,3 +4384,248 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+test('enforcement forms bind sanctions and appeal decisions to staff authority and the viewed revision', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const open = async role => {
+    const context = await browser.newContext({ baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const account = await seededPlayer(screen, lang, role);
+    await screen.goto(`/${lang}/account/privacy`);
+    return { screen, account, token: (await prepare(screen, formSelector)).fields._csrf };
+  };
+  try {
+    const staff = await seededPlayer(page, lang, 'moderator');
+    const target = await open();
+    const wrong = [target, await open('content_editor')];
+    const base = '/admin/moderation/enforcement';
+    const state = id => () => query(
+      `SELECT s.account_id,s.status,s.category,s.public_reason,s.moderator_notes,s.created_by,
+         s.lock_version::int AS version,a.status AS appeal,a.version::int AS appeal_version,a.outcome
+       FROM sanctions s JOIN support_appeal_workflows a ON a.sanction_id=s.id WHERE s.id=$1`, [id],
+    );
+    const verification = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const check = async (input, snapshot, baseline, samples) => {
+      await rejected({ page, ...input, snapshot, baseline });
+      for (const { screen, token } of wrong) {
+        expect((await sendForm(screen, input.url, { ...input.fields, _csrf: token })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await invalid({ page, ...input, message: verification, snapshot, baseline, samples });
+    };
+    const form = 'main form:has([name=action][value=sanction])';
+    const now = Math.floor(Date.now() / 1000);
+    const values = {
+      target: target.account.id, effective_at: String(now - 10), expires_at: String(now + 3600),
+      public_reason: 'Synthetic enforcement case for a disposable player.',
+      moderator_notes: 'Internal review for the local mutation matrix.',
+    };
+    const sanctionInvalid = effectiveAt => [
+      { name: 'empty public reason', patch: { public_reason: '' } },
+      { name: 'overlong public reason', patch: { public_reason: 'x'.repeat(4001) } },
+      { name: 'wrong category type', patch: { category: '1' } },
+      { name: 'ends at the first boundary', patch: { expires_at: effectiveAt } },
+    ];
+    const issue = async (category = 'warning', bounds = {}) => {
+      const fields = { ...values, ...bounds };
+      expect((await page.goto(`${base}/create`)).status()).toBe(200);
+      const proposal = await prepare(page, form, { ...fields, category });
+      const id = new URL(proposal.url).pathname.split('/').at(-1);
+      const snapshot = state(id);
+      await check(proposal, snapshot, [], sanctionInvalid(fields.effective_at));
+      await page.locator(`${form} [name=category]`).selectOption(category);
+      await submit(page, form, fields);
+      await expect(page).toHaveURL(proposal.url);
+      await expect(page.locator('main h2')).toHaveText(values.public_reason);
+      const record = {
+        account_id: target.account.id, status: 'active', category, public_reason: values.public_reason,
+        moderator_notes: values.moderator_notes, created_by: staff.id, version: 1, appeal: 'none',
+        appeal_version: 1, outcome: null,
+      };
+      expect(await snapshot()).toEqual([record]);
+      expect((await sendForm(page, proposal.url, proposal.fields)).status()).toBe(409);
+      expect(await snapshot()).toEqual([record]);
+      return { id, snapshot, record, fields };
+    };
+    const end = async (entry, status) => {
+      const { snapshot, record, fields } = entry;
+      const update = await prepare(page, form, { ...fields, category: record.category, status });
+      await check(update, snapshot, [record], sanctionInvalid(fields.effective_at));
+      await page.locator(`${form} [name=category]`).selectOption(record.category);
+      await page.locator(`${form} [name=status]`).selectOption(status);
+      await submit(page, form, fields);
+      await expect(page.locator('main h2')).toHaveText(fields.public_reason);
+      const ended = [{ ...record, status, version: 2 }];
+      expect(await snapshot()).toEqual(ended);
+      expect((await sendForm(page, update.url, update.fields)).status()).toBe(409);
+      expect(await snapshot()).toEqual(ended);
+    };
+    await end(await issue('restriction', {
+      effective_at: String(now - 120), expires_at: String(now - 60),
+    }), 'expired');
+    await end(await issue('suspension'), 'revoked');
+
+    const appealForm = 'main form:has([name=action][value=appeal])';
+    for (const decision of ['accepted', 'rejected']) {
+      const created = await issue();
+      const before = await prepare(page, appealForm, { appeal_status: 'reviewing' });
+      expect((await sendForm(page, before.url, before.fields)).status()).toBe(409);
+      expect(await created.snapshot()).toEqual([created.record]);
+      // The Portal has no browser route that submits an owner's appeal.
+      // Seed that prerequisite in the disposable database after issuing the real sanction.
+      expect(await query(
+        `UPDATE support_appeal_workflows SET status='requested',version=version+1,message=$2
+         WHERE sanction_id=$1 AND status='none' RETURNING status`,
+        [created.id, 'Local owner statement for staff review.'],
+      )).toEqual([{ status: 'requested' }]);
+      await page.reload();
+      let row = { ...created.record, appeal: 'requested', appeal_version: 2 };
+      for (const appeal_status of ['reviewing', decision]) {
+        const appeal_outcome = `Local appeal decision ${appeal_status}.`;
+        const offer = await prepare(page, appealForm, { appeal_status, appeal_outcome });
+        await check(offer, created.snapshot, [row], [
+          { name: 'empty appealed state', patch: { appeal_status: '' } },
+          { name: 'overlong appeal outcome', patch: { appeal_outcome: 'x'.repeat(4001) } },
+          { name: 'wrong appealed state type', patch: { appeal_status: '1' } },
+          { name: 'state outside the supported values', patch: { appeal_status: 'accepted ' } },
+        ]);
+        await page.locator(`${appealForm} [name=appeal_status]`).selectOption(appeal_status);
+        await submit(page, appealForm, { appeal_outcome });
+        await expect(page.getByText(appeal_outcome, { exact: false })).toBeVisible();
+        row = { ...row, appeal: appeal_status, outcome: appeal_outcome, version: row.version + 1,
+          appeal_version: row.appeal_version + 1, status: appeal_status === 'accepted' ? 'revoked' : 'active' };
+        expect(await created.snapshot()).toEqual([row]);
+        expect((await sendForm(page, offer.url, offer.fields)).status()).toBe(409);
+        expect(await created.snapshot()).toEqual([row]);
+      }
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+for (const kind of ['character', 'item']) {
+  test(`fake Game confirms one Bazaar ${kind} listing and rejects duplicate custody`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const contexts = [];
+    const open = async role => {
+      const context = await browser.newContext({ baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang });
+      contexts.push(context);
+      const screen = await context.newPage();
+      return { screen, account: await seededPlayer(screen, lang, role) };
+    };
+    const elevate = async (screen, account, hasMfa) => {
+      if (!hasMfa) {
+        await enrollMfa(screen, lang, account);
+        const code = await screen.locator('textarea[readonly]').first().inputValue();
+        await loginWithRecoveryCode(screen, lang, account, code);
+        await expect(screen).toHaveURL(new RegExp(`/${lang}/$`));
+      }
+      expect((await screen.goto(`/${lang}/account/sudo`)).status()).toBe(200);
+      await submit(screen, formSelector, { current_password: account.password });
+      await expect(screen).toHaveURL(new RegExp(`/${lang}/password/change$`));
+    };
+    try {
+      const seller = await seededPlayer(page, lang);
+      await elevate(page, seller, false);
+      const buyer = await open();
+      await elevate(buyer.screen, buyer.account, false);
+      const editor = await open('content_editor');
+      await elevate(editor.screen, editor.account, true);
+      const outsiders = [];
+      for (const { screen } of [buyer, editor]) {
+        await screen.goto(`/${lang}/account/privacy`);
+        outsiders.push({ screen, token: (await prepare(screen, formSelector)).fields._csrf });
+      }
+      await elevate(page, seller, true);
+      const character = uuid7();
+      const asset = kind === 'character' ? character : uuid7();
+      const destination = uuid7();
+      const world = '0192a000-0000-7000-8000-000000000012';
+      const created = await page.request.post('/__bazaar_game/seed', { data: {
+        seller: seller.id, buyer: buyer.account.id, kind, asset_id: asset,
+        seller_character_id: character, buyer_character_id: destination,
+      } });
+      expect(created.status()).toBe(201);
+      const start = `/${lang}/account/bazaar/sell`;
+      expect((await page.goto(start)).status()).toBe(200);
+      const listing = 'main form[action$="/sell"]';
+      await page.locator(`${listing} select[name=kind]`).selectOption(kind);
+      const values = {
+        world_id: world, seller_character_id: character, asset_id: asset,
+        expected_revision: '7', quantity: '1', definition_key: 'fixture-sword',
+        definition_revision: 'v1', starting_bid: '100', duration_days: '1',
+      };
+      const { url, fields } = await prepare(page, listing, { ...values, publish_snapshot: 'true' });
+      const state = () => query(
+        `SELECT l.id,l.owner,l.kind,l.state,l.price,a.asset_id AS asset,
+            ARRAY(SELECT o.command FROM bazaar_authority_receipts r JOIN bazaar_game_outbox o USING(operation_id) WHERE o.listing_id=l.id ORDER BY o.command) AS receipts
+         FROM bazaar_listings l JOIN bazaar_authority_assets a ON a.listing_id=l.id
+         WHERE a.asset_id=$1`, [asset],
+      );
+      expect(await state()).toEqual([]);
+      await rejected({ page, url, fields, snapshot: state, baseline: [] });
+      const reserveListing = async () => {
+        await expect.poll(async () => {
+          const [row] = await query(
+            "SELECT COALESCE(max(count),0)::int AS count FROM web_rate_limits WHERE limiter_name='marketplace-listing' AND window_start=date_trunc('minute',clock_timestamp())"
+          );
+          return row.count;
+        }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(2);
+      };
+      const samples = [
+        { name: 'empty listing kind', patch: { kind: '' } },
+        { name: 'overlong listing kind', patch: { kind: 'x'.repeat(512) } },
+        { name: 'wrong revision representation', patch: { expected_revision: 'abc' } },
+        { name: 'duration beyond the auction boundary', patch: { duration_days: '15' } },
+      ];
+      for (const sample of samples) {
+        await reserveListing();
+        await invalid({
+          page, url, fields, snapshot: state, baseline: [],
+          message: lang === 'pl'
+            ? 'Prośba została odrzucona. Sprawdź konto i dane obiektu.'
+            : 'This request was refused. Check your account and the asset details.',
+          samples: [sample],
+        });
+      }
+      await reserveListing();
+      await submit(page, listing, { ...values, publish_snapshot: true });
+      await expect(page).toHaveURL(/\/bazaar\/[a-f0-9-]+$/);
+      const id = new URL(page.url()).pathname.split('/').at(-1);
+      await expect.poll(async () => {
+        await page.reload();
+        return page.locator(`[data-listing="${id}"]`).getAttribute('data-state');
+      }, { timeout: 60_000, intervals: [1000] }).toBe('active');
+      const receipts = kind === 'character'
+        ? ['BindBazaarCharacterTransfer', 'LockBazaarCharacter']
+        : ['EscrowBazaarItem'];
+      const locked = [{ id, owner: seller.id, kind, state: 'active', price: '100', asset, receipts }];
+      expect(await state()).toEqual(locked);
+      const fixture = await page.request.get(`/__bazaar_game/state?asset=${asset}`);
+      expect(fixture.status()).toBe(200);
+      const game = await fixture.json();
+      const operations = await query('SELECT operation_id,command FROM bazaar_game_outbox WHERE listing_id=$1 ORDER BY command', [id]);
+      expect(operations.map(operation => operation.command)).toEqual(receipts);
+      for (const operation of operations) {
+        expect(game.decisions.filter(decision => decision.operation === operation.operation_id
+          && decision.command === operation.command && decision.outcome === 'COMMITTED')).toHaveLength(1);
+      }
+      for (const { screen, token } of outsiders) {
+        expect((await sendForm(screen, url, { ...fields, _csrf: token })).status()).toBe(409);
+        expect(await state()).toEqual(locked);
+      }
+      await reserveListing();
+      expect((await sendForm(page, url, fields)).status()).toBe(303);
+      expect(await state()).toEqual(locked);
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
