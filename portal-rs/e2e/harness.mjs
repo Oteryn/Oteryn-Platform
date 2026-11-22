@@ -234,6 +234,7 @@ let outboxBrowser;
 let staffConsoleStartup;
 let createRequested = false;
 let creation;
+let servicesReady = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
@@ -248,7 +249,13 @@ async function close(code = 0) {
     try {
       await withAdminConnection(async admin => {
         await lockDatabaseName(admin);
-        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+        // Dropping a used database can require a checkpoint. Keep the
+        // shorter startup cleanup budget until the services are ready.
+        if (servicesReady) await admin.query("SET statement_timeout = '30s'");
+        await admin.query({
+          text: 'DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)',
+          ...(servicesReady && { query_timeout: 32_000 }),
+        });
       });
     } catch {
       log('failed to reconcile disposable database', dbName);
@@ -425,6 +432,7 @@ async function start() {
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
+  servicesReady = true;
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------
