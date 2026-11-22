@@ -379,12 +379,21 @@ fn render_error(
     message: &str,
     recovery_path: Option<&str>,
 ) -> Response {
+    let mut title = chrome.text(&format!("error-{}-title", status.as_u16()));
+    if title.is_empty() {
+        title = chrome.text("error-generic-title");
+    }
+    let description = if message.is_empty() {
+        chrome.text("error-generic-description")
+    } else {
+        message.to_owned()
+    };
     render(
         &ErrorPage {
             chrome,
             status: status.as_u16(),
-            title: chrome.text(&format!("error-{}-title", status.as_u16())),
-            description: message.to_owned(),
+            title,
+            description,
             recovery_path,
         },
         status,

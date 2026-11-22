@@ -321,6 +321,7 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
               (SELECT count(*)::int FROM ticket_messages WHERE ticket_id=tickets.id) AS messages
        FROM tickets WHERE id=$1`, [id],
     ))[0];
+    await expect.poll(ticketSnapshot).toMatchObject({ status: 'resolved' });
     const resolved = await ticketSnapshot();
     expect(resolved.status).toBe('resolved');
     await expect(replyForm.locator('[name=lock_version]')).toHaveValue(resolved.lock_version);
@@ -343,6 +344,26 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(stateHtml).not.toContain(description);
     expect(stateHtml).not.toContain(openForm);
     expect(stateHtml).not.toContain(refusedReply);
+    expect(await ticketSnapshot()).toEqual(resolved);
+
+    const unsupported = await staffPage.request.post(`/admin/support/tickets/${id}`, {
+      headers: {
+        accept: 'text/html', 'accept-language': lang, origin: new URL(staffPage.url()).origin,
+        'content-type': 'text/plain', 'x-csrf-token': latest._csrf,
+      },
+      data: refusedReply, maxRedirects: 0,
+    });
+    expect(unsupported.status()).toBe(415);
+    expect(unsupported.headers()['content-type']).toMatch(/^text\/html\b/);
+    expect(unsupported.headers()['content-language']).toBe(lang);
+    expect(unsupported.headers()['cache-control']).toBe('no-store');
+    const fallbackHtml = await unsupported.text();
+    const [fallbackTitle, fallbackDescription] = lang === 'pl'
+      ? ['Nie można przetworzyć żądania', 'Serwer nie mógł wykonać tego żądania.']
+      : ['Unable to process the request', 'The server could not complete this request.'];
+    expect(fallbackHtml).toContain(`<h1>${fallbackTitle}</h1>`);
+    expect(fallbackHtml).toContain(`<p>${fallbackDescription}</p>`);
+    expect(fallbackHtml).not.toContain(refusedReply);
     expect(await ticketSnapshot()).toEqual(resolved);
 
 
@@ -368,8 +389,13 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     await action(staffPage, 'form:has(input[value=moderate])', {
       status: 'actioned', public_outcome: outcome, moderator_notes: unique(),
     });
-    await expect(staffPage.locator('main')).toContainText(outcome);
+    const reportSnapshot = async () => (await query(
+      'SELECT status, lock_version::text, public_outcome FROM player_reports WHERE id=$1', [report],
+    ))[0];
+    await expect.poll(reportSnapshot).toMatchObject({ status: 'actioned', public_outcome: outcome });
+    const actioned = await reportSnapshot();
     const reportForm = staffPage.locator('form:has(input[value=moderate])');
+    await expect(reportForm.locator('[name=lock_version]')).toHaveValue(actioned.lock_version);
     const reportFields = await reportForm.evaluate(form => Object.fromEntries(new FormData(form)));
     const neutralConflict = await staffPage.request.post(`/admin/moderation/reports/${report}`, {
       headers: { accept: 'text/html', 'accept-language': lang, origin: new URL(staffPage.url()).origin },
@@ -386,6 +412,7 @@ test('support replies, reports, sanctions and appeals deliver localized mail wit
     expect(neutralHtml).not.toContain(description);
     expect(neutralHtml).not.toContain(openForm);
     expect(neutralHtml).not.toContain(stateCopy);
+    expect(await reportSnapshot()).toEqual(actioned);
     const reportCopy = `actioned: ${outcome}`;
     const reportNotice = await mail(page, account.email, subject, reportCopy, outcome);
     expect(reportNotice.text === `${subject}\n\n${reportCopy}`, 'only the public report outcome is mailed').toBe(true);
