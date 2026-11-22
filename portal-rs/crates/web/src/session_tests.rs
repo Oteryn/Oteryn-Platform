@@ -540,14 +540,9 @@ async fn account_navigation_hides_passkeys_when_mfa_is_required() -> TestResult 
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
         .bind(id).execute(&db.pool).await?;
-    let browser = BrowserSession::new(db.pool.clone(), SessionConfig::default(), None, "test");
-    rotate(&browser, PrivilegeChange::Login(id)).await?;
-    let cookie = {
-        let state = browser.inner.lock().await;
-        let session = state.record.as_ref().ok_or("missing signed-in session")?;
-        format!("{COOKIE_NAME}={}", session.id)
-    };
     let mut registry = oteryn_ui::Registry::default();
+    registry.login = true;
+    registry.account = true;
     registry.section(
         true,
         "account-passkeys",
@@ -578,6 +573,13 @@ async fn account_navigation_hides_passkeys_when_mfa_is_required() -> TestResult 
             .bind(id)
             .execute(&db.pool)
             .await?;
+        let browser = BrowserSession::new(db.pool.clone(), SessionConfig::default(), None, "test");
+        rotate(&browser, PrivilegeChange::Login(id)).await?;
+        let cookie = {
+            let state = browser.inner.lock().await;
+            let session = state.record.as_ref().ok_or("missing signed-in session")?;
+            format!("{COOKIE_NAME}={}", session.id)
+        };
         let response = app
             .clone()
             .oneshot(
