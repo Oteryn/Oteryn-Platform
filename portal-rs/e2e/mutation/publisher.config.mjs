@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import shared from '../playwright.config.mjs';
+import matrix from './playwright.config.mjs';
 import { GamePublishers } from '../game-publishers.mjs';
 
 const report = process.env.PORTAL_E2E_GAME_DATA_REPORT;
@@ -8,12 +8,11 @@ const game = new GamePublishers(report);
 process.env.PORTAL_E2E_DATABASE_URL = game.env.OTERYN_DATABASE_URL;
 
 export default defineConfig({
-  ...shared,
-  testDir: '.',
-  testMatch: 'matrix.spec.mjs',
+  ...matrix,
   grep: /@game-publisher/,
-  use: { ...shared.use, baseURL: game.origin },
-  projects: shared.projects.map(project => ({
+  grepInvert: undefined,
+  use: { ...matrix.use, baseURL: game.origin },
+  projects: matrix.projects.map(project => ({
     ...project,
     use: {
       ...project.use,

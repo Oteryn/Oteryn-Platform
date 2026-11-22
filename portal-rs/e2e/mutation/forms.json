@@ -1598,7 +1598,7 @@
       ]
     },
     {
-      "source": "crates/content/src/news.rs:347",
+      "source": "crates/content/src/news.rs:381",
       "ordinal": 1,
       "action": "{action}?lang={lang}",
       "actionVariants": [
@@ -1615,7 +1615,7 @@
       ]
     },
     {
-      "source": "crates/content/src/news.rs:395",
+      "source": "crates/content/src/news.rs:429",
       "ordinal": 1,
       "action": "/admin/news/{id}/delete",
       "actionVariants": [],

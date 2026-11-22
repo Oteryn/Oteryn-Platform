@@ -134,17 +134,19 @@ test('the Game confirms exactly one paid browser rename and captures one test-pr
       const form = `main form:has([name=action][value=${action}])`;
       const prepared = await prepare(page, form, { confirm: 'yes', ...extras });
       const snapshot = () => operationState(prepared.fields.request_id);
-      expect(await snapshot()).toEqual([]);
-      await rejected({ page, ...prepared, snapshot, baseline: [] });
+      const beforeConfirmation = () => Promise.all([snapshot(), available()]);
+      const unchanged = [[], before];
+      expect(await beforeConfirmation()).toEqual(unchanged);
+      await rejected({ page, ...prepared, snapshot: beforeConfirmation, baseline: unchanged });
       for (const { screen, token } of outsiders) {
         expect((await sendForm(screen, prepared.url, { ...prepared.fields, _csrf: token })).status()).toBe(403);
-        expect(await snapshot()).toEqual([]);
+        expect(await beforeConfirmation()).toEqual(unchanged);
       }
       for (const patch of samples) {
         const response = await sendForm(page, prepared.url, { ...prepared.fields, ...patch });
         expect(response.status()).toBe(400);
         expect(await response.text()).toContain(error);
-        expect(await snapshot()).toEqual([]);
+        expect(await beforeConfirmation()).toEqual(unchanged);
       }
       await refresh();
       const outcome = page.waitForResponse(response => response.url() === prepared.url

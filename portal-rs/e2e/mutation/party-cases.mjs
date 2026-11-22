@@ -1,9 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { login, password, submit } from '../helpers.mjs';
-import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { enrollMfa, query } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
-import { prepare, sendForm, rejected } from './matrix-helpers.mjs';
+import { prepare, sendForm, rejected, signInWithRecoveryCode } from './matrix-helpers.mjs';
 
 test('Game-backed recruitment permits owner, reporter and staff actions under separate authority', { tag: '@game-publisher' }, async ({ page, browser }, info) => {
   test.setTimeout(300_000);
@@ -74,7 +74,7 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
     const moderator = await moderatorContext.newPage();
     const staff = await authenticate(moderator, 'support');
     await enrollMfa(moderator, lang, staff);
-    await loginWithRecoveryCode(moderator, lang, staff, await moderator.locator('textarea[readonly]').first().inputValue());
+    await signInWithRecoveryCode(moderator, lang, staff, await moderator.locator('textarea[readonly]').first().inputValue());
     await expect(moderator).toHaveURL(`${game.origin}/${lang}/`);
     await game.publicCharacter(character, uuid7());
     const refresh = async () => {

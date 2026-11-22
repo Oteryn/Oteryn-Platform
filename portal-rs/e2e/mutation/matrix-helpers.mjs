@@ -1,5 +1,18 @@
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected } from '../helpers.mjs';
+import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
+
+export async function signInWithRecoveryCode(page, lang, account, code) {
+  const challengePath = `/${lang}/mfa/challenge`;
+  const [response] = await Promise.all([
+    page.waitForResponse(candidate => candidate.request().method() === 'POST'
+      && new URL(candidate.url()).pathname === challengePath, { timeout: 120_000 }),
+    loginWithRecoveryCode(page, lang, account, code),
+  ]);
+  expect(response.status()).toBe(302);
+  expect(response.headers().location).toBe(`/${lang}/`);
+  await expect(page).toHaveURL(new RegExp(`/${lang}/$`), { timeout: 60_000 });
+}
 
 export async function prepare(page, selector, values) {
   const form = page.locator(selector);

@@ -6,11 +6,11 @@ import { createHash, createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { TOTP } from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
 import { login, logout, mailLink, password, pool, seedPasswordRange, submit, waitForLoginBudget } from '../helpers.mjs';
-import { action, enrollMfa, loginWithRecoveryCode, player, query, rolePage } from '../staff-rbac-helpers.mjs';
+import { action, enrollMfa, query, rolePage } from '../staff-rbac-helpers.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 import { paidTopup } from '../staff-commerce-helpers.mjs';
 
-import { prepare, sendForm, useFormMethod, rejected, wrongActor, invalid } from './matrix-helpers.mjs';
+import { prepare, sendForm, useFormMethod, rejected, wrongActor, invalid, signInWithRecoveryCode } from './matrix-helpers.mjs';
 import './publisher-cases.mjs';
 import './services-cases.mjs';
 import './rename-cases.mjs';
@@ -43,8 +43,7 @@ async function seededPlayer(page, lang, role) {
   if (role) {
     await enrollMfa(page, lang, account);
     const code = await page.locator('textarea[readonly]').first().inputValue();
-    await loginWithRecoveryCode(page, lang, account, code);
-    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    await signInWithRecoveryCode(page, lang, account, code);
   }
   return { ...account, id };
 }
@@ -123,7 +122,7 @@ test('ticket creation and exact request-key replay', async ({ page, browser }, i
   });
   const contexts = [anonymous];
   try {
-    const owner = await player(page, lang);
+    const owner = await seededPlayer(page, lang);
     expect((await page.goto(`/${lang}/support/tickets/create`)).status()).toBe(200);
     const subject = `Mutation matrix ${randomUUID()}`;
     const body = `Local support question for ${subject}`;
@@ -242,7 +241,7 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
   });
   const contexts = [anonymous];
   try {
-    const owner = await player(page, lang);
+    const owner = await seededPlayer(page, lang);
     expect((await page.goto(`/${lang}/shop/coins`)).status()).toBe(200);
     const { url, fields } = await prepare(page, packageForm);
     const snapshot = () => query(
@@ -993,8 +992,10 @@ test('journal write boundary refuses notes without source authority and isolates
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
+  const contexts = [anonymous];
   try {
     const actor = await seededPlayer(page, lang);
+    const outsiders = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
     const report = `/${lang}/account/journal/reports`;
     const unavailable = await page.goto(report);
     expect(unavailable.status()).toBe(503);
@@ -1013,6 +1014,11 @@ test('journal write boundary refuses notes without source authority and isolates
     expect(denied.status()).toBe(404);
     expect(denied.headers()['cache-control']).toContain('no-store');
     expect(await notes()).toEqual(baseline);
+    for (const { screen, account, csrf } of outsiders) {
+      expect((await sendForm(screen, note, { ...payload, _csrf: csrf })).status()).toBe(404);
+      expect(await notes()).toEqual(baseline);
+      expect(await query('SELECT target_id FROM pd_report_notes WHERE account_id=$1', [account.id])).toEqual([]);
+    }
 
     const email = new URL(`${report}/email`, ready.url).href;
     const snapshot = () => query('SELECT email_enabled FROM pd_report_preferences WHERE account_id=$1', [actor.id]);
@@ -1023,6 +1029,11 @@ test('journal write boundary refuses notes without source authority and isolates
     await wrongActor({
       page: await anonymous.newPage(), lang, url: email, fields: optIn, status: 403, snapshot, baseline: preferences,
     });
+    for (const { screen, account, csrf } of outsiders) {
+      expect((await sendForm(screen, email, { ...optIn, _csrf: csrf, account_id: actor.id })).status()).toBe(422);
+      expect(await snapshot()).toEqual(preferences);
+      expect(await query('SELECT email_enabled FROM pd_report_preferences WHERE account_id=$1', [account.id])).toEqual([]);
+    }
     await invalid({
       page, url: email, fields: optIn, snapshot, baseline: preferences,
       message: lang === 'pl'
@@ -1042,7 +1053,7 @@ test('journal write boundary refuses notes without source authority and isolates
     expect((await sendForm(page, email, fields)).status()).toBe(204);
     expect(await snapshot()).toEqual([{ email_enabled: false }]);
   } finally {
-    await anonymous.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -1284,14 +1295,10 @@ test('atlas participation API persists owner choice while the source-dependent f
 test('atlas annotation API writes owner data while the unavailable atlas hides its forms', async ({ page, browser }, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
-  const context = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
-    viewport: info.project.use.viewport,
-  });
+  const contexts = [];
   try {
     const owner = await seededPlayer(page, lang);
-    const other = await context.newPage();
-    await seededPlayer(other, lang);
+    const outsiders = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
     const markerPath = '/atlas/private-markers';
     const reportPath = '/atlas/map-reports';
     const browserPath = `/${lang}/atlas`;
@@ -1301,8 +1308,11 @@ test('atlas annotation API writes owner data while the unavailable atlas hides i
     expect(ownResponse.status()).toBe(200);
     const ownMarkers = await ownResponse.json();
     expect(ownMarkers.markers).toEqual([]);
-    const otherMarkers = await (await other.request.get(markerPath)).json();
-    expect(otherMarkers.markers).toEqual([]);
+    for (const { screen } of outsiders) {
+      const response = await screen.request.get(markerPath);
+      expect(response.status()).toBe(200);
+      expect((await response.json()).markers).toEqual([]);
+    }
     const origin = new URL(page.url()).origin;
     const request = (actor, url, method, data, token) => actor.request.fetch(url, {
       method, data,
@@ -1319,6 +1329,11 @@ test('atlas annotation API writes owner data while the unavailable atlas hides i
     expect(await snapshot()).toEqual(baseline);
     const text = 'Local atlas annotation';
     const values = { x: 42, y: 86, floor: 7, text };
+    const sampleIds = outsiders.map(({ account }) => account.id);
+    const outsiderState = () => query(
+      `SELECT account_id FROM atlas_private_markers WHERE account_id=ANY($1::uuid[])
+       UNION ALL SELECT account_id FROM atlas_map_reports WHERE account_id=ANY($1::uuid[])`, [sampleIds],
+    );
     for (const [path, max] of [[markerPath, 80], [reportPath, 2000]]) {
       for (const token of [undefined, 'invalid']) {
         expect((await request(page, path, 'POST', values, token)).status()).toBe(403);
@@ -1330,20 +1345,27 @@ test('atlas annotation API writes owner data while the unavailable atlas hides i
         expect((await request(page, path, 'POST', { ...values, ...invalid }, ownMarkers.csrf_token)).status()).toBe(422);
         expect(await snapshot()).toEqual(baseline);
       }
+      for (const { screen, csrf } of outsiders) {
+        expect((await request(screen, path, 'POST', { ...values, account_id: owner.id }, csrf)).status()).toBe(422);
+        expect(await snapshot()).toEqual(baseline);
+        expect(await outsiderState()).toEqual([]);
+      }
     }
     const created = await request(page, markerPath, 'POST', values, ownMarkers.csrf_token);
     expect(created.status()).toBe(201);
     const marker = { id: (await created.json()).id, x: 42, y: 86, floor: 7, label: text };
     expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
     expect((await (await page.request.get(markerPath)).json()).markers).toEqual([marker]);
-    expect((await (await other.request.get(markerPath)).json()).markers).toEqual([]);
     const target = `${markerPath}/${marker.id}`;
     for (const token of [undefined, 'invalid']) {
       expect((await request(page, target, 'DELETE', undefined, token)).status()).toBe(403);
       expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
     }
-    expect((await request(other, target, 'DELETE', undefined, otherMarkers.csrf_token)).status()).toBe(404);
-    expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
+    for (const { screen, csrf } of outsiders) {
+      expect((await (await screen.request.get(markerPath)).json()).markers).toEqual([]);
+      expect((await request(screen, target, 'DELETE', undefined, csrf)).status()).toBe(404);
+      expect(await snapshot()).toEqual({ ...baseline, markers: [marker] });
+    }
     expect((await request(page, target, 'DELETE', undefined, ownMarkers.csrf_token)).status()).toBe(204);
     expect((await (await page.request.get(markerPath)).json()).markers).toEqual([]);
     expect((await request(page, target, 'DELETE', undefined, ownMarkers.csrf_token)).status()).toBe(404);
@@ -1356,43 +1378,54 @@ test('atlas annotation API writes owner data while the unavailable atlas hides i
       ...baseline, reports: [{ x: 42, y: 86, floor: 7, description: text, status: 'pending' }],
     });
   } finally {
-    await context.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
-test('console exposes unavailable Game agents and creates no read requests', async ({ page }, info) => {
+test('console exposes unavailable Game agents and creates no read requests', async ({ page, browser }, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
-  const viewer = await seededPlayer(page, lang, 'game_viewer');
-  await page.goto(`/${lang}/account/privacy`);
-  const { url, fields } = await prepare(page, formSelector);
-  const snapshot = () => query('SELECT request_id FROM admin_control_requests WHERE actor=$1', [viewer.id]);
-  const baseline = await snapshot();
-  expect(baseline).toEqual([]);
-  const agent = 'matrix-no-agent';
-  const unavailable = lang === 'pl' ? 'Niedostępne' : 'Unavailable';
-  const config = [
-    ['dashboard', 'ops.overview.get', ''],
-    ['worlds', 'world.list', ''],
-    ['worlds', 'world.get', 'matrix-world'],
-    ['nodes', 'node.list', ''],
-    ['nodes', 'node.get', 'matrix-node'],
-    ['database', 'db.status', ''],
-    ['database', 'db.migrations.list', ''],
-  ];
-  for (const [section, operation, target] of config) {
-    const path = `/console/${section}`;
-    const params = new URLSearchParams({ lang, agent, ...(target ? { target } : {}) });
-    expect((await page.goto(`${path}?${params}`)).status()).toBe(200);
-    await expect(page.locator('main')).toContainText(`R0 · ${unavailable}`);
-    await expect(page.locator('main form[method=post]')).toHaveCount(0);
-    const options = {
-      page, url: new URL(path, url).href, fields: { _csrf: fields._csrf, lang, agent, operation, target },
-      snapshot, baseline,
-    };
-    await rejected(options);
-    expect((await sendForm(page, options.url, options.fields)).status()).toBe(503);
-    expect(await snapshot()).toEqual(baseline);
+  const contexts = [];
+  try {
+    const viewer = await seededPlayer(page, lang, 'game_viewer');
+    const outsiders = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
+    await page.goto(`/${lang}/account/privacy`);
+    const { url, fields } = await prepare(page, formSelector);
+    const actorIDs = [viewer.id, ...outsiders.map(({ account }) => account.id)];
+    const snapshot = () => query('SELECT request_id FROM admin_control_requests WHERE actor=ANY($1::uuid[])', [actorIDs]);
+    const baseline = await snapshot();
+    expect(baseline).toEqual([]);
+    const agent = 'matrix-no-agent';
+    const unavailable = lang === 'pl' ? 'Niedostępne' : 'Unavailable';
+    const config = [
+      ['dashboard', 'ops.overview.get', ''],
+      ['worlds', 'world.list', ''],
+      ['worlds', 'world.get', 'matrix-world'],
+      ['nodes', 'node.list', ''],
+      ['nodes', 'node.get', 'matrix-node'],
+      ['database', 'db.status', ''],
+      ['database', 'db.migrations.list', ''],
+    ];
+    for (const [section, operation, target] of config) {
+      const path = `/console/${section}`;
+      const params = new URLSearchParams({ lang, agent, ...(target ? { target } : {}) });
+      expect((await page.goto(`${path}?${params}`)).status()).toBe(200);
+      await expect(page.locator('main')).toContainText(`R0 · ${unavailable}`);
+      await expect(page.locator('main form[method=post]')).toHaveCount(0);
+      const options = {
+        page, url: new URL(path, url).href, fields: { _csrf: fields._csrf, lang, agent, operation, target },
+        snapshot, baseline,
+      };
+      await rejected(options);
+      for (const { screen, csrf } of outsiders) {
+        expect((await sendForm(screen, options.url, { ...options.fields, _csrf: csrf })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      expect((await sendForm(page, options.url, options.fields)).status()).toBe(503);
+      expect(await snapshot()).toEqual(baseline);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -1433,7 +1466,10 @@ test('consent forms record independent scoped grants and revocations', async ({ 
       for (const patch of [
         { version: '' }, { version: 'a'.repeat(129) }, { granted: 'abc' }, { kind: 'play_session ' },
       ]) {
-        expect((await sendForm(page, url, { ...fields, ...patch })).status()).toBe(400);
+        const refused = await sendForm(page, url, { ...fields, ...patch });
+        expect(refused.status()).toBe(400);
+        expect(await refused.text()).toContain(lang === 'pl'
+          ? 'Sprawdź żądanie i spróbuj ponownie.' : 'Check the request and try again.');
         expect(await state()).toEqual(baseline);
       }
       const outdated = await sendForm(page, url, { ...fields, version: '2000-01-01.1' });
@@ -1465,6 +1501,7 @@ test('OAuth consent form approves or denies the checked client and binds its cod
   const context = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
   });
+  const contexts = [context];
   try {
     const owner = await seededPlayer(page, lang);
     const anonymous = await context.newPage();
@@ -1490,6 +1527,24 @@ test('OAuth consent form approves or denies the checked client and binds its cod
     expect(await readCodes()).toEqual([]);
     await rejected({ page, url, fields, snapshot: readCodes, baseline: [] });
     await wrongActor({ page: anonymous, lang, url, fields, status: 400, snapshot: readCodes, baseline: [] });
+    for (const { screen, account, csrf } of await foreignActors(browser, info.project, lang, contexts, 'content_editor')) {
+      for (const decision of ['approve', 'deny']) {
+        const attempt = await sendForm(screen, url, { ...fields, _csrf: csrf, decision, account_id: owner.id });
+        expect(attempt.status()).toBe(400);
+        expect(await attempt.json()).toEqual({
+          error: 'invalid_request',
+          error_description: 'The request is missing a required parameter or is malformed.',
+        });
+        expect(await readCodes()).toEqual([]);
+        expect(await query(
+          'SELECT account_id FROM oauth_authorization_codes WHERE account_id=$1', [account.id],
+        )).toEqual([]);
+        expect(await query(
+          "SELECT event FROM oauth_security_events WHERE account_id=$1 AND event='consent_denied'",
+          [account.id],
+        )).toEqual([]);
+      }
+    }
 
     for (const patch of [
       { decision: '' }, { decision: 'a'.repeat(513) },
@@ -1531,7 +1586,7 @@ test('OAuth consent form approves or denies the checked client and binds its cod
     expect((await page.request.post('/oauth/token', { form: exchange })).status()).toBe(400);
     expect(await readCodes()).toEqual([{ account_id: owner.id, client_id: client, used: true }]);
   } finally {
-    await context.close();
+    await Promise.all(contexts.map(context => context.close()));
   }
 });
 
@@ -1801,7 +1856,14 @@ test('news aliases preserve bilingual publication, revision conflicts and scoped
         expect(await state()).toEqual(baseline);
       }
       for (const [patch, status] of samples) {
-        expect((await sendForm(page, url, { ...fields, ...patch }, method)).status()).toBe(status);
+        const refused = await sendForm(page, url, { ...fields, ...patch }, method);
+        expect(refused.status()).toBe(status);
+        const message = status === 409
+          ? (lang === 'pl' ? 'Wpis zmienił się od czasu otwarcia formularza. Odśwież stronę i spróbuj ponownie.'
+            : 'The news entry changed after you opened the form. Reload and try again.')
+          : (lang === 'pl' ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+            : 'Some information could not be accepted. Check your input and try again.');
+        expect(await refused.text()).toContain(message);
         expect(await state()).toEqual(baseline);
       }
       return { ...prepared, target: url };
@@ -2086,7 +2148,13 @@ test('staff roles create, edit, grant and revoke only under admin.roles.manage',
         expect(await state()).toEqual(baseline);
       }
       for (const [patch, status] of samples) {
-        expect((await sendForm(page, url, { ...fields, ...patch })).status()).toBe(status);
+        const refused = await sendForm(page, url, { ...fields, ...patch });
+        expect(refused.status()).toBe(status);
+        const message = status === 400
+          ? (lang === 'pl' ? 'Sprawdź żądanie i spróbuj ponownie.' : 'Check the request and try again.')
+          : (lang === 'pl' ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+            : 'Some information could not be accepted. Check your input and try again.');
+        expect(await refused.text()).toContain(message);
         expect(await state()).toEqual(baseline);
       }
     };
@@ -3002,6 +3070,12 @@ test('editorial media forms persist verified bytes and remove one asset through 
     const upload = 'main form[action="/admin/media"]';
     const origin = new URL(info.project.use.baseURL).origin;
     const target = new URL('/admin/media', origin).href;
+    const invalidImage = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const invalidID = lang === 'pl'
+      ? 'Sprawdź żądanie i spróbuj ponownie.'
+      : 'Check the request and try again.';
     for (const method of ['POST', 'DELETE']) {
       expect((await page.goto(path)).status()).toBe(200);
       const alt = `Matrix verified image ${randomUUID()}`;
@@ -3011,7 +3085,9 @@ test('editorial media forms persist verified bytes and remove one asset through 
       );
       const token = await page.locator(`${upload} [name=_csrf]`).inputValue();
       const send = (screen, csrf, multipart) => screen.request.post(target, {
-        multipart, headers: { origin, ...(csrf === undefined ? {} : { 'x-csrf-token': csrf }) }, maxRedirects: 0,
+        multipart, headers: {
+          origin, 'accept-language': lang, ...(csrf === undefined ? {} : { 'x-csrf-token': csrf }),
+        }, maxRedirects: 0,
       });
       const uploadAudit = () => query(
         "SELECT target FROM audit_log WHERE actor=$1 AND action='editorial_media.uploaded' ORDER BY created_at,id",
@@ -3034,7 +3110,9 @@ test('editorial media forms persist verified bytes and remove one asset through 
         { image: { ...image, name: 'local.jpeg', mimeType: 'image/jpeg' }, alt_text: alt },
         { image: { ...image, buffer: Buffer.alloc(0) }, alt_text: alt },
       ]) {
-        expect((await send(page, token, input)).status()).toBe(422);
+        const refusal = await send(page, token, input);
+        expect(refusal.status()).toBe(422);
+        expect(await refusal.text()).toBe(invalidImage);
         expect(await snapshot()).toEqual([]);
         expect(await uploadAudit()).toEqual(before);
       }
@@ -3065,9 +3143,15 @@ test('editorial media forms persist verified bytes and remove one asset through 
         expect((await sendForm(other, revoke, { ...deletion.fields, _csrf: token }, method)).status()).toBe(403);
         expect(await snapshot()).toEqual([stored]);
       }
-      const malformed = new URL(`/admin/media/not-an-id${method === 'POST' ? '/delete' : ''}`, origin);
-      expect((await sendForm(page, malformed.href, deletion.fields, method)).status()).toBe(400);
-      expect(await snapshot()).toEqual([stored]);
+      for (const invalid of ['%20', 'a'.repeat(37), 'not-an-id', '00000000-0000-0000-0000-00000000000']) {
+        const malformed = new URL(`/admin/media/${invalid}${method === 'POST' ? '/delete' : ''}`, origin);
+        const refusal = await page.request.fetch(malformed.href, {
+          method, form: deletion.fields, headers: { origin, 'accept-language': lang }, maxRedirects: 0,
+        });
+        expect(refusal.status()).toBe(400);
+        expect(await refusal.text()).toBe(invalidID);
+        expect(await snapshot()).toEqual([stored]);
+      }
       await useFormMethod(page, deletion.url, method, () => submit(page, selector), revoke);
       await expect(page).toHaveURL(new URL('/admin/media', origin).href);
       await expect(visible).toHaveCount(0);
@@ -3492,7 +3576,7 @@ test('admin control step-up consumes one TOTP and approval requires an accepted 
     const totp = new TOTP({ secret: await page.locator('main .op-prose').innerText(), algorithm: 'SHA1', digits: 6, period: 30 });
     await submit(page, 'main form[action$="/mfa/confirm"]', { password: staff.password, code: totp.generate() });
     const recovery = await page.locator('textarea[readonly]').first().inputValue();
-    await loginWithRecoveryCode(page, lang, staff, recovery);
+    await signInWithRecoveryCode(page, lang, staff, recovery);
     await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
 
     const wrong = [];
@@ -4241,6 +4325,137 @@ for (const [prefix, revokeMethod] of [
   });
 }
 
+test('legacy support queues preserve actor permissions, private notes and report resolution', async ({ page, browser }, info) => {
+  test.setTimeout(900_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const open = async role => {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const account = await seededPlayer(screen, lang, role);
+    await screen.goto(`/${lang}/account/privacy`);
+    return { screen, account, csrf: (await prepare(screen, formSelector)).fields._csrf };
+  };
+  try {
+    const owner = await seededPlayer(page, lang);
+    const staff = await open('support');
+    const wrong = [await open(), await open('content_editor')];
+    const invalidMessage = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const prepareChecks = async (selector, values, snapshot, samples) => {
+      const proposal = await prepare(staff.screen, selector, values);
+      const baseline = await snapshot();
+      await rejected({ page: staff.screen, ...proposal, snapshot, baseline });
+      for (const { screen, csrf } of wrong) {
+        expect((await sendForm(screen, proposal.url, { ...proposal.fields, _csrf: csrf })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await invalid({ page: staff.screen, ...proposal, samples, message: invalidMessage, snapshot, baseline });
+      return proposal;
+    };
+    const createTicket = `/${lang}/support/tickets/create`;
+    const subject = `Legacy support matrix ${randomUUID()}`;
+    expect((await page.goto(createTicket)).status()).toBe(200);
+    await submit(page, formSelector, { subject, body: 'Original matrix support request.' });
+    await expect(page).toHaveURL(/\/support\/tickets\/[a-f0-9-]+$/);
+    const ownerTicket = new URL(page.url()).pathname;
+    const ticketId = ownerTicket.split('/').at(-1);
+    const staffTicket = `/admin/support/tickets/${ticketId}`;
+    expect((await staff.screen.goto(staffTicket)).status()).toBe(200);
+    const ticket = () => query(
+      `SELECT status,lock_version::int AS version,
+         (SELECT jsonb_agg(jsonb_build_object('body',body,'internal',internal,'author',author_kind) ORDER BY id)
+          FROM ticket_messages WHERE ticket_id=$1) AS messages
+       FROM tickets WHERE id=$1 AND account_id=$2`, [ticketId, owner.id],
+    );
+    const reply = 'main form:has([name=action][value=reply])';
+    let expected = { status: 'open', version: 1, messages: [
+      { body: 'Original matrix support request.', internal: false, author: 'user' },
+    ] };
+    expect(await ticket()).toEqual([expected]);
+    for (const internal of [false, true]) {
+      const body = internal ? 'Private support matrix comment.' : 'Public support matrix reply.';
+      const proposal = await prepareChecks(reply, { body, ...(internal ? { internal: 'true' } : {}) }, ticket, [
+        { name: 'empty reply', patch: { body: '' } },
+        { name: 'overlong reply', patch: { body: 'x'.repeat(8001) } },
+        { name: 'wrong lock version type', patch: { lock_version: 'text' } },
+        { name: 'reply below the minimum non-whitespace length', patch: { body: ' ' } },
+      ]);
+      await submit(staff.screen, reply, { body, internal });
+      await expect(staff.screen.getByText(body, { exact: true })).toBeVisible();
+      expected = { status: 'waiting_user', version: expected.version + 1,
+        messages: [...expected.messages, { body, internal, author: 'staff' }] };
+      expect(await ticket()).toEqual([expected]);
+      expect((await sendForm(staff.screen, proposal.url, proposal.fields)).status()).toBe(409);
+      expect(await ticket()).toEqual([expected]);
+      await page.goto(ownerTicket);
+      await expect(page.getByText(body, { exact: true })).toHaveCount(internal ? 0 : 1);
+    }
+    const statusForm = 'main form:has([name=action][value=ticket_status])';
+    for (const status of ['waiting_staff', 'waiting_user', 'resolved', 'closed', 'open']) {
+      const proposal = await prepareChecks(statusForm, { status }, ticket, [
+        { name: 'empty status', patch: { status: '' } },
+        { name: 'overlong status', patch: { status: 'x'.repeat(128) } },
+        { name: 'wrong version type', patch: { lock_version: 'v1' } },
+        { name: 'version below one', patch: { lock_version: '0' } },
+      ]);
+      await staff.screen.locator(`${statusForm} [name=status]`).selectOption(status);
+      await submit(staff.screen, statusForm);
+      await expect(staff.screen).toHaveURL(new URL(staffTicket, proposal.url).href);
+      expected = { ...expected, status, version: expected.version + 1 };
+      expect(await ticket()).toEqual([expected]);
+      expect((await sendForm(staff.screen, proposal.url, proposal.fields)).status()).toBe(409);
+      expect(await ticket()).toEqual([expected]);
+    }
+
+    const makeReport = async () => {
+      const target = `Matrix report ${randomUUID()}`;
+      expect((await page.goto(`/${lang}/support/reports/create`)).status()).toBe(200);
+      await submit(page, formSelector, { target_reference: target, evidence_summary: 'Disposable test evidence.' });
+      await expect(page).toHaveURL(/\/support\/reports\/[a-f0-9-]+$/);
+      const ownerUrl = new URL(page.url()).pathname;
+      return { id: ownerUrl.split('/').at(-1), ownerUrl };
+    };
+    for (const outcome of ['actioned', 'rejected']) {
+      const { id, ownerUrl } = await makeReport();
+      const report = () => query(
+        'SELECT status,lock_version::int AS version,public_outcome,moderator_notes,assigned_to FROM player_reports WHERE id=$1 AND reporter_account_id=$2',
+        [id, owner.id],
+      );
+      const staffReport = `/admin/moderation/reports/${id}`;
+      expect((await staff.screen.goto(staffReport)).status()).toBe(200);
+      const edit = 'main form:has([name=action][value=moderate])';
+      let baseline = { status: 'submitted', version: 1, public_outcome: null, moderator_notes: null, assigned_to: null };
+      for (const status of ['submitted', 'reviewing', outcome, 'closed']) {
+        expect(await report()).toEqual([baseline]);
+        const values = { public_outcome: `Staff outcome ${status} ${id}`, moderator_notes: 'Private case review.' };
+        const proposal = await prepareChecks(edit, { ...values, status }, report, [
+          { name: 'empty status', patch: { status: '' } },
+          { name: 'overlong public outcome', patch: { public_outcome: 'x'.repeat(4001) } },
+          { name: 'wrong version type', patch: { lock_version: 'v1' } },
+          { name: 'version below one', patch: { lock_version: '0' } },
+        ]);
+        await staff.screen.locator(`${edit} [name=status]`).selectOption(status);
+        await submit(staff.screen, edit, values);
+        await expect(staff.screen).toHaveURL(new URL(staffReport, proposal.url).href);
+        baseline = { ...values, status, version: baseline.version + 1, assigned_to: staff.account.id };
+        expect(await report()).toEqual([baseline]);
+        expect((await sendForm(staff.screen, proposal.url, proposal.fields)).status()).toBe(409);
+        expect(await report()).toEqual([baseline]);
+        expect((await page.goto(ownerUrl)).status()).toBe(200);
+        await expect(page.getByText(values.public_outcome, { exact: true })).toBeVisible();
+        await expect(page.getByText(values.moderator_notes, { exact: true })).toHaveCount(0);
+      }
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
 test('staff commerce separates submission, approval, cancellation and wallet effects', async ({ page, browser }, info) => {
   test.setTimeout(600_000);
   const lang = info.project.metadata.locale;
@@ -4524,8 +4739,7 @@ for (const kind of ['character', 'item']) {
       if (!hasMfa) {
         await enrollMfa(screen, lang, account);
         const code = await screen.locator('textarea[readonly]').first().inputValue();
-        await loginWithRecoveryCode(screen, lang, account, code);
-        await expect(screen).toHaveURL(new RegExp(`/${lang}/$`));
+        await signInWithRecoveryCode(screen, lang, account, code);
       }
       expect((await screen.goto(`/${lang}/account/sudo`)).status()).toBe(200);
       await submit(screen, formSelector, { current_password: account.password });
@@ -4629,3 +4843,296 @@ for (const kind of ['character', 'item']) {
     }
   });
 }
+
+test('staff player forms record a note, revoke sessions and require independent MFA reset approval', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const open = async role => {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const account = await seededPlayer(screen, lang, role);
+    await screen.goto(`/${lang}/account/privacy`);
+    return { screen, account, token: (await prepare(screen, formSelector)).fields._csrf };
+  };
+  try {
+    const player = await seededPlayer(page, lang);
+    await enrollMfa(page, lang, player);
+    const codes = page.locator('textarea[readonly]');
+    await expect(codes).toHaveCount(8);
+    const backups = await codes.allTextContents();
+    await signInWithRecoveryCode(page, lang, player, backups[0]);
+    const support = await open('support');
+    const admin = await open('platform_admin');
+    const wrong = [await open(), await open('content_editor')];
+    const path = `/admin/players/${player.id}`;
+    const snapshot = async () => ({
+      notes: await query('SELECT author,body FROM player_notes WHERE account_id=$1 ORDER BY id', [player.id]),
+      sessions: await query('SELECT count(*)::int AS count FROM web_sessions WHERE account_id=$1', [player.id]),
+      identity: await query(
+        'SELECT login_mfa_required,native_security_generation::int AS generation FROM accounts WHERE id=$1', [player.id],
+      ),
+      evidence: await query(
+        'SELECT id,ticket_id,verified_by FROM support_mfa_reset_evidence WHERE account_id=$1 ORDER BY id', [player.id],
+      ),
+      resets: await query(
+        'SELECT id,requested_by,approved_by,evidence,reason FROM player_mfa_reset_requests WHERE account_id=$1 ORDER BY id', [player.id],
+      ),
+    });
+    const button = operation => `main form:has(button[name=action][value=${operation}])`;
+    const reason = 'Verified report from the disposable player tools fixture.';
+    const wrongText = field => [
+      [{ [field]: '' }, 400], [{ [field]: 'x'.repeat(field === 'body' ? 4001 : 501) }, 400],
+      [{ action: 'bad-type' }, 400], [{ [field]: ' ' }, 400],
+    ];
+    const wrongId = field => [
+      [{ [field]: '' }, 422], [{ [field]: 'x'.repeat(65) }, 422], [{ [field]: '1' }, 422],
+      [{ [field]: '00000000-0000-0000-0000-000000000000' }, 400],
+    ];
+    const check = async (actor, operation, values, samples) => {
+      const selector = button(operation);
+      const proposal = await prepare(actor.screen, selector, { action: operation, ...values });
+      const baseline = await snapshot();
+      await rejected({ page: actor.screen, ...proposal, snapshot, baseline });
+      for (const { screen, token } of wrong) {
+        expect((await sendForm(screen, proposal.url, { ...proposal.fields, _csrf: token })).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      const messages = {
+        400: lang === 'pl' ? 'Sprawdź żądanie i spróbuj ponownie.' : 'Check the request and try again.',
+        422: lang === 'pl' ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+          : 'Some information could not be accepted. Check your input and try again.',
+      };
+      for (const [patch, status] of samples) {
+        const denied = await sendForm(actor.screen, proposal.url, { ...proposal.fields, ...patch });
+        expect(denied.status()).toBe(status);
+        expect(await denied.text()).toContain(messages[status]);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      return { selector, ...proposal, baseline };
+    };
+    expect((await support.screen.goto(path)).status()).toBe(200);
+    const note = await check(support, 'note', { body: reason }, wrongText('body'));
+    await action(support.screen, note.selector, { body: reason }, 'note');
+    await expect(support.screen.getByText(reason, { exact: true })).toBeVisible();
+    expect(await snapshot()).toEqual({ ...note.baseline, notes: [{ author: support.account.id, body: reason }] });
+
+    const logout = await check(support, 'logout', { reason }, wrongText('reason'));
+    await action(support.screen, logout.selector, { reason }, 'logout');
+    await expect(support.screen).toHaveURL(new URL(path, logout.url).href);
+    await page.goto(`/${lang}/account/sessions`);
+    await expect(page).toHaveURL(/\/login$/);
+    expect((await snapshot()).sessions).toEqual([{ count: 0 }]);
+    await signInWithRecoveryCode(page, lang, player, backups[1]);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+
+    expect((await page.goto(`/${lang}/support/tickets/create`)).status()).toBe(200);
+    await page.locator('main select[name=category]').selectOption('account');
+    await submit(page, formSelector, { subject: 'Disposable account ownership ticket', body: reason });
+    await expect(page).toHaveURL(/\/support\/tickets\/[a-f0-9-]+$/);
+    const ticket = new URL(page.url()).pathname.split('/').at(-1);
+    const proof = await check(support, 'verify-identity', { ticket }, wrongId('ticket'));
+    await action(support.screen, proof.selector, { ticket }, 'verify-identity');
+    await expect(support.screen).toHaveURL(/\?evidence=[a-f0-9-]+$/);
+    const evidence = new URL(support.screen.url()).searchParams.get('evidence');
+    expect((await snapshot()).evidence).toEqual([{ id: evidence, ticket_id: ticket, verified_by: support.account.id }]);
+    const request = await check(support, 'request-reset', { evidence, reason }, wrongId('evidence'));
+    await action(support.screen, request.selector, { evidence, reason }, 'request-reset');
+    await expect(support.screen).toHaveURL(/\?request=[a-f0-9-]+$/);
+    const requestId = new URL(support.screen.url()).searchParams.get('request');
+    const queued = [{ id: requestId, requested_by: support.account.id, approved_by: null, evidence, reason }];
+    expect((await snapshot()).resets).toEqual(queued);
+
+    expect((await admin.screen.goto(path)).status()).toBe(200);
+    const approval = await check(admin, 'approve-reset', { request: requestId }, wrongId('request'));
+    expect((await sendForm(support.screen, approval.url, { ...approval.fields, _csrf: support.token })).status()).toBe(403);
+    expect(await snapshot()).toEqual(approval.baseline);
+    await action(admin.screen, approval.selector, { request: requestId }, 'approve-reset');
+    await expect(admin.screen).toHaveURL(new URL(path, approval.url).href);
+    const cleared = await snapshot();
+    expect(cleared.resets).toEqual([{ ...queued[0], approved_by: admin.account.id }]);
+    expect(cleared.identity[0].login_mfa_required).toBe(false);
+    expect(cleared.sessions).toEqual([{ count: 0 }]);
+    expect((await sendForm(admin.screen, approval.url, approval.fields)).status()).toBe(403);
+    expect(await snapshot()).toEqual(cleared);
+    await login(page, lang, player);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+
+    const kicked = await check(admin, 'kick', { reason }, wrongText('reason'));
+    await action(admin.screen, kicked.selector, { reason }, 'kick');
+    await expect(admin.screen).toHaveURL(new URL(path, kicked.url).href);
+    expect((await snapshot()).identity).toEqual([{
+      ...kicked.baseline.identity[0], generation: kicked.baseline.identity[0].generation + 1,
+    }]);
+    expect(await query(
+      "SELECT action FROM audit_log WHERE target=$1 AND action IN ('players.note.added','players.logout_all','players.kick','players.mfa_reset.identity_verified','players.mfa_reset.requested','players.mfa_reset.completed') ORDER BY created_at,id", [player.id],
+    )).toEqual(['players.note.added', 'players.logout_all', 'players.mfa_reset.identity_verified',
+      'players.mfa_reset.requested', 'players.mfa_reset.completed', 'players.kick'].map(action => ({ action })));
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('referral link and invitation forms bind eligible players and preserve one invitation on replay', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  const path = `/${lang}/account/referrals`;
+  const open = async role => {
+    const context = await browser.newContext({
+      baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+    });
+    contexts.push(context);
+    const screen = await context.newPage();
+    const account = await seededPlayer(screen, lang, role);
+    await screen.goto(`/${lang}/account/privacy`);
+    return { screen, account, token: (await prepare(screen, formSelector)).fields._csrf };
+  };
+  const [coverage] = await query('SELECT covered_since::text FROM portal_referral_coverage WHERE id');
+  try {
+    const inviter = await seededPlayer(page, lang);
+    const existing = [await open(), await open('content_editor')];
+    const state = async () => ({
+      links: await query('SELECT code FROM referral_links WHERE account_id=$1', [inviter.id]),
+      sent: await query(
+        `SELECT i.recipient,i.kind,count(a.id)::int AS deliveries
+         FROM referral_email_invitations i LEFT JOIN referral_email_attempts a ON a.invitation_id=i.id
+         WHERE i.inviter_id=$1 GROUP BY i.id ORDER BY i.id`, [inviter.id],
+      ),
+      bound: await query('SELECT invitee_id,kind FROM referral_campaign_invitations WHERE inviter_id=$1 ORDER BY id', [inviter.id]),
+    });
+    const empty = { links: [], sent: [], bound: [] };
+    expect(await state()).toEqual(empty);
+    const validation = lang === 'pl' ? 'Sprawdź adres e-mail i spróbuj ponownie.'
+      : 'Check the e-mail address and try again.';
+    const rejectedInput = async (offer, invalid, baseline) => {
+      for (const patch of invalid) {
+        const response = await sendForm(page, offer.url, { ...offer.fields, ...patch });
+        expect(response.status()).toBe(400);
+        expect(await response.text()).toContain(validation);
+        expect(await state()).toEqual(baseline);
+      }
+    };
+    const checkOverride = async (offer, baseline) => {
+      for (const { screen, token, account } of existing) {
+        const submitted = await sendForm(screen, offer.url, {
+          ...offer.fields, _csrf: token, inviter_id: inviter.id,
+        });
+        expect(submitted.status()).toBe(422);
+        expect(await state()).toEqual(baseline);
+        expect(await query('SELECT code FROM referral_links WHERE account_id=$1', [account.id])).toEqual([]);
+      }
+    };
+    expect((await page.goto(path)).status()).toBe(200);
+    const button = 'main button[name=kind][value=link]';
+    const linkForm = 'main form:has(button[name=kind][value=link])';
+    const create = await prepare(page, linkForm, { kind: 'link' });
+    await rejected({ page, ...create, snapshot: state, baseline: empty });
+    await checkOverride(create, empty);
+    await rejectedInput(create, [{ kind: '' }, { kind: 'x'.repeat(128) }, { kind: '1' }, { kind: 'link ' }], empty);
+    await page.locator(button).click();
+    const shown = page.locator('#invite-link');
+    await expect(shown).toBeVisible();
+    const link = new URL(await shown.inputValue());
+    expect(link.pathname).toMatch(new RegExp(`/${lang}/referrals/[a-f0-9-]+$`));
+    const linked = { ...empty, links: [{ code: link.pathname.split('/').at(-1) }] };
+    expect(await state()).toEqual(linked);
+    expect((await sendForm(page, create.url, create.fields)).status()).toBe(303);
+    expect(await state()).toEqual(linked);
+
+    const newSelector = 'main form:has(input[name=kind][value=new])';
+    const recipient = `matrix-recipient-${randomUUID()}@local.test`;
+    const invitation = await prepare(page, newSelector, { email: recipient });
+    await rejected({ page, ...invitation, snapshot: state, baseline: linked });
+    await checkOverride(invitation, linked);
+    const badAddress = [{ email: '' }, { email: `${'a'.repeat(255)}@local.test` }, { email: 'type' }, { email: '.first@local.test' }];
+    await rejectedInput(invitation, badAddress, linked);
+    await submit(page, newSelector, { email: recipient });
+    const notice = lang === 'pl'
+      ? 'Jeśli adres spełnia warunki, zaproszenie trafi do kolejki. Dane kont nie są ujawniane.'
+      : 'If the address is eligible, the invitation is queued. No account details are disclosed.';
+    await expect(page.getByRole('status')).toHaveText(notice);
+    const mailed = { ...linked, sent: [{ recipient, kind: 'new', deliveries: 1 }] };
+    expect(await state()).toEqual(mailed);
+    expect((await sendForm(page, invitation.url, invitation.fields)).status()).toBe(303);
+    expect(await state()).toEqual(mailed);
+
+    const returning = 'main form:has(input[name=kind][value=returning])';
+    const comeback = await prepare(page, returning, { email: existing[0].account.email });
+    await rejected({ page, ...comeback, snapshot: state, baseline: mailed });
+    await checkOverride(comeback, mailed);
+    await rejectedInput(comeback, badAddress, mailed);
+    await submit(page, returning, { email: existing[0].account.email });
+    await expect(page.getByRole('status')).toHaveText(notice);
+    expect(await state()).toEqual(mailed);
+
+    // Use the same historical coverage prerequisites as the referral service tests.
+    const buddy = existing[0];
+    await query("UPDATE portal_referral_coverage SET covered_since=clock_timestamp()-interval '13 months' WHERE id");
+    await query("UPDATE accounts SET created_at=clock_timestamp()-interval '14 months' WHERE id=$1", [buddy.account.id]);
+    const aged = await query(
+      `UPDATE referral_activity SET last_activity=clock_timestamp()-interval '13 months',
+         created_at=clock_timestamp()-interval '13 months' WHERE account_id=$1 RETURNING account_id`,
+      [buddy.account.id],
+    );
+    expect(aged).toEqual([{ account_id: buddy.account.id }]);
+    const qualified = await prepare(page, returning, { email: buddy.account.email });
+    await submit(page, returning, { email: buddy.account.email });
+    await expect(page.getByRole('status')).toHaveText(notice);
+    const bothMailed = {
+      ...mailed,
+      sent: [...mailed.sent, { recipient: buddy.account.email, kind: 'returning', deliveries: 1 }],
+      bound: [{ invitee_id: buddy.account.id, kind: 'returning' }],
+    };
+    expect(await state()).toEqual(bothMailed);
+    expect((await sendForm(page, qualified.url, qualified.fields)).status()).toBe(303);
+    expect(await state()).toEqual(bothMailed);
+    const returningLink = await mailLink(buddy.screen, buddy.account.email,
+      /https:\/\/localhost:\d+\/(?:pl|en)\/referrals\/[a-f0-9-]{36}/, 120_000);
+    expect((await buddy.screen.goto(returningLink)).status()).toBe(200);
+    const returningForm = await prepare(buddy.screen, formSelector);
+    await rejected({ page: buddy.screen, ...returningForm, snapshot: state, baseline: bothMailed });
+    const unrelated = existing[1];
+    expect((await sendForm(unrelated.screen, returningForm.url, {
+      ...returningForm.fields, _csrf: unrelated.token,
+    })).status()).toBe(403);
+    expect(await state()).toEqual(bothMailed);
+    await submit(buddy.screen, formSelector);
+    await expect(buddy.screen).toHaveURL(new URL(path, returningLink).href);
+    const accepted = bothMailed;
+    expect(await state()).toEqual(accepted);
+    expect((await sendForm(buddy.screen, returningForm.url, returningForm.fields)).status()).toBe(303);
+    expect(await state()).toEqual(accepted);
+
+    const invitee = await open();
+    expect((await invitee.screen.goto(link.href)).status()).toBe(200);
+    const accept = await prepare(invitee.screen, formSelector);
+    await rejected({ page: invitee.screen, ...accept, snapshot: state, baseline: accepted });
+    await page.goto(link.href);
+    const ownerToken = (await prepare(page, formSelector)).fields._csrf;
+    for (const { screen, token } of [{ screen: page, token: ownerToken }, ...existing]) {
+      expect((await sendForm(screen, accept.url, { ...accept.fields, _csrf: token })).status()).toBe(403);
+      expect(await state()).toEqual(accepted);
+    }
+    const nilLink = new URL(`/${lang}/referrals/00000000-0000-0000-0000-000000000000`, link);
+    const refusal = await sendForm(invitee.screen, nilLink.href, accept.fields);
+    expect(refusal.status()).toBe(400);
+    expect(await refusal.text()).toContain(validation);
+    expect(await state()).toEqual(accepted);
+    await submit(invitee.screen, formSelector);
+    await expect(invitee.screen).toHaveURL(new URL(path, accept.url).href);
+    const bound = { ...accepted, bound: [...accepted.bound, { invitee_id: invitee.account.id, kind: 'new' }] };
+    expect(await state()).toEqual(bound);
+    expect((await sendForm(invitee.screen, accept.url, accept.fields)).status()).toBe(303);
+    expect(await state()).toEqual(bound);
+    await page.goto(path);
+    await expect(page.locator('section[aria-labelledby=invitations] li')).toHaveText([lang === 'pl'
+      ? 'Nowy gracz — Oczekiwanie na płatny zakup' : 'New player — Waiting for a paid purchase']);
+  } finally {
+    await query('UPDATE portal_referral_coverage SET covered_since=$1::timestamptz WHERE id', [coverage.covered_since]);
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
