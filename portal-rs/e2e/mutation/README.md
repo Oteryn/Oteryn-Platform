@@ -51,6 +51,7 @@ For a non-default build directory, export `PORTAL_E2E_BINARY` with the same bina
 | `/native-account/coin-checkout/{order_id}` (pay and fail) | Real test-provider form and visible terminal outcome | Yes | Foreign player and support staff | Four localized invalid decision cases | Exactly one provider event. Pay credits once and fail leaves no credit |
 | News create and update (POST and PUT) | Both languages, persisted text and staff audit | Yes | Foreign player and support staff | Malformed title, time and slug refused | Stale revision refused on update |
 | News deletion (POST and DELETE) | Editor index and public 404, durable row removed and audited | Yes | Foreign player and support staff | Missing, overlength, malformed and stale revisions conflict | Repeat returns 404 with one deletion |
+| Event create, update and status (POST and PUT) | Draft, edit, schedule, publish, archive and return to draft. Status, version, translation and staff IDs checked | Yes | Foreign player and support staff | Localized validation of dates, titles and states | Stale revisions refused on updates and status changes |
 | `/{lang}/account/characters/new` | Queued, and publisher confirms creation | Yes | Anonymous | Yes | Submission replay |
 
 The documented unavailable views cover collection deck creation/deletion, battle start/turn/forfeit, season-pass purchase/claim, daily puzzle answers, and collection PvP and set purchases. The harness has no accepted collection ownership/progress adapter, season-pass authority adapters, daily puzzle catalogue, or the collection PvP gameplay and wallet adapters. The standard matrix proves that the character creation form persists one pending command. The publisher matrix proves the terminal receipt, durable portfolio, and visible creation result.
@@ -103,7 +104,10 @@ target. Neither the standard harness nor the Game publisher fixture
 exchanges control-agent hello or result envelopes. An authenticated Game
 viewer sees the localized unavailable state and no write form. All seven
 console operations reject valid-CSRF submissions with 503 and persist no
-control request.
+control request. Game player searches also require an agent with the player
+query capability. A Game support user reaches the unavailable results page
+from a valid POST and sees no form or persisted request. The matrix verifies
+CSRF, an unrelated player and content editor, and malformed searches.
 
 The remaining inventory rows need scenario fixtures and assertions. The table describes the cases implemented in this spec.
 

@@ -1755,3 +1755,171 @@ test('news aliases preserve bilingual publication, revision conflicts and scoped
     await Promise.all(contexts.map(context => context.close()));
   }
 });
+
+test('editorial event forms enforce publishing authority through creation, edits and status changes', async ({ page, browser }, info) => {
+  test.setTimeout(600_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const editor = await seededPlayer(page, lang, 'content_editor');
+    const unauthorized = [];
+    for (const role of [undefined, 'support']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const outsider = await context.newPage();
+      await seededPlayer(outsider, lang, role);
+      await outsider.goto(`/${lang}/account/privacy`);
+      const { fields } = await prepare(outsider, formSelector);
+      unauthorized.push({ outsider, token: fields._csrf });
+    }
+
+    const slug = `matrix-event-${randomUUID()}`;
+    const eventSnapshot = () => query(
+      `SELECT e.id,e.status,e.lock_version,e.created_by,e.updated_by,e.published_by,t.title
+       FROM events e JOIN event_translations t ON t.event_id=e.id WHERE t.slug=$1 AND t.locale='en'`,
+      [slug],
+    );
+    const inputError = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
+    const editorHeaders = { 'accept-language': lang };
+    await page.setExtraHTTPHeaders(editorHeaders);
+    const reject = async (selector, fields, samples, method = 'POST') => {
+      const baseline = await eventSnapshot();
+      const form = await prepare(page, selector, fields);
+      await rejected({ page, ...form, method, snapshot: eventSnapshot, baseline });
+      for (const { outsider, token } of unauthorized) {
+        expect((await sendForm(outsider, form.url, { ...form.fields, _csrf: token }, method)).status()).toBe(403);
+        expect(await eventSnapshot()).toEqual(baseline);
+      }
+      await invalid({ page, ...form, method, samples, message: inputError, snapshot: eventSnapshot, baseline });
+      return form;
+    };
+    const title = 'Matrix event version one';
+    const dateInput = hours => new Date(Date.now() + hours * 3600000).toISOString().slice(0, 16);
+    const draft = {
+      starts_at: dateInput(1), ends_at: dateInput(24),
+      en_title: title, en_slug: slug, en_summary: 'Local event', en_body: 'English event description',
+      pl_title: 'Lokalne wydarzenie', pl_slug: slug, pl_summary: 'Wydarzenie testowe', pl_body: 'Opis wydarzenia',
+    };
+    const detailsSelector = 'main form:has([name=en_title])';
+    const invalidDraft = [
+      { name: 'empty title', patch: { en_title: '' } },
+      { name: 'overlong title', patch: { en_title: 'a'.repeat(201) } },
+      { name: 'invalid time representation', patch: { starts_at: 'not-a-datetime' } },
+      { name: 'end time at the start boundary', patch: { ends_at: draft.starts_at } },
+    ];
+    expect((await page.goto('/admin/events/create')).status()).toBe(200);
+    await expect(page).toHaveURL(/\/admin\/events\/create$/);
+    expect(await eventSnapshot()).toEqual([]);
+    await reject(detailsSelector, draft, invalidDraft);
+    await submit(page, detailsSelector, draft);
+    await expect(page).toHaveURL(/\/admin\/events\/[0-9a-f-]+\/edit$/);
+    await expect(page.locator('[name=en_title]')).toHaveValue(title);
+    const edit = new URL(page.url()).pathname;
+    const id = edit.split('/').at(-2);
+    let stored = {
+      id, status: 'draft', lock_version: '1', created_by: editor.id,
+      updated_by: editor.id, published_by: null, title,
+    };
+    expect(await eventSnapshot()).toEqual([stored]);
+
+    for (const method of ['POST', 'PUT']) {
+      const nextTitle = `Matrix title edited through ${method}`;
+      const data = { en_title: nextTitle };
+      const form = await reject(detailsSelector, data, invalidDraft, method);
+      await useFormMethod(page, form.url, method, () => submit(page, detailsSelector, data));
+      await expect(page.locator('[name=en_title]')).toHaveValue(nextTitle);
+      stored = { ...stored, title: nextTitle, lock_version: String(Number(stored.lock_version) + 1) };
+      expect(await eventSnapshot()).toEqual([stored]);
+      expect((await sendForm(page, form.url, form.fields, method)).status()).toBe(409);
+      expect(await eventSnapshot()).toEqual([stored]);
+    }
+
+    for (const [status, method] of [
+      ['scheduled', 'POST'], ['published', 'PUT'], ['archived', 'POST'], ['draft', 'PUT'],
+    ]) {
+      const selector = 'main form[action$="/status"]';
+      const form = await reject(selector, { status }, [
+        { name: 'empty target status', patch: { status: '' } },
+        { name: 'overlong target status', patch: { status: 'x'.repeat(512) } },
+        { name: 'numeric target status', patch: { status: '1' } },
+        { name: 'unknown status beyond the accepted values', patch: { status: 'archived ' } },
+      ], method);
+      await page.locator(`${selector} select[name=status]`).selectOption(status);
+      await useFormMethod(page, form.url, method, () => submit(page, selector));
+      await expect(page).toHaveURL(new URL(edit, form.url).href);
+      stored = {
+        ...stored, status, published_by: status === 'draft' ? null : editor.id,
+        lock_version: String(Number(stored.lock_version) + 1),
+      };
+      expect(await eventSnapshot()).toEqual([stored]);
+      expect((await sendForm(page, form.url, form.fields, method)).status()).toBe(409);
+      expect(await eventSnapshot()).toEqual([stored]);
+      const visible = await page.goto(`/${lang}/events/${slug}`);
+      expect(visible.status()).toBe(status === 'published' ? 200 : 404);
+      if (status === 'published') {
+        await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? draft.pl_title : stored.title);
+      }
+      await page.goto(edit);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
+
+test('Game player search refuses unqualified actors and exposes the unavailable agent state', async ({ page, browser }, info) => {
+  test.setTimeout(420_000);
+  const lang = info.project.metadata.locale;
+  const contexts = [];
+  try {
+    const agent = await seededPlayer(page, lang, 'game_support');
+    const outsiders = [];
+    for (const role of [undefined, 'content_editor']) {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      });
+      contexts.push(context);
+      const outsider = await context.newPage();
+      await seededPlayer(outsider, lang, role);
+      await outsider.goto(`/${lang}/account/privacy`);
+      outsiders.push({ outsider, token: (await prepare(outsider, formSelector)).fields._csrf });
+    }
+    await page.goto(`/${lang}/account/privacy`);
+    const { url, fields } = await prepare(page, formSelector);
+    const path = '/admin/console/players';
+    const target = new URL(path, url).href;
+    const input = { _csrf: fields._csrf, q: 'Matrix Player', lang };
+    const state = () => query('SELECT request_id FROM admin_control_requests WHERE actor=$1', [agent.id]);
+    const baseline = await state();
+    expect(baseline).toEqual([]);
+    const unavailable = lang === 'pl' ? 'Niedostępne' : 'Unavailable';
+    expect((await page.goto(`${path}?lang=${lang}`)).status()).toBe(200);
+    await expect(page.locator('main')).toContainText(unavailable);
+    await expect(page.locator(formSelector)).toHaveCount(0);
+    await rejected({ page, url: target, fields: input, snapshot: state, baseline });
+    for (const { outsider, token } of outsiders) {
+      expect((await sendForm(outsider, target, { ...input, _csrf: token })).status()).toBe(403);
+      expect(await state()).toEqual(baseline);
+    }
+    for (const q of ['', 'a'.repeat(65), '&&', 'a']) {
+      expect((await sendForm(page, target, { ...input, q })).status()).toBe(400);
+      expect(await state()).toEqual(baseline);
+    }
+    const qualified = await sendForm(page, target, input);
+    expect(qualified.status()).toBe(303);
+    const result = new URL(qualified.headers().location, target);
+    expect(result.pathname).toBe(path);
+    expect(result.searchParams.get('q')).toBe(input.q);
+    // The secure GET requires same-origin navigation. Set the header on the
+    // actual navigation that follows the POST's server-generated destination.
+    expect((await page.goto(result.href, { referer: target })).status()).toBe(200);
+    await expect(page.locator('main')).toContainText(unavailable);
+    await expect(page.locator(formSelector)).toHaveCount(0);
+    expect(await state()).toEqual(baseline);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+  }
+});
