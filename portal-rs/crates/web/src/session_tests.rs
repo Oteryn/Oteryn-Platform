@@ -572,22 +572,6 @@ async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
     let account = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,locale,status,email_verified_at) VALUES($1,'passkey-menu@example.invalid','fixture','en','active',now())")
         .bind(account).execute(&db.pool).await?;
-    let session = BrowserSession::new(
-        db.pool.clone(),
-        SessionConfig::default(),
-        None,
-        "chrome test",
-    );
-    rotate(&session, PrivilegeChange::Login(account)).await?;
-    let id = session
-        .inner
-        .lock()
-        .await
-        .record
-        .as_ref()
-        .ok_or("missing record")?
-        .id
-        .clone();
     let layer = SessionLayer::new(db.pool.clone());
     let mut registry = oteryn_ui::Registry::default();
     registry.section(
@@ -608,12 +592,34 @@ async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
     ] {
         sqlx::query("UPDATE accounts SET status=$2,email_verified_at=CASE WHEN $3 THEN now() END,login_mfa_required=$4 WHERE id=$1")
             .bind(account).bind(status).bind(verified).bind(mandatory).execute(&db.pool).await?;
+        // Credential and status changes revoke the previous browser session.
+        let session = BrowserSession::new(
+            db.pool.clone(),
+            SessionConfig::default(),
+            None,
+            "chrome test",
+        );
+        rotate(&session, PrivilegeChange::Login(account)).await?;
+        let id = session
+            .inner
+            .lock()
+            .await
+            .record
+            .as_ref()
+            .ok_or("missing record")?
+            .id
+            .clone();
         let mut request = HttpRequest::get("/en/")
             .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
             .body(Body::empty())?;
         let account = chrome_account(&layer, &mut request).await;
         let chrome = registry.chrome("en", "/en/", account);
-        assert_eq!(chrome.link("account-passkeys").is_some(), expected);
+        assert!(chrome.signed_in());
+        assert_eq!(
+            chrome.link("account-passkeys").is_some(),
+            expected,
+            "{status}, verified={verified}, mandatory MFA={mandatory}"
+        );
     }
     db.close().await
 }
