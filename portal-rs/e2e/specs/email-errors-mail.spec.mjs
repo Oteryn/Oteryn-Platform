@@ -343,6 +343,14 @@ supportTest.describe('support email and ticket errors', () => {
     const { account, staffPage, context, lang, subject, replyCopy, statusCopy,
       heading, description, openForm, stateCopy } = support;
     const { ticket, id } = await createSupportTicket(page, lang);
+    const denied = await page.request.post(`${ticket}/reply`, {
+      headers: { accept: 'text/html', origin: new URL(page.url()).origin },
+      form: { body: 'Missing CSRF token' },
+      maxRedirects: 0,
+    });
+    expect(denied.status()).toBe(403);
+    expect(denied.headers()['content-type']).toMatch(/^text\/html\b/);
+    expect(denied.headers()['x-robots-tag']).toBe('noindex, nofollow');
     const staffTicket = `/${lang}/admin/support/tickets/${id}`;
     const localizedStaff = await context.newPage();
     expect((await localizedStaff.goto(staffTicket)).status()).toBe(200);

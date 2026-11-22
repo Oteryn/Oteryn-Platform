@@ -94,6 +94,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::CONTENT_LANGUAGE,
                 header::VARY,
                 axum::http::HeaderName::from_static("permissions-policy"),
+                axum::http::HeaderName::from_static("x-robots-tag"),
             ] {
                 for value in response.headers().get_all(&name) {
                     replacement
