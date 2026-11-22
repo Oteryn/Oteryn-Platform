@@ -5,6 +5,7 @@ import { test, expect } from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
 import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { uuid7 } from '../support/bazaar-game.mjs';
 
 const read = name => JSON.parse(fs.readFileSync(new URL(`../${name}.json`, import.meta.url), 'utf8'));
 const routes = read('inventory').routes.filter(route => route.methods.includes('GET'));
@@ -88,6 +89,7 @@ async function assertLocale(page, locale, witness) {
 
 let playerContext;
 let staffContext;
+let ownedCharacter;
 
 test.beforeAll(async ({ browser }, info) => {
   test.setTimeout(300_000);
@@ -99,7 +101,8 @@ test.beforeAll(async ({ browser }, info) => {
     ignoreHTTPSErrors: true,
   });
   const player = await playerContext.newPage();
-  await login(player, locale, await register(player, locale));
+  const playerAccount = await register(player, locale);
+  await login(player, locale, playerAccount);
   expect((await player.goto(`/${locale}/account/security`)).status()).toBe(200);
   await player.close();
   staffContext = await browser.newContext({
@@ -123,6 +126,25 @@ test.beforeAll(async ({ browser }, info) => {
   await expect(code).toBeVisible();
   await loginWithRecoveryCode(staff, locale, account, await code.inputValue());
   expect((await staff.goto(`/admin?lang=${locale}`)).status()).toBe(200);
+
+  // Publish through the existing local Game producer and private LCFA transport.
+  // The ownership routes require a fresh portfolio to distinguish 404 from 503.
+  const [{ id: seller }] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
+  const [{ id: buyer }] = await query('SELECT id FROM accounts WHERE email=$1', [playerAccount.email]);
+  const sellerCharacter = uuid7();
+  const buyerCharacter = uuid7();
+  const publication = await staff.request.post('/__bazaar_game/seed', {
+    data: {
+      seller, buyer, kind: 'character', asset_id: sellerCharacter,
+      seller_character_id: sellerCharacter, buyer_character_id: buyerCharacter,
+    },
+  });
+  expect(publication.status()).toBe(201);
+  const [{ name }] = await query(
+    'SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2',
+    [buyer, buyerCharacter],
+  );
+  ownedCharacter = name;
   await staff.close();
 });
 
@@ -149,6 +171,12 @@ test('locale parity across the GET route inventory', async ({ page: anonymous },
         const target = new URL(targetFor(route, locale), process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
         const witness = `${actor} ${locale} ${route}`;
         await test.step(witness, async () => {
+          if (actor === 'player' && route.endsWith('/account/characters/{name}/profile')) {
+            const profile = route.replace('{lang}', locale).replace('{name}', encodeURIComponent(ownedCharacter));
+            const result = await page.goto(profile, { waitUntil: 'domcontentloaded' });
+            expect.soft(result.status(), witness).toBe(200);
+            await assertLocale(page, locale, `${witness} (owned character)`);
+          }
           await waitForWikiBudget(target.href, 2);
           const options = { headers: { accept: 'text/html', 'accept-language': locale } };
           const entry = await page.request.get(target.href, { ...options, maxRedirects: 0 });
@@ -166,7 +194,7 @@ test('locale parity across the GET route inventory', async ({ page: anonymous },
             if (redirect) probe = await page.request.get(target.href, options);
             if (actor === expected.actor) expect.soft(probe.status(), witness).toBe(expected.status);
             expect.soft(probe.status(), witness).not.toBe(429);
-            expect.soft(probe.status(), witness).toBeLessThan(504);
+            expect.soft(probe.status() < 500 || probe.status() === 503, witness).toBe(true);
             if (!probe.headers()['content-type']?.startsWith('text/html')) return;
             // Widget fragments can be HTML without a document. Every full
             // document has a locale contract, including cold refusals.
