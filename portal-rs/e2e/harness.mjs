@@ -42,6 +42,7 @@ const port = name => {
 const ports = {
   http: port('PORTAL_E2E_HTTP_PORT'),
   internal: port('PORTAL_E2E_INTERNAL_PORT'),
+  browser: testEnv.PORTAL_E2E_BROWSER_HTTPS_PORT ? port('PORTAL_E2E_BROWSER_HTTPS_PORT') : null,
   admission: Number(process.env.PORTAL_E2E_ADMISSION_PORT || 18091),
   gateway: Number(process.env.PORTAL_E2E_GATEWAY_PORT || 18090),
 };
@@ -144,7 +145,6 @@ const env = {
   OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
 };
 for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
-fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
 // ---- build, migrate ----------------------------------------------------------
 function run(program, args, options = {}) {
@@ -162,15 +162,33 @@ if (!binary) {
   fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
   fs.chmodSync(binary, 0o755);
 }
+env.PORTAL_E2E_BINARY = path.resolve(binary);
+if (ports.browser !== null) env.PORTAL_E2E_ORIGIN = `https://localhost:${ports.browser}`;
+fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 log('migrate');
 run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a'), fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a')] });
 
 // ---- services ----------------------------------------------------------------
+// Browser TLS terminates on loopback and preserves the Host seen by staff routes.
+const browserProxy = ports.browser === null ? null : https.createServer({
+  key: fs.readFileSync(server.key), cert: fs.readFileSync(server.cert),
+}, (request, response) => {
+  const upstream = http.request({
+    host: '127.0.0.1', port: ports.http, path: request.url,
+    method: request.method, headers: request.headers,
+  }, reply => {
+    response.writeHead(reply.statusCode, reply.headers);
+    reply.pipe(response);
+  });
+  upstream.on('error', () => { response.writeHead(502); response.end(); });
+  request.pipe(upstream);
+});
 const children = [];
 let closing = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
+  browserProxy?.close();
   for (const child of children) if (child.exitCode === null) child.kill('SIGINT');
   await Promise.all(children.map(child => child.exitCode !== null ? null : new Promise(resolve => child.once('exit', resolve))));
   if (process.env.PORTAL_E2E_KEEP_DATABASE !== '1') await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {});
@@ -209,6 +227,12 @@ const internalRequest = (client, pathName, body) => status(https.request, {
 await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
 await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
 await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
+if (browserProxy) {
+  await new Promise((resolve, reject) => {
+    browserProxy.once('error', reject);
+    browserProxy.listen(ports.browser, '127.0.0.1', resolve);
+  }).catch(async () => { log('browser HTTPS listener could not bind'); await close(1); });
+}
 log('services ready');
 
 // ---- seed plan ---------------------------------------------------------------
@@ -238,6 +262,7 @@ const report = {
   database: dbName,
   baseUrls: {
     public: `http://127.0.0.1:${ports.http}`,
+    ...(browserProxy ? { browser: `https://localhost:${ports.browser}` } : {}),
     internal: `https://127.0.0.1:${ports.internal}`,
     nativeAdmission: `http://127.0.0.1:${ports.admission}`,
     gateway: `http://127.0.0.1:${ports.gateway}`,

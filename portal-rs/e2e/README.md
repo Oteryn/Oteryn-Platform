@@ -303,3 +303,31 @@ skipped/interrupted, any test failed, or any retry occurred. REPORT.md records
 Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
+
+### Console alerts and staff RBAC
+
+With the local PostgreSQL administrator URL set as above, start the existing
+harness from the repository root. The loopback HTTPS proxy lets Chromium use
+the configured WebAuthn origin and preserves the configured staff host.
+
+```sh
+PORTAL_E2E_BROWSER_HTTPS_PORT=18443 \
+OTERYN_PUBLIC_ORIGIN=https://localhost:18443 OTERYN_ADMIN_HOST=localhost:18443 \
+OTERYN_ACCOUNT_LOGIN=true OTERYN_ACCOUNT_MFA=true OTERYN_ACCOUNT_PASSKEYS=true \
+OTERYN_ADMIN_PANEL=true OTERYN_ADMIN_CONSOLE=true OTERYN_REPORTS_ENABLED=true \
+OTERYN_ADMIN_ANALYTICS_PRESENT=true OTERYN_ADMIN_ANALYTICS_AUTHORITY=e2e-local \
+OTERYN_ADMIN_ANALYTICS_PRIVACY=e2e-local portal-rs/e2e/start.sh
+```
+
+In a second shell, run the spec across all four projects.
+
+```sh
+cd portal-rs/e2e
+CHROMIUM_PATH=/usr/bin/chromium node run.mjs .harness/run/secrets/env.json \
+  test specs/console-alerts-rbac.spec.mjs
+```
+
+The spec creates disposable accounts through the seed CLI and signs in through
+the browser, using recovery codes for staff MFA. The GM checks cover Platform
+authorization and offline Game states. The alarm fixture is a Platform audit
+row, and the harness supplies no Game producer for these checks.
