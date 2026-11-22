@@ -29,9 +29,16 @@ env:
   CARGO_INCREMENTAL: '0'
   # Disposable CI-only service credentials; PostgreSQL-backed tests skip when this is unset.
   PORTAL_TEST_DATABASE_URL: postgres://portal:portal-ci-only@127.0.0.1:5432/portal_test
-  # Test shards. Shard 3 is every other workspace package, so a new crate always runs somewhere.
-  PORTAL_SHARD_1: oteryn-gateway oteryn-admin oteryn-gameauth oteryn-bazaar oteryn-wallet
-  PORTAL_SHARD_2: oteryn-portal oteryn-world oteryn-playerdata oteryn-minigames oteryn-content
+  # Test shards, balanced on measured test time: `cargo test` runs one test binary at a time, so a
+  # shard lasts about as long as the sum of its packages' binaries (merge-group run of 2026-11-22:
+  # bazaar ~490 s, portal ~435 s, admin ~285 s, gateway ~250 s, identity ~235 s, playerdata ~175 s,
+  # community ~170 s, store ~160 s, gameauth ~105 s). Shard 6 is every other workspace package, so
+  # a new crate always runs somewhere.
+  PORTAL_SHARD_1: oteryn-bazaar oteryn-wallet
+  PORTAL_SHARD_2: oteryn-portal oteryn-content
+  PORTAL_SHARD_3: oteryn-admin oteryn-playerdata
+  PORTAL_SHARD_4: oteryn-gateway oteryn-identity
+  PORTAL_SHARD_5: oteryn-community oteryn-store oteryn-gameauth
 
 concurrency:
   group: portal-rs-ci-${{ github.ref }}
@@ -64,7 +71,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4, 5, 6]
     defaults:
       run:
         working-directory: portal-rs
@@ -99,9 +106,12 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           case "$SHARD" in
-            1) read -ra packages <<< "$PORTAL_SHARD_1"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
-            2) read -ra packages <<< "$PORTAL_SHARD_2"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
-            3) read -ra packages <<< "$PORTAL_SHARD_1 $PORTAL_SHARD_2"; args=(--workspace); for p in "${packages[@]}"; do args+=(--exclude "$p"); done ;;
+            [1-5])
+              list="PORTAL_SHARD_$SHARD"
+              read -ra packages <<< "${!list}"; args=(); for p in "${packages[@]}"; do args+=(-p "$p"); done ;;
+            6)
+              read -ra packages <<< "$PORTAL_SHARD_1 $PORTAL_SHARD_2 $PORTAL_SHARD_3 $PORTAL_SHARD_4 $PORTAL_SHARD_5"
+              args=(--workspace); for p in "${packages[@]}"; do args+=(--exclude "$p"); done ;;
             *) echo "unknown shard $SHARD" >&2; exit 1 ;;
           esac
           cargo test --locked "${args[@]}" 2>&1 | tee "$RUNNER_TEMP/test.log"
