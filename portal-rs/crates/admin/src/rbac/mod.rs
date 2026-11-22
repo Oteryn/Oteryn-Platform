@@ -8,7 +8,8 @@ mod catalog;
 pub mod guard;
 mod storage;
 
-pub use catalog::{BuiltInRole, Permission};
+pub use catalog::{ADMIN_PANEL_SECTIONS, BuiltInRole, GM_PANEL_SECTIONS, Permission};
+
 pub use storage::Change;
 
 use sqlx::{PgConnection, PgPool};

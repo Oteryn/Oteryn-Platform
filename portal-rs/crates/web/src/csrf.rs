@@ -15,6 +15,14 @@ pub struct CsrfConfig {
     pub api_allow_list: Vec<(Method, String)>,
 }
 
+/// Request evidence emitted after a browser mutation passes token and origin verification.
+#[derive(Clone, Copy, Debug)]
+pub struct Verified(());
+
+/// Opt a browser route into localized CSRF refusal pages.
+#[derive(Clone, Copy, Debug)]
+pub struct LocalizedRefusal;
+
 pub async fn verify(
     config: &CsrfConfig,
     session: &BrowserSession,
@@ -100,5 +108,6 @@ pub async fn verify(
     if supplied.len() != 64 || !bool::from(expected.as_bytes().ct_eq(supplied.as_bytes())) {
         return Err(StatusCode::FORBIDDEN);
     }
+    request.extensions_mut().insert(Verified(()));
     Ok(())
 }
