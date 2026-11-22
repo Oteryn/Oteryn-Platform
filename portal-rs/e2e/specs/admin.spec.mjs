@@ -52,10 +52,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
        try {
          await test.step(path,async()=>{
            const localized=linked.includes(path)||['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
-           const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
+           const target=new URL(path,page.url());
+           if(!localized) target.searchParams.set('lang',lang);
+           const response=await screen.goto(target.href);
            const status=response.status();
            const expected=path==='/console/dashboard'?403:200;
-           if(new URL(response.url()).pathname!==new URL(path,screen.url()).pathname) failures.push(`${path}: wrong terminal route`);
+           if(response.url()!==target.href) failures.push(`${path}: wrong terminal route`);
            if(status===expected) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
@@ -95,9 +97,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);
+     const denials=async()=>Number((await db.query("SELECT count(*) AS n FROM audit_log WHERE actor=(SELECT id FROM accounts WHERE email=$1) AND action='admin.access.denied' AND target='/admin/roles'",[staff.email])).rows[0].n);
+     const before=await denials();
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);
      expect(Number((await db.query('SELECT count(*) AS n FROM account_roles WHERE account_id=$1 AND role_id=$2',[target,role])).rows[0].n)).toBe(0);
+     expect(await denials()).toBe(before+1);
    }finally{await db.end();}
  });
  expect((await ordinary.goto('/admin')).status()).toBe(403);

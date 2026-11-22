@@ -1600,6 +1600,7 @@ mod flag_boundary {
         "OTERYN_ATLAS_DELIVERY_ENABLED",
         "OTERYN_ATLAS_ENABLED",
         "OTERYN_ATLAS_SPAWNS_ENABLED",
+        "OTERYN_BAZAAR_ACTIVITY_ENABLED",
         "OTERYN_BAZAAR_ENABLED",
         "OTERYN_BAZAAR_MODERATION",
         "OTERYN_BAZAAR_PROFILES",
@@ -1862,6 +1863,12 @@ mod flag_boundary {
     }
     const WORLD_FLAGS: &[&str] = &["OTERYN_WORLD_ENABLED", "PORTAL_WORLD_ENABLED"];
     const ROUTE_PREREQUISITES: &[RoutePrerequisites] = &[
+        RoutePrerequisites {
+            flags: &["OTERYN_BAZAAR_ACTIVITY_ENABLED"],
+            paths: &["/{lang}/account/bazaar/activity"],
+            registration_removed: true,
+            disabled_status: None,
+        },
         RoutePrerequisites {
             flags: &["OTERYN_SUPPORT_TICKETS"],
             paths: &["/admin/support/tickets", "/{lang}/admin/support/tickets"],

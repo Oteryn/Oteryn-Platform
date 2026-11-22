@@ -728,6 +728,7 @@ mod tests {
                     "/account/sessions",
                     Account::SignedIn {
                         csrf: "fixture".into(),
+                        passkeys_eligible: false,
                     },
                 );
                 let header = ShellHeader { chrome: &chrome }.render()?;
@@ -741,6 +742,40 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn passkey_eligibility_applies_to_both_player_navigation_surfaces() {
+        let mut registry = registry();
+        registry.section(
+            true,
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys/manage",
+            Group::Account,
+            false,
+        );
+        for lang in ["pl", "en"] {
+            let url = format!("/{lang}/account/passkeys/manage");
+            for passkeys_eligible in [false, true] {
+                let chrome = registry.chrome(
+                    lang,
+                    &format!("/{lang}/account"),
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible,
+                    },
+                );
+                assert_eq!(
+                    chrome.entries.iter().any(|e| e.url == url),
+                    passkeys_eligible
+                );
+                assert_eq!(
+                    chrome.player_navigation.iter().any(|e| e.url == url),
+                    passkeys_eligible
+                );
+            }
+        }
     }
 
     #[test]

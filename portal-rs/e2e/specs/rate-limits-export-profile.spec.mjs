@@ -121,7 +121,10 @@ test('personal export requires sudo and throttles repeat downloads', async ({pag
   expect(malformed.status()).toBe(400);
 
   const account = await loginSeededAccount(page, lang);
-  expect((await page.request.get(target)).status()).toBe(403);
+  const passwordChallenge = await page.request.get(target, {maxRedirects: 0});
+  expect(passwordChallenge.status()).toBe(303);
+  expect(passwordChallenge.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
+  expect(passwordChallenge.headers()['content-disposition']).toBeUndefined();
   const source = testSource();
   const counters = () => quotaCounters('identity-data-export', account, source);
   await page.goto(`/${lang}/account/sudo`);
