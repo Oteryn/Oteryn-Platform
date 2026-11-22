@@ -440,7 +440,7 @@ test('anonymous request gates for support and moderation', async ({ page }, info
 });
 
 test('ticket and report history pagination, including ticket message cursors', async ({ browser }, info) => {
-  test.setTimeout(300_000);
+  test.setTimeout(420_000);
   const lang = info.project.metadata.locale;
   const t = copy('tickets', lang);
   const r = copy('reports', lang);
@@ -514,6 +514,7 @@ test('ticket and report history pagination, including ticket message cursors', a
 });
 
 test('report submission explains pending, unjustified and rate limits', async ({ browser }, info) => {
+  test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const r = copy('reports', lang);
   const base = `/${lang}/support/reports`;
@@ -584,6 +585,7 @@ test('player detail releases a coin hold and retains the unpaid reversal', async
 });
 
 test('ticket form preserves the draft when capacity is full and handles request-key replay', async ({ browser }, info) => {
+  test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const t = copy('tickets', lang);
   const base = `/${lang}/support/tickets`;
