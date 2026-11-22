@@ -1249,18 +1249,29 @@ impl Backend for BrowserJournal {
              FROM account_character_feed WHERE id=1 FOR SHARE",
         ).bind(authority).fetch_one(&mut **tx).await?;
         let epoch = epoch.ok_or(BrowserError::Unavailable)?;
-        use oteryn_db::character_ownership::{self, Owner};
-        match character_ownership::resolve(tx, character, &epoch, authority).await? {
-            Owner::Current {
-                account,
-                name,
-                available: true,
-            } if super::valid_id(account).is_ok() => Ok(Target {
-                account,
+        // Test uniqueness before using any snapshot. An invalid or missing
+        // snapshot is still an ownership claim and cannot grant authority.
+        let claims: Vec<(Uuid, String, bool)> = sqlx::query_as(
+            "SELECT c.account_id,c.name,
+                 COALESCE(c.availability='AVAILABLE' AND NOT s.invalid
+                     AND s.projection_epoch=$2 AND s.source_authority=$3,false)
+             FROM account_characters c
+             JOIN accounts a ON a.id=c.account_id AND a.status='active'
+             LEFT JOIN account_character_snapshots s ON s.account_id=c.account_id
+             WHERE c.character_id=$1 ORDER BY c.account_id LIMIT 2",
+        )
+        .bind(character)
+        .bind(epoch)
+        .bind(authority)
+        .fetch_all(&mut **tx)
+        .await?;
+        match claims.as_slice() {
+            [(account, name, true)] if super::valid_id(*account).is_ok() => Ok(Target {
+                account: *account,
                 character,
-                name,
+                name: name.clone(),
             }),
-            Owner::Missing => Err(BrowserError::NotFound),
+            [] => Err(BrowserError::NotFound),
             _ => Err(BrowserError::Unavailable),
         }
     }

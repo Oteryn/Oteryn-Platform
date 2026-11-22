@@ -359,39 +359,38 @@ impl Service {
             .bind(character).fetch_all(&mut *tx).await?;
         Self::share_feed(&mut tx).await?;
         let highest = self.feed(&mut tx, now).await?;
-        let owner = match oteryn_db::character_ownership::resolve(
-            &mut tx,
-            character,
-            &highest,
-            &self.settings.source_authority,
-        )
-        .await?
-        {
-            oteryn_db::character_ownership::Owner::Current { account, .. } => account,
-            oteryn_db::character_ownership::Owner::Unreliable => return Err(Error::Unavailable),
-            _ => return Err(Error::NotFound),
-        };
-        AccountId::parse(&owner.to_string()).map_err(|_| Error::NotFound)?;
+        // Invalid current snapshots remain unknown, even when another owner is valid.
+        let invalid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters c JOIN accounts a ON a.id=c.account_id JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 AND a.status='active' AND (s.invalid OR s.projection_epoch IS DISTINCT FROM $2 OR s.source_authority IS DISTINCT FROM $3))")
+            .bind(character).bind(&highest).bind(&self.settings.source_authority).fetch_one(&mut *tx).await?;
+        if invalid {
+            return Err(Error::Unavailable);
+        }
+        let owners = sqlx::query_scalar::<_, Uuid>("SELECT DISTINCT c.account_id FROM account_characters c JOIN accounts a ON a.id=c.account_id JOIN account_character_snapshots s ON s.account_id=c.account_id WHERE c.character_id=$1 AND a.status='active' AND NOT s.invalid AND s.projection_epoch=$2 AND s.source_authority=$3 ORDER BY c.account_id LIMIT 2")
+            .bind(character).bind(highest).bind(&self.settings.source_authority).fetch_all(&mut *tx).await?;
+        if owners.len() != 1 {
+            return Err(Error::NotFound);
+        }
+        AccountId::parse(&owners[0].to_string()).map_err(|_| Error::NotFound)?;
         CharacterId::parse(&character.to_string()).map_err(|_| Error::Unavailable)?;
         if let Some((world, name)) = reference {
-            let matches: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2 AND world_id::text=$3 AND name=$4)").bind(owner).bind(character).bind(world).bind(name).fetch_one(&mut *tx).await?;
+            let matches: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2 AND world_id::text=$3 AND name=$4)").bind(owners[0]).bind(character).bind(world).bind(name).fetch_one(&mut *tx).await?;
             if !matches {
                 return Err(Error::NotFound);
             }
         }
         // An owner that appeared after the candidate lock is not locked yet;
         // locking it now would take the account after the feed.
-        if !candidates.contains(&owner) {
+        if !candidates.contains(&owners[0]) {
             return Err(Error::Unavailable);
         }
-        let saved: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_profiles WHERE account_id=$1 AND character_id=$2)").bind(owner).bind(character).fetch_one(&mut *tx).await?;
+        let saved: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_profiles WHERE account_id=$1 AND character_id=$2)").bind(owners[0]).bind(character).fetch_one(&mut *tx).await?;
         if !saved {
             return Err(Error::NotFound);
         }
-        let mut p = Self::preferences(&mut tx, owner, character).await?;
+        let mut p = Self::preferences(&mut tx, owners[0], character).await?;
         // Same current T09c policy and verified-account predicate, in the locked
         // transaction: no second pool checkout while ownership/account locks are held.
-        let account = sqlx::query_as::<_, oteryn_identity::privacy::Preferences>("SELECT public_account_association,public_status_visible,locale,privacy_revision FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL").bind(owner).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let account = sqlx::query_as::<_, oteryn_identity::privacy::Preferences>("SELECT public_account_association,public_status_visible,locale,privacy_revision FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL").bind(owners[0]).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
         p.hidden |= p.hide_all_characters;
         p.show_account &= account.public_account_association;
         p.show_status &= account.public_status_visible;

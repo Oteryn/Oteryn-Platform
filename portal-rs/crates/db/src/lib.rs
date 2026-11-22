@@ -88,5 +88,3 @@ pub async fn protected_role_survives(
     .fetch_one(connection)
     .await
 }
-
-pub mod character_ownership;
