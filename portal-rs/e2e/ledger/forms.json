@@ -1340,7 +1340,7 @@
     "line": 18,
     "action": "/admin/announcements",
     "method": "POST",
-    "route_pattern": null,
+    "route_pattern": "/admin/announcements",
     "crate": "content",
     "fields": [
       "_csrf",
@@ -1356,7 +1356,7 @@
     "line": 18,
     "action": "/admin/announcements/{id}/edit",
     "method": "POST",
-    "route_pattern": null,
+    "route_pattern": "/admin/announcements/{id}/edit",
     "crate": "content",
     "fields": [
       "_csrf",

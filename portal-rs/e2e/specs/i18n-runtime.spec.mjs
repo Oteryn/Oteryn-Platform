@@ -11,6 +11,27 @@ const read = name => JSON.parse(fs.readFileSync(new URL(`../${name}.json`, impor
 const routes = read('inventory').routes.filter(route => route.methods.includes('GET'));
 const expectations = new Map(read('route-expectations').filter(row => row.method === 'GET')
   .map(row => [row.route, row]));
+// These routes are in the refreshed source inventory. The character families
+// use cold or missing projections and the referral/checkout IDs do not exist.
+for (const prefix of ['', '/{lang}']) {
+  expectations.set(`${prefix}/characters/{name}/skills`, { actor: 'player', status: 503 });
+  for (const family of ['achievements', 'equipment', 'outfit']) {
+    expectations.set(`${prefix}/account/characters/{name}/${family}`, { actor: 'player', status: 404 });
+  }
+}
+for (const [route, actor, status] of [
+  ['/{lang}/account/referrals', 'player', 200],
+  ['/{lang}/referrals/{code}', 'player', 403],
+  ['/admin/announcements', 'staff', 200],
+  ['/admin/announcements/create', 'staff', 200],
+  ['/admin/announcements/{id}/edit', 'staff', 404],
+  ['/forgot-password', 'player', 200],
+  ['/{lang}/shop/test-checkout/{intent}', 'player', 404],
+  ['/{lang}/account/consents', 'player', 200],
+  ['/{lang}/account/badges', 'player', 200],
+]) {
+  expectations.set(route, { actor, status });
+}
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const normalize = text => text.replace(/\s+/gu, ' ').trim();
 
