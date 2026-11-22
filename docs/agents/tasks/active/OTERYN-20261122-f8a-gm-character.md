@@ -54,6 +54,10 @@ and reuses a verified completion before queueing further work. PostgreSQL
 regressions cover the freshness cutoff during lock contention, overdue query
 retry refusal, and admission after a signed result has reconciled.
 
+The post-push review moves the staff harness fallback URL through the shared
+PostgreSQL validator. A malformed URL produces a diagnostic without the
+original input, as verified by the GM spec.
+
 Owned paths include the admin console and control channel, LCFA ownership
 lookup, and GM browser tests and harness. The existing ADM framing is ratified.
 The pinned staff-actions v1
@@ -65,8 +69,8 @@ separate Support enforcement implementation, outside this GM read scenario.
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T21:56:36Z
-head: e92d4568b57848e56a11e197a6e58cff13a5f485
+updated_at: 2026-11-22T22:07:52Z
+head: bab011c1df563ec630fd1db95e09c38c2cf74657
 branch: codex/feat-gm-character
 pr: none
 status: ready
@@ -142,6 +146,9 @@ validation:
   - command: Playwright gm-player-console.spec.mjs
     result: PASS
     evidence: pl-1440, pl-390, en-1440 and en-390 passed with zero runner errors. The harness exited cleanly.
+  - command: Playwright gm-player-console.spec.mjs --project=pl-1440 --project=en-390
+    result: PASS
+    evidence: Both projects passed with the managed harness after URL sanitization and reported zero runner errors.
 blockers: []
 next_action: Coordinator reviews the retained branch evidence for Issue #2002.
 ```
