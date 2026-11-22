@@ -259,13 +259,14 @@ async fn page(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let price = order.price.display_for_locale(&chrome.lang);
     oteryn_web::render(&CheckoutPage {
         labels: CheckoutPage::labels(&chrome.lang),
         lang: chrome.lang,
         csrf,
         order_id: order.order_id,
         coins: order.coins,
-        price: order.price.display(),
+        price,
         state: order.state,
     })
 }
@@ -304,18 +305,20 @@ mod tests {
 
     #[test]
     fn checkout_uses_the_requested_locale_for_copy_and_order_state() {
-        for (lang, title, status, pay) in [
+        for (lang, title, status, pay, price) in [
             (
                 "pl",
                 "Zakup monet w trybie testowym",
                 "Oczekuje na płatność",
                 "Zakończ płatność testową",
+                "10,00 PLN",
             ),
             (
                 "en",
                 "Sandbox coin checkout",
                 "Awaiting payment",
                 "Complete test payment",
+                "10.00 PLN",
             ),
         ] {
             let page = CheckoutPage {
@@ -324,13 +327,19 @@ mod tests {
                 csrf: String::new(),
                 order_id: Uuid::nil(),
                 coins: 12,
-                price: "10 PLN".into(),
+                price: crate::coin::Price {
+                    minor_units: 1000,
+                    currency: "PLN".into(),
+                    exponent: 2,
+                }
+                .display_for_locale(lang),
                 state: OrderState::AwaitingPayment,
             };
             let html = page.render().unwrap();
             assert!(html.contains(&format!("<html lang=\"{lang}\">")));
             assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
             assert!(html.contains(&format!("<dd>{status}</dd>")));
+            assert!(html.contains(&format!("<dd>{price}</dd>")));
             assert!(html.contains(pay));
             for state in [
                 OrderState::AwaitingPayment,

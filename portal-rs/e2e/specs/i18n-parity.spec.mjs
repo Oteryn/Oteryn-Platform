@@ -417,6 +417,8 @@ async function seedCheckout(page, email) {
 async function assertCheckout(page, locale) {
   const copy = (key) => catalogText(`crates/payments/templates/coin/${locale}.ftl`, `coin-checkout-${key}`);
   await expect(page.locator('main h1')).toHaveText(copy('title'));
+  await expect(page.locator('main dt').filter({ hasText: new RegExp(`^${copy('price')}$`, 'u') }).locator('+ dd'))
+    .toHaveText(locale === 'pl' ? '10,00 PLN' : '10.00 PLN');
   await expect(page.locator('main dt').filter({ hasText: new RegExp(`^${copy('status')}$`, 'u') }).locator('+ dd'))
     .toHaveText(copy('awaiting_payment'));
   await expect(page.locator('main form').filter({ has: page.locator('input[name=action][value=pay]') }).getByRole('button'))

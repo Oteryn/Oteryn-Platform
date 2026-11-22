@@ -169,6 +169,9 @@ fn origins_and_packages_are_validated() {
     assert_eq!(price(5, 2).display(), "0.05 PLN");
     assert_eq!(price(1234, 0).display(), "1234 PLN");
     assert_eq!(price(1000, 3).display(), "1.000 PLN");
+    assert_eq!(price(5, 2).display_for_locale("pl"), "0,05 PLN");
+    assert_eq!(price(1234, 0).display_for_locale("pl"), "1234 PLN");
+    assert_eq!(price(1001, 3).display_for_locale("pl"), "1,001 PLN");
 }
 
 #[test]
