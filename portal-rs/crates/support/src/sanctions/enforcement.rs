@@ -1751,30 +1751,68 @@ struct DueExpiry {
 pub struct Expiry {
     pool: PgPool,
     profiles: Profiles,
+    cursor: tokio::sync::Mutex<Option<(i64, Uuid)>>,
 }
 impl Expiry {
     pub fn new(pool: PgPool, profiles: Profiles) -> Self {
-        Self { pool, profiles }
+        Self {
+            pool,
+            profiles,
+            cursor: tokio::sync::Mutex::new(None),
+        }
     }
 
     async fn reconcile(&self) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         oteryn_db::mutation_budget(&mut tx).await?;
+        let now = database_now(&mut tx).await?;
+        // Walk a bounded page of raw timers before contending for publication.
+        // Pending successors cannot starve later timers: the next pass resumes
+        // after this page, wrapping at the end of the ordered due index.
+        const PAGE_SIZE: i64 = 8;
+        let page = {
+            let mut cursor = self.cursor.lock().await;
+            let (after_time, after_stream) = cursor.unwrap_or((0, Uuid::nil()));
+            let page = sqlx::query_as::<_, (Uuid, i64, i64)>(
+                "SELECT sanction_id,decision_revision,reconcile_at_ms
+                 FROM support_enforcement_decisions
+                 WHERE (reconcile_at_ms,sanction_id)>($1,$2) AND reconcile_at_ms<=$3
+                 ORDER BY reconcile_at_ms,sanction_id LIMIT $4",
+            )
+            .bind(after_time)
+            .bind(after_stream)
+            .bind(now)
+            .bind(PAGE_SIZE)
+            .fetch_all(&mut *tx)
+            .await?;
+            *cursor = page
+                .last()
+                .filter(|_| page.len() as i64 == PAGE_SIZE)
+                .map(|&(stream, _, time)| (time, stream));
+            page
+        };
+        if page.is_empty() {
+            return Ok(());
+        }
+
         let locked: Option<bool> = sqlx::query_scalar(
             "SELECT singleton FROM support_enforcement_counter WHERE singleton FOR UPDATE SKIP LOCKED",
         ).fetch_optional(&mut *tx).await?;
         if locked.is_none() {
             return Ok(());
         }
-        let now = database_now(&mut tx).await?;
-        // A pending successor leaves the confirmed timer in place. When a
-        // newer command is refused, A1 still prohibits publishing the older
-        // revision. Report the fence without inventing a new staff decision.
+        // Recheck the selected timer and its journal head after acquiring the
+        // fence. The join can only inspect the page's explicit decision keys.
+        let (streams, revisions): (Vec<_>, Vec<_>) = page
+            .into_iter()
+            .map(|(stream, revision, _)| (stream, revision))
+            .unzip();
         let due = sqlx::query_as::<_, DueExpiry>(
             "SELECT d.sanction_id,d.decision_revision,d.profile,c.account_id,d.character_id,
                     c.operation_id,head.operation_id AS head_operation,head.decision_revision AS head_revision,
                     terminal.state AS head_state
-             FROM support_enforcement_decisions d
+             FROM unnest($1::uuid[], $2::bigint[]) AS page(sanction_id,decision_revision)
+             JOIN support_enforcement_decisions d USING(sanction_id,decision_revision)
              JOIN support_enforcement_commands c ON c.operation_id=d.operation_id
              JOIN LATERAL (
                  SELECT operation_id,decision_revision
@@ -1782,11 +1820,11 @@ impl Expiry {
                  ORDER BY decision_revision DESC,position DESC LIMIT 1
              ) head ON true
              JOIN support_enforcement_results terminal ON terminal.operation_id=head.operation_id AND terminal.terminal
-             WHERE d.reconcile_at_ms<=$1
-               AND ((d.profile='MUTE' AND $2) OR (d.profile='JAIL' AND $3))
-             ORDER BY d.reconcile_at_ms,d.sanction_id LIMIT 8",
-        ).bind(now).bind(self.profiles.enabled(Profile::Mute)).bind(self.profiles.enabled(Profile::Jail))
-            .fetch_all(&mut *tx).await?;
+             WHERE d.reconcile_at_ms<=$3
+               AND ((d.profile='MUTE' AND $4) OR (d.profile='JAIL' AND $5))
+             ORDER BY d.reconcile_at_ms,d.sanction_id",
+        ).bind(streams).bind(revisions).bind(now).bind(self.profiles.enabled(Profile::Mute))
+            .bind(self.profiles.enabled(Profile::Jail)).fetch_all(&mut *tx).await?;
         for item in due {
             sqlx::query(
                 "UPDATE support_enforcement_decisions SET reconcile_at_ms=NULL

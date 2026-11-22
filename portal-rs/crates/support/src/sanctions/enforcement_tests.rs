@@ -1312,16 +1312,73 @@ async fn refused_successors_keep_the_original_timer_and_never_publish_a_stale_ex
 }
 
 #[tokio::test]
+async fn expiry_pages_past_due_timers_with_pending_successors() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let initial = platform_apply(&db).await?;
+    for n in 0..9 {
+        let command = if n == 0 {
+            initial.clone()
+        } else {
+            let command = Command {
+                operation_id: id(0x600 + n),
+                sanction_stream_id: id(0x201 + n),
+                ..initial.clone()
+            };
+            let mut tx = db.pool.begin().await?;
+            let revision = persist_platform_sanction(&mut tx, &command, id(0x501))
+                .await
+                .map_err(|e| format!("{e:?}"))?;
+            assert_eq!(revision, 1);
+            persist_typed_decision(&mut tx, &command).await?;
+            assert!(record(&mut tx, &mute(), &command).await?.is_some());
+            tx.commit().await?;
+            command
+        };
+        let confirmed = std::str::from_utf8(RESULT_APPLIED)?
+            .replace(
+                &initial.operation_id.to_string(),
+                &command.operation_id.to_string(),
+            )
+            .replace(
+                &initial.sanction_stream_id.to_string(),
+                &command.sanction_stream_id.to_string(),
+            )
+            .replace(&digest(COMMAND_APPLY), &digest(&command.encode()?));
+        receive(&db, confirmed.as_bytes()).await?;
+        if n < 8 {
+            let successor = Command {
+                operation_id: id(0x700 + n),
+                sanction_stream_id: command.sanction_stream_id,
+                ..revoke()
+            };
+            assert!(db.record(&successor).await?.is_some());
+        }
+    }
+    let worker = Expiry::new(db.pool.clone(), mute());
+    worker.reconcile().await?;
+    assert_eq!(db.count("support_enforcement_commands").await?, 17);
+    worker.reconcile().await?;
+    let expired: Uuid = sqlx::query_scalar(
+        "SELECT sanction_stream_id FROM support_enforcement_commands WHERE intent='EXPIRE'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(expired, id(0x209));
+    assert_eq!(db.count("support_enforcement_commands").await?, 18);
+    db.cleanup().await
+}
+
+#[tokio::test]
 async fn worker_expires_latest_confirmed_decision_once_and_waits_for_game() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let command = platform_apply(&db).await?;
-    let worker = Expiry {
-        pool: db.pool.clone(),
-        profiles: mute(),
-    };
+    let worker = Expiry::new(db.pool.clone(), mute());
     worker.reconcile().await?;
     assert_eq!(db.count("support_enforcement_commands").await?, 1);
     receive(&db, RESULT_APPLIED).await?;
