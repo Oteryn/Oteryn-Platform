@@ -287,6 +287,25 @@ async fn registered_world_picker_works_without_privacy_metrics() -> Result {
             .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
+    for (suffix, expected) in [
+        (String::new(), StatusCode::OK),
+        (
+            format!("?world={world}&start=2026-11-01&end=2026-11-02"),
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        let response = http::router::<()>(db.clone(), config, std::sync::Arc::new(Unavailable))
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/stats/world{suffix}"))
+                    .header("accept-language", "en")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+        let body = to_bytes(response.into_body(), 65536).await?;
+        assert!(std::str::from_utf8(&body)?.contains("<html lang=\"en\" data-theme=\"dark\">"));
+    }
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&db)
         .await?;

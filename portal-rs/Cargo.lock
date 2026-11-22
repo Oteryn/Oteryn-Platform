@@ -3226,6 +3226,7 @@ dependencies = [
  "oteryn-internal-api",
  "oteryn-notify",
  "oteryn-ui",
+ "oteryn-web",
  "serde",
  "serde_json",
  "serde_urlencoded",

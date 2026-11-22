@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Router,
     extract::{OriginalUri, RawQuery, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -130,13 +130,18 @@ async fn page(
     State(state): State<World>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
+    let en = match uri.path().split('/').nth(1) {
+        Some("en") => true,
+        Some("pl") => false,
+        _ => oteryn_web::Language::for_headers(&headers) == oteryn_web::Language::En,
+    };
     let response = async {
         if !state.config.enabled {
             return StatusCode::NOT_FOUND.into_response();
         }
         if raw.as_deref().is_none_or(str::is_empty) {
-            let en = uri.path().starts_with("/en/");
             let worlds: Result<Vec<(Uuid, String)>, _> = sqlx::query_as(
                 "SELECT id, name FROM world_status ORDER BY name COLLATE \"C\", id LIMIT 1001",
             )
@@ -193,7 +198,6 @@ async fn page(
             Err(Error::Unavailable)
         };
         let unavailable = result.is_err();
-        let en = uri.path().starts_with("/en/");
         let page = Page {
             lang: if en { "en" } else { "pl" },
             labels: labels(en),
