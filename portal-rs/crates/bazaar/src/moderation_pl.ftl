@@ -45,6 +45,7 @@ no = Nie
 featured = Wyróżniona
 invalidation-pending = Oczekuje na decyzję zespołu
 invalidation-approved = Zatwierdzono przez zespół
+invalidation-superseded = Nieaktualny po zmianie blokady
 invalidation-unknown = Stan wniosku niedostępny
 listing-state = Stan oferty
 listing-state-draft = Szkic
@@ -56,4 +57,5 @@ listing-state-cancelled = Anulowana
 listing-state-expired = Wygasła
 
 invalidation-history = Historia zatwierdzonych unieważnień
+invalidation-superseded-history = Historia nieaktualnych wniosków o unieważnienie
 invalidation-next = Więcej oczekujących wniosków

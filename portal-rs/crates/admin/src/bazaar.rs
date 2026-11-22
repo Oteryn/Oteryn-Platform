@@ -293,7 +293,7 @@ struct Page {
     csrf: String,
     reports: Vec<moderation::PendingReport>,
     holds: Vec<String>,
-    invalidations: [InvalidationSection; 2],
+    invalidations: [InvalidationSection; 3],
     forms: Vec<PanelForm>,
     fees: Vec<FeeRow>,
     restrictions: Vec<RestrictionRow>,
@@ -335,48 +335,59 @@ struct InvalidationSection {
 async fn invalidation_sections(
     db: &mut sqlx::PgConnection,
     pending_after: Option<Uuid>,
-) -> Result<[InvalidationSection; 2], sqlx::Error> {
-    let mut pending: Vec<InvalidationRow> = sqlx::query_as(
-        "SELECT request.id, listing.id AS listing, request.state AS request_state,
-                listing.state::text AS listing_state
-         FROM bazaar_invalidation_requests request
-         JOIN bazaar_listings listing ON listing.id = request.listing_id
-         WHERE request.state='pending' AND ($1::uuid IS NULL OR request.id > $1)
-         ORDER BY request.id LIMIT $2",
+) -> Result<[InvalidationSection; 3], sqlx::Error> {
+    // Read all sections from one snapshot so a concurrent approval or hold
+    // revision change cannot put a request into two sections.
+    let rows: Vec<InvalidationRow> = sqlx::query_as(
+        "WITH pending AS (
+            SELECT r.id, r.listing_id, r.state, r.updated_at
+            FROM bazaar_invalidation_requests r
+            JOIN bazaar_moderation_holds h ON h.listing_id=r.listing_id AND h.revision=r.hold_revision
+            WHERE r.state='pending' AND ($1::uuid IS NULL OR r.id > $1)
+            ORDER BY r.id LIMIT ($2 + 1)
+         ), approved AS (
+            SELECT id, listing_id, state, updated_at
+            FROM bazaar_invalidation_requests WHERE state='approved'
+            ORDER BY updated_at DESC, id DESC LIMIT $2
+         ), superseded AS (
+            SELECT r.id, r.listing_id, 'superseded' AS state, r.updated_at
+            FROM bazaar_invalidation_requests r
+            LEFT JOIN bazaar_moderation_holds h ON h.listing_id=r.listing_id AND h.revision=r.hold_revision
+            WHERE r.state='pending' AND h.listing_id IS NULL
+            ORDER BY r.updated_at DESC, r.id DESC LIMIT $2
+         )
+         SELECT r.id, l.id AS listing, r.state AS request_state, l.state::text AS listing_state
+         FROM (SELECT * FROM pending UNION ALL SELECT * FROM approved UNION ALL SELECT * FROM superseded) r
+         JOIN bazaar_listings l ON l.id=r.listing_id
+         ORDER BY r.state, CASE WHEN r.state='pending' THEN r.id END, r.updated_at DESC, r.id DESC",
     )
     .bind(pending_after)
-    .bind(INVALIDATION_PAGE_SIZE as i64 + 1)
-    .fetch_all(&mut *db)
-    .await?;
-    let next = if pending.len() > INVALIDATION_PAGE_SIZE {
-        pending.truncate(INVALIDATION_PAGE_SIZE);
-        pending.last().map(|row| row.id)
-    } else {
-        None
-    };
-    let approved = sqlx::query_as(
-        "SELECT request.id, listing.id AS listing, request.state AS request_state,
-                listing.state::text AS listing_state
-         FROM bazaar_invalidation_requests request
-         JOIN bazaar_listings listing ON listing.id = request.listing_id
-         WHERE request.state='approved'
-         ORDER BY request.updated_at DESC, request.id DESC LIMIT $1",
-    )
     .bind(INVALIDATION_PAGE_SIZE as i64)
     .fetch_all(db)
     .await?;
-    Ok([
-        InvalidationSection {
-            label: "invalidations",
-            rows: pending,
-            next,
-        },
-        InvalidationSection {
-            label: "invalidation-history",
-            rows: approved,
-            next: None,
-        },
-    ])
+    let [mut pending, mut approved, mut superseded] = [
+        "invalidations",
+        "invalidation-history",
+        "invalidation-superseded-history",
+    ]
+    .map(|label| InvalidationSection {
+        label,
+        rows: Vec::new(),
+        next: None,
+    });
+    for row in rows {
+        let section = match row.request_state.as_str() {
+            "pending" => &mut pending,
+            "approved" => &mut approved,
+            _ => &mut superseded,
+        };
+        section.rows.push(row);
+    }
+    if pending.rows.len() > INVALIDATION_PAGE_SIZE {
+        pending.rows.pop();
+        pending.next = pending.rows.last().map(|row| row.id);
+    }
+    Ok([pending, approved, superseded])
 }
 
 #[derive(sqlx::FromRow)]
@@ -395,6 +406,7 @@ impl InvalidationRow {
         match self.request_state.as_str() {
             "pending" => "invalidation-pending",
             "approved" => "invalidation-approved",
+            "superseded" => "invalidation-superseded",
             _ => "invalidation-unknown",
         }
     }

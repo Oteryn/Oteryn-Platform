@@ -45,6 +45,7 @@ no = No
 featured = Featured
 invalidation-pending = Awaiting staff approval
 invalidation-approved = Staff approved
+invalidation-superseded = Superseded by a hold change
 invalidation-unknown = Request state unavailable
 listing-state = Listing state
 listing-state-draft = Draft
@@ -56,4 +57,5 @@ listing-state-cancelled = Cancelled
 listing-state-expired = Expired
 
 invalidation-history = Approved invalidation history
+invalidation-superseded-history = Superseded invalidation history
 invalidation-next = More pending requests

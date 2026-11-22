@@ -762,6 +762,8 @@ async fn pending_invalidations_have_their_own_paginated_queue() {
     let listing = db.listing().await;
     let pending = Uuid::now_v7();
     let approver = Uuid::now_v7();
+    let api = db.service();
+    api.execute(db.context(), suspend(listing)).await.unwrap();
     sqlx::query(
         "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
         VALUES($1,$2,1,$3,'Original pending investigation')",
@@ -776,6 +778,37 @@ async fn pending_invalidations_have_their_own_paginated_queue() {
         SELECT uuidv7(),$1,n,$2,$3,'Previously approved investigation','approved'
         FROM generate_series(2,101) n")
         .bind(listing).bind(db.actor).bind(approver).execute(&db.pool).await.unwrap();
+
+    let resuspended = db.listing().await;
+    let superseded = Uuid::now_v7();
+    api.execute(db.context(), suspend(resuspended))
+        .await
+        .unwrap();
+    api.execute(
+        db.context(),
+        StaffCommand::RequestInvalidation {
+            id: superseded,
+            listing: resuspended,
+            reason: "Original hold investigation".into(),
+        },
+    )
+    .await
+    .unwrap();
+    api.execute(db.context(), suspend(resuspended))
+        .await
+        .unwrap();
+    let archived = db.listing().await;
+    sqlx::query("INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason) VALUES($1,100,$2,'Current investigation')")
+        .bind(archived).bind(db.actor).execute(&db.pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+        SELECT uuidv7(),$1,n,$2,'Previous hold investigation' FROM generate_series(1,99) n",
+    )
+    .bind(archived)
+    .bind(db.actor)
+    .execute(&db.pool)
+    .await
+    .unwrap();
 
     let page = db
         .app()
@@ -799,6 +832,15 @@ async fn pending_invalidations_have_their_own_paginated_queue() {
         r#"data-invalidation="{pending}" data-request-state="pending""#
     )));
     assert!(html.contains("Approved invalidation history"));
+    assert!(html.contains("Superseded invalidation history"));
+    assert!(html.contains(&format!(
+        r#"data-invalidation="{superseded}" data-request-state="superseded""#
+    )));
+    assert_eq!(
+        html.matches(r#"data-request-state="superseded""#).count(),
+        100
+    );
+    assert_eq!(html.matches(r#"data-request-state="pending""#).count(), 1);
     assert_eq!(
         html.matches(r#"data-request-state="approved""#).count(),
         100
@@ -806,16 +848,24 @@ async fn pending_invalidations_have_their_own_paginated_queue() {
     assert!(!html.contains("pending_after="));
 
     sqlx::query(
-        "INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
-        SELECT uuidv7(),$1,n,$2,'Further pending investigation' FROM generate_series(102,201) n",
+        "WITH listings AS (
+            INSERT INTO bazaar_listings(id,owner,kind,form,currency,price,accept_offers,state,ends_at)
+            SELECT uuidv7(),$1,'item','auction','coins',100,false,'active',clock_timestamp()+interval '2 days'
+            FROM generate_series(1,100)
+            RETURNING id
+         ), holds AS (
+            INSERT INTO bazaar_moderation_holds(listing_id,revision,actor,reason)
+            SELECT id,1,$1,'Active moderation hold' FROM listings RETURNING listing_id
+         )
+         INSERT INTO bazaar_invalidation_requests(id,listing_id,hold_revision,requested_by,reason)
+         SELECT uuidv7(),listing_id,1,$1,'Further pending investigation' FROM holds",
     )
-    .bind(listing)
     .bind(db.actor)
     .execute(&db.pool)
     .await
     .unwrap();
     let mut conn = db.pool.acquire().await.unwrap();
-    let [first, history] = invalidation_sections(&mut conn, None).await.unwrap();
+    let [first, history, stale] = invalidation_sections(&mut conn, None).await.unwrap();
     assert_eq!(first.rows.len(), 100);
     let cursor = first.next.unwrap();
     assert_eq!(cursor, first.rows.last().unwrap().id);
@@ -828,7 +878,7 @@ async fn pending_invalidations_have_their_own_paginated_queue() {
     .execute(&mut *conn)
     .await
     .unwrap();
-    let [second, next_history] = invalidation_sections(&mut conn, Some(cursor))
+    let [second, next_history, next_stale] = invalidation_sections(&mut conn, Some(cursor))
         .await
         .unwrap();
     assert_eq!(second.rows.len(), 1);
@@ -836,6 +886,8 @@ async fn pending_invalidations_have_their_own_paginated_queue() {
     assert!(second.next.is_none());
     assert_eq!(history.rows.len(), 100);
     assert_eq!(next_history.rows.len(), 100);
+    assert_eq!(stale.rows.len(), 100);
+    assert_eq!(next_stale.rows.len(), 100);
     assert!(
         next_history
             .rows
