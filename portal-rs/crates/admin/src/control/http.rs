@@ -181,11 +181,10 @@ pub fn router(
         let small = Router::new()
             .route("/hello", post(hello))
             .route("/channel", post(channel))
-            .route("/results", post(results))
             .route("/rollups", post(rollups))
             .route("/heartbeat", post(heartbeat));
         let large = Router::new().route("/stream", post(stream));
-        let protect = |r, max| {
+        let protect = |r, max, json| {
             guard::protect(
                 r,
                 identities.clone(),
@@ -194,14 +193,20 @@ pub fn router(
                     group: binding.agent_id.clone(),
                     max_body_bytes: max,
                     max_json_depth: 32,
-                    json: JsonRule::Object,
+                    json,
                 },
             )
         };
         let routes = Router::new()
             .nest(
                 "/internal/v1/admin-control",
-                protect(small, MIB).merge(protect(large, 90 * MIB)),
+                protect(small, MIB, JsonRule::Object)
+                    .merge(protect(
+                        Router::new().route("/results", post(results)),
+                        MIB,
+                        JsonRule::ValidatedObject(canonical::valid_object),
+                    ))
+                    .merge(protect(large, 90 * MIB, JsonRule::Object)),
             )
             .layer(axum::extract::DefaultBodyLimit::disable())
             .with_state(context);

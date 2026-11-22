@@ -1106,3 +1106,41 @@ async fn postgres_result_is_bound_to_its_delivery_epoch() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_adm_results_accept_signed_fractional_telemetry() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let app = app(db.pool.clone(), true);
+    assert_eq!(
+        post(
+            app.clone(),
+            "hello",
+            game_hello(1, json!([{"operation":"node.list","version":1}])),
+            true,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let request = request_for("node.list", Kind::Query);
+    db.store().enqueue(&request).await.unwrap();
+    let claimed = post(app.clone(), "channel", game_poll(1, 0), true).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(claimed).await[0]["request_id"],
+        request.request_id.to_string()
+    );
+    let payload = json!({"nodes":[{
+        "node_id":"node-test", "host":"node.internal", "build":"test-build",
+        "uptime_seconds":12, "worlds":[], "ready":true, "cpu_percent":18.5, "memory_bytes":"1024"
+    }]});
+    let result = signed_result(&request, "succeeded", payload.clone(), Value::Null);
+    assert_eq!(
+        post(app, "results", result, true).await.status(),
+        StatusCode::OK
+    );
+    let stored = db.store().results(request.request_id, 1).await.unwrap();
+    assert_eq!(stored[0].payload["result"], payload);
+    db.close().await;
+}

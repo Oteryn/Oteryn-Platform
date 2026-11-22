@@ -99,3 +99,38 @@ impl<'de> Deserialize<'de> for Json {
         Ok(Self(v))
     }
 }
+
+/// ADM-01 results use I-JSON numbers, including fractional telemetry.
+pub(super) fn valid_object(raw: &[u8], max_depth: usize) -> bool {
+    fn within_depth(value: &Value, remaining: usize) -> bool {
+        match value {
+            Value::Object(map) => {
+                remaining > 1 && map.values().all(|value| within_depth(value, remaining - 1))
+            }
+            Value::Array(array) => {
+                remaining > 1 && array.iter().all(|value| within_depth(value, remaining - 1))
+            }
+            _ => true,
+        }
+    }
+
+    serde_json::from_slice::<Json>(raw)
+        .is_ok_and(|Json(value)| value.is_object() && within_depth(&value, max_depth))
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::valid_object;
+
+    #[test]
+    fn result_objects_preserve_adm_number_and_nesting_rules() {
+        assert!(valid_object(br#"{"result":{"cpu":18.5,"ratio":0.97}}"#, 3));
+        assert!(!valid_object(br#"{"result":{"cpu":18.5}}"#, 2));
+        assert!(!valid_object(br#"{"result":{"cpu":18.5,"cpu":20}}"#, 32));
+        assert!(!valid_object(
+            br#"{"result":{"count":9007199254740993}}"#,
+            32
+        ));
+        assert!(!valid_object(br#"["not an object"]"#, 32));
+    }
+}
