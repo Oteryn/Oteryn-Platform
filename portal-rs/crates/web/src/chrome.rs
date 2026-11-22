@@ -56,7 +56,8 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         request.method(),
         &axum::http::Method::GET | &axum::http::Method::POST
     ) && !crate::surface::oauth_protocol_path(path)
-        && crate::surface::error_accept(request.headers()).1;
+        && crate::surface::error_representation(request.headers())
+            == crate::surface::ErrorRepresentation::Html;
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {

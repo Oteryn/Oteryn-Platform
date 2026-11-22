@@ -203,31 +203,63 @@ async fn switch_language(Path(lang): Path<String>) -> Response {
     response
 }
 
-pub(crate) fn error_accept(headers: &HeaderMap) -> (bool, bool) {
-    let accepts = |media_type: &str| {
-        headers
-            .get_all(header::ACCEPT)
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(','))
-            .any(|item| {
-                let mut parts = item.split(';');
-                parts
-                    .next()
-                    .is_some_and(|kind| kind.trim().eq_ignore_ascii_case(media_type))
-                    && parts
-                        .filter_map(|parameter| parameter.split_once('='))
-                        .filter(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
-                        .all(|(_, value)| {
-                            value
-                                .trim()
-                                .parse::<f32>()
-                                .is_ok_and(|q| q > 0.0 && q <= 1.0)
-                        })
-            })
-    };
-    let json = accepts("application/json");
-    (json, !json && accepts("text/html"))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ErrorRepresentation {
+    DefaultHtml,
+    Html,
+    Json,
+    Unacceptable,
+}
+
+pub(crate) fn error_representation(headers: &HeaderMap) -> ErrorRepresentation {
+    use ErrorRepresentation::*;
+    if !headers.contains_key(header::ACCEPT) {
+        return DefaultHtml;
+    }
+
+    let mut html = (0, 0.0_f32);
+    let mut json = (0, 0.0_f32);
+    for item in headers
+        .get_all(header::ACCEPT)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+    {
+        let mut parts = item.split(';');
+        let range = parts.next().unwrap_or_default().trim();
+        let quality = parts
+            .filter_map(|parameter| parameter.split_once('='))
+            .find(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
+            .map_or(Some(1.0), |(_, value)| value.trim().parse::<f32>().ok())
+            .filter(|q| (0.0..=1.0).contains(q))
+            .unwrap_or(0.0);
+
+        // The most specific range governs each representation, including q=0.
+        for (exact, range_type, score) in [
+            ("text/html", "text/*", &mut html),
+            ("application/json", "application/*", &mut json),
+        ] {
+            let specificity = if range.eq_ignore_ascii_case(exact) {
+                3
+            } else if range.eq_ignore_ascii_case(range_type) {
+                2
+            } else if range == "*/*" {
+                1
+            } else {
+                continue;
+            };
+            if (specificity, quality) > *score {
+                *score = (specificity, quality);
+            }
+        }
+    }
+
+    match (html, json) {
+        ((_, 0.0), (_, 0.0)) => Unacceptable,
+        ((1, h), (1, j)) if h == j => DefaultHtml,
+        ((hs, h), (js, j)) if (h, hs) > (j, js) => Html,
+        _ => Json,
+    }
 }
 
 pub(crate) fn oauth_protocol_path(path: &str) -> bool {
@@ -244,7 +276,7 @@ pub(crate) fn browser_path(path: &str) -> bool {
 async fn policy(mut request: Request, next: Next) -> Response {
     let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
     let chrome = request_chrome(&request, lang);
-    let (json, html) = error_accept(request.headers());
+    let representation = error_representation(request.headers());
     let path = request.uri().path().to_owned();
     let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
@@ -272,21 +304,25 @@ async fn policy(mut request: Request, next: Next) -> Response {
         && (matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
-        ) || (status == StatusCode::UNAUTHORIZED && html && browser_path(&path)))
+        ) || (status == StatusCode::UNAUTHORIZED
+            && representation == ErrorRepresentation::Html
+            && browser_path(&path)))
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
     {
-        let mut replacement = if json {
-            let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
-            (status, axum::Json(error)).into_response()
-        } else {
-            response
+        let mut replacement = match representation {
+            ErrorRepresentation::Json => {
+                let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
+                (status, axum::Json(error)).into_response()
+            }
+            ErrorRepresentation::Html | ErrorRepresentation::DefaultHtml => response
                 .extensions()
                 .get::<oteryn_ui::RefusalMessage>()
                 .map_or_else(
                     || oteryn_ui::error(&chrome, status),
                     |message| oteryn_ui::error_with_message(&chrome, status, &message.0),
-                )
+                ),
+            ErrorRepresentation::Unacceptable => status.into_response(),
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
         for name in [header::ALLOW, header::RETRY_AFTER, header::WWW_AUTHENTICATE] {
@@ -382,17 +418,26 @@ mod tests {
         )?)
     }
     #[test]
-    fn error_accept_respects_explicit_json_and_zero_quality_html() {
+    fn error_accept_respects_quality_and_specific_exclusions() {
+        use ErrorRepresentation::*;
         for (accept, expected) in [
-            ("application/json, text/html;q=0", (true, false)),
-            ("text/html;q=0.0", (false, false)),
-            ("TEXT/HTML ; q=0.8, application/json;q=0", (false, true)),
-            ("text/html, application/json", (true, false)),
+            ("application/json, text/html;q=0", Json),
+            ("text/html;q=0.0", Unacceptable),
+            ("TEXT/HTML ; q=0.8, application/json;q=0", Html),
+            ("text/html, application/json", Json),
+            ("text/html;q=1, application/json;q=0.1", Html),
+            ("text/html;q=0.1, application/json;q=1", Json),
+            ("text/html;q=0, */*;q=0.8", Json),
+            ("application/json;q=0, */*;q=0.8", Html),
+            ("text/*, application/json;q=0.1", Html),
+            ("application/xml", Unacceptable),
+            ("*/*", DefaultHtml),
         ] {
             let mut headers = HeaderMap::new();
             headers.insert(header::ACCEPT, HeaderValue::from_static(accept));
-            assert_eq!(error_accept(&headers), expected);
+            assert_eq!(error_representation(&headers), expected);
         }
+        assert_eq!(error_representation(&HeaderMap::new()), DefaultHtml);
     }
 
     #[tokio::test]
