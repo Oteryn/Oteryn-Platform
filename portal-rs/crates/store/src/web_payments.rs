@@ -134,6 +134,18 @@ impl TopUps for PaymentTopUps {
                         );
                     }
                 }
+                // A terminal decision may have won before this request or while
+                // its signed event waited for the payment intent lock.
+                let conflicts = match intent.state {
+                    IntentState::Created | IntentState::Pending => false,
+                    IntentState::Failed => state != IntentState::Failed,
+                    IntentState::Succeeded | IntentState::Refunded | IntentState::Chargeback => {
+                        state != IntentState::Succeeded
+                    }
+                };
+                if conflicts {
+                    return Err(Error::Conflict);
+                }
             }
             let credited = if intent.state == IntentState::Succeeded {
                 sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM wallet_operations WHERE id=$1 AND account_id=$2 AND kind='top_up')")

@@ -20,25 +20,31 @@ operation atomically, binding operation/account/reward/content revision. Returne
 IDs indicate enqueueing only; Game receipts and reconciliation remain store-owned.
 No reward is granted locally. Unknown or failed enqueueing rolls the claim back.
 
-Production remains unavailable: T29 exposes paid purchase, but no public free
-cosmetic entitlement issuance API. The store owner amendment still defers Q4
-(cosmetic authority read), and private journal authority is unavailable. The
-read-only Game store codec at commit
-857f15f376907c592bb28d854fccff18a15cdf87 recognizes COSMETIC/DELIVER; this alone
-does not establish entitlement authority or journal production readiness.
-No Game fixtures were copied. Laravel has no season-pass route/behavior to port.
+Production remains unavailable. The Store wire and Store purchase delivery
+contracts are PROPOSED, and the Store owner amendment keeps COSMETIC disabled
+pending the cosmetic authority read. G-9 revision 3 and G-11 revision 4 accept
+the journal wires and semantics. The accepted revisions do not define a
+season-pass metric mapping. The T89 plan reference to §5.8 now points to skull observations,
+and the journal authority still refuses quest and achievement evidence pending
+catalog or custody mapping. The configured event and reward paths fail closed.
 
 `GET /{pl|en}/pass` renders account-private progress, challenges, free/paid
 tracks and cosmetic grant keys. CSRF-protected POST routes at
 `/{pl|en}/pass/{season}/buy` and `/claim` accept only operation/reward IDs; prices,
 content, account and points are always server-owned. The generic router accepts
-trusted adapters for integration. Production configuration enables mounting only
-with `OTERYN_SEASON_PASS_ENABLED=true` and uses `Unavailable` for all adapters,
-with paid/reward flags false. It therefore returns a localized 503 and never
-charges or issues rewards. All responses are private/no-store.
+trusted adapters for integration. The configured router mounts only with
+`OTERYN_SEASON_PASS_ENABLED=true`. With `OTERYN_ENV=testing`, the overview checks
+account eligibility in a read-only snapshot and mutations lock the account.
+`OTERYN_SEASON_PASS_WALLET_ENABLED=true` enables
+the existing Wallet's audited pass debit. Test coins can come from the existing
+sandbox checkout. Season definitions for browser qualification are disposable
+fixtures. Outside testing, the mounted routes retain their unavailable adapters.
+All responses are private/no-store.
 
 PostgreSQL tests use isolated schemas, the full migration chain and synthetic
-facts. They read `PORTAL_TEST_DATABASE_URL` and print a skip notice when unset.
+facts. Set `PORTAL_TEST_DATABASE_URL` to run them. The expired-season receipt,
+purchase-key race and overview snapshot tests fail with a diagnostic when the
+variable is unset. The other database tests report a skip in that case.
 They cover verified sources, bad input, time boundaries, unknown authority,
 account refusal, purchase and claim replay/concurrency, insufficient funds,
 failed wire rollback, paid eligibility, feature flags and the real wallet API.

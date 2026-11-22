@@ -275,8 +275,10 @@ jobs:
           --summary "$GITHUB_STEP_SUMMARY"
 
   portal_rs:
-    # Rust portal qualification on the exact merge candidate; platform-gate requires it there.
-    if: ${{ github.event_name == 'merge_group' }}
+    # Rust portal qualification on every pull request head, on main after each merge and on any
+    # merge group; platform-gate requires it everywhere. Main has no merge queue (owner decision
+    # 2026-11-22, as in Oteryn-Game), so the pull request run is the pre-merge gate and the push
+    # run re-qualifies main.
     uses: ./.github/workflows/portal-rs-ci.yml
 
   platform_gate:
@@ -299,15 +301,10 @@ jobs:
           PLATFORM_POSTGRES_RESULT: ${{ needs.platform_postgres.result }}
           PHP_COVERAGE_RESULT: ${{ needs.php_coverage.result }}
           PORTAL_RS_RESULT: ${{ needs.portal_rs.result }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           test "$CLASSIFY_CHANGES_RESULT" = success
           test "$TEST_RESULT" = success
           test "$PLATFORM_POSTGRES_RESULT" = success -o "$PLATFORM_POSTGRES_RESULT" = skipped
           test "$PHP_COVERAGE_RESULT" = success -o "$PHP_COVERAGE_RESULT" = skipped
-          if [ "$EVENT_NAME" = merge_group ]; then
-            test "$PORTAL_RS_RESULT" = success
-          else
-            test "$PORTAL_RS_RESULT" = skipped
-          fi
+          test "$PORTAL_RS_RESULT" = success
