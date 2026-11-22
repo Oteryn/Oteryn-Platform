@@ -105,22 +105,18 @@ async fn page(
     )
         .bind(id).fetch_optional(pool).await.map_err(unavailable)?.ok_or(StatusCode::FORBIDDEN)?;
     let csrf = session.csrf_token().await.map_err(unavailable)?;
-    let status = if invalid {
-        StatusCode::BAD_REQUEST
-    } else {
-        StatusCode::OK
+    let page = Page {
+        lang: language.code(),
+        language,
+        profile,
+        csrf,
+        invalid,
     };
-    Ok((
-        status,
-        oteryn_web::render(&Page {
-            lang: language.code(),
-            language,
-            profile,
-            csrf,
-            invalid,
-        }),
-    )
-        .into_response())
+    Ok(if invalid {
+        oteryn_web::render_form_refusal(StatusCode::BAD_REQUEST, &page)
+    } else {
+        oteryn_web::render(&page)
+    })
 }
 
 async fn show(
@@ -258,12 +254,12 @@ mod tests {
             send("display_name=missing-token".into()).await?.status(),
             StatusCode::FORBIDDEN
         );
-        assert_eq!(
-            send(format!("display_name={}&_csrf={csrf}", "x".repeat(65)))
-                .await?
-                .status(),
-            StatusCode::BAD_REQUEST
-        );
+        let invalid = send(format!("display_name={}&_csrf={csrf}", "x".repeat(65))).await?;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(invalid.into_body(), 32768).await?;
+        let html = std::str::from_utf8(&body)?;
+        assert!(html.contains("Use up to 64 characters without control characters."));
+        assert!(html.contains("action=\"/en/account/profile\""));
         assert_eq!(
             send(format!(
                 "display_name=foreign&_csrf={csrf}&account_id={}",
