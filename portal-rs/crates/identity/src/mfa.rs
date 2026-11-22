@@ -473,7 +473,7 @@ impl Mfa {
     pub async fn email_code(
         &self,
         challenge: &str,
-    ) -> Result<Option<(String, String, String)>, sqlx::Error> {
+    ) -> Result<Option<(String, String)>, sqlx::Error> {
         let mut tx = self.pool.begin().await?;
         let Some((id, state, hash)) = Self::valid(&mut tx, challenge, "challenge").await? else {
             Self::refuse(tx, None).await?;
@@ -484,14 +484,13 @@ impl Mfa {
             .execute(&mut *tx)
             .await?;
         let token = Self::token(&mut tx, id, &state, &hash, "email", Some(challenge), 300).await?;
-        let (email, locale): (String, String) =
-            sqlx::query_as("SELECT email,locale FROM accounts WHERE id=$1")
-                .bind(id)
-                .fetch_one(&mut *tx)
-                .await?;
+        let email: String = sqlx::query_scalar("SELECT email FROM accounts WHERE id=$1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
         Self::audit(&mut tx, Some(id), "mfa.email_issued").await?;
         tx.commit().await?;
-        Ok(Some((email, token, locale)))
+        Ok(Some((email, token)))
     }
     pub async fn complete(
         &self,

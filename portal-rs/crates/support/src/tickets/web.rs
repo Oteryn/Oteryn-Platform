@@ -70,7 +70,6 @@ pub fn configured_router(pool: PgPool) -> std::result::Result<Router, Box<dyn st
     let base = std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_URL")?;
     let unsubscribe = oteryn_notify::Unsubscribe::new(key.into_bytes(), base)
         .map_err(|_| "invalid notification configuration")?;
-    let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
     let tickets = Tickets {
         pool: pool.clone(),
         notifications: Arc::new(Notifications {
@@ -80,13 +79,13 @@ pub fn configured_router(pool: PgPool) -> std::result::Result<Router, Box<dyn st
         }),
         enabled: true,
         open_limit: 10,
-        public_origin: origin.clone(),
     };
     let staff = oteryn_admin::web::configured_guard(
         staff_routes(tickets.clone()),
         pool,
         oteryn_admin::rbac::Permission::ManageSupportTickets,
     )?;
+    let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
     Ok(router(tickets, &origin).merge(staff))
 }
 /// Player routes always apply session and CSRF middleware.

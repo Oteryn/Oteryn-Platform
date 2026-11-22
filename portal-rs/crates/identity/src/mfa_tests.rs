@@ -171,13 +171,8 @@ async fn postgres_mfa_recovery_email_and_concurrent_consumption()
     );
     assert_eq!(usize::from(a?.is_some()) + usize::from(b?.is_some()), 1);
     let challenge = mfa.begin_login(&creds).await?.ok_or("challenge")?;
-    sqlx::query("UPDATE accounts SET locale='pl' WHERE email=$1")
-        .bind(&creds.email)
-        .execute(&db.pool)
-        .await?;
-    let (_, old, _) = mfa.email_code(&challenge.token).await?.ok_or("email")?;
-    let (_, email, locale) = mfa.email_code(&challenge.token).await?.ok_or("email")?;
-    assert_eq!(locale, "pl");
+    let (_, old) = mfa.email_code(&challenge.token).await?.ok_or("email")?;
+    let (_, email) = mfa.email_code(&challenge.token).await?.ok_or("email")?;
     assert!(mfa.complete(&challenge.token, &old, false).await?.is_none());
     let other = mfa.begin_login(&creds).await?.ok_or("challenge")?;
     assert!(mfa.complete(&other.token, &email, false).await?.is_none());
@@ -206,7 +201,7 @@ async fn postgres_mfa_recovery_email_and_concurrent_consumption()
             .is_none()
     );
     let challenge = mfa.begin_login(&creds).await?.ok_or("challenge")?;
-    let (_, email, _) = mfa.email_code(&challenge.token).await?.ok_or("email")?;
+    let (_, email) = mfa.email_code(&challenge.token).await?.ok_or("email")?;
     sqlx::query(
         "UPDATE account_mfa_tokens SET expires_at=now()-interval '1 second' WHERE purpose='email'",
     )

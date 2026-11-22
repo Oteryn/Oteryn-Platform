@@ -705,29 +705,15 @@ impl Service {
             }
             _ => return Err(StaffError::Invalid),
         };
-        let (appeal_label, message) = match command {
-            Command::Sanction { public_reason, .. } => (None, public_reason.trim()),
+        let body = match command {
+            Command::Sanction { public_reason, .. } => public_reason.trim().to_owned(),
             Command::Appeal {
                 appeal_status,
                 appeal_outcome,
-            } => (
-                Some(format!("appeal-{appeal_status}")),
-                appeal_outcome.trim(),
-            ),
+            } => format!("{appeal_status}: {}", appeal_outcome.trim()),
             _ => return Err(StaffError::Invalid),
         };
-        crate::tickets::staff::notify(tx, notifications, target, |lang| {
-            let Some(key) = &appeal_label else {
-                return message.to_owned();
-            };
-            let label = crate::tickets::text::text(lang, key);
-            if message.is_empty() {
-                label
-            } else {
-                format!("{label}: {message}")
-            }
-        })
-        .await?;
+        crate::tickets::staff::notify(tx, notifications, target, body).await?;
         let (category, effective_at_ms, expires_at_ms) = if let Some(row) = &current {
             (row.3.as_str(), row.4, row.5)
         } else if let Command::Sanction {
