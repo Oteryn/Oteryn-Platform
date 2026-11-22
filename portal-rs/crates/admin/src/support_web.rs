@@ -201,7 +201,7 @@ async fn list<A: AccountStateReader, B: Backend>(
 ) -> Response {
     let page = paging.page.unwrap_or(1);
     if page == 0 || page > MAX_PAGE {
-        return status(Error::Invalid);
+        return StatusCode::BAD_REQUEST.into_response();
     }
     let records = match s.backend.list(area, page).await {
         Ok(v) => v,
