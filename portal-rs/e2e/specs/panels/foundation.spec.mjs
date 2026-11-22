@@ -127,6 +127,13 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${lang}$`));
     await expect(admin.locator('html')).toHaveAttribute('lang', lang);
 
+    const saved = lang === 'pl' ? 'en' : 'pl';
+    expect((await visit(admin, `/language/${saved}`)).status()).toBe(200);
+    expect((await visit(admin, '/console')).status()).toBe(200);
+    await expect(admin).toHaveURL(new RegExp(`/console/dashboard\\?lang=${saved}$`));
+    await expect(admin.getByRole('navigation', {name: labels[saved].gm, exact: true})).toBeVisible();
+    expect((await visit(admin, `/language/${lang}`)).status()).toBe(200);
+
     const [{id: roleId}] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [unique()]);
     await rolePage(admin, roleId);
     const grant = admin.locator('form:has(button[value=grant])');

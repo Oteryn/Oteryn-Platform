@@ -34,6 +34,23 @@ struct EconomyPage {
     policy: String,
     groups: Vec<Group>,
 }
+impl EconomyPage {
+    fn text(&self, key: &str) -> String {
+        oteryn_ui::text(self.lang, key)
+    }
+
+    fn group_text(&self, group: &Group, field: &str) -> String {
+        let family = match group.family.as_str() {
+            "economy_circulation_daily" => "circulation",
+            "economy_flows_daily" => "flows",
+            "economy_trades_daily" => "trades",
+            "economy_market_daily" => "market",
+            "economy_store_daily" => "store",
+            _ => "purchases",
+        };
+        self.text(&format!("ops-economy-{family}-{field}"))
+    }
+}
 pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     s: Arc<Context<I, A>>,
     request: Request,

@@ -74,7 +74,22 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  } finally {await seed.end();}
  const response=await page.goto(`/admin/analytics/economy?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
  expect(response.status()).toBe(200);
- for(const text of ['48210377','4500','low-n (below five)','depot source coverage not yet delivered by Game','spent_in_game/coin','Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
+ const labels = lang === 'pl' ? {
+   world: 'Świat', from: 'Od (UTC, włącznie)', to: 'Do (UTC, wyłącznie)',
+   heading: 'Klucz / przedmiot / waluta', low: 'Mała próba (poniżej pięciu)',
+   gap: 'depot dane źródłowe z gry jeszcze nie dotarły', wallet: 'Księga portfela platformy',
+   incomplete: 'Niekompletne',
+ } : {
+   world: 'World', from: 'From (UTC, inclusive)', to: 'To (UTC, exclusive)',
+   heading: 'Key / item / currency', low: 'low-n (below five)',
+   gap: 'depot source coverage not yet delivered by Game', wallet: 'Platform wallet ledger',
+   incomplete: 'Incomplete',
+ };
+ for (const label of [labels.world, labels.from, labels.to]) {
+   await expect(page.getByLabel(label, {exact:true})).toBeVisible();
+ }
+ await expect(page.getByRole('columnheader', {name:labels.heading, exact:true}).first()).toBeVisible();
+ for(const text of ['48210377','4500',labels.low,labels.gap,labels.incomplete,'spent_in_game/coin',labels.wallet])await expect(page.locator('main')).toContainText(text);
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
 });
