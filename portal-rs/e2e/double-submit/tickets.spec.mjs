@@ -3,7 +3,10 @@ import { test, expect } from '../fixtures.mjs';
 import { login, submit } from '../helpers.mjs';
 import { cookie, expectSession, otherBrowser } from '../security/auth-fixtures.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
-import { expectCsrfRefusal, expectRedirect, reloadGet, replay, signIn, snapshot, submitForm } from './forms.mjs';
+import {
+  expectCsrfRefusal, expectRedirect, parallelSubmit, reloadGet, replay, signIn, snapshot, submitForm,
+  withFixtureCredentials,
+} from './forms.mjs';
 
 const copy = {
   en: {
@@ -52,10 +55,7 @@ test('ticket creation preserves one ticket and one initial message across parall
   const original = await snapshot(button);
   expect(await tickets(owner)).toEqual([]);
 
-  const [navigation, duplicate] = await Promise.all([
-    submitForm(page, button, original.url),
-    replay(page, original),
-  ]);
+  const [navigation, duplicate] = await parallelSubmit(page, button, original);
   const rows = await tickets(owner);
   expect(rows).toEqual([{ id: expect.any(String), subject, status: 'open', lock_version: 1 }]);
   const [{ id }] = rows;
@@ -96,7 +96,8 @@ test('ticket creation rejects tokens from signed-out, rotated and independent se
   const { button } = await ticketForm(page, lang);
   const loggedOutForm = await snapshot(button);
   const signedOut = await cookie(context);
-  await login(page, lang, owner); // The shared helper signs out through the browser first.
+  // The shared helper signs out through the browser first.
+  await withFixtureCredentials(() => login(page, lang, owner));
   await expect(page).toHaveURL(`/${lang}/`);
   await expectSession(signedOut);
   await expectSession(await cookie(context), owner.id);
@@ -107,7 +108,7 @@ test('ticket creation rejects tokens from signed-out, rotated and independent se
   const beforeSudo = await snapshot(fresh.button);
   const regular = await cookie(context);
   expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
-  await submit(page, 'main form', { current_password: owner.password });
+  await withFixtureCredentials(() => submit(page, 'main form', { current_password: owner.password }));
   await expect(page).toHaveURL(`/${lang}/password/change`);
   await expectSession(regular);
   await expectSession(await cookie(context), owner.id);
@@ -117,7 +118,7 @@ test('ticket creation rejects tokens from signed-out, rotated and independent se
   const independent = await otherBrowser(browser, info);
   try {
     const tab = await independent.newPage();
-    await login(tab, lang, owner);
+    await withFixtureCredentials(() => login(tab, lang, owner));
     await expect(tab).toHaveURL(`/${lang}/`);
     const secondSession = await cookie(independent);
     await expectSession(secondSession, owner.id);

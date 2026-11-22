@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '../fixtures.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
-import { expectRedirect, reloadGet, replay, signIn, snapshot, submitForm } from './forms.mjs';
+import { expectRedirect, parallelSubmit, reloadGet, signIn, snapshot, submitForm } from './forms.mjs';
 
 const index = '/admin/pages';
 const copy = {
@@ -69,10 +69,8 @@ test('parallel CMS saves and a stale second tab preserve the accepted revision a
   expect(await pages(slug, lang)).toEqual([]);
   expect(await audit(slug, lang)).toEqual([]);
 
-  const [accepted, refused] = (await Promise.all([
-    submitForm(page, save(page), original.url),
-    replay(page, original),
-  ])).sort((a, b) => a.status() - b.status());
+  const [accepted, refused] = (await parallelSubmit(page, save(page), original))
+    .sort((a, b) => a.status() - b.status());
   expectRedirect(accepted, 303, index);
   expect(refused.status()).toBe(409);
   expect(await refused.text()).toBe(copy[lang].conflict);
@@ -92,4 +90,27 @@ test('parallel CMS saves and a stale second tab preserve the accepted revision a
   expect((await page.goto(`/${lang}/pages/${slug}`)).status()).toBe(200);
   await expect(page.locator('main')).toContainText(body);
   expect(await audit(slug, lang)).toHaveLength(1);
+
+  await openEditor(page, editor, lang);
+  await openEditor(second, editor, lang);
+  for (const tab of [page, second]) {
+    await expect(tab.locator('main [name=title]')).toHaveValue(winner);
+    await expect(tab.locator('main [name=body]')).toHaveValue(body);
+  }
+  const updatedBody = lang === 'pl' ? 'Zapisana zmiana istniejącej strony.' : 'Saved change to the existing page.';
+  const existing = await fill(page, winner, updatedBody);
+  const competing = await fill(second, 'Other existing edit', 'Unsaved text from the competing tab.');
+  expectRedirect(await submitForm(page, save(page), existing.url), 303, index);
+  await expect(page).toHaveURL(index);
+  await reloadGet(page);
+  const competingResponse = await submitForm(second, save(second), competing.url);
+  expect(competingResponse.status()).toBe(409);
+  await expect(second.locator('body')).toHaveText(copy[lang].conflict);
+  expect(await pages(slug, lang)).toEqual([{ title: winner, body: updatedBody, revision: expect.any(String) }]);
+  expect(await audit(slug, lang)).toEqual([
+    { actor: actor.id, action: 'cms.page.saved', title: winner },
+    { actor: actor.id, action: 'cms.page.saved', title: winner },
+  ]);
+  expect((await page.goto(`/${lang}/pages/${slug}`)).status()).toBe(200);
+  await expect(page.locator('main')).toContainText(updatedBody);
 });

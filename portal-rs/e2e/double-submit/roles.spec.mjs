@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from '../fixtures.mjs';
 import { query, rolePage } from '../staff-rbac-helpers.mjs';
-import { expectRedirect, reloadGet, replay, signIn, snapshot, submitForm } from './forms.mjs';
+import { expectRedirect, parallelSubmit, reloadGet, signIn, snapshot, submitForm } from './forms.mjs';
 
 const roles = '/admin/roles';
 const create = 'main form:has(button[value=create])';
@@ -40,10 +40,8 @@ test('role creation has one effect and two tabs apply explicit, audited replacem
   await createForm.locator('[name=permissions]').fill('admin.access');
   const createButton = createForm.locator('button[value=create]');
   const original = await snapshot(createButton);
-  const [accepted, refused] = (await Promise.all([
-    submitForm(page, createButton, original.url),
-    replay(page, original),
-  ])).sort((a, b) => a.status() - b.status());
+  const [accepted, refused] = (await parallelSubmit(page, createButton, original))
+    .sort((a, b) => a.status() - b.status());
   expectRedirect(accepted, 303, roles);
   expect(refused.status()).toBe(409);
   expect(await refused.text()).toBe(copy[lang].duplicate);
@@ -67,10 +65,7 @@ test('role creation has one effect and two tabs apply explicit, audited replacem
   }
   const firstButton = page.locator(`${edit} button[value=set-permissions]`);
   const first = await snapshot(firstButton);
-  for (const response of await Promise.all([
-    submitForm(page, firstButton, first.url),
-    replay(page, first),
-  ])) {
+  for (const response of await parallelSubmit(page, firstButton, first)) {
     expectRedirect(response, 303, roles);
   }
   await expect(page).toHaveURL(roles);

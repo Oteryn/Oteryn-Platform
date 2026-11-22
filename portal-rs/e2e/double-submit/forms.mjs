@@ -3,6 +3,15 @@ import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
 import { login } from '../helpers.mjs';
 
+export async function withFixtureCredentials(operation) {
+  try {
+    await operation();
+  } catch {
+    // Playwright action errors can include the supplied password or code.
+    throw new Error('Browser authentication with fixture credentials failed');
+  }
+}
+
 export async function signIn(page, lang, role) {
   const account = await seedAccount(lang);
   if (role) {
@@ -14,9 +23,9 @@ export async function signIn(page, lang, role) {
     const seeded = await seedEntity('account-mfa', { accountId: account.id, password: account.password });
     const code = seeded.recoveryCodes[0];
     expect(Boolean(code), 'seeded staff recovery code exists').toBe(true);
-    await loginWithRecoveryCode(page, lang, account, code);
+    await withFixtureCredentials(() => loginWithRecoveryCode(page, lang, account, code));
   } else {
-    await login(page, lang, account);
+    await withFixtureCredentials(() => login(page, lang, account));
   }
   await expect(page).toHaveURL(`/${lang}/`);
   return account;
@@ -26,35 +35,50 @@ export function snapshot(button) {
   return button.evaluate(submitter => {
     const form = submitter.form;
     const action = submitter.getAttribute('formaction') ?? form.getAttribute('action');
+    const target = new URL(action || location.href, document.baseURI);
+    if (target.origin !== location.origin) throw new Error('Expected a same-origin form action');
     return {
-      url: new URL(action || location.href, document.baseURI).href,
+      url: target.href,
       lang: navigator.language,
       fields: [...new FormData(form, submitter)],
     };
   });
 }
 
-export function replay(page, { url, lang, fields }) {
-  return page.request.post(url, {
-    data: new URLSearchParams(fields).toString(),
-    headers: {
-      'accept-language': lang,
-      'content-type': 'application/x-www-form-urlencoded',
-      origin: new URL(url).origin,
-    },
-    maxRedirects: 0,
-  });
+export async function replay(page, { url, lang, fields }) {
+  const origin = new URL(page.url()).origin;
+  if (new URL(url).origin !== origin) throw new Error('Expected a same-origin form replay');
+  try {
+    return await page.request.post(url, {
+      data: new URLSearchParams(fields).toString(),
+      headers: {
+        'accept-language': lang,
+        'content-type': 'application/x-www-form-urlencoded',
+        origin,
+      },
+      maxRedirects: 0,
+    });
+  } catch {
+    throw new Error('Browser form replay failed at the transport layer');
+  }
+}
+
+function isFormNavigation(request, url) {
+  return request.url() === url && request.method() === 'POST' && request.isNavigationRequest();
 }
 
 export async function submitForm(page, button, url) {
   const [response] = await Promise.all([
-    page.waitForResponse(reply =>
-      reply.url() === url && reply.request().method() === 'POST' &&
-      reply.request().isNavigationRequest()
-    ),
+    page.waitForResponse(reply => isFormNavigation(reply.request(), url)),
     button.click(),
   ]);
   return response;
+}
+
+export function parallelSubmit(page, button, submission) {
+  const duplicate = page.waitForRequest(request => isFormNavigation(request, submission.url))
+    .then(() => replay(page, submission));
+  return Promise.all([submitForm(page, button, submission.url), duplicate]);
 }
 
 export function expectRedirect(response, status, target) {

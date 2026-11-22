@@ -5,7 +5,7 @@ import { expect, test } from '../fixtures.mjs';
 import { seedEntity } from '../security/auth-fixtures.mjs';
 import { gameJson, sourceTime } from '../outbox-helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
-import { expectRedirect, reloadGet, replay, signIn, snapshot, submitForm } from './forms.mjs';
+import { expectRedirect, parallelSubmit, reloadGet, replay, signIn, snapshot, submitForm } from './forms.mjs';
 
 const copy = {
   en: {
@@ -93,16 +93,18 @@ test('profile rejects parallel replay and a competing tab at the same privacy re
   }
 
   const original = await snapshot(button(page));
-  const [accepted, refused] = (await Promise.all([
-    submitForm(page, button(page), original.url),
-    replay(page, original),
-  ])).sort((a, b) => a.status() - b.status());
+  const [accepted, refused] = (await parallelSubmit(page, button(page), original))
+    .sort((a, b) => a.status() - b.status());
   expectRedirect(accepted, 303, path);
   expect(refused.status()).toBe(409);
   expect(await refused.text()).toBe(copy[lang].conflict);
   const stale = await snapshot(button(second));
   expect((await submitForm(second, button(second), stale.url)).status()).toBe(409);
   await expect(second.locator('body')).toHaveText(copy[lang].conflict);
+  const unversioned = { ...stale, fields: stale.fields.filter(([key]) => key !== 'expected_revision') };
+  const oldForm = await replay(page, unversioned);
+  expect(oldForm.status()).toBe(409);
+  expect(await oldForm.text()).toBe(copy[lang].conflict);
 
   expect((await page.goto(path)).status()).toBe(200);
   await reloadGet(page);
