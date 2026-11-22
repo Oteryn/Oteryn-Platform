@@ -1465,7 +1465,10 @@
       "source": "crates/content/src/news.rs:347",
       "ordinal": 1,
       "action": "{action}?lang={lang}",
-      "actionVariants": [],
+      "actionVariants": [
+        "/admin/news?lang={lang}",
+        "/admin/news/{id}?lang={lang}"
+      ],
       "fields": [
         "_csrf",
         "expected_revision",

@@ -95,6 +95,9 @@ def bindings(path, source, all_sources):
     if path == "crates/admin/src/support_web.rs":
         panel = source.split("let actions:", 1)[1].split("for (action, fields)", 1)[0]
         return {"{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel)}
+    if path == "crates/content/src/news.rs":
+        action = source.split("let action = id.map_or_else(", 1)[1].split(");", 1)[0]
+        return {"{action}": re.findall(r'"(/admin/news[^"]*)"', action)}
     if path == "crates/identity/src/consents_http.rs":
         consents = all_sources["crates/identity/src/consents.rs"]
         codes = consents.split("pub fn code(self)", 1)[1].split("}", 1)[0]
