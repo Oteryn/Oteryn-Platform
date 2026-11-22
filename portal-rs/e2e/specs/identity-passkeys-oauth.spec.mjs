@@ -109,8 +109,9 @@ test('OAuth consent localizes, refuses invalid forms, and handles allow and canc
     expect((await result.json()).error).toBe('invalid_request');
     expect(result.headers().location).toBeUndefined();
   }
-  await page.route(`${redirect}?**`, route => route.fulfill({ status: 200, body: 'Local OAuth client callback' }));
+  const cancelled = page.waitForResponse(response => response.url().startsWith(redirect + '?'));
   await page.getByRole('button', { name: t('Cancel', 'Anuluj'), exact: true }).click();
+  expect((await cancelled).status()).toBe(200);
   await expect(page).toHaveURL(/\/__oauth\/callback\?/);
   let result = new URL(page.url()).searchParams;
   expect(result.get('state') === state).toBe(true);
@@ -121,7 +122,9 @@ test('OAuth consent localizes, refuses invalid forms, and handles allow and canc
     'Allow the registered game client to access account services, including coin purchases (game:account-services)?',
     'Czy zezwolić zarejestrowanemu klientowi gry na dostęp do usług konta, w tym zakup monet (game:account-services)?',
   ));
+  const allowed = page.waitForResponse(response => response.url().startsWith(redirect + '?'));
   await page.getByRole('button', { name: t('Allow', 'Zezwól'), exact: true }).click();
+  expect((await allowed).status()).toBe(200);
   await expect(page).toHaveURL(/\/__oauth\/callback\?/);
   result = new URL(page.url()).searchParams;
   expect(result.get('state') === state).toBe(true);

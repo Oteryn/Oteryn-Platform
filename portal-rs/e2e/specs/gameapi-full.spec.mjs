@@ -80,6 +80,7 @@ async function verifyConsent(page, lang, description) {
 async function decide(page, grant, decision) {
   const redirect = page.waitForResponse(response =>
     new URL(response.url()).pathname === authorizePath && response.request().method() === 'POST');
+  const received = page.waitForResponse(response => response.url().startsWith(callback + '?'));
   await page.locator(`main button[name=decision][value=${decision}]`).click();
   const result = await redirect;
   expect(result.status()).toBe(302);
@@ -87,6 +88,10 @@ async function decide(page, grant, decision) {
   const target = new URL(result.headers().location);
   expect(target.origin + target.pathname).toBe(callback);
   expect(target.searchParams.get('state') === grant.query.state).toBe(true);
+  const delivery = await received;
+  expect(delivery.status()).toBe(200);
+  expect(delivery.headers()['cache-control']).toBe('no-store');
+  expect(await delivery.text()).toBe('OAuth callback received.');
   return target.searchParams;
 }
 
@@ -147,7 +152,6 @@ test('OAuth consent links, both decisions, CSRF, PKCE, code replay and refresh r
   const lang = info.project.metadata.locale;
   const headers = requestSource(info, 1);
   await page.setExtraHTTPHeaders(headers);
-  await page.route('**/__oauth/callback?**', route => route.fulfill({ status: 200, body: 'Callback received.' }));
   const grant = authorization('game:ticket');
   const guest = await request.get(grant.url, { headers, maxRedirects: 0 });
   expect(guest.status()).toBe(303);
@@ -239,7 +243,6 @@ test('native bearer reads projected characters, validates and consumes a ticket,
   const lang = info.project.metadata.locale;
   const headers = requestSource(info, 4);
   await page.setExtraHTTPHeaders(headers);
-  await page.route('**/__oauth/callback?**', route => route.fulfill({ status: 200, body: 'Callback received.' }));
   const player = seedPlayer(lang);
   const other = seedPlayer(lang);
   await signIn(page, lang, player);
@@ -302,7 +305,6 @@ test('remembered device requires direct TLS and rotates and revokes a seeded nat
   const lang = info.project.metadata.locale;
   const headers = requestSource(info, 6);
   await page.setExtraHTTPHeaders(headers);
-  await page.route('**/__oauth/callback?**', route => route.fulfill({ status: 200, body: 'Callback received.' }));
   const player = seedPlayer(lang);
   const other = seedPlayer(lang);
   await signIn(page, lang, player);
@@ -419,7 +421,6 @@ test('native coin catalogue, balance, order replay and both sandbox checkout act
   const lang = info.project.metadata.locale;
   const headers = requestSource(info, 8);
   await page.setExtraHTTPHeaders(headers);
-  await page.route('**/__oauth/callback?**', route => route.fulfill({ status: 200, body: 'Callback received.' }));
   const player = seedPlayer(lang);
   const other = seedPlayer(lang);
   await signIn(page, lang, player);

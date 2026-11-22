@@ -141,6 +141,18 @@ const proxy=https.createServer(tls,(req,res)=>{
   void bazaarGame.control(req,res,req.url.slice('/__bazaar_game'.length));
   return;
  }
+ // The disposable OAuth client accepts its real browser redirect without reflecting its query.
+ if(req.method==='GET'&&(req.url==='/__oauth/callback'||req.url.startsWith('/__oauth/callback?'))){
+  const params=new URL(req.url, 'https://localhost:18443').searchParams;
+  const accepted=Boolean(params.get('state'))&&(Boolean(params.get('code'))!==Boolean(params.get('error')));
+  res.writeHead(accepted?200:400,{
+   'content-type':'text/plain; charset=utf-8',
+   'cache-control':'no-store',
+   'referrer-policy':'no-referrer',
+  });
+  res.end(accepted?'OAuth callback received.':'Invalid OAuth callback.');
+  return;
+ }
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
  // Select actual loopback peers for source-limit checks on the local login route.
  const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
