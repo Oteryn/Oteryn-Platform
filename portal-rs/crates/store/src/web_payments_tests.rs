@@ -1086,7 +1086,7 @@ async fn postgres_competing_checkout_decisions_conflict_and_winner_replays() -> 
         }
     })
     .await
-    .expect("both checkout decisions must wait for the held intent")?;
+    .map_err(|_| "both checkout decisions must wait for the held intent")??;
     lock.commit().await?;
     let (paid, rejected) = (pay.await?, reject.await?);
     let (winning_action, losing_action, terminal_status) = match (paid, rejected) {

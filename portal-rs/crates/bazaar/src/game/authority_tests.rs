@@ -5908,7 +5908,7 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
             }
         })
         .await
-        .expect("the replay must reach the first transaction's listing gate");
+        .unwrap_or_else(|_| panic!("the replay must reach the first transaction's listing gate"));
         let mut queued = std::pin::pin!(db.pool.acquire());
         assert!(
             std::future::poll_fn(|cx| {
@@ -5919,7 +5919,9 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
         sqlx::query("COMMIT").execute(&mut *gate).await.unwrap();
         let occupied = tokio::time::timeout(std::time::Duration::from_secs(2), queued)
             .await
-            .expect("the earlier waiter must take the first transaction's connection")
+            .unwrap_or_else(|_| {
+                panic!("the earlier waiter must take the first transaction's connection")
+            })
             .unwrap();
         assert!(
             !contended.is_finished(),
@@ -5927,7 +5929,9 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
         );
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(4), contended)
             .await
-            .expect("the replay must time out even with the pool still occupied")
+            .unwrap_or_else(|_| {
+                panic!("the replay must time out even with the pool still occupied")
+            })
             .unwrap();
         assert!(matches!(outcome, Err(Error::Unavailable)), "{outcome:?}");
         drop((occupied, spare, observer, gate));
@@ -5986,7 +5990,7 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
         }
     })
     .await
-    .expect("replay must wait for the account lock held by suspension");
+    .unwrap_or_else(|_| panic!("replay must wait for the account lock held by suspension"));
     // A committed conflict must complete even when the key's writer lock
     // is busy and the exact replay is still waiting on the account.
     let key_lock = sqlx::query_scalar::<_, bool>(
@@ -6005,7 +6009,7 @@ async fn postgres_coin_bid_replays_share_listing_lock_and_recheck_policy() {
         db.runtime.bid(buyer, listing, 16000, destination, request),
     )
     .await
-    .expect("the committed conflict must finish while the locks are held");
+    .unwrap_or_else(|_| panic!("the committed conflict must finish while the locks are held"));
     assert!(matches!(conflict, Err(Error::Conflict)), "{conflict:?}");
     assert!(!replay.is_finished(), "replay must still be blocked");
     suspension.commit().await.unwrap();
