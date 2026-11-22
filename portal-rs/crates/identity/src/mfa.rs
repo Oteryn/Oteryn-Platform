@@ -395,6 +395,24 @@ impl Mfa {
             .await
     }
 
+    /// The pending ciphertext carries a fixed-length fingerprint of its owner browser
+    /// identity and credential generation. Older unbound pending replacements fail closed.
+    async fn replacement_binding(
+        conn: &mut sqlx::PgConnection,
+        actor: &crate::mutation_actor::MutationActor,
+    ) -> Result<Option<[u8; 32]>, sqlx::Error> {
+        Ok(actor
+            .ceremony_identity(conn)
+            .await?
+            .map(|(session, generation)| {
+                let mut digest = Sha256::new();
+                digest.update(b"oteryn-mfa-replacement-v1");
+                digest.update(session);
+                digest.update(generation.to_be_bytes());
+                digest.finalize().into()
+            }))
+    }
+
     /// Prove possession of the existing factor before starting replacement,
     /// removing the factor, or invalidating the old set of recovery codes.
     pub async fn manage(
@@ -420,13 +438,18 @@ impl Mfa {
 
         let (result, audit) = match action {
             ManagementAction::Replace => {
+                let Some(binding) = Self::replacement_binding(&mut tx, &actor).await? else {
+                    return Ok(None);
+                };
                 let mut secret = vec![0; 20];
                 getrandom::fill(&mut secret).map_err(|_| error())?;
                 let encoded = totp_rs::Secret::Raw(secret.clone())
                     .to_encoded()
                     .to_string();
+                let mut pending = binding.to_vec();
+                pending.extend(self.encrypt(id, &secret)?);
                 sqlx::query("UPDATE account_mfa_totp SET replacement_secret=$2,replacement_expires_at=clock_timestamp()+interval '10 minutes' WHERE account_id=$1")
-                    .bind(id).bind(self.encrypt(id, &secret)?).execute(&mut *tx).await?;
+                    .bind(id).bind(pending).execute(&mut *tx).await?;
                 (
                     ManagementResult::Replacement(encoded),
                     "mfa.replacement_started",
@@ -470,14 +493,18 @@ impl Mfa {
         let id = actor.account;
         let mut tx = self.pool.begin().await?;
         let hash = Self::lock(&mut tx, id).await?;
-        if !actor.live(&mut tx).await? {
-            return Ok(None);
-        }
-        let replacement: Option<State> = sqlx::query_as("SELECT replacement_secret AS secret,confirmed,-1::bigint AS last_step,generation FROM account_mfa_totp WHERE account_id=$1 AND confirmed AND replacement_expires_at>clock_timestamp()")
-            .bind(id).fetch_optional(&mut *tx).await?;
-        let Some(replacement) = replacement else {
+        let Some(binding) = Self::replacement_binding(&mut tx, &actor).await? else {
             return Ok(None);
         };
+        let replacement: Option<State> = sqlx::query_as("SELECT replacement_secret AS secret,confirmed,-1::bigint AS last_step,generation FROM account_mfa_totp WHERE account_id=$1 AND confirmed AND replacement_expires_at>clock_timestamp()")
+            .bind(id).fetch_optional(&mut *tx).await?;
+        let Some(mut replacement) = replacement else {
+            return Ok(None);
+        };
+        let Some(ciphertext) = replacement.secret.strip_prefix(binding.as_slice()) else {
+            return Ok(None);
+        };
+        replacement.secret = ciphertext.to_vec();
         let step = self.step(id, &replacement, code, now()?)?;
         if hash.is_none()
             || step.is_none()
@@ -486,8 +513,11 @@ impl Mfa {
             Self::refuse(tx, Some(id)).await?;
             return Ok(None);
         }
-        sqlx::query("UPDATE account_mfa_totp SET secret=replacement_secret,replacement_secret=NULL,replacement_expires_at=NULL,generation=uuidv7(),last_step=$2,updated_at=now() WHERE account_id=$1")
-            .bind(id).bind(step).execute(&mut *tx).await?;
+        let updated = sqlx::query("UPDATE account_mfa_totp SET secret=$3,replacement_secret=NULL,replacement_expires_at=NULL,generation=uuidv7(),last_step=$2,updated_at=now() WHERE account_id=$1 AND replacement_expires_at>clock_timestamp()")
+            .bind(id).bind(step).bind(replacement.secret).execute(&mut *tx).await?;
+        if updated.rows_affected() != 1 {
+            return Ok(None);
+        }
         let codes = Self::new_codes(&mut tx, id).await?;
         Self::revoke(&mut tx, id).await?;
         Self::audit(&mut tx, Some(id), "mfa.replaced").await?;

@@ -638,3 +638,107 @@ async fn removed_backup_ineligible_after_lock_wait() -> Result<(), Box<dyn std::
     assert!(!queued, "queued reset for removed backup");
     db.close().await
 }
+
+#[tokio::test]
+async fn password_reset_invalidates_pending_mfa_replacement()
+-> Result<(), Box<dyn std::error::Error>> {
+    use crate::{
+        mfa::{ManagementAction, ManagementResult, Mfa},
+        mutation_actor::MutationActor,
+    };
+    let db = open().await?.ok_or("PostgreSQL required")?;
+    let pool = &db.pool;
+    let id = account(pool).await?;
+    let password = "old secure password";
+    sqlx::query("UPDATE accounts SET password_hash=$2 WHERE id=$1")
+        .bind(id)
+        .bind(password::hash(password)?)
+        .execute(pool)
+        .await?;
+    let mfa = Mfa::new(pool.clone(), [7; 32]);
+    let enrollment = mfa.enroll(id, password).await?.ok_or("enrollment")?;
+    let factor = |secret| -> Result<_, Box<dyn std::error::Error>> {
+        let bytes = totp_rs::Secret::Encoded(secret).to_bytes()?;
+        Ok(totp_rs::TOTP::new(
+            totp_rs::Algorithm::SHA1,
+            6,
+            1,
+            30,
+            bytes,
+        )?)
+    };
+    let original = factor(enrollment.secret)?;
+    let timestamp = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_secs())
+    };
+    mfa.confirm(id, password, &original.generate(timestamp()?))
+        .await?
+        .ok_or("confirmation")?;
+    let browser = |key: char| async move {
+        let token = key.to_string().repeat(64);
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES(sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+            .bind(token.as_bytes()).bind(id).bind(&token).execute(pool).await?;
+        Ok::<_, sqlx::Error>(MutationActor::browser(id, token))
+    };
+    let started = mfa
+        .manage(
+            browser('a').await?,
+            password,
+            &original.generate(timestamp()? + 30),
+            ManagementAction::Replace,
+        )
+        .await?;
+    let Some(ManagementResult::Replacement(secret)) = started else {
+        return Err("replacement did not start".into());
+    };
+    let pending = factor(secret)?;
+    assert!(
+        mfa.confirm_replacement(
+            browser('b').await?,
+            password,
+            &pending.generate(timestamp()?)
+        )
+        .await?
+        .is_none()
+    );
+
+    request(pool, "reset@example.test", &key()).await?;
+    let reset = token(pool).await?;
+    assert_eq!(
+        complete(pool, input("reset@example.test", &reset)).await?,
+        Completion::Completed
+    );
+    assert!(
+        mfa.confirm_replacement(
+            MutationActor::browser(id, "a".repeat(64)),
+            "new secure password",
+            &pending.generate(timestamp()?)
+        )
+        .await?
+        .is_none()
+    );
+    assert!(
+        mfa.confirm_replacement(
+            browser('c').await?,
+            "new secure password",
+            &pending.generate(timestamp()?)
+        )
+        .await?
+        .is_none()
+    );
+    // Reusing the exact previous identity cannot revive a ceremony from an old generation.
+    assert!(
+        mfa.confirm_replacement(
+            browser('a').await?,
+            "new secure password",
+            &pending.generate(timestamp()?)
+        )
+        .await?
+        .is_none()
+    );
+    assert!(mfa.enrolled(id).await?);
+    assert_eq!(mfa.remaining_codes(id).await?, 8);
+    db.close().await
+}
