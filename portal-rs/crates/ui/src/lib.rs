@@ -1,4 +1,6 @@
 //! Shared portal presentation. No module, database or session dependencies.
+pub mod panels;
+
 use askama::Template;
 use axum::{
     http::StatusCode,
@@ -64,6 +66,7 @@ pub struct Entry {
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
     entries: Vec<Entry>,
+    pub panels: panels::Registry,
     pub login: bool,
     pub registration: bool,
     pub account: bool,
@@ -72,6 +75,17 @@ impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
     pub fn register(&mut self, enabled: bool, entry: Entry) {
         if enabled && !self.entries.iter().any(|e| e.section == entry.section) {
+            if entry.group == Group::Account && !entry.footer {
+                self.panels.register(
+                    true,
+                    panels::Entry {
+                        panel: panels::Panel::Player,
+                        route: entry.path,
+                        label: entry.label,
+                        permission: panels::Permission::AccountOwner,
+                    },
+                );
+            }
             self.entries.push(entry);
         }
     }
@@ -158,6 +172,7 @@ impl Registry {
                 })
             })
             .collect();
+        let signed_in = matches!(account, Account::SignedIn { .. });
         Chrome {
             lang: lang.to_owned(),
             alternate_url: if let Some(rest) = clean
@@ -183,6 +198,18 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
+            staff_dashboard: None,
+            player_navigation: if (suffix == "account"
+                || suffix.starts_with("account/")
+                || suffix.starts_with("panel/"))
+                && signed_in
+            {
+                self.panels.links(panels::Panel::Player, lang, |p| {
+                    p == panels::Permission::AccountOwner
+                })
+            } else {
+                Vec::new()
+            },
         }
     }
 }
@@ -231,6 +258,8 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
+    pub staff_dashboard: Option<String>,
+    pub player_navigation: Vec<panels::Link>,
 }
 impl Default for Chrome {
     fn default() -> Self {

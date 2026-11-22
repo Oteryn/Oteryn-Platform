@@ -28,6 +28,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
+use oteryn_ui::panels::{self, Panel};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -372,8 +373,54 @@ pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChan
     })
 }
 /// Embedders must wrap these routes with web::guarded (trusted staff context + CSRF).
+const GM_NAV_OPERATIONS: [Operation; 4] = [
+    Operation::Overview,
+    Operation::Worlds,
+    Operation::Nodes,
+    Operation::Database,
+];
+
+async fn navigation<P: Permissions>(
+    permissions: &P,
+    context: CheckContext,
+    language: &str,
+) -> Vec<panels::Link> {
+    let mut registry = panels::Registry::default();
+    for (&(route, label, permission), operation) in
+        rbac::GM_PANEL_SECTIONS.iter().zip(GM_NAV_OPERATIONS)
+    {
+        registry.register(
+            permissions.check(context, operation).await.is_ok(),
+            panels::Entry {
+                panel: Panel::Gm,
+                route,
+                label,
+                permission: panels::Permission::Staff(permission.as_str()),
+            },
+        );
+    }
+    registry.links(Panel::Gm, language, |_| true)
+}
+
+async fn landing<P: Permissions, C: Channel>(
+    State(s): State<Arc<Console<P, C>>>,
+    Extension(context): Extension<CheckContext>,
+    headers: HeaderMap,
+    Query(q): Query<Selection>,
+) -> Result<Response, Error> {
+    if !s.enabled {
+        return Ok(StatusCode::NOT_FOUND.into_response());
+    }
+    q.validate()?;
+    s.permissions.navigation(context).await?;
+    let links = navigation(&s.permissions, context, lang(&headers, &q)).await;
+    let first = links.first().ok_or(Error::Denied)?;
+    Ok(Redirect::to(&first.url).into_response())
+}
+
 fn routes<P: Permissions, C: Channel>(console: Console<P, C>) -> Router {
     Router::new()
+        .route(Panel::Gm.root(), get(landing::<P, C>))
         .route(
             "/console/dashboard",
             get(dashboard_page::<P, C>).post(submit::<P, C>),
@@ -513,7 +560,8 @@ struct Page {
     lang: &'static str,
     language_label: String,
     title: String,
-    nav: Vec<(String, String)>,
+    nav: Vec<panels::Link>,
+    nav_label: String,
     sections: Vec<Section>,
     source_label: String,
     freshness_label: String,
@@ -551,14 +599,8 @@ async fn render<P: Permissions, C: Channel>(
         return Err(Error::Invalid);
     }
     s.permissions.navigation(context).await?;
-    let mut allowed = true;
     for op in operations {
-        if s.permissions.check(context, *op).await.is_err() {
-            allowed = false;
-        }
-    }
-    if !allowed && (q.agent.is_some() || q.target.is_some() || q.request.is_some()) {
-        return Err(Error::Denied);
+        s.permissions.check(context, *op).await?;
     }
     let language = lang(&headers, &q);
     let mut sections = Vec::new();
@@ -573,8 +615,7 @@ async fn render<P: Permissions, C: Channel>(
             operation: op.name(),
             can_query: false,
         };
-        if allowed
-            && let Some(agent) = &q.agent
+        if let Some(agent) = &q.agent
             && let Ok(view) = s
                 .channel
                 .read(context.account, agent, *op, q.target.as_deref(), q.request)
@@ -622,7 +663,7 @@ async fn render<P: Permissions, C: Channel>(
         }
         sections.push(section);
     }
-    if allowed && operations.contains(&Operation::Overview) {
+    if operations.contains(&Operation::Overview) {
         let auth = rbac::Authorizer::new(
             s.pool.clone(),
             web::PortalIdentity::configured(s.pool.clone()),
@@ -636,20 +677,7 @@ async fn render<P: Permissions, C: Channel>(
         }
         sections.push(alerts::section(&s.pool, language).await);
     }
-    let mut nav = Vec::new();
-    for op in [
-        Operation::Overview,
-        Operation::Worlds,
-        Operation::Nodes,
-        Operation::Database,
-    ] {
-        if s.permissions.check(context, op).await.is_ok() {
-            nav.push((
-                format!("/console/{}?lang={language}", op.page()),
-                text(language, op.title()),
-            ));
-        }
-    }
+    let nav = navigation(&s.permissions, context, language).await;
     let op = operations[0];
     let path = format!("/console/{}", op.page());
     let poll = format!(
@@ -672,6 +700,7 @@ async fn render<P: Permissions, C: Channel>(
         language_label: text(language, "language"),
         title: text(language, op.page()),
         nav,
+        nav_label: oteryn_ui::text(language, Panel::Gm.label()),
         sections,
         source_label: text(language, "source"),
         freshness_label: text(language, "freshness"),

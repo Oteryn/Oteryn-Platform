@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod rbac;
 
+pub mod staff_actions;
 pub mod web;
 
 pub mod bazaar;
