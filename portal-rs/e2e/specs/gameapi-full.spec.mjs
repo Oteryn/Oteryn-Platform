@@ -509,7 +509,7 @@ test('native coin catalogue, balance, order replay and both sandbox checkout act
 
     const hosted = await page.goto(checkout);
     expect(hosted.status()).toBe(200);
-    expect(hosted.headers()['referrer-policy']).toBe('strict-origin');
+    expect(hosted.headers()['referrer-policy']).toBe('same-origin');
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page).toHaveTitle(labels.title + ' · Oteryn');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(labels.title);

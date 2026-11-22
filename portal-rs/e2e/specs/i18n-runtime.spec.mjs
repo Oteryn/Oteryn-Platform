@@ -186,7 +186,8 @@ test.afterAll(async () => {
 test('isolated promotion and collection fixtures preserve exact cold and warm responses', async ({ browser }, info) => {
   test.setTimeout(240_000);
   const locale = info.project.metadata.locale;
-  const target = targetFor(promotionRoute, locale);
+  const listing = uuid7();
+  const target = promotionRoute.replace('{lang}', locale).replace('{listing}', listing);
   const expected = expectations.get(promotionRoute);
   expect(expected?.actor).toBe('player');
   const witness = `player ${locale} ${promotionRoute}`;
@@ -194,11 +195,17 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
     OTERYN_BAZAAR_MODERATION: 'true',
     OTERYN_BAZAAR_PROMOTIONS: 'true',
   }, async (quotePage, databaseURL, account) => {
-    expect((await quotePage.goto(target)).status(), witness).toBe(expected.status);
-    await assertLocale(quotePage, locale, witness);
     const db = pool(databaseURL);
     const revision = uuid7();
     try {
+      await db.query(
+        `INSERT INTO bazaar_listings
+           (id, owner, kind, form, currency, price, accept_offers, state, ends_at)
+         VALUES ($1, $2, 'item', 'auction', 'coins', 100, false, 'active', now()+interval '1 day')`,
+        [listing, account.id],
+      );
+      expect((await quotePage.goto(target)).status(), witness).toBe(expected.status);
+      await assertLocale(quotePage, locale, witness);
       await db.query(
         `INSERT INTO bazaar_fee_revisions
            (id, actor, coin_bps, gold_bps, listing_fee, promotion_price, reason)
