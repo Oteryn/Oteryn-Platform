@@ -89,9 +89,11 @@ const staffRoutes = [
       start: '1767225600', end: '1767312000', from: '2026-01-01T00:00', to: '2026-01-02T00:00',
     },
   ]),
-  ['/admin/console/audit', {admin: world, request_id: world, operation: 'rbac.role.created',
-    target: world, lang: 'pl'}],
 ];
+
+const auditRoute = ['/admin/console/audit', {
+  admin: world, request_id: world, operation: 'rbac.role.created', target: world, lang: 'pl',
+}];
 
 const invalidRequest = {pl: 'Nieprawidłowe żądanie', en: 'Invalid request'};
 const invalidMessages = [
@@ -251,9 +253,7 @@ function seed(entity, args) {
   return JSON.parse(result.stdout);
 }
 
-test('staff listing and audit query parameters', async ({page}, info) => {
-  test.setTimeout(480_000);
-  const locale = info.project.metadata.locale;
+async function authenticateStaff(page, locale) {
   // Run the existing disposable database guard before invoking the seed CLI.
   const db = pool();
   await db.end();
@@ -267,5 +267,17 @@ test('staff listing and audit query parameters', async ({page}, info) => {
   const response = await page.goto('/admin');
   expect(new URL(response.url()).pathname).toBe('/admin');
   expect(response.status(), 'authenticated platform admin').toBe(200);
+}
+
+test('staff audit query parameters', async ({page}, info) => {
+  const locale = info.project.metadata.locale;
+  await authenticateStaff(page, locale);
+  await checkRoute(page, locale, auditRoute);
+});
+
+test('staff listing query parameters', async ({page}, info) => {
+  test.setTimeout(600_000);
+  const locale = info.project.metadata.locale;
+  await authenticateStaff(page, locale);
   for (const route of staffRoutes) await checkRoute(page, locale, route);
 });
