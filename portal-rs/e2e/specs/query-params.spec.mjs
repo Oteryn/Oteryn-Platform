@@ -1,6 +1,10 @@
+import {spawnSync} from 'node:child_process';
+import {randomUUID} from 'node:crypto';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {test, expect} from '../fixtures.mjs';
-import {waitForWikiBudget} from '../helpers.mjs';
-import {isolatedAdmin} from '../staff-rbac-helpers.mjs';
+import {password, pool, waitForWikiBudget} from '../helpers.mjs';
+import {loginWithRecoveryCode, query} from '../staff-rbac-helpers.mjs';
 
 const unknown = 'e2e-unknown-query-value';
 const unicode = 'Zażółć gęślą 世界';
@@ -92,7 +96,7 @@ const staffRoutes = [
 const invalidRequest = {pl: 'Nieprawidłowe żądanie', en: 'Invalid request'};
 const invalidMessages = [
   [/^(?:rankings\/|\/highscores$)/, {pl: 'Nieprawidłowe zapytanie', en: 'Invalid query'}],
-  [/^stats\/rankings\//, {pl: 'Nieprawidłowe filtry', en: 'Invalid filters'}],
+  [/^(?:stats\/rankings\/|atlas\/delivery$)/, {pl: 'Nieprawidłowe filtry', en: 'Invalid filters'}],
   [/^stats\/compare$/, {pl: 'Nieprawidłowe zapytanie o statystyki', en: 'Invalid statistics request'}],
   [/^wiki(?:$|\/(?!places$))/, {pl: 'Nieprawidłowe filtry lub zapytanie', en: 'Invalid filters or search query'}],
 ];
@@ -183,7 +187,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           const browserNavigation = probe.name === 'HTML punctuation' || route === '/admin/console/players';
           const response = await readResponse(page, `${path}?${query}`, locale, browserNavigation);
           const label = `${path} ${parameter} (${probe.name})`;
-          expect(new URL(response.url).pathname, label).toBe(expectedPath);
+          expect.soft(new URL(response.url).pathname, label).toBe(expectedPath);
           expect.soft([200, 400], `${label} HTTP status`).toContain(response.status);
 
           expect.soft(response.elapsed, `${label} response timing recorded`).toBeGreaterThanOrEqual(0);
@@ -231,13 +235,37 @@ for (const [group, routes] of Object.entries(publicRoutes)) {
   });
 }
 
-test('staff listing and audit query parameters', async ({browser}, info) => {
+function seed(entity, args) {
+  const root = fileURLToPath(new URL('../../', import.meta.url));
+  const binary = process.env.PORTAL_E2E_BINARY ?? path.join(
+    process.env.CARGO_TARGET_DIR ?? path.join(root, 'target'), 'debug', 'oteryn-portal',
+  );
+  const result = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
+    cwd: root,
+    env: {...process.env, OTERYN_ENV: 'testing',
+      OTERYN_DATABASE_URL: process.env.PORTAL_E2E_DATABASE_URL ?? process.env.OTERYN_DATABASE_URL},
+    encoding: 'utf8',
+  });
+  // Seed output can contain MFA material. Keep subprocess output out of failure messages.
+  expect(result.status, `seed CLI ${entity} exit code`).toBe(0);
+  return JSON.parse(result.stdout);
+}
+
+test('staff listing and audit query parameters', async ({page}, info) => {
   test.setTimeout(480_000);
-  const {context, page} = await isolatedAdmin(browser, info);
-  try {
-    await context.setExtraHTTPHeaders({'Accept-Language': info.project.metadata.locale});
-    for (const route of staffRoutes) await checkRoute(page, info.project.metadata.locale, route);
-  } finally {
-    await context.close();
-  }
+  const locale = info.project.metadata.locale;
+  // Run the existing disposable database guard before invoking the seed CLI.
+  const db = pool();
+  await db.end();
+  const account = {email: `query-${randomUUID()}@example.invalid`, password: password()};
+  const {accountId} = seed('account', {...account, locale});
+  const {recoveryCodes} = seed('account-mfa', {accountId, password: account.password});
+  await query(`INSERT INTO account_roles (account_id, role_id)
+    SELECT $1, id FROM roles WHERE key = 'platform_admin'`, [accountId]);
+  expect(recoveryCodes.length, 'seeded MFA recovery codes').toBeGreaterThan(0);
+  await loginWithRecoveryCode(page, locale, account, recoveryCodes[0]);
+  const response = await page.goto('/admin');
+  expect(new URL(response.url()).pathname).toBe('/admin');
+  expect(response.status(), 'authenticated platform admin').toBe(200);
+  for (const route of staffRoutes) await checkRoute(page, locale, route);
 });
