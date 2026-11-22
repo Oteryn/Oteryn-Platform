@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test as base, expect } from '../fixtures.mjs';
 import { password, submit } from '../helpers.mjs';
-import { membership, queryWith } from '../staff-rbac-helpers.mjs';
+import { confirmStaffPassword, membership, queryWith } from '../staff-rbac-helpers.mjs';
 import { fixtureDatabasePool } from '../local-database.mjs';
 import {
   adminAgent, agentId, characterId, characterName, ledgerId, nodeId, readStaffFixture, resultRevision, runStaffSeed,
@@ -159,11 +159,12 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
     // The seed CLI has no role action. Bootstrap the initial role as in
     // isolatedAdmin, then grant the restricted role through the RBAC form.
     const granted = await queryWith(setup.connect,
-      "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin' RETURNING account_id",
+      "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key IN ('platform_admin','game_support') RETURNING account_id",
       [admin.accountId],
     );
-    expect(granted).toHaveLength(1);
+    expect(granted).toEqual([{account_id: admin.accountId}, {account_id: admin.accountId}]);
     await staffLogin(managerPage, lang, admin, setup.connect);
+    await confirmStaffPassword(managerPage, lang, admin.password);
     const roles = await queryWith(setup.connect, "SELECT id,key FROM roles WHERE key IN ('game_support','support')");
     await membership(managerPage, actor, roles.find(role => role.key === 'game_support').id, 'grant', setup.connect);
     await membership(managerPage, support.accountId, roles.find(role => role.key === 'support').id, 'grant', setup.connect);

@@ -341,7 +341,7 @@ export async function prepareAdminAgent({ out, dirs, openssl, server, caKey, caF
     env: {
       OTERYN_PUBLIC_ORIGIN: origin, OTERYN_ADMIN_HOST: host,
       OTERYN_ADMIN_PANEL: 'true', OTERYN_ADMIN_CONSOLE: 'true',
-      OTERYN_ACCOUNT_LOGIN: 'true', OTERYN_ACCOUNT_MFA: 'true',
+      OTERYN_ACCOUNT_LOGIN: 'true', OTERYN_ACCOUNT_MFA: 'true', OTERYN_ACCOUNT_CREDENTIALS: 'true',
       OTERYN_SMTP_HOST: 'localhost', OTERYN_SMTP_TLS_MODE: 'implicit',
       OTERYN_SMTP_PORT: String(smtp.server.address().port), OTERYN_SMTP_USERNAME: smtpUser,
       OTERYN_SMTP_PASSWORD: smtpPassword, OTERYN_SMTP_FROM: 'portal@local.test',

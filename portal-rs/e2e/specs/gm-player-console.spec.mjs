@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test as base, expect } from '../fixtures.mjs';
 import { login, password, submit } from '../helpers.mjs';
-import { loginWithRecoveryCode, membership, query, role } from '../staff-rbac-helpers.mjs';
+import { confirmStaffPassword, loginWithRecoveryCode, membership, query, role } from '../staff-rbac-helpers.mjs';
 import {
   accountSanctionId, adminAgent, characterId, characterName, itemId, nodeId, sanctionId,
   publishStaffPortfolio, startStaffConsoleHarness, wrongAccountSanctionCharacterId, wrongCharacterId, wrongSanctionCharacterId,
@@ -109,7 +109,7 @@ const test = base.extend({
 test('GM player reads use signed results from the mTLS Admin Agent', async ({page, browser, staffHarness: setup}, info) => {
   test.setTimeout(480_000);
   await assert.rejects(startStaffConsoleHarness('postgresql://fixture@['), error => {
-    assert.match(error.message, /^Expected a local PostgreSQL URL/);
+    assert.equal(error.message, 'A local PostgreSQL URL is required');
     assert.equal(Object.hasOwn(error, 'input'), false);
     return true;
   });
@@ -139,9 +139,10 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
       [subject.accountId])).toEqual([{status: 'suspended'}]);
     // Seed has no role command. Bootstrap the initial administrator as in isolatedAdmin.
     expect(await query(`INSERT INTO account_roles(account_id,role_id)
-      SELECT $1,id FROM roles WHERE key='platform_admin' RETURNING account_id`,
-    [admin.accountId])).toEqual([{account_id: admin.accountId}]);
+      SELECT $1,id FROM roles WHERE key IN ('platform_admin','game_master_senior') RETURNING account_id`,
+    [admin.accountId])).toEqual([{account_id: admin.accountId}, {account_id: admin.accountId}]);
     await loginWithRecoveryCode(managerPage, lang, admin, admin.code);
+    await confirmStaffPassword(managerPage, lang, admin.password);
     const roles = await query("SELECT id,key FROM roles WHERE key IN ('game_master_senior','support')");
     const seniorRole = roles.find(role => role.key === 'game_master_senior').id;
     const playerReadRole = await role(managerPage, 'admin.access game.player.read');
