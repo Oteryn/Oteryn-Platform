@@ -188,6 +188,52 @@ fn character(v: &Value, dossier: bool) -> Result<players::Character, Error> {
         dossier: details,
     })
 }
+fn sanction_account(v: &Value) -> Result<Option<oteryn_characters::lcfa::AccountId>, Error> {
+    use oteryn_characters::lcfa::AccountId;
+    let mut account = None;
+    for row in array(v, "sanctions")? {
+        match row.get("account_ref") {
+            None | Some(Value::Null)
+                if row.get("character_id").and_then(Value::as_str).is_some() => {}
+            Some(Value::String(reference)) => {
+                let id = AccountId::parse(reference).map_err(|_| bad())?;
+                if account.replace(id).is_some_and(|previous| previous != id) {
+                    return Err(bad());
+                }
+            }
+            _ => return Err(bad()),
+        }
+    }
+    Ok(account)
+}
+
+pub(super) async fn verify_sanction_account(
+    projection: &oteryn_characters::lcfa::Projection,
+    character: &str,
+    value: &Value,
+) -> Result<(), Error> {
+    use oteryn_characters::lcfa::{CharacterId, ReadState};
+    let Some(account) = sanction_account(value)? else {
+        return Ok(());
+    };
+    // The signed sanction supplies a candidate, while the existing live
+    // portfolio supplies corroboration for this read-only attribution.
+    let character = CharacterId::parse(character).map_err(|_| bad())?;
+    let view = projection
+        .list_characters(account, time::OffsetDateTime::now_utc().unix_timestamp())
+        .await
+        .map_err(|_| bad())?;
+    if view.state != ReadState::Ready
+        || !view
+            .characters
+            .iter()
+            .any(|entry| entry.character_id == character)
+    {
+        return Err(bad());
+    }
+    Ok(())
+}
+
 pub(super) fn snapshot(
     operation: &str,
     request_id: Uuid,
@@ -313,6 +359,30 @@ pub(super) fn preview(v: &Value) -> Result<Vec<String>, Error> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn account_scoped_sanctions_need_one_valid_account_reference() {
+        let first = Uuid::now_v7();
+        let second = Uuid::now_v7();
+        assert!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":null}]}))
+                .is_err()
+        );
+        assert!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":"invalid"}]}))
+                .is_err()
+        );
+        assert_eq!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":first}]}))
+                .unwrap()
+                .unwrap()
+                .as_uuid(),
+            first
+        );
+        assert!(sanction_account(&json!({"sanctions":[
+            {"character_id":null,"account_ref":first}, {"character_id":null,"account_ref":second}
+        ]})).is_err());
+    }
 
     #[test]
     fn sanction_rows_must_match_the_target_when_an_id_is_present() {

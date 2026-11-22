@@ -46,11 +46,25 @@ async fn answer(
     request: signer::RequestEnvelope,
     value: Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    answer_with_status(internal, key, request, value, signer::Status::Succeeded).await
+}
+
+async fn answer_with_status(
+    internal: &Router,
+    key: &SigningKey,
+    request: signer::RequestEnvelope,
+    value: Value,
+    status: signer::Status,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut result = signer::ResultEnvelope {
         request_id: request.request_id,
         admin_operation_id: request.admin_operation_id,
-        status: signer::Status::Succeeded,
-        error: None,
+        status,
+        error: (status == signer::Status::Rejected).then(|| signer::ResultError {
+            code: "ADM_FORBIDDEN".into(),
+            message: "AdmForbidden".into(),
+            retryable: false,
+        }),
         result: Json(value),
         dry_run_preview: None,
         game_ledger_id: None,
@@ -196,6 +210,75 @@ async fn concurrent_identical_searches_share_pending_query(
     assert_eq!(submitted[0].operation, "player.search");
     Ok(())
 }
+async fn retry_refuses_a_second_live_agent(
+    reads: &Router,
+    internal: &Router,
+    pool: &PgPool,
+    cookie: &str,
+    key: &SigningKey,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = "/admin/console/players?lang=en&character=ambiguous-agent-target";
+    browser_get(reads, cookie, path).await?;
+    let requests = poll(internal).await?;
+    assert_eq!(requests.len(), 1);
+    let request = requests.into_iter().next().ok_or_else(missing)?;
+    assert_eq!(request.operation, "player.character.get");
+    let id = request.request_id;
+    answer_with_status(
+        internal,
+        key,
+        request,
+        Value::Null,
+        signer::Status::Rejected,
+    )
+    .await?;
+    let html = browser_get(reads, cookie, path).await?;
+    assert!(html.contains("Query rejected"));
+    assert!(html.contains(&id.to_string()));
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or_else(missing)?;
+
+    let store = control::Store::new(pool.clone(), control::Config { enabled: true });
+    store
+        .register_agent(&control::AgentHello {
+            agent_id: "separate-scope".into(),
+            build: "test-build".into(),
+            catalog_digest: vec![2; 32],
+            advertised_operations: vec![control::AdvertisedOperation {
+                operation: "world.list".into(),
+                operation_version: 1,
+                kind: control::Kind::Query,
+            }],
+            served_worlds: vec!["world-separate".into()],
+            served_nodes: vec![],
+            owner_epoch: 1,
+        })
+        .await?;
+    let retry = reads.clone().oneshot(
+        Request::post("/admin/console/players/retry")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "_csrf={csrf}&lang=en&operation=player.character.get&character=ambiguous-agent-target&request={id}"
+            )))?,
+    ).await?;
+    assert_eq!(retry.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let unavailable = browser_get(reads, cookie, path).await?;
+    assert!(unavailable.contains("Unavailable"));
+    assert!(!unavailable.contains("Retry query"));
+    assert!(poll(internal).await?.is_empty());
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM admin_control_requests WHERE target->>'character_id'='ambiguous-agent-target'",
+    ).fetch_one(pool).await?;
+    assert_eq!(count, 1);
+    Ok(())
+}
+
 async fn exercise_reads(
     internal: &Router,
     channel: StoredChannel,
@@ -328,6 +411,7 @@ async fn exercise_reads(
         assert!(audited, "ledger read must reference its verified query");
     }
     browser_get(&reads, cookie, "/admin/console/approvals?lang=en").await?;
+    retry_refuses_a_second_live_agent(&reads, internal, &pool, cookie, agent_key).await?;
     Ok(())
 }
 async fn stored_console_browser_query_verified_result_and_ownership(

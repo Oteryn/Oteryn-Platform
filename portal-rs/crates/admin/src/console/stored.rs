@@ -113,6 +113,10 @@ impl StoredChannel {
         if candidates.next().is_some() {
             return Err(Error::Unavailable);
         }
+        self.require_result_key(owner)
+    }
+
+    fn require_result_key(&self, owner: control::Agent) -> Result<control::Agent, Error> {
         // Results require configured verification keys even if transport is authenticated.
         if !self
             .bindings
@@ -202,6 +206,18 @@ impl StoredChannel {
         control::store::ownership_lock(&mut tx, true)
             .await
             .map_err(|_| Error::Unavailable)?;
+        if risk == control::RiskClass::R1
+            && !self
+                .store
+                .sole_live_query_agent(&mut tx, operation)
+                .await
+                .map_err(|_| Error::Unavailable)?
+                .is_some_and(|live| {
+                    live.agent_id == agent.agent_id && live.owner_epoch == agent.owner_epoch
+                })
+        {
+            return Err(Error::Unavailable);
+        }
         let owns: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents a WHERE a.agent_id=$1 AND a.owner_epoch=$2 AND a.last_seen_at>clock_timestamp()-interval '30 seconds' AND a.last_seen_at<=clock_timestamp() AND ($3::text IS NULL OR $3=ANY(a.served_worlds)) AND ($4::text IS NULL OR $4=ANY(a.served_nodes)) AND a.advertised_operations @> $5 AND NOT EXISTS(SELECT 1 FROM admin_control_agents b WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch AND ($3=ANY(b.served_worlds) OR $4=ANY(b.served_nodes))))")
             .bind(&agent.agent_id).bind(agent.owner_epoch).bind(&target.world_id).bind(&target.node_id)
             .bind(json!([{"operation":operation,"operation_version":1,"kind":"query"}])).fetch_one(&mut *tx).await?;
@@ -233,19 +249,12 @@ impl StoredChannel {
         if target.character_id.is_some() {
             // Admission holds the actor lock. A stale or replayed retry cannot
             // replace a newer request, and a racing GET cannot retry a failure.
-            let latest: Option<(Uuid, control::Status, OffsetDateTime)> = sqlx::query_as(
-                "SELECT request_id,status,expires_at FROM admin_control_requests
-                 WHERE actor=$1 AND operation=$2 AND target=$3 AND params=$4 AND kind='query'
-                 ORDER BY issued_at DESC, request_id DESC LIMIT 1 FOR UPDATE",
-            )
-            .bind(actor.account)
-            .bind(operation)
-            .bind(sqlx::types::Json(&target))
-            .bind(&params)
-            .fetch_optional(&mut *tx)
-            .await?;
-            let terminal = latest.and_then(|(id, status, expires_at)| {
-                terminal_dossier_status(status, expires_at).map(|_| id)
+            let latest =
+                Self::latest_query(&mut tx, actor.account, operation, &target, &params, None)
+                    .await?;
+            let terminal = latest.and_then(|request| {
+                terminal_dossier_status(request.status, request.expires_at)
+                    .map(|_| request.request_id)
             });
             match (retry, terminal) {
                 (None, Some(id)) => {
@@ -379,35 +388,46 @@ impl StoredChannel {
         params: &Value,
         request_id: Option<Uuid>,
     ) -> Result<Option<control::Request>, Error> {
-        let owns: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM admin_control_agents WHERE agent_id<>$1 AND owner_epoch>=$2 AND ($3::text=ANY(served_worlds) OR $4::text=ANY(served_nodes)))")
-            .bind(&agent.agent_id).bind(agent.owner_epoch).bind(&target.world_id).bind(&target.node_id).fetch_one(&self.pool).await?;
+        let mut conn = self.pool.acquire().await?;
+        let owns: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM admin_control_agents g
+             WHERE g.agent_id=$1 AND g.owner_epoch=$2
+                 AND g.last_seen_at>clock_timestamp()-interval '30 seconds'
+                 AND g.last_seen_at<=clock_timestamp()
+                 AND ($3::text IS NULL OR $3=ANY(g.served_worlds))
+                 AND ($4::text IS NULL OR $4=ANY(g.served_nodes))
+                 AND NOT EXISTS(SELECT 1 FROM admin_control_agents other
+                     WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch
+                         AND ($3=ANY(other.served_worlds) OR $4=ANY(other.served_nodes))))",
+        )
+        .bind(&agent.agent_id)
+        .bind(agent.owner_epoch)
+        .bind(&target.world_id)
+        .bind(&target.node_id)
+        .fetch_one(&mut *conn)
+        .await?;
         if !owns {
             return Err(Error::Unavailable);
         }
-        // Admission follows the request across owners. For successful results,
-        // check the recording epoch, falling back to admission for legacy
-        // transitions from the same agent.
-        let request = sqlx::query_as(
+        Self::latest_query(&mut conn, actor, operation, target, params, request_id).await
+    }
+
+    async fn latest_query(
+        conn: &mut sqlx::PgConnection,
+        actor: Uuid,
+        operation: &str,
+        target: &control::Target,
+        params: &Value,
+        request_id: Option<Uuid>,
+    ) -> Result<Option<control::Request>, Error> {
+        // Pick the latest admitted request before deciding whether its result
+        // belongs to the current epoch. An older rejection cannot mask it.
+        Ok(sqlx::query_as(
             "SELECT r.* FROM admin_control_requests r
-             JOIN audit_log a ON a.request_id=r.request_id AND a.actor=r.actor
-                 AND a.action='console.query.admitted'
-             JOIN admin_control_agents g ON g.agent_id=$6 AND g.owner_epoch=$7
-                 AND g.last_seen_at>clock_timestamp()-interval '30 seconds'
-                 AND g.last_seen_at<=clock_timestamp()
-                 AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(g.served_worlds))
-                 AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(g.served_nodes))
-             WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4
+             WHERE r.actor=$1 AND r.operation=$2 AND r.target=$3 AND r.params=$4 AND r.kind='query'
                  AND ($5::uuid IS NULL OR r.request_id=$5) AND r.issued_at<=clock_timestamp()
-                 AND NOT EXISTS (SELECT 1 FROM admin_control_agents other
-                     WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch
-                         AND (r.target->>'world_id'=ANY(other.served_worlds)
-                             OR r.target->>'node_id'=ANY(other.served_nodes)))
-                 AND (r.status<>'succeeded' OR (r.agent_id=g.agent_id AND COALESCE(
-                     (SELECT t.after->>'owner_epoch' FROM audit_log t
-                      WHERE t.request_id=r.request_id AND t.action='admin.control.transition'
-                          AND t.after->>'status'='succeeded' LIMIT 1),
-                     CASE WHEN a.target=g.agent_id THEN a.after->>'owner_epoch'
-                          ELSE g.owner_epoch::text END) = g.owner_epoch::text))
+                 AND EXISTS(SELECT 1 FROM audit_log a WHERE a.request_id=r.request_id
+                     AND a.actor=r.actor AND a.action='console.query.admitted')
              ORDER BY r.issued_at DESC, r.request_id DESC LIMIT 1",
         )
         .bind(actor)
@@ -415,11 +435,8 @@ impl StoredChannel {
         .bind(sqlx::types::Json(target))
         .bind(params)
         .bind(request_id)
-        .bind(&agent.agent_id)
-        .bind(agent.owner_epoch)
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(request)
+        .fetch_optional(conn)
+        .await?)
     }
     async fn verified_result(
         &self,
@@ -433,6 +450,25 @@ impl StoredChannel {
             || request.status != control::Status::Succeeded
             || request.agent_id.as_deref() != Some(&agent.agent_id)
         {
+            return Ok(None);
+        }
+        // A legacy completion can fall back to admission only when the
+        // same owner admitted it.
+        let current: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM admin_control_agents g
+             JOIN audit_log a ON a.request_id=$1 AND a.actor=$4 AND a.action='console.query.admitted'
+             WHERE g.agent_id=$2 AND g.owner_epoch=$3
+                 AND g.last_seen_at>clock_timestamp()-interval '30 seconds'
+                 AND g.last_seen_at<=clock_timestamp()
+                 AND COALESCE(
+                 (SELECT t.after->>'owner_epoch' FROM audit_log t WHERE t.request_id=$1
+                      AND t.action='admin.control.transition' AND t.after->>'status'='succeeded' LIMIT 1),
+                 CASE WHEN a.target=g.agent_id THEN a.after->>'owner_epoch' END
+             ) = g.owner_epoch::text)",
+        )
+        .bind(request.request_id).bind(&agent.agent_id).bind(agent.owner_epoch).bind(request.actor)
+        .fetch_one(&self.pool).await?;
+        if !current {
             return Ok(None);
         }
         let rows = self
@@ -485,10 +521,17 @@ impl StoredChannel {
         character: Option<&str>,
         params: Value,
     ) -> Result<Option<(Uuid, String, Value)>, access::Error> {
-        let agent = self
-            .owner(None, operation, None)
-            .await
-            .map_err(|_| access::Error::Unavailable)?;
+        let agent = {
+            let mut conn = self.pool.acquire().await?;
+            let owner = self
+                .store
+                .sole_live_query_agent(&mut conn, operation)
+                .await
+                .map_err(|_| access::Error::Unavailable)?
+                .ok_or(access::Error::Unavailable)?;
+            self.require_result_key(owner)
+                .map_err(|_| access::Error::Unavailable)?
+        };
         let target =
             Self::target(&agent, None, character).map_err(|_| access::Error::Unavailable)?;
         let selected = self

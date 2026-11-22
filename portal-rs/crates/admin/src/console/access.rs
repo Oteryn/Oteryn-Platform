@@ -180,6 +180,7 @@ pub struct StoredMetadata<A> {
     auth: crate::rbac::Authorizer<A>,
     store: crate::control::Store,
     channel: Option<super::StoredChannel>,
+    character_projection: oteryn_characters::lcfa::Projection,
     session: Option<oteryn_web::session::BrowserSession>,
 }
 impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
@@ -196,6 +197,11 @@ impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
                     enabled: flags.console,
                     deploy: false,
                 },
+            ),
+            character_projection: oteryn_characters::lcfa::Projection::new(
+                pool.clone(),
+                oteryn_characters::overview::configured_projection(),
+                Arc::new(oteryn_characters::overview::Accounts(pool.clone())),
             ),
             store: crate::control::Store::new(pool, config),
             channel: None,
@@ -250,6 +256,14 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> StoredMetadata<A> {
         else {
             return Ok(None);
         };
+        if operation == "sanction.list" {
+            super::projection::verify_sanction_account(
+                &self.character_projection,
+                input.character.as_deref().ok_or(Error::BadInput)?,
+                &value,
+            )
+            .await?;
+        }
         Ok(Some(super::projection::snapshot(
             operation,
             request_id,
@@ -272,20 +286,15 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         self.auth.check(actor, permission).await.is_ok()
     }
     async fn advertised(&self, operation: &str) -> bool {
-        let Ok(agents) = self.store.agents().await else {
+        let Ok(mut conn) = self.pool.acquire().await else {
             return false;
         };
-        // Without a target-specific query adapter, multiple live owners are ambiguous.
-        let mut live = agents.into_iter().filter(|a| a.connected);
-        let Some(agent) = live.next() else {
-            return false;
-        };
-        live.next().is_none()
-            && agent
-                .advertised_operations
-                .iter()
-                .any(|op| op.operation == operation && op.operation_version == 1)
+        self.store
+            .sole_live_query_agent(&mut conn, operation)
+            .await
+            .is_ok_and(|agent| agent.is_some())
     }
+
     async fn players(
         &self,
         actor: CheckContext,

@@ -324,6 +324,7 @@ impl Store {
         }
         let mut tx = self.pool.begin().await?;
         crate::rbac::mutation_budget(&mut tx).await?;
+        ownership_lock(&mut tx, false).await?;
         let changed = sqlx::query(
             "UPDATE admin_control_agents SET last_seen_at=clock_timestamp(), updated_at=clock_timestamp()
             WHERE agent_id=$1 AND owner_epoch=$2",
@@ -749,6 +750,32 @@ impl Store {
         .fetch_all(&self.pool)
         .await?)
     }
+    /// An untargeted console view requires one live agent across all scopes.
+    pub(crate) async fn sole_live_query_agent(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        operation: &str,
+    ) -> Result<Option<Agent>, Error> {
+        self.enabled()?;
+        let agents: Vec<Agent> = sqlx::query_as(
+            "SELECT *, true AS connected FROM admin_control_agents
+             WHERE last_seen_at>clock_timestamp()-interval '30 seconds'
+                 AND last_seen_at<=clock_timestamp() LIMIT 2",
+        )
+        .fetch_all(conn)
+        .await?;
+        Ok(match agents.as_slice() {
+            [agent]
+                if agent.advertised_operations.iter().any(|op| {
+                    op.operation == operation && op.operation_version == 1 && op.kind == Kind::Query
+                }) =>
+            {
+                Some(agent.clone())
+            }
+            _ => None,
+        })
+    }
+
     pub async fn agents(&self) -> Result<Vec<Agent>, Error> {
         self.enabled()?;
         Ok(sqlx::query_as("SELECT *, (last_seen_at>clock_timestamp()-interval '30 seconds' AND last_seen_at<=clock_timestamp()) AS connected
