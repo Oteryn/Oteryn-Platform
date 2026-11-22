@@ -205,35 +205,46 @@ test('owner creates a character, sees Game results and reads their outfit', asyn
     const transfer = JSON.parse(fs.readFileSync(transferFixture, 'utf8'));
     const transferId = uuid7();
     const decisionId = uuid7();
-    const {rows: [{source_revision}]} = await db.query(
-      `INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json)
-       VALUES($1,$2,$1::uuid::text,'TransferCharacterOwnership',$3,$4,$5,'') RETURNING source_revision::text`,
-      [transferId, decisionId, owner.id, other.id, JSON.stringify({
-        character_id: character, expected_from_account_id: owner.id, to_account_id: other.id,
-      })],
-    );
-    const now = Number(stamp());
-    await db.query(
-      "UPDATE character_commands SET intent_json=$1 WHERE source_revision=$2 AND state='PENDING'",
-      [JSON.stringify({...transfer, source_revision, operation_id: transferId, issuer_decision_id: decisionId, character_id: character,
-        expected_from_account_id: owner.id, to_account_id: other.id,
-        issued_at_source: String(now), expires_at_source: String(now + 300),
-      }), source_revision],
-    );
-    expect((await owner.page.request.get(profile)).status()).toBe(404);
-    const forged = {comment: 'Seller comment after transfer'};
-    await csrfRejected(owner.page, profile, forged);
-    const refused = await owner.page.request.post(profile, {
-      form: {...forged, _csrf: profileCsrf},
-      headers: {origin: new URL(owner.page.url()).origin},
-      maxRedirects: 0,
-    });
-    expect(refused.status()).toBe(404);
-    const stored = await db.query(
-      'SELECT comment FROM character_profiles WHERE account_id=$1 AND character_id=$2',
-      [owner.id, character],
-    );
-    expect(stored.rows).toEqual([{comment: saved}]);
+    const holdTransfer = async hold => {
+      const response = await owner.page.request.post('/__bazaar_game/hold-transfer', {
+        data: {operation_id: transferId, hold},
+      });
+      expect(response.status()).toBe(204);
+    };
+    await holdTransfer(true);
+    try {
+      const {rows: [{source_revision}]} = await db.query(
+        `INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json)
+         VALUES($1,$2,$1::uuid::text,'TransferCharacterOwnership',$3,$4,$5,'') RETURNING source_revision::text`,
+        [transferId, decisionId, owner.id, other.id, JSON.stringify({
+          character_id: character, expected_from_account_id: owner.id, to_account_id: other.id,
+        })],
+      );
+      const now = Number(stamp());
+      await db.query(
+        "UPDATE character_commands SET intent_json=$1 WHERE source_revision=$2 AND state='PENDING'",
+        [JSON.stringify({...transfer, source_revision, operation_id: transferId, issuer_decision_id: decisionId, character_id: character,
+          expected_from_account_id: owner.id, to_account_id: other.id,
+          issued_at_source: String(now), expires_at_source: String(now + 300),
+        }), source_revision],
+      );
+      expect((await owner.page.request.get(profile)).status()).toBe(404);
+      const forged = {comment: 'Seller comment after transfer'};
+      await csrfRejected(owner.page, profile, forged);
+      const refused = await owner.page.request.post(profile, {
+        form: {...forged, _csrf: profileCsrf},
+        headers: {origin: new URL(owner.page.url()).origin},
+        maxRedirects: 0,
+      });
+      expect(refused.status()).toBe(404);
+      const stored = await db.query(
+        'SELECT comment FROM character_profiles WHERE account_id=$1 AND character_id=$2',
+        [owner.id, character],
+      );
+      expect(stored.rows).toEqual([{comment: saved}]);
+    } finally {
+      await holdTransfer(false);
+    }
   } finally {
     await db.end();
     await owner.context.close();
