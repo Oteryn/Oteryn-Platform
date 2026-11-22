@@ -644,14 +644,21 @@ async fn export_and_profile_budgets_are_independent_by_account_and_source() -> T
             first.account = Some(format!("source-account-{index}"));
             limiter.check(policy, &[first.clone()]).await?;
         }
-        first.account = Some("fresh-account".into());
-        let result = limiter.check(policy, &[first.clone()]).await;
+        first.account = Some("last-slot-account".into());
+        let exhausted_source = first.clone();
+        first.source = "192.0.2.3".parse()?;
+        for _ in 1..policy.limit() {
+            limiter.check(policy, &[first.clone()]).await?;
+        }
+        let result = limiter.check(policy, &[exhausted_source]).await;
         assert!(
             matches!(result, Err(Denial::Limited { retry_after }) if (1..=source.window_seconds()).contains(&retry_after))
         );
-
-        first.source = "192.0.2.3".parse()?;
-        limiter.check(policy, &[first]).await?;
+        limiter.check(policy, &[first.clone()]).await?;
+        assert!(matches!(
+            limiter.check(policy, &[first]).await,
+            Err(Denial::Limited { .. })
+        ));
     }
     db.close().await
 }
