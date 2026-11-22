@@ -50,20 +50,22 @@ fn resource_keys(resource: &FluentResource, path: &Path) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     let mut keys = BTreeSet::new();
     for entry in resource.entries() {
-        let (id, value, attributes) = match entry {
+        let (id, prefix, value, attributes) = match entry {
             Entry::Message(message) => (
-                message.id.name.to_owned(),
+                message.id.name,
+                "",
                 message.value.is_some(),
                 &message.attributes,
             ),
-            Entry::Term(term) => (format!("-{}", term.id.name), true, &term.attributes),
+            Entry::Term(term) => (term.id.name, "-", true, &term.attributes),
             _ => continue,
         };
         assert!(
-            ids.insert(id.clone()),
+            ids.insert(id),
             "duplicate entry ID {id} in {}",
             path.display()
         );
+        let id = format!("{prefix}{id}");
         if value {
             assert!(
                 keys.insert(id.clone()),
@@ -91,6 +93,13 @@ fn rejects_duplicate_attribute_only_messages() {
     )
     .unwrap();
     resource_keys(&resource, Path::new("duplicate.ftl"));
+}
+
+#[test]
+#[should_panic(expected = "duplicate entry ID label")]
+fn rejects_message_and_term_with_the_same_id() {
+    let resource = FluentResource::try_new("label = Message\n-label = Term\n".into()).unwrap();
+    resource_keys(&resource, Path::new("message-term.ftl"));
 }
 
 #[test]
