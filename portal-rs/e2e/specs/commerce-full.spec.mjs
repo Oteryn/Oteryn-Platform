@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, pool, submit } from '../helpers.mjs';
 import { paidTopup, uuid7 } from '../staff-commerce-helpers.mjs';
-import { postAs, pressCheckout, readForm, seedPlayer, signInPlayer } from '../commerce-helpers.mjs';
+import { postAs, pressCheckout, readForm, seedPlayer, signInPlayer, withUnpublishedDownloads } from '../commerce-helpers.mjs';
 
 const text = {
   en: {
@@ -331,20 +331,22 @@ test('wallet history older-entries link uses its last entry as a cursor', async 
   }
 });
 
-test('unpublished download channel refuses metadata, policy, and target requests', async ({ page }, info) => {
+test('unpublished download channel refuses metadata, policy, and target requests', async ({ browser }, info) => {
   const lang = info.project.metadata.locale;
-  await signInPlayer(page, lang);
-  const playerView = await page.goto(`/${lang}/download`);
-  expect(playerView.status()).toBe(404);
-  await expect(page.getByRole('heading', { level: 1 })).toHaveText(lang === 'pl' ? 'Nie znaleziono strony' : 'Page not found');
-  for (const channel of ['stable', 'beta']) {
-    for (const suffix of ['metadata/timestamp.json', 'policy-v1.json', 'targets/client.zip']) {
-      const path = `/updates/${channel}/${suffix}`;
-      const missing = await page.request.get(path);
-      expect(missing.status(), path).toBe(404);
-      expect(missing.headers()['cache-control']).toBe('no-store');
-      expect((await page.request.post(path, { data: 'browser publication attempt' })).status()).toBe(405);
+  test.setTimeout(240_000);
+  await withUnpublishedDownloads(browser, lang, async page => {
+    const playerView = await page.goto(`/${lang}/download`);
+    expect(playerView.status()).toBe(404);
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(lang === 'pl' ? 'Nie znaleziono strony' : 'Page not found');
+    for (const channel of ['stable', 'beta']) {
+      for (const suffix of ['metadata/timestamp.json', 'policy-v1.json', 'targets/client.zip']) {
+        const path = `/updates/${channel}/${suffix}`;
+        const missing = await page.request.get(path);
+        expect(missing.status(), path).toBe(404);
+        expect(missing.headers()['cache-control']).toBe('no-store');
+        expect((await page.request.post(path, { data: 'browser publication attempt' })).status()).toBe(405);
+      }
     }
-  }
-  expect((await page.request.get('/updates/invalid/policy-v1.json')).status()).toBe(400);
+    expect((await page.request.get('/updates/invalid/policy-v1.json')).status()).toBe(400);
+  });
 });

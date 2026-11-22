@@ -4,8 +4,9 @@ import crypto from 'node:crypto';
 import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
-export const fixtureDatabaseURL = () => {
- const connectionString=process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
+export const fixtureDatabaseURL = (
+ connectionString=process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL,
+) => {
  if(!connectionString)throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
  let url;
  try { url=new URL(connectionString); } catch { throw new Error('Invalid disposable PostgreSQL URL'); }
