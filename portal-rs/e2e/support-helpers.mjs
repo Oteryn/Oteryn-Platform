@@ -4,12 +4,14 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { csrfRejected, login, password, pool } from './helpers.mjs';
+import { csrfRejected, login, password } from './helpers.mjs';
 import { loginWithRecoveryCode, query } from './staff-rbac-helpers.mjs';
+import { fixtureDatabase } from './staff-fixture-database.mjs';
 
 const portal = fileURLToPath(new URL('../', import.meta.url));
 
 export async function actor(browser, info, role, use, { mfa = Boolean(role) } = {}) {
+  const database = fixtureDatabase();
   const locale = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
@@ -20,8 +22,6 @@ export async function actor(browser, info, role, use, { mfa = Boolean(role) } = 
   let account;
   try {
     const page = await context.newPage();
-    const database = pool();
-    await database.end();
     account = { email: `support-${randomUUID()}@example.invalid`, password: password() };
     const binary = process.env.PORTAL_E2E_BINARY ||
       resolve(process.env.CARGO_TARGET_DIR || resolve(portal, 'target'), 'debug/oteryn-portal');
@@ -31,7 +31,7 @@ export async function actor(browser, info, role, use, { mfa = Boolean(role) } = 
         env: {
           ...process.env,
           OTERYN_ENV: 'testing',
-          OTERYN_DATABASE_URL: process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL,
+          OTERYN_DATABASE_URL: database.href,
         },
       });
       expect(result.status, `seed CLI creates a disposable ${entity} fixture`).toBe(0);

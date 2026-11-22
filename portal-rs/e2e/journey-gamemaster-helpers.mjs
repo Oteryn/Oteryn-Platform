@@ -2,6 +2,7 @@ import {randomBytes} from 'node:crypto';
 import {expect} from './fixtures.mjs';
 import {csrfRejected,login,register,submit,waitForLoginBudget} from './helpers.mjs';
 import {enrollMfa,query} from './staff-rbac-helpers.mjs';
+import {fixtureDatabase} from './staff-fixture-database.mjs';
 
 const seniorPermissions = [
   'admin.access',
@@ -107,6 +108,7 @@ export async function completeEnrollment(page, lang, account) {
 }
 
 export async function bootstrapAdmin(browser, info) {
+  fixtureDatabase();
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL:process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',

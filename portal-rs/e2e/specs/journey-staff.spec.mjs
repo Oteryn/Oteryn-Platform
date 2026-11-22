@@ -5,6 +5,7 @@ import { action, audit, expectLoginRedirect, loginWithRecoveryCode, membership, 
 import { actorContext, denied, open, portalCommand, publishEditorial, responseForForm, signInWithMfa, staffActor } from '../journey-staff-helpers.mjs';
 import { post as gamePost } from '../game-sim-helpers.mjs';
 import { paidTopup, uuid7 } from '../staff-commerce-helpers.mjs';
+import { fixtureDatabase } from '../staff-fixture-database.mjs';
 
 async function openAccountMenu(page) {
   if (await page.locator('#portal-header.om-interior').count()) {
@@ -35,6 +36,7 @@ async function followPartyLink(page, path) {
 
 test('staff publish content and handle a player’s support, safety and account requests', async ({ page, browser }, info) => {
   test.setTimeout(1_800_000);
+  fixtureDatabase();
   const contexts = [];
   let adminId;
   try {
