@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Router,
     extract::{Path, Query, State},
-    http::{StatusCode, header},
+    http::{HeaderValue, StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -33,6 +33,15 @@ fn router(pool: PgPool, enabled: bool) -> Router {
         .layer(middleware::from_fn_with_state(
             SessionLayer::new(pool.clone()),
             oteryn_web::session::middleware,
+        ))
+        .layer(middleware::map_response(
+            |mut response: Response| async move {
+                response.headers_mut().insert(
+                    header::CACHE_CONTROL,
+                    HeaderValue::from_static("private, no-store"),
+                );
+                response
+            },
         ))
         .with_state(pool)
 }
@@ -164,7 +173,7 @@ async fn render_activity(
     let html = page
         .render()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(([(header::CACHE_CONTROL, "private, no-store")], Html(html)).into_response())
+    Ok(Html(html).into_response())
 }
 
 #[cfg(test)]

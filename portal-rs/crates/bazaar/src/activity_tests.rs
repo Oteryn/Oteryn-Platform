@@ -91,11 +91,11 @@ async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -
             )
             .await?;
         assert_eq!(response.status(), expected);
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
         if expected == StatusCode::OK {
-            assert_eq!(
-                response.headers()[header::CACHE_CONTROL],
-                "private, no-store"
-            );
             let html = String::from_utf8(to_bytes(response.into_body(), 32768).await?.to_vec())?;
             assert_eq!(html.contains("Listed price 100 Coins"), own_listing);
             assert_eq!(html.contains("Maximum bid 371 Coins"), bid);
