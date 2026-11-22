@@ -1,4 +1,4 @@
-title = Support i moderacja
+title = Pomoc i moderacja
 next = Następna strona
 internal = Wewnętrzna notatka zespołu
 public = Wiadomość publiczna
@@ -35,3 +35,4 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
+tickets = Zgłoszenia pomocy

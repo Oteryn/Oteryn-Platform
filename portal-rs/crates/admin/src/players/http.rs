@@ -144,6 +144,7 @@ struct Page {
     coin_hold: Option<CoinHold>,
     /// `Some(id)` when the viewer may only kick that account.
     kick_target: Option<String>,
+    audit_label: Option<String>,
 }
 struct CoinHold {
     id: String,
@@ -225,6 +226,7 @@ impl Page {
             coin_debt_label: text(lang, "coin-debt"),
             coin_hold: None,
             kick_target: None,
+            audit_label: None,
         }
     }
 }
@@ -267,6 +269,11 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         }
         Err(e) => return Err(e),
     };
+    if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true")
+        && s.check(context, Permission::ViewAudit).await.is_ok()
+    {
+        page.audit_label = Some(text(page.lang, "audit"));
+    }
     account.status = text(page.lang, &format!("status-{}", account.status));
     page.account = Some(account);
     page.notes = s.notes(context, id).await?;

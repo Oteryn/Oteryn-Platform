@@ -23,6 +23,8 @@ bid = Place bid
 unavailable = Bazaar authority is unavailable. The request remains pending.
 denied = This request was refused. Check your account and the asset details.
 
+coins = Coins
+gold = Gold
 currency = Currency
 
 resume = Resume with current authorization

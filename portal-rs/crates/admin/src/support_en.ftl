@@ -35,3 +35,4 @@ warning = Warning
 restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
+tickets = Support tickets

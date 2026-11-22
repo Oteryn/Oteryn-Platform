@@ -28,3 +28,4 @@ coin-hold-none = No coin purchase hold.
 coin-hold-released = The coin purchase hold was released.
 coin-hold-absent = There was no coin purchase hold to release.
 coin-debt = Outstanding coin debt (paid first from every credit)
+audit = Audit
