@@ -4,8 +4,7 @@ import crypto from 'node:crypto';
 import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
-export function disposableDatabaseUrl(env = process.env) {
- const value = env.PORTAL_E2E_DATABASE_URL || env.OTERYN_DATABASE_URL;
+function validateDisposableDatabaseUrl(value) {
  if (!value) throw new Error('Set PORTAL_E2E_DATABASE_URL to the disposable local database');
  let url;
  try {
@@ -27,7 +26,14 @@ export function disposableDatabaseUrl(env = process.env) {
  url.port ||= '5432';
  return url.href;
 }
-export const pool = () => new pg.Pool({connectionString: disposableDatabaseUrl()});
+export function disposableDatabaseUrl(env = process.env) {
+ return validateDisposableDatabaseUrl(env.PORTAL_E2E_DATABASE_URL || env.OTERYN_DATABASE_URL);
+}
+export const pool = (connectionString) => new pg.Pool({
+ connectionString: connectionString === undefined
+   ? disposableDatabaseUrl()
+   : validateDisposableDatabaseUrl(connectionString),
+});
 export async function csrfRejected(page, action, fields={}) {
   const clean=Object.fromEntries(Object.entries(fields).filter(([key,value])=>!['_csrf','csrf'].includes(key) && value!==undefined));
   const payload=new URL(action,page.url()).pathname==='/admin/media'?{multipart:{alt_text:'Local test image',image:{name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')}}}:{form:clean};

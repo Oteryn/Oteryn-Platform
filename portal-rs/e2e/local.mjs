@@ -112,7 +112,7 @@ if (!binary) {
  if (metadata.status !== 0) throw new Error('cargo metadata failed');
  binary = path.join(JSON.parse(metadata.stdout).target_directory,'debug','oteryn-portal');
 }
-binary = path.resolve(binary);
+binary = path.resolve(root, binary);
 env.PORTAL_E2E_BINARY = binary;
 fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
 command(binary,['migrate']);
