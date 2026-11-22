@@ -1,4 +1,4 @@
-title = Support i moderacja
+title = Pomoc i moderacja
 next = Następna strona
 internal = Wewnętrzna notatka zespołu
 public = Wiadomość publiczna
