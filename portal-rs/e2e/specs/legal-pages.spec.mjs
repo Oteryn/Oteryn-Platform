@@ -56,10 +56,17 @@ test('signup records the versions shown on the linked legal pages', async ({ pag
   const db = pool();
   try {
     const { rows } = await db.query(
-      'SELECT document_kind, document_version FROM account_consents JOIN accounts ON accounts.id=account_consents.account_id WHERE accounts.email=$1',
+      `SELECT c.document_kind, c.document_version, v.locale, p.slug
+      FROM account_consents c JOIN accounts a ON a.id=c.account_id
+      JOIN page_legal_versions v
+        ON (v.page_id,v.locale,v.version)=(c.legal_page_id,c.legal_locale,c.document_version)
+      JOIN pages p ON p.id=v.page_id WHERE a.email=$1 ORDER BY c.document_kind`,
       [account.email],
     );
-    expect(Object.fromEntries(rows.map(row => [row.document_kind, row.document_version]))).toEqual(versions);
+    expect(rows).toEqual([
+      { document_kind: 'privacy', document_version: versions.privacy, locale: lang, slug: 'privacy-policy' },
+      { document_kind: 'terms', document_version: versions.terms, locale: lang, slug: 'terms-of-service' },
+    ]);
   } finally {
     await db.end();
   }

@@ -398,20 +398,22 @@ async fn consents_legal_acceptance_unchanged() -> TestResult {
     let Some(f) = Fixture::new().await? else {
         return Ok(());
     };
-    let mut conn = f.pool.acquire().await?;
-    record(&mut conn, f.account, &ConsentConfig::default(), None).await?;
+    oteryn_db::test_support::seed_final_signup_editions(&f.pool, DEFAULT_LEGAL_VERSION).await?;
+    let config = ConsentConfig::default();
+    let mut tx = f.pool.begin().await?;
+    let editions = config.check_publication(&mut *tx, "en").await?;
+    record(&mut tx, f.account, &editions, None).await?;
+    tx.commit().await?;
     let legal: Vec<(String, bool, bool)> = sqlx::query_as("SELECT document_kind,granted,actor=account_id FROM account_consents WHERE account_id=$1 ORDER BY document_kind")
         .bind(f.account).fetch_all(&f.pool).await?;
     assert_eq!(
         legal,
         vec![("privacy".into(), true, true), ("terms".into(), true, true)]
     );
-    assert!(
-        record(&mut conn, f.account, &ConsentConfig::default(), None)
-            .await
-            .is_err()
-    );
-    drop(conn);
+    let mut tx = f.pool.begin().await?;
+    let editions = config.check_publication(&mut *tx, "en").await?;
+    assert!(record(&mut tx, f.account, &editions, None).await.is_err());
+    tx.rollback().await?;
     f.close().await
 }
 

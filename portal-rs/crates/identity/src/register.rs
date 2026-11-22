@@ -59,10 +59,10 @@ pub async fn register(
         .map_err(|_| sqlx::Error::Protocol("password hashing unavailable".into()))?
         .map_err(sqlx::Error::Protocol)?;
     let mut tx = pool.begin().await?;
-    config.check_publication(&mut *tx, locale).await?;
+    let editions = config.check_publication(&mut *tx, locale).await?;
     let account = Accounts::create(&mut tx, &input.email, &hash, locale).await?;
     if let Some(account) = account {
-        consents::record(&mut tx, account.id, config, ip).await?;
+        consents::record(&mut tx, account.id, &editions, ip).await?;
         verify::issue(&mut tx, account.id, locale).await?;
         tx.commit().await?;
         Ok(Some(account.id))

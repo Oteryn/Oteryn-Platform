@@ -31,7 +31,10 @@ Signup uses `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION`. Both default
 to `2026-11-05` in live or unconfigured operation and to the bundled draft
 version under explicit local/testing configuration. The server checks the
 published locale and exact versions at form display and again inside the
-registration transaction. Live signup requires immutable, explicitly approved
+registration transaction. The acceptance stores the snapshot's page, locale,
+and version so later language changes preserve the edition that was accepted.
+Earlier consent records keep their original version without an inferred locale.
+Live signup requires immutable, explicitly approved
 editions and rejects known fictional operator values, including after a
 version is renamed. Missing, stale, mismatched or unapproved editions make
 signup unavailable and log the locale and reason.

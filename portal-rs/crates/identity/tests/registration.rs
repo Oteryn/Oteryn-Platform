@@ -785,6 +785,19 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
         .execute(&db.pool)
         .await?;
     }
+    assert_eq!(
+        load(app.clone(), "pl").await?.status(),
+        StatusCode::SERVICE_UNAVAILABLE,
+        "even testing signup requires an immutable snapshot"
+    );
+    sqlx::query(
+        "INSERT INTO page_legal_versions(page_id,locale,version,content)
+         SELECT page_id,locale,legal_version,jsonb_build_object(
+             'title',title,'body',body,'effective',legal_effective_date::text)
+         FROM editorial_pages",
+    )
+    .execute(&db.pool)
+    .await?;
     assert_eq!(load(app.clone(), "pl").await?.status(), StatusCode::OK);
     let (cookie, csrf, html) = credentials(&app).await?;
     for name in ["terms", "privacy"] {
@@ -914,5 +927,48 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
             .fetch_all(&db.pool)
             .await?;
     assert_eq!(versions, ["final-v1", "final-v1"]);
+    db.close().await
+}
+
+#[tokio::test]
+async fn signup_consent_keeps_the_accepted_edition_after_changing_language() -> Result {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    for (accepted, changed, expected_body) in [
+        ("pl", "en", "Zatwierdzony dokument testowy."),
+        ("en", "pl", "Accepted English fixture edition."),
+    ] {
+        let mut signup = input();
+        signup.email = format!("edition-{accepted}@example.test");
+        let id = register::register(&db.pool, signup, &ConsentConfig::default(), accepted, None)
+            .await?
+            .ok_or("account missing")?;
+        sqlx::query("UPDATE accounts SET locale=$2 WHERE id=$1")
+            .bind(id)
+            .bind(changed)
+            .execute(&db.pool)
+            .await?;
+        let records: Vec<(String, String, String, String, String)> = sqlx::query_as(
+            "SELECT c.document_kind,a.locale,v.locale,p.slug,v.content->>'body'
+             FROM account_consents c JOIN accounts a ON a.id=c.account_id
+             JOIN page_legal_versions v
+                ON (v.page_id,v.locale,v.version)=(c.legal_page_id,c.legal_locale,c.document_version)
+             JOIN pages p ON p.id=v.page_id WHERE c.account_id=$1 ORDER BY c.document_kind",
+        )
+        .bind(id)
+        .fetch_all(&db.pool)
+        .await?;
+        assert_eq!(
+            records,
+            [("privacy", "privacy-policy"), ("terms", "terms-of-service")].map(|(kind, slug)| (
+                kind.into(),
+                changed.into(),
+                accepted.into(),
+                slug.into(),
+                expected_body.into()
+            ),)
+        );
+    }
     db.close().await
 }

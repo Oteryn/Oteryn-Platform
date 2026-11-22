@@ -1,7 +1,8 @@
 //! Versioned legal acceptance recorded in the registration transaction.
 use crate::accounts::AccountId;
-use sqlx::{PgConnection, PgExecutor};
+use sqlx::{PgExecutor, PgTransaction};
 use std::net::IpAddr;
+use uuid::Uuid;
 /// Version of the repository's bilingual placeholder package.
 pub const PLACEHOLDER_LEGAL_VERSION: &str = "placeholder-2026-11-22.2";
 
@@ -87,6 +88,30 @@ enum PublicationPolicy {
     FinalOnly,
 }
 
+#[derive(Debug, sqlx::FromRow)]
+struct PublishedDocument {
+    slug: String,
+    version: String,
+    title: String,
+    body: String,
+    page_id: Option<Uuid>,
+    final_approved: bool,
+}
+
+#[derive(Debug)]
+struct EditionKey {
+    page_id: Uuid,
+    version: String,
+}
+
+/// Edition keys verified against the published locale and immutable snapshots.
+#[derive(Debug)]
+pub struct SignupEditions {
+    locale: String,
+    terms: EditionKey,
+    privacy: EditionKey,
+}
+
 impl Default for ConsentConfig {
     fn default() -> Self {
         Self {
@@ -119,18 +144,18 @@ impl ConsentConfig {
         &self,
         db: impl PgExecutor<'e>,
         locale: &str,
-    ) -> Result<(), sqlx::Error> {
-        let documents: Vec<(String, String, String, String, bool)> = sqlx::query_as(
-            "SELECT p.slug,e.legal_version,e.title,e.body,
-                    COALESCE(v.content @> jsonb_build_object(
-                        'final_approved',true,'title',e.title,'body',e.body,
-                        'effective',e.legal_effective_date::text
-                    ),false)
+    ) -> Result<SignupEditions, sqlx::Error> {
+        let documents: Vec<PublishedDocument> = sqlx::query_as(
+            "SELECT p.slug,e.legal_version AS version,e.title,e.body,v.page_id,
+                    COALESCE(v.content @> '{\"final_approved\":true}'::jsonb,false) AS final_approved
              FROM pages p
              JOIN editorial_pages e ON e.page_id=p.id
              JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
              LEFT JOIN page_legal_versions v
                 ON v.page_id=e.page_id AND v.locale=e.locale AND v.version=e.legal_version
+                AND v.content @> jsonb_build_object(
+                    'title',e.title,'body',e.body,'effective',e.legal_effective_date::text
+                )
              WHERE p.slug IN ('terms-of-service','privacy-policy') AND e.locale=$1
                 AND e.published_at<=now() AND source.published_at<=now()
                 AND (e.locale='en' OR e.source_revision=source.revision)
@@ -141,38 +166,47 @@ impl ConsentConfig {
         .fetch_all(db)
         .await
         .inspect_err(|_| {
-            tracing::error!(
-                locale,
-                "sign-up blocked: cannot read published legal documents"
-            )
+            tracing::error!(locale, "sign-up blocked: cannot read published legal documents")
         })?;
-        for (slug, expected) in [
-            ("terms-of-service", &self.terms_version),
-            ("privacy-policy", &self.privacy_version),
-        ] {
-            let document = documents.iter().find(|(name, _, _, _, _)| name == slug);
+
+        let checked = |slug: &str, expected: &str| {
+            let document = documents.iter().find(|row| row.slug == slug);
             let reason = match document {
                 None => "published legal document missing for signup locale",
-                Some((_, version, title, body, _))
+                Some(row)
                     if matches!(self.publication, PublicationPolicy::FinalOnly)
-                        && is_placeholder_edition(version, title, body) =>
+                        && is_placeholder_edition(&row.version, &row.title, &row.body) =>
                 {
                     "placeholder legal document must be replaced before live signup"
                 }
-                Some((_, _, _, _, false))
-                    if matches!(self.publication, PublicationPolicy::FinalOnly) =>
+                Some(row)
+                    if matches!(self.publication, PublicationPolicy::FinalOnly)
+                        && !row.final_approved =>
                 {
                     "published legal edition requires explicit final approval"
                 }
-                Some((_, version, _, _, _)) if version != expected => {
+                Some(row) if row.version != expected => {
                     "configured consent version does not match published legal document"
                 }
-                Some(_) => continue,
+                Some(row) => {
+                    if let Some(page_id) = row.page_id {
+                        return Ok(EditionKey {
+                            page_id,
+                            version: row.version.clone(),
+                        });
+                    }
+                    "published legal edition has no matching immutable snapshot"
+                }
             };
-            tracing::error!(locale, slug, expected, published = ?document.map(|(_, version, _, _, _)| version), reason, "sign-up blocked by legal document configuration");
-            return Err(sqlx::Error::Protocol(reason.into()));
-        }
-        Ok(())
+            tracing::error!(locale, slug, expected, published = ?document.map(|row| &row.version), reason, "sign-up blocked by legal document configuration");
+            Err(sqlx::Error::Protocol(reason.into()))
+        };
+
+        Ok(SignupEditions {
+            locale: locale.into(),
+            terms: checked("terms-of-service", &self.terms_version)?,
+            privacy: checked("privacy-policy", &self.privacy_version)?,
+        })
     }
 
     pub fn validate(&self) -> bool {
@@ -182,17 +216,25 @@ impl ConsentConfig {
     }
 }
 pub(crate) async fn record(
-    conn: &mut PgConnection,
+    tx: &mut PgTransaction<'_>,
     id: AccountId,
-    config: &ConsentConfig,
+    editions: &SignupEditions,
     ip: Option<IpAddr>,
 ) -> Result<(), sqlx::Error> {
-    for (kind, version) in [
-        ("terms", &config.terms_version),
-        ("privacy", &config.privacy_version),
-    ] {
-        sqlx::query("INSERT INTO account_consents (account_id,document_kind,document_version,ip) VALUES ($1,$2,$3,$4::text::inet)")
-            .bind(id).bind(kind).bind(version).bind(ip.map(|v|v.to_string())).execute(&mut *conn).await?;
+    for (kind, edition) in [("terms", &editions.terms), ("privacy", &editions.privacy)] {
+        sqlx::query(
+            "INSERT INTO account_consents
+                (account_id,document_kind,document_version,ip,legal_page_id,legal_locale)
+             VALUES ($1,$2,$3,$4::text::inet,$5,$6)",
+        )
+        .bind(id)
+        .bind(kind)
+        .bind(&edition.version)
+        .bind(ip.map(|v| v.to_string()))
+        .bind(edition.page_id)
+        .bind(&editions.locale)
+        .execute(&mut **tx)
+        .await?;
     }
     Ok(())
 }
