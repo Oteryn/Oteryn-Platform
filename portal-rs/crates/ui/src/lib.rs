@@ -195,7 +195,9 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
-        staff_access: bool,
+    },
+    Staff {
+        csrf: String,
     },
 }
 #[derive(Clone, Debug)]
@@ -246,16 +248,13 @@ impl Chrome {
         text(&self.lang, key)
     }
     pub fn signed_in(&self) -> bool {
-        matches!(self.account, Account::SignedIn { .. })
+        matches!(
+            self.account,
+            Account::SignedIn { .. } | Account::Staff { .. }
+        )
     }
     pub fn staff_panel_link(&self) -> Option<&str> {
-        if matches!(
-            self.account,
-            Account::SignedIn {
-                staff_access: true,
-                ..
-            }
-        ) {
+        if matches!(self.account, Account::Staff { .. }) {
             self.staff_panel_url.as_deref()
         } else {
             None
@@ -264,7 +263,7 @@ impl Chrome {
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf, .. } => csrf,
+            Account::SignedIn { csrf } | Account::Staff { csrf } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -397,25 +396,6 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn account_menu_renders_staff_link_only_when_enabled_and_authorized()
-    -> Result<(), askama::Error> {
-        let account = |staff_access| Account::SignedIn {
-            csrf: "fixture".into(),
-            staff_access,
-        };
-        for (enabled, staff) in [(true, true), (true, false), (false, true)] {
-            let mut registry = registry();
-            let url = "https://staff.example.test:8443/admin";
-            registry.staff_panel_url = enabled.then(|| url.into());
-            let chrome = registry.chrome("en", "/en/", account(staff));
-            let html = Home::new(&chrome, &HomeData::default()).render()?;
-            assert_eq!(html.contains(&format!("href=\"{url}\"")), enabled && staff);
-            assert_eq!(html.contains("Staff panel"), enabled && staff);
-        }
-        Ok(())
-    }
-
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
@@ -548,7 +528,6 @@ mod tests {
                 lang,
                 "/",
                 Account::SignedIn {
-                    staff_access: false,
                     csrf: "escaped<&token".into(),
                 },
             );
@@ -705,6 +684,27 @@ mod tests {
                 assert!(html.contains(&title));
                 assert!(html.contains("href=\"#main\""));
             }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn account_menu_renders_staff_link_only_when_enabled_and_authorized()
+    -> Result<(), askama::Error> {
+        for (enabled, staff) in [(true, true), (true, false), (false, true)] {
+            let mut registry = registry();
+            let url = "https://staff.example.test:8443/admin";
+            registry.staff_panel_url = enabled.then(|| url.into());
+            let csrf = "fixture".into();
+            let account = if staff {
+                Account::Staff { csrf }
+            } else {
+                Account::SignedIn { csrf }
+            };
+            let chrome = registry.chrome("en", "/en/", account);
+            let html = Home::new(&chrome, &HomeData::default()).render()?;
+            assert_eq!(html.contains(&format!("href=\"{url}\"")), enabled && staff);
+            assert_eq!(html.contains("Staff panel"), enabled && staff);
         }
         Ok(())
     }

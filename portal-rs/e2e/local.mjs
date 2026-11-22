@@ -26,7 +26,6 @@ const admin=new pg.Client({connectionString:adminURL});await admin.connect();
 for(const name of [dbName,testName]) await admin.query(`CREATE DATABASE "${name}"`);
 const databaseURL=name=>{const url=new URL(adminURL);url.pathname=`/${name}`;return url.toString();};
 const env={...process.env};
-const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
 function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(directory,e.name)):[path.join(directory,e.name)]);}
 for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin'))].filter(p=>p.endsWith('.rs'))){
  for(const [,key] of fs.readFileSync(file,'utf8').matchAll(/"([A-Z][A-Z0-9_]+_ENABLED)"/g)) env[key]='true';
@@ -38,7 +37,7 @@ Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
  OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
  PORTAL_OAUTH_CONFIG:JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
- OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:splitStaffOrigin ? '127.0.0.1:443' : 'localhost:18443',
+ OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
  OTERYN_WEBAUTHN_RP_ID:'localhost',OTERYN_MFA_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_RESET_DELIVERY_KEY:crypto.randomBytes(32).toString('hex'),
@@ -120,6 +119,8 @@ await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password
 await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
 const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
+const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
+if(splitStaffOrigin) env.OTERYN_ADMIN_HOST='127.0.0.1:443';
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
 const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
@@ -139,12 +140,16 @@ function proxyRequest(req,res) {
  const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,headers:req.headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
  upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
 }
-const proxy=https.createServer(tls,proxyRequest).listen(18443,'127.0.0.1');
-const staffProxy=splitStaffOrigin ? https.createServer(tls,proxyRequest).listen(443,'127.0.0.1') : undefined;
+const proxy=https.createServer(tls,proxyRequest);
+proxy.listen(18443,'127.0.0.1');
 const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
 league.start();
+if(splitStaffOrigin){
+ const staffProxy=https.createServer(tls,proxyRequest).listen(443,'127.0.0.1');
+ proxy.once('close',()=>staffProxy.close());
+}
 await gameProducer.start();
 console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();staffProxy?.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);
