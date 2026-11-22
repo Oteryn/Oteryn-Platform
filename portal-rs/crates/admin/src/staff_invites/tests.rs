@@ -311,6 +311,33 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
 }
 
 #[tokio::test]
+async fn mailbox_with_display_name_cannot_be_issued() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let f = Fixture::open().await?;
+    assert!(matches!(
+        f.invites
+            .create(
+                f.inviter,
+                &f.key,
+                "Team Member <recipient@example.invalid>",
+                vec![f.role],
+                "en",
+                Uuid::now_v7(),
+            )
+            .await,
+        Err(Error::InvalidInput)
+    ));
+    let (invites, jobs): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM staff_invites),(SELECT count(*) FROM outbox WHERE kind=$1)",
+    )
+    .bind(MAIL_KIND)
+    .fetch_one(&f.invites.pool)
+    .await?;
+    assert_eq!((invites, jobs), (0, 0));
+    f.close().await
+}
+
+#[tokio::test]
 async fn expired_revoked_and_wrong_account_are_refused() -> TestResult {
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let f = Fixture::open().await?;
