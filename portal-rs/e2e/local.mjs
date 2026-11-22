@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { SMTPServer } from 'smtp-server';
 import { prepareGameApi } from './gameapi-stack.mjs';
-import { localPostgresUrl } from './postgres-url.mjs';
+import { localPostgresUrl, withoutPostgresDefaults } from './postgres-url.mjs';
 import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
@@ -26,7 +26,7 @@ const testName=`${dbName}_tests`;
 const admin=new pg.Client({connectionString:adminURL});await admin.connect();
 for(const name of [dbName,testName]) await admin.query(`CREATE DATABASE "${name}"`);
 const databaseURL=name=>{const url=new URL(adminURL);url.pathname=`/${name}`;return url.toString();};
-const env={...process.env};
+const env=withoutPostgresDefaults(process.env);
 function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(directory,e.name)):[path.join(directory,e.name)]);}
 for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin'))].filter(p=>p.endsWith('.rs'))){
  for(const [,key] of fs.readFileSync(file,'utf8').matchAll(/"([A-Z][A-Z0-9_]+_ENABLED)"/g)) env[key]='true';

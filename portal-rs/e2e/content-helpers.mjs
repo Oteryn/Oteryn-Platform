@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { test as base, expect } from './fixtures.mjs';
 export { expect };
-import { csrfRejected, fixtureDatabaseURL, login, password } from './helpers.mjs';
+import { csrfRejected, fixtureDatabaseEnv, login, password } from './helpers.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from './staff-rbac-helpers.mjs';
 
 export const locales = ['pl', 'en'];
@@ -12,13 +12,13 @@ export const key = prefix => `${prefix}-${randomUUID()}`;
 export const stamp = minutes => new Date(Date.now() + minutes * 60_000).toISOString();
 export const localized = (lang, pl, en) => lang === 'pl' ? pl : en;
 
-export function binary(args, env = {}) {
+export function binary(args, overrides = {}) {
  const executable = process.env.PORTAL_E2E_BINARY ||
    resolve(process.env.CARGO_TARGET_DIR || '../target', 'debug/oteryn-portal');
- const databaseURL = fixtureDatabaseURL();
+ const env = fixtureDatabaseEnv(undefined, overrides);
  try {
   return { status: 0, stdout: execFileSync(executable, args, {
-   env: { ...process.env, ...env, OTERYN_DATABASE_URL: databaseURL }, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8',
+   env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8',
   }) };
  } catch (error) {
   if (typeof error.status !== 'number') throw new Error('Could not run the local portal binary');

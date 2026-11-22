@@ -9,7 +9,7 @@ import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
-import { csrfRejected, fixtureDatabaseURL, login, password } from './helpers.mjs';
+import { csrfRejected, fixtureDatabaseEnv, fixtureDatabaseURL, login, password } from './helpers.mjs';
 import { localPostgresUrl } from './postgres-url.mjs';
 
 const exec = promisify(execFile);
@@ -18,10 +18,10 @@ const binary = process.env.PORTAL_GAMEAPI_REAL_BINARY ?? process.env.PORTAL_E2E_
   resolve(portalRoot, process.env.CARGO_TARGET_DIR ?? 'target', 'debug/oteryn-portal');
 
 async function seed(entity, args, databaseURL) {
-  databaseURL = fixtureDatabaseURL(databaseURL);
+  const env = fixtureDatabaseEnv(databaseURL);
   try {
     const { stdout } = await exec(binary, ['seed', entity, JSON.stringify(args)], {
-      env: { ...process.env, OTERYN_DATABASE_URL: databaseURL },
+      env,
     });
     return JSON.parse(stdout);
   } catch {

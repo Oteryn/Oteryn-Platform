@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from './fixtures.mjs';
-import { password, pool, seedPasswordRange, submit, waitForLoginBudget } from './helpers.mjs';
+import { fixtureDatabaseEnv, password, pool, seedPasswordRange, submit, waitForLoginBudget } from './helpers.mjs';
 
 export const localized = (locale, en, pl) => locale === 'en' ? en : pl;
 export const identityEmail = () => `identity-${randomUUID()}@example.invalid`;
@@ -18,7 +18,7 @@ export async function identityQuery(sql, parameters = []) {
 }
 
 export async function seedPlayer(locale) {
-  const db = pool();
+  const env = fixtureDatabaseEnv(undefined, { OTERYN_ENV: 'testing' });
   const account = { email: identityEmail(), password: password(), locale };
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
   try {
@@ -26,15 +26,13 @@ export async function seedPlayer(locale) {
       process.env.PORTAL_E2E_BINARY || join(target, 'debug/oteryn-portal'),
       ['seed', 'account', JSON.stringify(account)],
       {
-        env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: db.options.connectionString },
+        env,
         stdio: ['ignore', 'pipe', 'ignore'],
       },
     );
     return { ...account, id: JSON.parse(result).accountId };
   } catch {
     throw new Error('The portal seed CLI could not create the disposable player');
-  } finally {
-    await db.end();
   }
 }
 

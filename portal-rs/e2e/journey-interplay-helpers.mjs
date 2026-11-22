@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { expect } from './fixtures.mjs';
-import { csrfRejected, password, pool, waitForLoginBudget } from './helpers.mjs';
+import { csrfRejected, fixtureDatabaseEnv, password, waitForLoginBudget } from './helpers.mjs';
 import { query } from './staff-rbac-helpers.mjs';
 import { revealPortalLink } from './journey-navigation.mjs';
 
@@ -24,15 +24,11 @@ export async function newActor(browser, info, storageState) {
 const runSeed = promisify(execFile);
 
 async function seed(entity, fields) {
+  const env = fixtureDatabaseEnv();
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY || path.join(target, 'debug', 'oteryn-portal');
   try {
-    const { stdout } = await runSeed(binary, ['seed', entity, JSON.stringify(fields)], {
-      env: {
-        ...process.env,
-        OTERYN_DATABASE_URL: process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL,
-      },
-    });
+    const { stdout } = await runSeed(binary, ['seed', entity, JSON.stringify(fields)], { env });
     return JSON.parse(stdout);
   } catch {
     // CLI arguments and output can contain disposable credentials.
@@ -43,8 +39,6 @@ async function seed(entity, fields) {
 // Seed verified identities and MFA before the story. Sign in via the real
 // forms in provisioning, then hand only browser storage to each journey actor.
 export async function provision(browser, info, role, mfa = Boolean(role)) {
-  const guard = pool();
-  await guard.end();
   const lang = info.project.metadata.locale;
   const account = { email: `journey-${randomUUID()}@example.invalid`, password: password() };
   const { accountId: id } = await seed('account', { ...account, locale: lang });

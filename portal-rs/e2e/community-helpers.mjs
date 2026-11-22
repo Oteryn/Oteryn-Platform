@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
 import { expect } from './fixtures.mjs';
-import { password, pool, waitForWikiBudget } from './helpers.mjs';
+import { fixtureDatabaseEnv, password, pool, waitForWikiBudget } from './helpers.mjs';
 
 export function strings(directory, lang) {
   const file = new URL(`../${directory}/${lang}.ftl`, import.meta.url);
@@ -127,15 +127,13 @@ export async function withEditorial(action) {
 }
 
 export async function seedPlayer(locale) {
-  // Reuse the harness database guard before passing its connection to the seed command.
-  const db = pool();
-  await db.end();
+  const env = fixtureDatabaseEnv();
   const binary = process.env.PORTAL_E2E_BINARY ||
     fileURLToPath(new URL('../target/debug/oteryn-portal', import.meta.url));
   const account = {email: `community-${randomUUID()}@example.invalid`, password: password()};
   const seed = spawnSync(binary, ['seed', 'account', JSON.stringify({...account, locale})], {
     stdio: 'ignore',
-    env: {...process.env, OTERYN_DATABASE_URL: db.options.connectionString},
+    env,
     timeout: 30_000,
   });
   expect(seed.status, 'seed active player in disposable harness').toBe(0);

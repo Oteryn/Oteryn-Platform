@@ -4,18 +4,18 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {expect} from '@playwright/test';
-import {fixtureDatabaseURL, password, submit, waitForLoginBudget} from './helpers.mjs';
+import {fixtureDatabaseEnv, password, submit, waitForLoginBudget} from './helpers.mjs';
 
 export function seedPlayer(locale) {
   const credentials = {email: `account-${randomUUID()}@example.invalid`, password: password()};
-  const database = fixtureDatabaseURL();
+  const env = fixtureDatabaseEnv(undefined, { OTERYN_ENV: 'testing' });
   const target = process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('../target', import.meta.url));
   const binary = process.env.PORTAL_E2E_BINARY || resolve(target, 'debug/oteryn-portal');
   try {
     const result = execFileSync(binary, ['seed', 'account', JSON.stringify({...credentials, locale})], {
       stdio: ['ignore', 'pipe', 'ignore'],
       encoding: 'utf8',
-      env: {...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: database},
+      env,
     });
     return {...credentials, id: JSON.parse(result).accountId};
   } catch {

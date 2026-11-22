@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from '@playwright/test';
-import { fixtureDatabaseURL, pool } from './helpers.mjs';
+import { fixtureDatabaseEnv, pool } from './helpers.mjs';
 import { uuid7 } from './game-sim-helpers.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -16,10 +16,9 @@ export function sha256(bytes) {
 }
 
 function binary(args, extraEnv = {}) {
-  const databaseURL = fixtureDatabaseURL();
   const result = spawnSync(process.env.PORTAL_GAMEAPI_REAL_BINARY, args, {
     cwd: portal,
-    env: { ...process.env, ...extraEnv, OTERYN_DATABASE_URL: databaseURL },
+    env: fixtureDatabaseEnv(undefined, extraEnv),
     encoding: 'utf8',
     timeout: 30000,
   });

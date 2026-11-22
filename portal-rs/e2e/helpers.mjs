@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import pg from 'pg';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
+import { withoutPostgresDefaults } from './postgres-url.mjs';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
 function validateDisposableDatabaseUrl(value) {
@@ -34,6 +35,10 @@ export function fixtureDatabaseURL(value = process.env.PORTAL_E2E_DATABASE_URL |
   validateDisposableDatabaseUrl(value);
   if (new URL(value).search) throw new Error('Fixture commands require PostgreSQL URLs without query parameters');
   return value;
+}
+export function fixtureDatabaseEnv(value, overrides = {}) {
+  const env = withoutPostgresDefaults({ ...process.env, ...overrides });
+  return { ...env, OTERYN_DATABASE_URL: fixtureDatabaseURL(value) };
 }
 export const pool = (connectionString) => new pg.Pool({
  connectionString: connectionString === undefined

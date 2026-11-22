@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { expect } from './fixtures.mjs';
-import { disposableDatabaseUrl, login, password, waitForWikiBudget } from './helpers.mjs';
+import { fixtureDatabaseURL, login, password, waitForWikiBudget } from './helpers.mjs';
 
 import { enrollMfa, loginWithRecoveryCode, query } from './staff-rbac-helpers.mjs';
 
@@ -60,7 +60,7 @@ export async function redirect(request, path, location, status = 303) {
 }
 
 async function seed(entity, input) {
-  const databaseUrl = disposableDatabaseUrl();
+  const databaseUrl = fixtureDatabaseURL();
   const binary = process.env.PORTAL_E2E_BINARY;
   if (!binary) throw new Error('The E2E launcher must supply PORTAL_E2E_BINARY');
   // SQLx reads PGHOSTADDR and other libpq defaults before applying the URL.
