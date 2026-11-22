@@ -2008,6 +2008,7 @@ test('editorial event forms enforce publishing authority through creation, edits
       { name: 'empty title', patch: { en_title: '' } },
       { name: 'overlong title', patch: { en_title: 'a'.repeat(201) } },
       { name: 'invalid time representation', patch: { starts_at: 'not-a-datetime' } },
+      { name: 'invalid revision representation', patch: { lock_version: '1.5' } },
       { name: 'end time at the start boundary', patch: { ends_at: draft.starts_at } },
     ];
     expect((await page.goto('/admin/events/create')).status()).toBe(200);
@@ -2045,6 +2046,7 @@ test('editorial event forms enforce publishing authority through creation, edits
         { name: 'empty target status', patch: { status: '' } },
         { name: 'overlong target status', patch: { status: 'x'.repeat(512) } },
         { name: 'numeric target status', patch: { status: '1' } },
+        { name: 'invalid revision representation', patch: { lock_version: '1.5' } },
         { name: 'unknown status beyond the accepted values', patch: { status: 'archived ' } },
       ], method);
       await page.locator(`${selector} select[name=status]`).selectOption(status);
