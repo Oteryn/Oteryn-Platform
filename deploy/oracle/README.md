@@ -279,6 +279,9 @@ all three Oracle overrides, including the canonical migrated storage volume.
 Game keeps deployed World/content and routes every restart through the durable
 controller. Failures remain closed for operator reconciliation; no automatic
 schema rollback, destructive volume operation or trust reset is performed.
+For Platform migration, the wrapper reads the nightly again after checking
+the deploy attempt and protected ref. Those final reads must complete within
+ten seconds while the host holds its deployment lock.
 The runner never installs or upgrades the root wrapper/controller itself.
 
 ### Platform deploy protocol cutover

@@ -1,17 +1,17 @@
 import { basename } from 'node:path';
 
-export function discoveredCases(suites) {
-  const cases = [];
-  function visit(suite) {
+export function* playwrightCases(suites) {
+  for (const suite of suites) {
     for (const spec of suite.specs ?? []) {
-      for (const test of spec.tests) {
-        cases.push(JSON.stringify([spec.file, spec.id, test.projectId]));
-      }
+      for (const test of spec.tests) yield { spec, test };
     }
-    for (const child of suite.suites ?? []) visit(child);
+    yield* playwrightCases(suite.suites ?? []);
   }
-  suites.forEach(visit);
-  return cases.sort();
+}
+
+export function discoveredCases(suites) {
+  return Array.from(playwrightCases(suites), ({ spec, test }) =>
+    JSON.stringify([spec.file, spec.id, test.projectId])).sort();
 }
 
 export async function planNightly(discover) {

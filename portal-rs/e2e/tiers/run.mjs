@@ -5,7 +5,7 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { get } from 'node:https';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { discoveredCases, planNightly } from './nightly-plan.mjs';
+import { discoveredCases, planNightly, playwrightCases } from './nightly-plan.mjs';
 import { escapeHtml, reportCases, reportRow } from './nightly-report.mjs';
 import { createInterface } from 'node:readline';
 import { setTimeout as pollInterval } from 'node:timers/promises';
@@ -88,54 +88,58 @@ try {
   }
 
   const args = [join(scratch, 'env.json'), 'test', '--config=tiers/playwright.config.mjs', ...selection];
-  let count;
-  let nightlyCases;
+  async function discover(filters, label) {
+    const discovery = join(scratch, `discovery-${label}.json`);
+    const status = await launch('run.mjs', [...args, ...filters, '--list', '--reporter=json'],
+      `discovery-${label}.log`, { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: discovery }).done;
+    if (status !== 0) throw new Error(`Playwright discovery failed for ${label}`);
+    return JSON.parse(await readFile(discovery, 'utf8')).suites;
+  }
+
+  let plannedCases;
   if (tier === 'nightly') {
-    const plans = await planNightly(async (filters, label) => {
-      const discovery = join(scratch, `discovery-${label}.json`);
-      const status = await launch('run.mjs', [...args, ...filters, '--list', '--reporter=json'],
-        `discovery-${label}.log`, { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: discovery }).done;
-      if (status !== 0) throw new Error(`Playwright discovery failed for ${label}`);
-      return discoveredCases(JSON.parse(await readFile(discovery, 'utf8')).suites);
-    });
+    const plans = await planNightly(async (filters, label) => discoveredCases(await discover(filters, label)));
     const plan = plans[Number(shard) - 1];
     args.push(...plan.filters);
-    nightlyCases = plan.cases;
-    count = nightlyCases.length;
+    plannedCases = plan.cases;
   } else {
-    const listing = await launch('run.mjs', [...args, '--list', '--reporter=list'], 'list.log').done;
-    const list = await readFile(join(scratch, 'list.log'), 'utf8');
-    count = Number(/^Total: (\d+) tests? in /m.exec(list)?.[1]);
-    if (listing !== 0 || !count) throw new Error('Playwright discovery failed or selected no tests');
+    const suites = await discover([], 'smoke');
+    const listed = Array.from(playwrightCases(suites));
     for (const name of smokeProjects) {
       for (const title of manifest.titles) {
-        const matches = list.split('\n').filter(line => line.trimStart().startsWith(`[${name}] `) && line.endsWith(` › ${title}`));
+        const matches = listed.filter(({ spec, test }) => test.projectName === name && spec.title === title);
         if (matches.length !== 1) throw new Error(`Expected one ${manifest.tag} case per project for "${title}"`);
       }
     }
-    if (count !== smokeProjects.length * manifest.titles.length) throw new Error('Unexpected smoke test count');
+    plannedCases = discoveredCases(suites);
+    const expected = smokeProjects.length * manifest.titles.length;
+    if (!expected || plannedCases.length !== expected || new Set(plannedCases).size !== expected) {
+      throw new Error('Unexpected smoke case identities or count');
+    }
   }
+  const count = plannedCases.length;
 
   const status = await launch('run.mjs', [...args, '--trace=off', '--reporter=json'], 'playwright.log').done;
   const { stats, suites } = JSON.parse(await readFile(reportFile, 'utf8'));
-  const summary = `Listed ${count}, passed ${stats.expected}, failed ${stats.unexpected}, flaky ${stats.flaky}, skipped ${stats.skipped}, ${Math.round((performance.now() - started) / 1000)}s including harness startup`;
-  console.log(summary);
-
   const routes = JSON.parse(await readFile(join(cwd, 'route-expectations.json'), 'utf8'));
   const routeTitles = new Set(routes.map(row => `route ${row.crate} ${row.route}`));
   const cases = reportCases(suites, routeTitles);
+  const passed = cases.filter(test => test.status === 'passed').length;
+  const skipped = cases.filter(test => test.status === 'skipped').length;
+  const other = cases.length - passed - skipped;
+  const summary = `Listed ${count}, passed ${passed}, non-passing ${other}, flaky ${stats.flaky}, skipped ${skipped}, ${Math.round((performance.now() - started) / 1000)}s including harness startup`;
+  console.log(summary);
   for (const test of cases) {
-    if (test.status !== 'expected') console.error(`${test.source} ${test.id} ${test.status}: ${test.reason}`);
+    if (test.status !== 'passed') console.error(`${test.source} ${test.id} ${test.status}: ${test.reason}`);
   }
   if (tier === 'nightly') {
     const rows = cases.map(reportRow);
     await writeFile(join(cwd, 'tier-report.html'), `<!doctype html><html lang="en"><meta charset="utf-8"><title>Portal E2E</title><h1>Portal E2E</h1><p>${escapeHtml(summary)}</p><table><thead><tr><th>Case ID</th><th>Route</th><th>Source</th><th>Outcome</th><th>Reason</th></tr></thead><tbody>${rows.join('\n')}</tbody></table></html>\n`);
-    const completed = discoveredCases(suites);
-    if (JSON.stringify(completed) !== JSON.stringify(nightlyCases)) {
-      throw new Error('Nightly execution differs from the discovered shard');
-    }
   }
-  if (status !== 0 || stats.expected !== count || stats.unexpected || stats.flaky || stats.skipped) {
+  if (JSON.stringify(discoveredCases(suites)) !== JSON.stringify(plannedCases)) {
+    throw new Error('Playwright execution differs from discovery');
+  }
+  if (status !== 0 || passed !== count || stats.expected !== count || stats.unexpected || stats.flaky || stats.skipped) {
     throw new Error('Playwright did not pass every selected test');
   }
 } catch (error) {

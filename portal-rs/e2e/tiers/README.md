@@ -25,7 +25,8 @@ file shards per project. The tier config preserves the browser suite's test
 patterns, including legacy Bazaar and authentication security cases when
 configured. For each project, the runner discovers all cases, lists each shard,
 and checks that the combined case identities equal the full discovery exactly
-once. It checks the executed cases against the selected shard as well.
+once. Smoke and nightly both require the execution report to match discovery
+and contain exactly one passing result for each case.
 The first shard keeps the staff bootstrap with the Bazaar moderation, content,
 routes and staff specs that consume its browser storage state. The other two shards
 split the remaining sorted spec filenames. Each shard gets separate databases

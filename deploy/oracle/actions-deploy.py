@@ -30,6 +30,7 @@ STATE = ROOT / 'state/actions'
 BUILD = Path('/opt/oteryn-build')
 REPOS = {'platform': 'Oteryn-Platform', 'game': 'Oteryn-Game'}
 SHA = r'[0-9a-f]{40}'
+PLATFORM_MIGRATION_AUTH_MAX_AGE_SECONDS = 10
 # The Game runtime image (Debian slim plus three release binaries) is a few
 # hundred MiB as `docker save` output. 1 GiB of zip stream and 3 GiB unpacked
 # leave several times that headroom while bounding what one transfer may write
@@ -179,7 +180,7 @@ def reauthorize_platform(sha, run_id, attempt):
         raise ValueError('nightly E2E window changed during deployment authorization')
     if final != approved:
         raise ValueError('nightly E2E run or attempt changed during deployment authorization')
-    return final[0]
+    return final
 
 
 def require_platform_main(sha):
@@ -189,13 +190,19 @@ def require_platform_main(sha):
 
 
 def authorize_platform_migration(sha, run_id, attempt):
-    window = reauthorize_platform(sha, run_id, attempt)
-    # The nightly request may have blocked while GitHub changed either authority.
-    # Check the attempt and then read the protected ref as the final API request.
+    approved = reauthorize_platform(sha, run_id, attempt)
+    started = time.monotonic()
     qualify_workflow('platform', sha, run_id, attempt)
     require_platform_main(sha)
-    if nightly_window() != window:
+    # A rerun can start during either authority read. Refresh the nightly last
+    # and include the time spent on that request in the authority age.
+    final = qualify_platform_nightly()
+    if final[0] != approved[0] or nightly_window() != approved[0]:
         raise ValueError('nightly E2E window changed before migration')
+    if final != approved:
+        raise ValueError('nightly E2E run or attempt changed before migration')
+    if time.monotonic() - started >= PLATFORM_MIGRATION_AUTH_MAX_AGE_SECONDS:
+        raise ValueError('deployment authority reads expired before migration')
 
 
 def journal(component, sha, phase, **facts):

@@ -477,6 +477,46 @@ class LivePortalDeployment(unittest.TestCase):
                 self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
                 self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
 
+    def test_final_nightly_rerun_or_expired_authority_blocks_migration(self):
+        now = datetime.fromisoformat('2026-11-22T03:00:00+00:00')
+        green = dict(id=200, run_attempt=1, display_title='Portal RS E2E Nightly',
+                     created_at='2026-11-22T02:17:00Z', status='completed', conclusion='success')
+        for result, reason in [
+            (dict(green, run_attempt=2, status='queued', conclusion=None), 'nightly E2E'),
+            (dict(green, run_attempt=2), 'nightly E2E run or attempt changed'),
+            (green, 'authority reads expired'),
+        ]:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as temporary:
+                portal, state = self.host(temporary)
+                latest = green
+                authority_reads = []
+
+                def api(path):
+                    nonlocal latest
+                    if path == 'Oteryn-Platform/branches/main':
+                        authority_reads.append('head')
+                        latest = result
+                        return {'protected': True, 'commit': {'sha': self.sha}}
+                    self.assertIn('/workflows/portal-rs-e2e.yml/runs?', path)
+                    authority_reads.append('nightly')
+                    return {'workflow_runs': [latest]}
+
+                def check_workflow(*_):
+                    authority_reads.append('attempt')
+
+                with patch.object(deploy, 'datetime', wraps=datetime) as clock, \
+                     patch.object(deploy, 'api', side_effect=api), \
+                     patch.object(deploy.time, 'monotonic', side_effect=[100, 110]), \
+                     self.assertRaisesRegex(ValueError, reason) as raised:
+                    clock.now.return_value = now
+                    self.deploy(portal, state, nightly=deploy.qualify_platform_nightly,
+                                reauthorize=check_workflow, protected_head=deploy.require_platform_main)
+                self.assertEqual(authority_reads[-4:], ['nightly', 'attempt', 'head', 'nightly'])
+                self.assertFalse(any('migrate' in args or 'up' in args for args, _ in raised.exception.calls))
+                self.assertFalse((state / 'platform-pending.json').exists())
+                self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+                self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+
     def test_canceled_workflow_after_backup_changes_nothing_live(self):
         with tempfile.TemporaryDirectory() as temporary:
             portal, state = self.host(temporary)

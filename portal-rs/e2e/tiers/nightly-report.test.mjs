@@ -30,3 +30,22 @@ test('generated route cases retain distinct IDs, safe labels and fixed failure r
   assert.ok(!html.includes(privateValue));
   assert.ok(!html.includes('https://localhost'));
 });
+
+test('reports actual results even when Playwright expected the failure', () => {
+  const results = [
+    [{ status: 'failed' }],
+    [],
+    [{ status: 'failed' }, { status: 'passed' }],
+    [{ status: 'passed' }],
+  ];
+  const specs = results.map((entries, index) => ({
+    file: 'specs/routes.spec.mjs',
+    id: `${'a'.repeat(20)}-${String(index).repeat(20)}`,
+    line: 13,
+    tests: [{ status: 'expected', expectedStatus: index === 0 ? 'failed' : 'passed', results: entries }],
+  }));
+  const cases = reportCases([{ specs }], new Set());
+  assert.deepEqual(cases.map(entry => entry.status), ['failed', 'notRun', 'multiple', 'passed']);
+  assert.match(reportRow(cases[0]), /<td>failed<\/td><td>Test execution failed<\/td>/);
+  assert.match(reportRow(cases[3]), /<td>passed<\/td><td>Passed<\/td>/);
+});
