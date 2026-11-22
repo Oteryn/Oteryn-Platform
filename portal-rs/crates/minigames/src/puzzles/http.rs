@@ -170,7 +170,7 @@ struct Card {
     source = r##"<!doctype html>
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/app.css"></head>
-<body class="op-theme"><header class="site-header op-stack"><a href="#main">{{ skip }}</a><nav class="op-row"><a href="/{{ lang }}/">{{ home }}</a><a href="/{{ other }}/puzzles" hreflang="{{ other }}" lang="{{ other }}">{{ other_name }}</a></nav></header>
+<body class="op-theme"><a class="op-skip" href="#main">{{ skip }}</a><nav class="site-header op-row" aria-label="{{ title }}"><a href="/{{ lang }}/">{{ home }}</a><a href="/{{ other }}/puzzles" hreflang="{{ other }}" lang="{{ other }}">{{ other_name }}</a></nav>
 <main id="main" tabindex="-1" class="op-stack"><h1>{{ title }}</h1><p>{{ rules }}</p>
 <section class="op-panel op-stack" aria-label="{{ current_label }}"><p>{{ current_label }}: {{ current }}</p><p>{{ best_label }}: {{ best }}</p><h2>{{ badges_label }}</h2>{% if badges.is_empty() %}<p>{{ none }}</p>{% else %}<ul>{% for badge in badges %}<li>{{ badge }}</li>{% endfor %}</ul>{% endif %}</section>
 {% if cards.is_empty() %}<p>{{ empty }}</p>{% endif %}
