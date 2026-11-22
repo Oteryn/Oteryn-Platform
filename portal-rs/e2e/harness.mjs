@@ -166,7 +166,9 @@ function run(program, args, options = {}) {
   return result;
 }
 let binary = process.env.PORTAL_E2E_BINARY;
-if (!binary) {
+if (binary) {
+  binary = path.resolve(root, binary);
+} else {
   log('cargo build --locked -p oteryn-portal');
   run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], env: process.env });
   const meta = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { env: process.env, maxBuffer: 64 << 20 }).stdout);
@@ -175,7 +177,7 @@ if (!binary) {
   fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
   fs.chmodSync(binary, 0o755);
 }
-env.PORTAL_E2E_BINARY = path.resolve(binary);
+env.PORTAL_E2E_BINARY = binary;
 if (ports.browser !== null) env.PORTAL_E2E_ORIGIN = `https://localhost:${ports.browser}`;
 fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 log('migrate');
