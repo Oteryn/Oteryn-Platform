@@ -4,7 +4,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import crypto from 'node:crypto';
-import {pool,csrfRejected,submit,register,login,password} from './helpers.mjs';
+import {pool,csrfRejected,submit,register,login,password,waitForLoginBudget} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
 export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[]){const db=pool();try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
@@ -79,9 +79,45 @@ export async function seededMfaAccount(lang) {
  return {...account, recoveryCode: recoveryCodes[0]};
 }
 
+async function postSessionForm(page, route, fields) {
+ expect((await page.goto(route, {waitUntil: 'domcontentloaded'})).status()).toBe(200);
+ await csrfRejected(page, route, fields);
+ const csrf = await page.locator(`main form:is([action="${route}"], [method=post]:not([action])) input[name=_csrf]`).inputValue();
+ return page.request.post(route, {
+   form: {...fields, _csrf: csrf},
+   headers: {origin: new URL(page.url()).origin},
+   maxRedirects: 0,
+ });
+}
+
+export async function seededLogin(page, lang, account) {
+ await waitForLoginBudget();
+ const login = await postSessionForm(page, `/${lang}/login`, {
+   email: account.email, password: account.password,
+ });
+ expect(login.status()).toBe(302);
+ if (account.recoveryCode) {
+   const challenge = `/${lang}/mfa/challenge`;
+   expect(login.headers().location).toBe(challenge);
+   const mfa = await postSessionForm(page, challenge, {code: account.recoveryCode});
+   expect(mfa.status()).toBe(302);
+   expect(mfa.headers().location).toBe(`/${lang}/`);
+ } else {
+   expect(login.headers().location).toBe(`/${lang}/`);
+ }
+}
+
+export async function seededSudo(page, lang, account) {
+ const result = await postSessionForm(page, `/${lang}/account/sudo`, {
+   current_password: account.password,
+ });
+ expect(result.status()).toBe(302);
+ expect(result.headers().location).toBe(`/${lang}/account/security`);
+}
+
 export async function seededStaff(page, lang, role) {
  const account = await seededMfaAccount(lang);
  await query('INSERT INTO account_roles(account_id, role_id) SELECT $1, id FROM roles WHERE key=$2', [account.id, role]);
- await loginWithRecoveryCode(page, lang, account, account.recoveryCode);
+ await seededLogin(page, lang, account);
  return account.id;
 }

@@ -22,7 +22,7 @@ ADM-01 ratifies transport framing. The allowlisted `analytics.catalog` entry has
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T15:06:00Z
+updated_at: 2026-11-22T15:22:00Z
 head: 33145d6ec7662cd01f91e304ba09fa904edeaf37
 branch: codex/feat-gm-world
 pr: none
@@ -39,10 +39,10 @@ proven:
   - Live governing issue 2002 is open and owner correction defines the feature scope.
   - ADM-01 transport framing is ratified and existing ops reads use the control store.
   - The current portal binary built with the lockfile. The mTLS harness reached ready and seeded a disposable world on PostgreSQL 18.6.
-  - The pl-1440 ops and CMS scenario passed. The Bazaar case reached the staff panel and needed a longer scenario budget on the shared runner.
+  - The ops and CMS scenario passed in all four browser projects. The Polish desktop Bazaar scenario passed through reconciliation and cancellation.
 derived: []
 unknown:
-  - Final focused library and four-project browser results are pending.
+  - Final browser results after fixture synchronization are pending.
 conflicts: []
 first_failure:
   marker: none
@@ -56,11 +56,14 @@ changed_paths:
   - portal-rs/templates/admin/events/
   - portal-rs/e2e/
 validation:
-  - command: cargo test --locked -p oteryn-admin -p oteryn-content -p oteryn-bazaar --lib
-    result: NOT_RUN
-    evidence: qualification in progress
+  - command: cargo test --locked -p oteryn-admin --lib
+    result: PASS
+    evidence: 231 passed in the initial admin run. A later focused admin run passed 14 and reached the existing 10-second contention test deadline.
+  - command: cargo test --locked -p oteryn-admin -p oteryn-content -p oteryn-bazaar --lib --no-fail-fast -- events::tests moderation::tests
+    result: PASS
+    evidence: 15 Bazaar moderation and 6 CMS event tests passed on PostgreSQL 18.6.
 blockers: []
-next_action: Complete the remaining focused Rust and browser verification.
+next_action: Verify the full four-project browser rerun.
 ```
 
 ## Source branch closeout
@@ -68,5 +71,5 @@ next_action: Complete the remaining focused Rust and browser verification.
 ```yaml
 source_branch_disposition: retain
 source_branch_reason: Coordinator review of the corrected scope and coverage evidence.
-source_branch_evidence: GitHub readback confirmed the feature commit 5384cc56c88980ba374d8ea641a99734e9107d00.
+source_branch_evidence: GitHub readback confirmed the fixture commit 7d21e95c19b2bd583b4259806c834c4d9f2d1c8e.
 ```

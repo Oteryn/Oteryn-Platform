@@ -1,7 +1,7 @@
 import {test, expect} from '../fixtures.mjs';
-import {login, submit} from '../helpers.mjs';
+import {submit} from '../helpers.mjs';
 import {listing, post as postFromPage} from '../game-sim-helpers.mjs';
-import {loginWithRecoveryCode, query, seededAccount, seededMfaAccount, seededStaff} from '../staff-rbac-helpers.mjs';
+import {query, seededAccount, seededLogin, seededMfaAccount, seededStaff, seededSudo} from '../staff-rbac-helpers.mjs';
 
 test('staff suspend and approve listing invalidation with audited reasons', async ({page, browser}, info) => {
   test.setTimeout(600_000);
@@ -20,11 +20,9 @@ test('staff suspend and approve listing invalidation with audited reasons', asyn
     const buyerPage = await newPage();
     const seller = await seededMfaAccount(lang);
     const buyer = await seededAccount(lang);
-    await login(buyerPage, lang, buyer);
-    await loginWithRecoveryCode(sellerPage, lang, seller, seller.recoveryCode);
-    await sellerPage.goto(`/${lang}/account/sudo`);
-    await submit(sellerPage, 'main form', {current_password: seller.password});
-    await expect(sellerPage).toHaveURL(new RegExp(`/${lang}/account/security$`));
+    await seededLogin(buyerPage, lang, buyer);
+    await seededLogin(sellerPage, lang, seller);
+    await seededSudo(sellerPage, lang, seller);
 
     const {id} = await listing({page: sellerPage, id: seller.id}, {page: buyerPage, id: buyer.id}, lang);
     expect((await sellerPage.request.get(route, {maxRedirects: 0})).status()).toBe(403);
