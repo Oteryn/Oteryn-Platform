@@ -4,19 +4,30 @@ use axum::{
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+use std::sync::LazyLock;
+
+// A shell renders many labels and can compose chrome for every resource request.
+static EN: LazyLock<Option<FluentBundle<FluentResource>>> =
+    LazyLock::new(|| catalogue(unic_langid::langid!("en"), include_str!("../i18n/en.ftl")));
+static PL: LazyLock<Option<FluentBundle<FluentResource>>> =
+    LazyLock::new(|| catalogue(unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl")));
+
+fn catalogue(
+    locale: unic_langid::LanguageIdentifier,
+    source: &str,
+) -> Option<FluentBundle<FluentResource>> {
+    let resource = FluentResource::try_new(source.to_owned()).ok()?;
+    let mut bundle = FluentBundle::new_concurrent(vec![locale]);
+    bundle.add_resource(resource).ok()?;
+    Some(bundle)
+}
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
-    let (locale, source) = if lang == "en" {
-        (unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
-    } else {
-        (unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    if let Ok(resource) = FluentResource::try_new(source.to_owned())
-        && bundle.add_resource(resource).is_ok()
-        && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
+    let catalogue = if lang == "en" { &EN } else { &PL };
+    if let Some(bundle) = catalogue.as_ref()
+        && let Some(pattern) = bundle.get_message(key).and_then(|message| message.value())
     {
         return bundle
             .format_pattern(pattern, None, &mut Vec::new())
@@ -398,6 +409,18 @@ mod tests {
         );
         registry
     }
+    #[test]
+    fn concurrent_shell_catalogues_keep_locales_and_fallback_separate() {
+        std::thread::scope(|scope| {
+            let english = scope.spawn(|| text("en", "error-403-title"));
+            let polish = scope.spawn(|| text("pl", "error-403-title"));
+            assert_eq!(english.join().unwrap(), "Access denied");
+            assert_eq!(polish.join().unwrap(), "Brak dostępu");
+        });
+        assert_eq!(text("unknown", "error-403-title"), "Brak dostępu");
+        assert_eq!(text("en", "missing-translation-test"), "");
+    }
+
     #[test]
     fn enabled_navigation_and_path_switch() {
         let chrome = registry().chrome(
