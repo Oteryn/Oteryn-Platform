@@ -44,6 +44,22 @@ impl EconomyPage {
         self.text(&format!("economy-state-{state}"))
     }
 
+    fn source(&self, group: &Group) -> String {
+        self.text(if group.source == "Platform" {
+            "economy-source-platform"
+        } else {
+            "economy-source-game"
+        })
+    }
+
+    fn unavailable_reason(&self, group: &Group) -> String {
+        self.text(if group.source == "Platform" {
+            "economy-purchased-delay"
+        } else {
+            "economy-unavailable"
+        })
+    }
+
     fn heading(&self, group: &Group) -> String {
         if group.source == "Platform" {
             self.text("economy-purchased")

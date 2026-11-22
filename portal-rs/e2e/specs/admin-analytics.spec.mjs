@@ -77,6 +77,18 @@ test('admin analytics pages fail closed without an accepted resync baseline',asy
  const response=await page.goto(`/admin/analytics/economy?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
  expect(response.status()).toBe(200);
  for(const text of ['48210377','4500',lang==='pl'?'mała liczebność (poniżej pięciu)':'low-n (below five)',lang==='pl'?'depot — Gra nie dostarczyła jeszcze danych z tego źródła':'depot source coverage not yet delivered by Game' ,'spent_in_game/coin',lang==='pl'?'rejestr portfela Platformy':'Platform wallet ledger'])await expect(page.locator('main')).toContainText(text);
+ const sample = lang === 'pl' ? 'mała liczebność (poniżej pięciu)' : 'low-n (below five)';
+ const lowSample = page.locator('tr[data-state="low_n"]');
+ await expect(lowSample).toHaveCount(3);
+ await expect(lowSample.getByRole('cell', { name: sample, exact: true })).toHaveCount(3);
+ await expect(lowSample.getByRole('cell', { name: lang === 'pl' ? 'Gra' : 'Game', exact: true })).toHaveCount(3);
+ const purchases = page.getByRole('row').filter({ has: page.getByRole('cell', { name: 'purchased/coins', exact: true }) });
+ await expect(purchases.getByRole('cell', { name: lang === 'pl' ? 'Platforma' : 'Platform', exact: true })).toBeVisible();
+ const wire = await page.request.get(`/admin/analytics/economy/data?world=${fixture.world_id}&start=${fixture.bucket_start}&end=${fixture.bucket_end}`);
+ expect(wire.status()).toBe(200);
+ const { groups } = await wire.json();
+ expect(groups.some(group => group.source === 'Game' && group.cells.some(cell => cell.state === 'low_n'))).toBe(true);
+ expect(groups.some(group => group.source === 'Platform')).toBe(true);
  await expect(page.locator('main a[href*="/characters/"]')).toHaveCount(0);
  expect((await page.request.get('/admin/analytics/export')).status()).toBe(404);
 });

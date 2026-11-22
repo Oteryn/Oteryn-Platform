@@ -45,5 +45,21 @@ test('economy analytics localizes the unavailable view', async ({ page }, info) 
   const en = 'accepted resync baseline and fresh Game evidence required';
   await expect(status.first()).toContainText(lang === 'pl' ? pl : en);
   await expect(page.locator('main')).not.toContainText(lang === 'pl' ? en : pl);
+
+  // The UTC day that ended at the most recent midnight is still in its release window.
+  const endOfDay = Math.floor(Date.now() / 86_400_000) * 86_400;
+  const day = `start=${endOfDay - 86_400}&end=${endOfDay}`;
+  expect((await page.goto(`/admin/analytics/economy?${day}`)).status()).toBe(200);
+  const purchased = page.locator('main section').filter({
+    has: page.getByRole('heading', {
+      name: lang === 'pl' ? /rejestr portfela Platformy/ : /Platform wallet ledger/,
+    }),
+  });
+  const releaseStatus = purchased.locator('[data-state="unavailable"]');
+  await expect(releaseStatus).toContainText(lang === 'pl'
+    ? 'Zakupy na Platformie są dostępne po 24 godzinach od zakończenia dnia UTC'
+    : 'Platform purchases are available 24 hours after the UTC day ends');
+  await expect(releaseStatus).not.toContainText(lang === 'pl' ? pl : en);
+  await expect(page.locator('main section').first().getByRole('status')).toContainText(lang === 'pl' ? pl : en);
   expect((await page.request.get('/admin/analytics/economy?world=invalid')).status()).toBe(400);
 });
