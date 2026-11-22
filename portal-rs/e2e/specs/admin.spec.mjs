@@ -37,7 +37,12 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  for(const path of paths) await test.step(path,async()=>{
    const page=await staffContext.newPage();
    try {
-   let response;try{response=await page.goto(['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`)?path:`${path}?lang=${lang}`);}catch(error){failures.push(`${path}: ${error.message}`);return;}
+   const target = new URL(path, process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
+   if (!['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(target.pathname)
+       && !target.pathname.startsWith(`/${lang}/admin/`) && !target.searchParams.has('lang')) {
+     target.searchParams.set('lang', lang);
+   }
+   let response;try{response=await page.goto(target.href);}catch(error){failures.push(`${path}: ${error.message}`);return;}
    const expected=path==='/console/dashboard'?403:200;
    if(response.status()!==expected)failures.push(`${path}: HTTP ${response.status()}`);
    if(response.status()===expected && await page.locator('html').getAttribute('lang')!==lang)failures.push(`${path}: wrong page language`);
