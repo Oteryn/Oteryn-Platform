@@ -52,7 +52,7 @@ test('commerce permissions refuse a player and staff with access only', async ({
     const player = await signInPlayer(page, lang);
     expect((await page.goto(commerce)).status()).toBe(403);
     const staff = await staffActor(context, lang, db, []);
-    await openCommerce(staff, lang, []);
+    expect((await staff.goto(commerce)).status()).toBe(403);
     const payment = await settledPayment(db, player.id);
     const inputs = [
       ['grant', { days: '7' }],
