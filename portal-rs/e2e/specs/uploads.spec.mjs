@@ -406,3 +406,43 @@ test('MFA-authenticated support staff cannot upload editorial media', async ({ b
     await context.close();
   }
 });
+
+test('expired MFA uses the media locale for the page and native upload refusal', async ({ browser }, { project }) => {
+  const account = await staffAccount(browser, project, 'content_editor');
+  const { baseURL, ignoreHTTPSErrors, locale, viewport } = project.use;
+  const browserLocale = locale === 'en' ? 'pl' : 'en';
+  const context = await browser.newContext({
+    baseURL, ignoreHTTPSErrors, locale: browserLocale, viewport, storageState: account.state,
+  });
+  try {
+    const page = await context.newPage();
+    const alt = mediaLabel();
+    await openMedia(page, locale);
+    await page.locator(form).locator('input[name=image]').setInputFiles(png);
+    await page.locator(form).locator('[name=alt_text]').fill(alt);
+    const expired = await query(
+      "UPDATE account_mfa_tokens SET expires_at=clock_timestamp() WHERE account_id=$1 AND purpose='grant' RETURNING account_id",
+      [account.accountId],
+    );
+    expect(expired.length).toBeGreaterThan(0);
+    const heading = locale === 'en' ? 'Multi-factor authentication required' : 'Wymagane uwierzytelnianie wieloskładnikowe';
+    const index = await page.request.get(`${route}?lang=${locale}`, {
+      headers: { 'Accept-Language': browserLocale },
+    });
+    expect(index.status()).toBe(403);
+    expect(await index.text()).toContain(`<h1>${heading}</h1>`);
+
+    const [refusal] = await Promise.all([
+      page.waitForResponse(response =>
+        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+      page.locator(form).locator('button').click(),
+    ]);
+    expect(await refusal.request().headerValue('accept-language')).toMatch(new RegExp(`^${browserLocale}`));
+    expect(refusal.status()).toBe(403);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await expectNoMedia(alt);
+  } finally {
+    await context.close();
+  }
+});

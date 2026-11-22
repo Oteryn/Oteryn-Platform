@@ -515,7 +515,11 @@ async fn multipart_csrf(
         let short_deadline = started + ANONYMOUS_FORM_UPLOAD_TIMEOUT;
         let preflight = timeout_at(
             short_deadline,
-            staff.upload_body_access(request.headers(), request.uri().path()),
+            staff.upload_body_access(
+                request.headers(),
+                request.uri().path(),
+                request.extensions().get::<Language>().copied(),
+            ),
         )
         .await
         .map_err(|_| StatusCode::REQUEST_TIMEOUT)?;

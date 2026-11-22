@@ -264,6 +264,7 @@ impl StaffPreflight {
         &self,
         headers: &axum::http::HeaderMap,
         path: &str,
+        locale: Option<oteryn_web::Language>,
     ) -> Result<UploadPreflight, StaffGuardError> {
         oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)?;
         if !headers.contains_key(header::ORIGIN) || !headers.contains_key(header::COOKIE) {
@@ -285,19 +286,20 @@ impl StaffPreflight {
         let Some(account) = session.account_id().await else {
             return Ok(UploadPreflight::Short);
         };
+        let lang = locale.map_or_else(|| language(headers), oteryn_web::Language::code);
         let grant = session
             .get_in(&mut tx, mfa_grant_key())
             .await
             .map_err(preflight_error)?;
         let Some(proof) = session_proof(&session, grant).await else {
-            return Err(StaffGuardError::Mfa(language(headers)));
+            return Err(StaffGuardError::Mfa(lang));
         };
         if self.state.identity.mfa.is_none()
             || !crate::rbac::valid_durable_session_in(&mut tx, account, proof, None)
                 .await
                 .map_err(preflight_error)?
         {
-            return Err(StaffGuardError::Mfa(language(headers)));
+            return Err(StaffGuardError::Mfa(lang));
         }
         for required in [Permission::Access, staff_permission(&self.state, path)] {
             let check = match self.state.auth.check_permission_flag(required) {
@@ -499,7 +501,12 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let Some(session) = request.extensions().get::<BrowserSession>() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let context = match staff_context(&s, session, request.headers(), request.uri().path()).await {
+    let lang = request
+        .extensions()
+        .get::<oteryn_web::Language>()
+        .copied()
+        .map_or_else(|| language(request.headers()), oteryn_web::Language::code);
+    let context = match staff_context(&s, session, lang, request.uri().path()).await {
         Ok(context) => context,
         Err(error) => return error.into_response(),
     };
@@ -512,14 +519,14 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
 async fn staff_context<I: StaffSession, A: AccountStateReader + 'static>(
     s: &Panel<I, A>,
     session: &BrowserSession,
-    headers: &axum::http::HeaderMap,
+    lang: &'static str,
     path: &str,
 ) -> Result<CheckContext, StaffGuardError> {
     let Some(identity) = s.identity.resolve(session).await else {
         return Err(StaffGuardError::Login);
     };
     if !identity.mfa_satisfied {
-        return Err(StaffGuardError::Mfa(language(headers)));
+        return Err(StaffGuardError::Mfa(lang));
     }
     let context = CheckContext {
         account: identity.account,
