@@ -33,6 +33,7 @@ async function signIn(page, lang, role) {
   }
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
   await expect(page.locator('[data-account-link]')).toBeAttached();
+  return accountId;
 }
 
 async function accountMenu(page) {
@@ -93,7 +94,7 @@ test('a senior GM can open the Game views while binding alarms require a separat
      VALUES(NULL,'ops.playerdata_binding_conflict',$1,'null',$2,uuidv7()) RETURNING id`,
     [binding, { authority: 'test-journal', family: 'BANK', record_id: '019a0000-0000-7000-8000-000000000008' }],
   );
-  await signIn(page, lang, 'game_master_senior');
+  const gm = await signIn(page, lang, 'game_master_senior');
   await visit(page, `/admin/console/players?lang=${lang}&q=Synthetic`, 200);
   await visit(page, `/admin/console/players?lang=${lang}&q=%25`, 400);
   await visit(page, `/admin/console/audit?lang=${lang}`, 200);
@@ -106,6 +107,19 @@ test('a senior GM can open the Game views while binding alarms require a separat
   await expect(page.locator('main')).not.toContainText('IMMUTABLE_BINDING');
   await expect(page.locator('main')).not.toContainText(binding);
   await expect(page.locator('main')).not.toContainText(id);
+
+  // A general auditor can read other Platform audit entries but cannot read the conflict.
+  await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin' AND built_in", [gm]);
+  const visible = unique();
+  await query(
+    "INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'test.audit.visible',$2,'null','null',uuidv7())",
+    [gm, visible],
+  );
+  await visit(page, `/admin/console/audit?lang=${lang}&target=${visible}`, 200);
+  await expect(page.locator('main')).toContainText(visible);
+  await visit(page, `/admin/console/audit?lang=${lang}&operation=ops.playerdata_binding_conflict&target=${binding}`, 200);
+  await expect(page.locator('main')).not.toContainText('ops.playerdata_binding_conflict ·');
+  await expect(page.locator('main')).not.toContainText(binding);
 });
 
 test('a Game administrator sees well-formed Platform alarms while Game is offline', async ({ page }, { project }) => {
@@ -122,7 +136,7 @@ test('a Game administrator sees well-formed Platform alarms while Game is offlin
      VALUES(NULL,'ops.playerdata_binding_conflict',$1,'null','{}',uuidv7())`,
     [malformed],
   );
-  await signIn(page, lang, 'game_admin');
+  const admin = await signIn(page, lang, 'game_admin');
   await visit(page, `/console/dashboard?lang=${lang}&target=invalid`, 400);
   await visit(page, `/console/dashboard?lang=${lang}`, 200);
   const main = page.locator('main');
@@ -130,4 +144,7 @@ test('a Game administrator sees well-formed Platform alarms while Game is offlin
   await expect(main).toContainText(binding);
   await expect(main).toContainText(id);
   await expect(main).not.toContainText(malformed);
+  await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin' AND built_in", [admin]);
+  await visit(page, `/admin/console/audit?lang=${lang}&operation=ops.playerdata_binding_conflict&target=${binding}`, 200);
+  await expect(main).toContainText(`ops.playerdata_binding_conflict · ${binding}`);
 });
