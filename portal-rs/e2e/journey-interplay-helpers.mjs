@@ -88,30 +88,35 @@ export async function follow(page, path) {
   if (await link.count()) return navigate(page, link, path);
 
   const fallback = page.locator('#portal-header details.om-fallback-menu');
-  if (await fallback.count()) {
-    if (await fallback.getAttribute('open') === null) {
-      await fallback.locator(':scope > summary').click();
-    }
-    const account = fallback.locator('.om-fallback-account');
-    if (await account.locator(selector).count() && await account.getAttribute('open') === null) {
-      await account.locator(':scope > summary').click();
-    }
-  } else {
-    const menu = page.locator('#portal-menu-toggle');
-    if (await menu.isVisible() && await menu.getAttribute('aria-expanded') === 'false') {
-      await menu.click();
-    }
-    const nav = page.locator('#portal-navigation');
+  const summary = fallback.locator(':scope > summary');
+  if (await summary.isVisible() && await fallback.getAttribute('open') === null) {
+    await summary.click();
+  }
+
+  const menu = page.locator('#portal-menu-toggle');
+  if (!await link.count() && await menu.isVisible() && await menu.getAttribute('aria-expanded') === 'false') {
+    await menu.click();
+  }
+
+  const nav = page.locator('#portal-navigation');
+  const disclosure = nav.locator('details').filter({ has: page.locator(selector) }).first();
+  const toggle = disclosure.locator(':scope > summary');
+  if (!await link.count() && await toggle.isVisible() && await disclosure.getAttribute('open') === null) {
+    await toggle.click();
+  }
+
+  if (!await link.count()) {
     for (const panel of await nav.locator('.om-panel').all()) {
       if (await panel.locator(selector).count() && !await panel.isVisible()) {
         const id = await panel.getAttribute('id');
-        await nav.locator(`button[aria-controls="${id}"]`).click();
+        const button = nav.locator(`button[aria-controls="${id}"]`);
+        if (await button.isVisible()) await button.click();
         break;
       }
     }
-    if (await page.locator('dialog').locator(selector).count() && !await link.count()) {
-      await nav.locator('[data-account-link]').click();
-    }
+  }
+  if (!await link.count() && await page.locator('dialog').locator(selector).count()) {
+    await nav.locator('[data-account-link]').click();
   }
   return navigate(page, link, path);
 }
