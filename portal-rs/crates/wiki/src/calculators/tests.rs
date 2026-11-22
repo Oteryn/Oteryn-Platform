@@ -192,6 +192,9 @@ async fn forms_work_in_both_languages_without_javascript() {
         assert_eq!(status, StatusCode::OK);
         assert!(html.contains(title));
         assert!(html.contains("width=device-width"));
+        assert!(html.contains(r##"class="op-skip" href="#main""##));
+        assert!(html.contains("<nav aria-label="));
+        assert!(!html.contains("<header"));
         assert_eq!(html.matches("<form method=\"get\"").count(), 4);
         assert!(!html.contains("<script"));
         let (status, html) = request(
