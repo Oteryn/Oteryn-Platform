@@ -351,7 +351,6 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/", get(home))
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
-        .nest_service("/static", ServeDir::new(static_dir))
         .merge(surface::module_router())
         .merge(surface::module_routes())
         .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
@@ -547,6 +546,8 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session_layer,
             session::middleware,
         ))
+        // Static files need transport headers but no browser session.
+        .nest_service("/static", ServeDir::new(static_dir))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
         .fallback(redirects::redirect)
         .merge(oteryn_gameauth::runtime::routes(state.db.clone()))
