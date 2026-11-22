@@ -187,3 +187,59 @@ test('wiki editorial article link renders only the reviewed publication', async 
     await editor.context.close();
   }
 });
+
+test('Today and the ticker follow localized announcement publication and action links', async ({ page, browser }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const pl = lang === 'pl';
+  const editor = await seedEditor(browser, info);
+  const stamp = crypto.randomUUID();
+  const now = Date.now();
+  const title = pl ? `Ostrzeżenie: Rejestr światów ${stamp}` : `Warning: World registry ${stamp}`;
+  const link = pl ? 'Otwórz rejestr światów' : 'Open world registry';
+  const body = pl ? 'Sprawdź aktualny katalog światów.' : 'Check the current world catalogue.';
+  const today = `/${lang}/today`;
+  const ticker = `/${lang}/announcements/ticker`;
+  const summary = page.locator('main section[aria-labelledby=announcements]');
+  let edit;
+  try {
+    await visit(editor.page, '/admin/announcements/create', 200, { noStore: false });
+    await editor.page.locator('select[name=publication_state]').selectOption('published');
+    await editor.page.locator('select[name=severity]').selectOption('warning');
+    await submit(editor.page, 'main form', {
+      starts_at: new Date(now - 60_000).toISOString(),
+      ends_at: new Date(now + 3600_000).toISOString(),
+      title: `World registry ${stamp}`, body: 'Check the current world catalogue.',
+      action_label: 'Open world registry', action_url: '/worlds',
+      title_pl: `Rejestr światów ${stamp}`, body_pl: 'Sprawdź aktualny katalog światów.',
+      action_label_pl: 'Otwórz rejestr światów',
+      translation_published_at: new Date(now - 60_000).toISOString(),
+    });
+    await expect(editor.page).toHaveURL(/\/admin\/announcements\/[\da-f-]+\/edit$/);
+    edit = new URL(editor.page.url()).pathname;
+    await visit(page, today, 200, { lang });
+    const card = summary.locator('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+    await expect(card).toContainText(body);
+    const action = card.getByRole('link', { name: link, exact: true });
+    await expect(action).toHaveAttribute('href', '/worlds');
+    await action.click();
+    await expect(page).toHaveURL(/\/worlds$/);
+    await expect(page.locator('main h1')).toHaveText(pl ? 'Status światów' : 'World status');
+
+    await visit(page, ticker, 200);
+    const tickerCard = page.locator('aside article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+    await expect(tickerCard).toContainText(body);
+    await expect(tickerCard.getByRole('link', { name: link, exact: true })).toHaveAttribute('href', '/worlds');
+  } finally {
+    if (edit) {
+      await visit(editor.page, edit, 200, { noStore: false });
+      await editor.page.locator('select[name=publication_state]').selectOption('draft');
+      await submit(editor.page);
+      await expect(editor.page).toHaveURL(new RegExp(`${edit}$`));
+      const response = await page.request.get(ticker);
+      expect(response.status()).toBe(200);
+      expect(await response.text()).not.toContain(stamp);
+    }
+    await editor.context.close();
+  }
+});
