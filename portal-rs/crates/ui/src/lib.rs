@@ -1,7 +1,10 @@
 //! Shared portal presentation. No module, database or session dependencies.
+
+mod accept;
+pub use accept::accepts_html;
 use askama::Template;
 use axum::{
-    http::{HeaderMap, StatusCode, header},
+    http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
@@ -24,70 +27,6 @@ fn load_catalogue(locale: unic_langid::LanguageIdentifier, source: &str) -> Opti
     let mut bundle = FluentBundle::new_concurrent(vec![locale]);
     bundle.add_resource(resource).ok()?;
     Some(bundle)
-}
-
-/// Does the request allow an HTML representation? The most specific media range wins.
-pub fn accepts_html(headers: &HeaderMap) -> bool {
-    !headers.contains_key(header::ACCEPT)
-        || headers
-            .get_all(header::ACCEPT)
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .filter_map(|value| split_quoted(value, b','))
-            .flatten()
-            .filter_map(|value| {
-                let mut parts = split_quoted(value, b';')?.into_iter().map(str::trim);
-                let media = parts.next()?;
-                let specificity = if media.eq_ignore_ascii_case("text/html") {
-                    2
-                } else if media.eq_ignore_ascii_case("text/*") {
-                    1
-                } else if media == "*/*" {
-                    0
-                } else {
-                    return None;
-                };
-                let acceptable = parts
-                    .filter_map(|part| part.split_once('='))
-                    .find(|(name, _)| name.trim().eq_ignore_ascii_case("q"))
-                    .is_none_or(|(_, value)| {
-                        value
-                            .trim()
-                            .parse::<f32>()
-                            .is_ok_and(|q| q > 0.0 && q <= 1.0)
-                    });
-                Some((specificity, acceptable))
-            })
-            .max()
-            .is_some_and(|(_, acceptable)| acceptable)
-}
-
-// A quoted media parameter may contain separators and escaped quotes.
-fn split_quoted(value: &str, separator: u8) -> Option<Vec<&str>> {
-    let mut parts = Vec::new();
-    let mut start = 0;
-    let mut quoted = false;
-    let mut escaped = false;
-    for (index, byte) in value.bytes().enumerate() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        match byte {
-            b'\\' if quoted => escaped = true,
-            b'"' => quoted = !quoted,
-            byte if byte == separator && !quoted => {
-                parts.push(&value[start..index]);
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if quoted {
-        return None;
-    }
-    parts.push(&value[start..]);
-    Some(parts)
 }
 
 /// Translate through the portal's existing Fluent catalogues.
@@ -497,25 +436,6 @@ mod tests {
         });
         assert_eq!(EN_PARSES.load(Ordering::Relaxed), 1, "English parses");
         assert_eq!(PL_PARSES.load(Ordering::Relaxed), 1, "Polish parses");
-    }
-
-    #[test]
-    fn html_negotiation_respects_quoted_media_parameters() {
-        for (accept, expected) in [
-            (r#"application/json; profile="one,text/html,two""#, false),
-            (r#"application/json; profile="one\",text/html,two""#, false),
-            (r#"application/json; profile="unclosed, text/html"#, false),
-            (
-                r#"application/json; profile="one,text/html,two", text/html;q=1"#,
-                true,
-            ),
-            (r#"text/html; profile="one;q=0;two"; q=1"#, true),
-            (r#"text/html; profile="one;two"; q=0, */*; q=1"#, false),
-        ] {
-            let mut headers = HeaderMap::new();
-            headers.insert(header::ACCEPT, axum::http::HeaderValue::from_static(accept));
-            assert_eq!(accepts_html(&headers), expected, "{accept}");
-        }
     }
 
     fn registry() -> Registry {
