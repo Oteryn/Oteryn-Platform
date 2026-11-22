@@ -280,7 +280,10 @@ test('moderation triages private reports and applies or revokes a bounded Platfo
     const evidence = unique();
     const report = await submitReport(page, lang, target.id, evidence);
     const reportPath = `${reports}/${report.id}`;
-    expect((await moderator.page.goto(reportPath)).status()).toBe(403);
+    expect((await page.request.get(reportPath, {maxRedirects: 0})).status()).toBe(403);
+    await visit(moderator.page, reportPath, lang, evidence);
+    await expect(moderator.page.locator(form('verify_report_target'))).toHaveCount(0);
+    await expect(moderator.page.locator(form('link_sanction'))).toHaveCount(0);
     expect((await ticketTeam.page.goto(`${sanctions}/create`)).status()).toBe(403);
     await visit(ticketTeam.page, reportPath, lang, evidence);
     const dismiss = { status: 'rejected', public_outcome: unique(), moderator_notes: unique() };
