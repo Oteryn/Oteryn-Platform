@@ -530,15 +530,13 @@ async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
-    let denied = body(
-        get(
-            app(db.pool.clone(), actor, fixture(3), false, true),
-            "/console/dashboard?lang=en",
-        )
-        .await,
+    let denied = get(
+        app(db.pool.clone(), actor, fixture(3), false, true),
+        "/console/dashboard?lang=en",
     )
     .await;
-    assert!(!denied.contains(&alarm.to_string()));
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert!(!body(denied).await.contains(&alarm.to_string()));
     db.close().await;
     eprintln!(
         "postgres_operator_alarms_visible_offline_only_with_ops_permission duration: {:?}",
