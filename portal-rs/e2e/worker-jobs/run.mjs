@@ -2,7 +2,7 @@
 // and its owned worker subprocesses have exited.
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import { createConnection } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
@@ -34,6 +34,27 @@ const stopped = once(harness, 'close');
 const lines = createInterface({ input: harness.stdout });
 let tests;
 let passed = false;
+
+async function waitForWorkerControl(workerEnv) {
+  if (existsSync(workerEnv)) return;
+  const { promise, resolve, reject } = Promise.withResolvers();
+  const watcher = watch(path.dirname(workerEnv), { signal: AbortSignal.timeout(30_000) }, check);
+  function check() {
+    if (existsSync(workerEnv)) resolve();
+  }
+  watcher.once('error', reject);
+  watcher.once('close', () => reject(new Error('Worker control socket did not become ready')));
+  try {
+    check();
+    await Promise.race([
+      promise,
+      stopped.then(([code]) => { throw new Error(`Harness exited before worker control readiness (${code})`); }),
+    ]);
+  } finally {
+    watcher.close();
+  }
+}
+
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     if (tests) tests.kill('SIGINT');
@@ -49,13 +70,16 @@ try {
   const report = JSON.parse(line);
   if (report.status !== 'ready') throw new Error('Harness readiness failed');
 
+  // The supervisor publishes its environment after the control socket binds.
+  // The harness report only establishes readiness of the HTTP listeners.
+  const workerEnv = path.join(output, 'secrets', 'worker-env.json');
+  await waitForWorkerControl(workerEnv);
   const socket = createConnection(path.join(scratch, 'worker.sock'));
   socket.setEncoding('utf8');
   let drained = '';
   for await (const chunk of socket) drained += chunk;
   if (drained !== '0') throw new Error('Initial harness worker failed to drain');
 
-  const workerEnv = path.join(output, 'secrets', 'worker-env.json');
   const env = JSON.parse(readFileSync(workerEnv, 'utf8'));
   const logPath = path.join(scratch, 'playwright.log');
   const log = openSync(logPath, 'wx', 0o600);
