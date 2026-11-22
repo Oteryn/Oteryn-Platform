@@ -452,6 +452,52 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
             .await?;
         assert_eq!(response.status(), status, "{path}");
     }
+    let diff_request = Uuid::now_v7();
+    let mut tx = db.pool.begin().await?;
+    crate::audit::append(
+        &mut tx,
+        crate::audit::Entry {
+            context: crate::audit::AuditContext {
+                actor: Some(actor.account),
+                request_id: diff_request,
+            },
+            action: "cms.news_updated",
+            target: "diff-fixture",
+            before: serde_json::json!({"title": "Earlier title", "email": "alice@example.invalid"}),
+            after: serde_json::json!({
+                "title": "<b>Later title</b>",
+                "email": "bob@example.invalid",
+                "totp_secret": "redaction-marker"
+            }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/admin/console/audit?lang=en&request_id={diff_request}"
+            ))
+            .header("host", "staff.test")
+            .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("<th scope=\"col\">Before</th><th scope=\"col\">After</th>"));
+    assert!(html.contains("<td>Earlier title</td><td>&#60;b&#62;Later title&#60;/b&#62;</td>"));
+    assert!(html.contains("<td>a•••@•••</td><td>b•••@•••</td>"));
+    for excluded in [
+        "<b>Later title</b>",
+        "example.invalid",
+        "totp_secret",
+        "redaction-marker",
+    ] {
+        assert!(!html.contains(excluded));
+    }
+
     let seed_id = Uuid::now_v7();
     record_read(&db.pool, actor, seed_id, "c-1", "player.character.get")
         .await
