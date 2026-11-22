@@ -692,12 +692,18 @@ impl Page {
         });
     }
     pub fn response(self) -> Result<Response, Error> {
+        // Native forms must keep their same-origin Origin header for CSRF checks.
+        let referrer = if (self.search && !self.csrf.is_empty()) || !self.retries.is_empty() {
+            "same-origin"
+        } else {
+            "no-referrer"
+        };
         let html = self.render().map_err(|_| Error::Unavailable)?;
         Ok((
             [
                 (header::CONTENT_TYPE, "text/html; charset=utf-8"),
                 (header::CACHE_CONTROL, "no-store"),
-                (header::REFERRER_POLICY, "no-referrer"),
+                (header::REFERRER_POLICY, referrer),
             ],
             html,
         )

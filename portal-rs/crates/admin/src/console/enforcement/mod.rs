@@ -449,6 +449,12 @@ impl<'a> Dossier<'a> {
 }
 
 fn render(page: Dossier<'_>, status: StatusCode) -> Response {
+    // A native POST gets an opaque Origin when the document uses no-referrer.
+    let referrer = if page.csrf.is_empty() {
+        "no-referrer"
+    } else {
+        "same-origin"
+    };
     let mut response = oteryn_web::render(&page);
     if response.status() == StatusCode::OK {
         *response.status_mut() = status;
@@ -456,10 +462,9 @@ fn render(page: Dossier<'_>, status: StatusCode) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    response.headers_mut().insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("no-referrer"),
-    );
+    response
+        .headers_mut()
+        .insert(header::REFERRER_POLICY, HeaderValue::from_static(referrer));
     response
 }
 

@@ -63,6 +63,9 @@ export function routePolicy(contract, status, matched) {
   if (local === '/admin/console/enforcement') {
     return { csp: shellPolicy(sameOriginForm), referrer: 'no-referrer' };
   }
+  if (status === 200 && matches(/^\/admin\/console\/(?:access|approvals|audit|players)$/, local)) {
+    return { csp: shellPolicy(sameOriginForm), referrer: 'no-referrer' };
+  }
   if (matches(/^\/account\/journal\/reports|^\/(?:admin|console)\b|^\/\{lang\}\/admin\b/, local)) {
     const nonDocument = redirect || matches(/^\/admin\/analytics(?:\/[^/]+)?\/data$|^\/admin\/store\/codes$|\/notes\/export$/, local);
     return { csp: nonDocument ? sameOriginForm : shellPolicy(sameOriginForm) };

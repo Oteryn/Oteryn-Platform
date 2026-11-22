@@ -40,10 +40,10 @@ async function panelActor(context, lang, staff = false) {
       );
     }
     await connection.query(
-      `INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation,sudo_until)
-       SELECT $1,id,now()+interval '15 minutes',now()+interval '1 hour','panel test',$3,$4,native_security_generation,CASE WHEN $5 THEN now()+interval '15 minutes' END
+      `INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation)
+       SELECT $1,id,now()+interval '15 minutes',now()+interval '1 hour','panel test',$3,$4,native_security_generation
        FROM accounts WHERE id=$2`,
-      [digest(session), account.id, csrf, JSON.stringify(staff ? {mfa_grant: grant} : {}), staff],
+      [digest(session), account.id, csrf, JSON.stringify(staff ? {mfa_grant: grant} : {})],
     );
     await connection.query('COMMIT');
     await context.addCookies([{

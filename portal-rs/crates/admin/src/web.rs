@@ -555,7 +555,7 @@ pub(crate) async fn host_guard(
     let headers = response.headers_mut();
     if headers
         .get(header::REFERRER_POLICY)
-        .is_none_or(|policy| policy != "no-referrer")
+        .is_none_or(|policy| policy != "no-referrer" && policy != "same-origin")
     {
         headers.insert(
             header::REFERRER_POLICY,
