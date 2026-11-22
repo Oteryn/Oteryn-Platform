@@ -283,32 +283,12 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
     let fixture = fixture(0);
     for path in ["dashboard", "worlds", "nodes", "database"] {
         let url = format!("/console/{path}?agent=agent-1&lang=en");
-        for (lang, other, title) in [("en", "pl", "Access denied"), ("pl", "en", "Brak dostępu")] {
-            let response = app(db.pool.clone(), actor, fixture.clone(), false, true)
-                .layer(axum::middleware::from_fn_with_state(
-                    oteryn_web::chrome::Shell {
-                        registry: oteryn_ui::Registry::default(),
-                        sessions: oteryn_web::session::SessionLayer::new(db.pool.clone()),
-                    },
-                    oteryn_web::chrome::middleware,
-                ))
-                .oneshot(
-                    Request::get(format!("/console/{path}?agent=agent-1&lang={lang}"))
-                        .header("host", "staff.test")
-                        .header(header::ACCEPT, "text/html")
-                        .header(header::ACCEPT_LANGUAGE, other)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(response.status(), StatusCode::FORBIDDEN);
-            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
-            let html = body(response).await;
-            assert!(html.contains(&format!(r#"lang="{lang}""#)));
-            assert!(html.contains(title));
-            assert!(!html.contains("fixture-healthy"));
-        }
+        let response = get(
+            app(db.pool.clone(), actor, fixture.clone(), false, true),
+            &url,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let response = get(
             app(db.pool.clone(), actor, fixture.clone(), true, false),
             &url,
@@ -550,13 +530,27 @@ async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
-    let denied = get(
-        app(db.pool.clone(), actor, fixture(3), false, true),
-        "/console/dashboard?lang=en",
-    )
-    .await;
+    let denied = app(db.pool.clone(), actor, fixture(3), false, true)
+        .oneshot(
+            Request::get("/console/dashboard?lang=pl")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .header("cookie", "portal_language=en")
+                .extension(oteryn_ui::Registry::default().chrome(
+                    "en",
+                    "/console/dashboard",
+                    oteryn_ui::Account::Anonymous,
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
-    assert!(!body(denied).await.contains(&alarm.to_string()));
+    let denied = body(denied).await;
+    assert!(denied.contains("<html lang=\"pl\""));
+    assert!(denied.contains("Brak dostępu"));
+    assert!(!denied.contains(&alarm.to_string()));
     db.close().await;
     eprintln!(
         "postgres_operator_alarms_visible_offline_only_with_ops_permission duration: {:?}",

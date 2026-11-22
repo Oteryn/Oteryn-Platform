@@ -27,6 +27,23 @@ async fn disabled_and_bad_input() -> TestResult {
     Ok(())
 }
 #[tokio::test]
+async fn browser_export_requires_mounted_password_confirmation() -> TestResult {
+    let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+    for (enabled, password_confirmation, mounted) in [
+        (false, false, false),
+        (false, true, false),
+        (true, false, false),
+        (true, true, true),
+    ] {
+        assert_eq!(
+            configured_browser_router(pool.clone(), enabled, password_confirmation).has_routes(),
+            mounted
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_owner_export_and_refusals() -> TestResult {
     let started = std::time::Instant::now();
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -141,6 +158,24 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
             stream_download(&pool, &config, &token).await.err(),
             Some(StatusCode::FORBIDDEN)
         );
+        for locale in ["en", "pl"] {
+            let response = router(pool.clone(), config.clone())
+                .oneshot(
+                    axum::http::Request::get(format!("/{locale}/account/privacy/export"))
+                        .header(header::COOKIE, format!("__Host-oteryn_session={token}"))
+                        .body(axum::body::Body::empty())?,
+                )
+                .await?;
+            if query.ends_with("sudo_until=NULL") {
+                assert_eq!(response.status(), StatusCode::SEE_OTHER);
+                assert_eq!(
+                    response.headers()[header::LOCATION],
+                    format!("/{locale}/account/sudo?return_to=export")
+                );
+            } else {
+                assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            }
+        }
     }
     eprintln!(
         "postgres_owner_export_and_refusals duration: {:?}",

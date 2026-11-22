@@ -5,6 +5,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 pub async fn proof(pool: &PgPool, actor: Uuid) -> Result<SessionProof, sqlx::Error> {
+    Ok(proof_with_cookie(pool, actor).await?.0)
+}
+
+pub async fn proof_with_cookie(
+    pool: &PgPool,
+    actor: Uuid,
+) -> Result<(SessionProof, String), sqlx::Error> {
     let password: String = sqlx::query_scalar("SELECT password_hash FROM accounts WHERE id=$1")
         .bind(actor)
         .fetch_one(pool)
@@ -19,10 +26,13 @@ pub async fn proof(pool: &PgPool, actor: Uuid) -> Result<SessionProof, sqlx::Err
         .bind(grant_hash.as_slice()).bind(actor).bind(generation).bind(Sha256::digest(password.as_bytes()).to_vec()).execute(pool).await?;
     sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token,data,authorization_generation) SELECT $1,id,now()+interval '1 hour',now()+interval '1 day','staff-fixture',$2,jsonb_build_object('mfa_grant',$3::text),native_security_generation FROM accounts WHERE id=$4")
         .bind(session_hash.as_slice()).bind(format!("{:x}", Sha256::digest(Uuid::now_v7().as_bytes()))).bind(grant).bind(actor).execute(pool).await?;
-    Ok(SessionProof {
-        session_hash,
-        grant_hash,
-    })
+    Ok((
+        SessionProof {
+            session_hash,
+            grant_hash,
+        },
+        format!("{}={session}", oteryn_web::session::COOKIE_NAME),
+    ))
 }
 
 pub async fn browser(pool: &PgPool, actor: Uuid, cookie: &str) -> Result<(), sqlx::Error> {
@@ -99,4 +109,12 @@ where
     }
     writer.commit().await?;
     Ok(tokio::time::timeout(std::time::Duration::from_secs(3), task).await??)
+}
+
+/// Establish recent password confirmation for the named disposable browser session.
+pub async fn recent_password(pool: &PgPool, cookie: &str) -> Result<(), sqlx::Error> {
+    let bearer = cookie.split_once('=').ok_or(sqlx::Error::RowNotFound)?.1;
+    sqlx::query("UPDATE web_sessions SET sudo_until=clock_timestamp()+interval '15 minutes' WHERE id_hash=$1 RETURNING id_hash")
+        .bind(Sha256::digest(bearer.as_bytes()).to_vec()).fetch_one(pool).await?;
+    Ok(())
 }

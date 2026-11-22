@@ -1,5 +1,5 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::session::SessionLayer;
+use crate::{session::SessionLayer, surface::Language};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -33,10 +33,36 @@ impl std::fmt::Debug for StaffDashboard {
     }
 }
 
+/// The GM console accepts an explicit locale before its guard runs.
+fn console_locale(uri: &axum::http::Uri) -> Option<Language> {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+    if !matches!(
+        uri.path(),
+        "/console"
+            | "/console/dashboard"
+            | "/console/worlds"
+            | "/console/nodes"
+            | "/console/database"
+    ) {
+        return None;
+    }
+    let axum::extract::Query(query) =
+        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
+    match query.lang.as_deref() {
+        Some("pl") => Some(Language::Pl),
+        Some("en") => Some(Language::En),
+        _ => None,
+    }
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
     let lang = crate::surface::path_language(request.uri().path())
+        .or_else(|| console_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let (account, account_id) = crate::session::chrome_account(&shell.sessions, &mut request).await;
@@ -74,7 +100,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     {
         chrome.staff_dashboard = Some(staff.url.clone());
     }
-    let path = path.to_owned();
     request.extensions_mut().insert(chrome.clone());
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
@@ -84,15 +109,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"));
         if !html {
-            let locale = response.extensions().get::<crate::Language>().copied();
-            if let Some(locale) = locale {
-                let mut localized =
-                    shell
-                        .registry
-                        .chrome(locale.code(), &path, chrome.account.clone());
-                localized.staff_dashboard = chrome.staff_dashboard.clone();
-                chrome = localized;
-            }
             let mut replacement = oteryn_ui::error(&chrome, response.status());
             for name in [
                 header::ALLOW,
@@ -108,12 +124,6 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 if let Some(value) = response.headers().get(&name) {
                     replacement.headers_mut().insert(name, value.clone());
                 }
-            }
-            if let Some(locale) = locale {
-                replacement.headers_mut().insert(
-                    header::CONTENT_LANGUAGE,
-                    axum::http::HeaderValue::from_static(locale.code()),
-                );
             }
             for value in response.headers().get_all(header::SET_COOKIE) {
                 replacement

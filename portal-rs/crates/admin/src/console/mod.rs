@@ -360,6 +360,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool,
         Permission::Access,
     )
+    .map(with_refusal_locale)
 }
 pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChannel) -> Router {
     routes(Console {
@@ -447,15 +448,58 @@ pub fn router<P: Permissions, C: Channel, I: web::StaffSession, A: AccountStateR
     accounts: A,
 ) -> Router {
     let pool = console.pool.clone();
-    web::guarded(
+    with_refusal_locale(web::guarded(
         routes(console),
         pool,
         panel,
         identity,
         accounts,
         Permission::Access,
-    )
+    ))
 }
+
+fn with_refusal_locale(router: Router) -> Router {
+    router.route_layer(axum::middleware::from_fn(console_refusal_locale))
+}
+
+async fn console_refusal_locale(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let Ok(Query(selection)) = Query::<Selection>::try_from_uri(request.uri()) else {
+        return next.run(request).await;
+    };
+    if selection.validate().is_err() {
+        return next.run(request).await;
+    }
+    let locale = lang(request.headers(), &selection);
+    let existing = request.extensions().get::<oteryn_ui::Chrome>();
+    let chrome = existing
+        .filter(|chrome| selection.lang.is_none() || chrome.lang == locale)
+        .cloned()
+        .unwrap_or_else(|| {
+            oteryn_ui::Registry::default().chrome(
+                locale,
+                request.uri().path(),
+                existing.map_or(oteryn_ui::Account::Anonymous, |chrome| {
+                    chrome.account.clone()
+                }),
+            )
+        });
+    request.extensions_mut().insert(chrome.clone());
+    let response = next.run(request).await;
+    if response.status() != StatusCode::FORBIDDEN
+        || response.headers().contains_key(header::CONTENT_TYPE)
+    {
+        return response;
+    }
+    let mut localized = oteryn_ui::error(&chrome, StatusCode::FORBIDDEN);
+    let mut headers = response.headers().clone();
+    headers.remove(header::CONTENT_LENGTH);
+    localized.headers_mut().extend(headers);
+    localized
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Selection {
@@ -497,16 +541,10 @@ struct QueryForm {
     _csrf: String,
 }
 fn lang(headers: &HeaderMap, selection: &Selection) -> &'static str {
-    if selection.lang.as_deref() == Some("en")
-        || (selection.lang.is_none()
-            && headers
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.starts_with("en")))
-    {
-        "en"
-    } else {
-        "pl"
+    match selection.lang.as_deref() {
+        Some("pl") => "pl",
+        Some("en") => "en",
+        _ => oteryn_web::negotiate(headers).code(),
     }
 }
 fn text(lang: &str, key: &str) -> String {
@@ -598,24 +636,11 @@ async fn render<P: Permissions, C: Channel>(
     {
         return Err(Error::Invalid);
     }
+    s.permissions.navigation(context).await?;
+    for op in operations {
+        s.permissions.check(context, *op).await?;
+    }
     let language = lang(&headers, &q);
-    let access = async {
-        s.permissions.navigation(context).await?;
-        for op in operations {
-            s.permissions.check(context, *op).await?;
-        }
-        Ok(())
-    }
-    .await;
-    if matches!(access, Err(Error::Denied)) {
-        let locale = if language == "en" {
-            oteryn_web::Language::En
-        } else {
-            oteryn_web::Language::Pl
-        };
-        return Ok((Extension(locale), StatusCode::FORBIDDEN).into_response());
-    }
-    access?;
     let mut sections = Vec::new();
     for op in operations {
         let mut section = Section {

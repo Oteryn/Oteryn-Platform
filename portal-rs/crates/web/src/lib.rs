@@ -712,7 +712,8 @@ mod tests {
 mod surface;
 
 pub use surface::{
-    CspNonce, HomeFeed, HomeFuture, Language, WebOptions, module_router, router_with_options,
+    CspNonce, HomeFeed, HomeFuture, Language, WebOptions, module_router, negotiate,
+    router_with_options,
 };
 
 /// Dedicated internal listener surface; the TLS adapter supplies verified peers.

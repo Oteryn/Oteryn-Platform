@@ -140,6 +140,8 @@ fn localized_responsive_labelled_template() {
             grant: text(lang, "grant"),
             can_grant: true,
             reason_label: "Reason".into(),
+            reason_assignment: "Role assignment".into(),
+            step_up_label: "Confirm password".into(),
             navigation: Vec::new(),
             revoke: text(lang, "revoke"),
             csrf: "token".into(),
@@ -344,11 +346,69 @@ async fn database_navigation_authorization_csrf_and_owner() {
         }
     }
     let target = Uuid::now_v7();
-    let ordinary: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='panel_test'")
+    let protected_role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='panel_test'")
         .fetch_one(&pool)
         .await
         .unwrap();
-    // A grant to a role manager is refused pending four-eyes approval.
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
+        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
+    crate::test_staff::browser(&pool, actor, &cookie)
+        .await
+        .unwrap();
+    crate::test_staff::recent_password(&pool, &cookie)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
+        .bind(target).bind(format!("{target}@example.test")).execute(&pool).await.unwrap();
+    let ordinary: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('ordinary_staff') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let disabled = roles_router(
+        pool.clone(),
+        PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Identity(identity),
+        Identity(identity),
+        false,
+    );
+    let page = disabled
+        .clone()
+        .oneshot(
+            Request::get("/admin/roles")
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let page = to_bytes(page.into_body(), 100_000).await.unwrap();
+    let page = std::str::from_utf8(&page).unwrap();
+    assert!(page.contains("value=\"revoke\""));
+    assert!(!page.contains("return_to=roles"));
+    assert!(!page.contains("value=\"grant\""));
+    let disabled_grant = disabled
+        .oneshot(
+            Request::post("/admin/roles")
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .header("x-csrf-token", csrf)
+                .header("origin", "https://staff.test")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "account={target}&role={ordinary}&action=grant&reason=role_assignment"
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(disabled_grant.status(), StatusCode::FORBIDDEN);
+    // Granting a role that manages roles requires four-eyes approval.
     let denied = app(pool.clone(), identity, true)
         .oneshot(
             Request::post("/admin/roles")
@@ -358,18 +418,13 @@ async fn database_navigation_authorization_csrf_and_owner() {
                 .header("origin", "https://staff.test")
                 .header("content-type", "application/x-www-form-urlencoded")
                 .body(Body::from(format!(
-                    "account={target}&role={ordinary}&action=grant&reason=Reference+role+grant"
+                    "account={target}&role={protected_role}&action=grant&reason=role_assignment"
                 )))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(denied.status(), StatusCode::FORBIDDEN);
-    let ordinary: Uuid =
-        sqlx::query_scalar("INSERT INTO roles(key) VALUES ('ordinary_staff') RETURNING id")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
     for (account, action, status) in [
         (target.to_string(), "grant", StatusCode::SEE_OTHER),
         (target.to_string(), "revoke", StatusCode::SEE_OTHER),
@@ -384,7 +439,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
                     .header("origin", "https://staff.test")
                     .header("content-type", "application/x-www-form-urlencoded")
                     .body(Body::from(format!(
-                        "account={account}&role={ordinary}&action={action}&reason=Reference+role+grant"
+                        "account={account}&role={ordinary}&action={action}&reason=role_assignment"
                     )))
                     .unwrap(),
             )
@@ -424,6 +479,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let panel = Panel {
         config: PanelConfig::default(),
         required: None,
+        grant_confirmation: true,
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),
@@ -466,12 +522,14 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     // Two competing removals cannot both discard the last full-access holder.
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
-        SELECT id,id::text||'@example.test','unused','active',now(),'en' FROM unnest($1::uuid[]) AS candidates(id)")
-        .bind(vec![actor, other])
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+        VALUES($1,$1::uuid::text||'@example.test','unused','active',now(),'en')",
+    )
+    .bind(other)
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
         .bind(other)
         .bind(owner)
