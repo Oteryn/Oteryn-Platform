@@ -1,6 +1,19 @@
 import {test,expect} from '../fixtures.mjs';
 import {pool} from '../helpers.mjs';
 
+test('cold Atlas prevents caching on navigation and direct fetch', async ({ page }, info) => {
+  const atlas = `/${info.project.metadata.locale}/atlas`;
+  const navigation = await page.goto(atlas);
+  expect(navigation.status()).toBe(503);
+  expect(await navigation.headerValue('cache-control')).toBe('no-store');
+
+  const direct = await page.evaluate(async url => {
+    const response = await fetch(url);
+    return { status: response.status, cacheControl: response.headers.get('cache-control') };
+  }, atlas);
+  expect(direct).toEqual({ status: 503, cacheControl: 'no-store' });
+});
+
 test('lane export cannot publish unsupported categories and public sources refuse',async({page},info)=>{
  const lang=info.project.metadata.locale;
  expect(process.env.OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED).toBe('true');
