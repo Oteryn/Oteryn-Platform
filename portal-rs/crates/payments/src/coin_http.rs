@@ -51,19 +51,25 @@ pub fn router(pool: PgPool, service: Service) -> Router {
 }
 
 async fn private(request: Request, next: Next) -> Response {
+    let checkout_page = request.method() == axum::http::Method::GET
+        && request.uri().path().starts_with(CHECKOUT_PATH);
     let mut response = next.run(request).await;
+    // Chromium sends Origin: null on form submissions from a no-referrer page.
+    // Retain the origin of same-origin checkout POSTs for the shared CSRF guard.
+    let referrer = if checkout_page && response.status() == StatusCode::OK {
+        "same-origin"
+    } else {
+        "no-referrer"
+    };
     for (name, value) in [
         (header::CACHE_CONTROL, "no-store"),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::REFERRER_POLICY, referrer),
     ] {
         response
             .headers_mut()
             .insert(name, HeaderValue::from_static(value));
     }
-    response
-        .headers_mut()
-        .entry(header::REFERRER_POLICY)
-        .or_insert(HeaderValue::from_static("no-referrer"));
     response
 }
 
@@ -229,18 +235,62 @@ impl CheckoutPage {
     fn awaiting(&self) -> bool {
         self.state == OrderState::AwaitingPayment
     }
+}
 
-    fn response(&self) -> Response {
-        let mut response = oteryn_web::render(self);
-        if response.status() == StatusCode::OK {
-            // Keep the Origin header on same-origin form submissions for CSRF validation.
-            response.headers_mut().insert(
-                header::REFERRER_POLICY,
-                HeaderValue::from_static("same-origin"),
+#[cfg(test)]
+#[test]
+fn checkout_uses_the_requested_locale_for_copy_and_order_state() -> Result<(), askama::Error> {
+    for (lang, title, status, pay, price) in [
+        (
+            "pl",
+            "Zakup monet w trybie testowym",
+            "Oczekuje na płatność",
+            "Zakończ płatność testową",
+            "10,00 PLN",
+        ),
+        (
+            "en",
+            "Sandbox coin checkout",
+            "Awaiting payment",
+            "Complete test payment",
+            "10.00 PLN",
+        ),
+    ] {
+        let page = CheckoutPage {
+            lang: lang.into(),
+            labels: CheckoutPage::labels(lang),
+            csrf: String::new(),
+            order_id: Uuid::nil(),
+            coins: 12,
+            price: crate::coin::Price {
+                minor_units: 1000,
+                currency: "PLN".into(),
+                exponent: 2,
+            }
+            .display_for_locale(lang),
+            state: OrderState::AwaitingPayment,
+        };
+        let html = page.render()?;
+        assert!(html.contains(&format!("<html lang=\"{lang}\">")));
+        assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
+        assert!(html.contains(&format!("<dd>{status}</dd>")));
+        assert!(html.contains(&format!("<dd>{price}</dd>")));
+        assert!(html.contains(pay));
+        for state in [
+            OrderState::AwaitingPayment,
+            OrderState::Processing,
+            OrderState::Paid,
+            OrderState::Failed,
+            OrderState::Refunded,
+            OrderState::Chargeback,
+        ] {
+            assert!(
+                !page.text(state.as_str()).is_empty(),
+                "{lang}: missing {state:?}"
             );
         }
-        response
     }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -275,7 +325,7 @@ async fn page(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let price = order.price.display_for_locale(&chrome.lang);
-    CheckoutPage {
+    oteryn_web::render(&CheckoutPage {
         labels: CheckoutPage::labels(&chrome.lang),
         lang: chrome.lang,
         csrf,
@@ -283,8 +333,7 @@ async fn page(
         coins: order.coins,
         price,
         state: order.state,
-    }
-    .response()
+    })
 }
 
 /// CSRF is verified by the session layer before this runs.
@@ -315,65 +364,30 @@ async fn act(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
-
     use super::*;
+    use tower::ServiceExt;
 
-    #[test]
-    fn checkout_uses_the_requested_locale_for_copy_and_order_state() {
-        for (lang, title, status, pay, price) in [
+    #[tokio::test]
+    async fn checkout_form_retains_the_same_origin_for_csrf() -> Result<(), axum::http::Error> {
+        let checkout = format!("{CHECKOUT_PATH}{{order_id}}");
+        let api = format!("{API}/catalogue");
+        let app = Router::new()
+            .route(&checkout, get(|| async { StatusCode::OK }))
+            .route(&api, get(|| async { StatusCode::OK }))
+            .layer(middleware::from_fn(private));
+        for (path, policy) in [
             (
-                "pl",
-                "Zakup monet w trybie testowym",
-                "Oczekuje na płatność",
-                "Zakończ płatność testową",
-                "10,00 PLN",
+                checkout.replace("{order_id}", &Uuid::now_v7().to_string()),
+                "same-origin",
             ),
-            (
-                "en",
-                "Sandbox coin checkout",
-                "Awaiting payment",
-                "Complete test payment",
-                "10.00 PLN",
-            ),
+            (api, "no-referrer"),
         ] {
-            let page = CheckoutPage {
-                lang: lang.into(),
-                labels: CheckoutPage::labels(lang),
-                csrf: String::new(),
-                order_id: Uuid::nil(),
-                coins: 12,
-                price: crate::coin::Price {
-                    minor_units: 1000,
-                    currency: "PLN".into(),
-                    exponent: 2,
-                }
-                .display_for_locale(lang),
-                state: OrderState::AwaitingPayment,
-            };
-            assert_eq!(
-                page.response().headers()[header::REFERRER_POLICY],
-                "same-origin"
-            );
-            let html = page.render().unwrap();
-            assert!(html.contains(&format!("<html lang=\"{lang}\">")));
-            assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
-            assert!(html.contains(&format!("<dd>{status}</dd>")));
-            assert!(html.contains(&format!("<dd>{price}</dd>")));
-            assert!(html.contains(pay));
-            for state in [
-                OrderState::AwaitingPayment,
-                OrderState::Processing,
-                OrderState::Paid,
-                OrderState::Failed,
-                OrderState::Refunded,
-                OrderState::Chargeback,
-            ] {
-                assert!(
-                    !page.text(state.as_str()).is_empty(),
-                    "{lang}: missing {state:?}"
-                );
-            }
+            let request = axum::http::Request::get(path).body(Body::empty())?;
+            let Ok(response) = app.clone().oneshot(request).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::REFERRER_POLICY], policy);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         }
+        Ok(())
     }
 }
