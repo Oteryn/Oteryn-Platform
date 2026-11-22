@@ -447,14 +447,15 @@ impl<A: AccountStateReader> Invites<A> {
         .bind(&roles)
         .execute(&mut *tx)
         .await?;
-        // Only the session that presented a current MFA grant may keep access.
+        // Keep only the accepting session and its grant. Previously remembered
+        // devices and pending challenges must not acquire staff access.
         let proof = actor.session_proof.ok_or(Error::Denied)?;
         sqlx::query("DELETE FROM web_sessions WHERE account_id=$1 AND id_hash<>$2")
             .bind(actor.account)
             .bind(proof.session_hash.as_slice())
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND token_hash<>$2 AND purpose='grant'")
+        sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1 AND token_hash<>$2")
             .bind(actor.account)
             .bind(proof.grant_hash.as_slice())
             .execute(&mut *tx)

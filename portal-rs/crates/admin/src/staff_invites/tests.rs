@@ -155,6 +155,19 @@ async fn success_requires_mfa_and_consumes_once() -> TestResult {
     ));
 
     let proof = f.recipient.session_proof.ok_or("missing proof")?;
+    // Include a remembered device, pending challenges, and a grant from
+    // another session, all bound to the recipient's current credentials.
+    let previous_tokens = sqlx::query(
+        "INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at)
+         SELECT sha256(convert_to(credential.purpose,'UTF8')),t.account_id,t.generation,t.credential_hash,
+                credential.purpose,t.expires_at
+         FROM account_mfa_tokens t CROSS JOIN unnest(ARRAY['trusted','challenge','email','grant']) credential(purpose)
+         WHERE t.token_hash=$1",
+    )
+    .bind(proof.grant_hash.as_slice())
+    .execute(&f.invites.pool)
+    .await?;
+    assert_eq!(previous_tokens.rows_affected(), 4);
     let old_csrf: String =
         sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
             .bind(proof.session_hash.as_slice())
@@ -178,6 +191,12 @@ async fn success_requires_mfa_and_consumes_once() -> TestResult {
     .fetch_one(&f.invites.pool)
     .await?;
     assert!(new_id != proof.session_hash && new_csrf != old_csrf && same_grant);
+    let surviving_tokens: Vec<(Vec<u8>, String)> =
+        sqlx::query_as("SELECT token_hash,purpose FROM account_mfa_tokens WHERE account_id=$1")
+            .bind(f.recipient.account)
+            .fetch_all(&f.invites.pool)
+            .await?;
+    assert_eq!(surviving_tokens, [(proof.grant_hash.to_vec(), "grant".into())]);
     assert!(
         !rbac::durable_session_in(
             &mut *f.invites.pool.acquire().await?,
