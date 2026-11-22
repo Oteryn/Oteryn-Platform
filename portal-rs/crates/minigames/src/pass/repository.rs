@@ -237,8 +237,12 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
         self.authority.account(&mut tx, account).await?;
-        // Check committed receipts before looking up the requested season.
-        // The Wallet operation key also closes the race with a concurrent debit.
+        // Wait for the in-flight purchase before checking its binding, even
+        // when the requested season does not exist.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('season-pass-buy:' || $1::uuid::text, 0))")
+            .bind(operation)
+            .execute(&mut *tx)
+            .await?;
         let original: Option<(Uuid, Uuid)> =
             sqlx::query_as("SELECT account_id,season_id FROM pass_progress WHERE purchase_key=$1")
                 .bind(operation)

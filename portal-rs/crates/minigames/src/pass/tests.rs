@@ -37,13 +37,15 @@ impl Rewards for Wire {
         operation: Uuid,
         reward: &Reward,
     ) -> Result<Uuid> {
-        sqlx::query("INSERT INTO synthetic_deliveries (id,account_id,grant_key) VALUES ($1,$2,$3)")
+        let delivery = Uuid::now_v7();
+        sqlx::query("INSERT INTO synthetic_deliveries (id,operation_id,account_id,grant_key) VALUES ($1,$2,$3,$4)")
+            .bind(delivery)
             .bind(operation)
             .bind(account)
             .bind(&reward.grant_key)
             .execute(&mut **tx)
             .await?;
-        Ok(operation)
+        Ok(delivery)
     }
 }
 #[derive(Debug)]
@@ -155,7 +157,7 @@ impl Db {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
-        sqlx::raw_sql("CREATE TABLE synthetic_wallet(account_id uuid PRIMARY KEY,balance bigint NOT NULL CHECK(balance>=0)); CREATE TABLE synthetic_debits(id uuid PRIMARY KEY); CREATE TABLE synthetic_deliveries(id uuid PRIMARY KEY,account_id uuid,grant_key text);").execute(&pool).await?;
+        sqlx::raw_sql("CREATE TABLE synthetic_wallet(account_id uuid PRIMARY KEY,balance bigint NOT NULL CHECK(balance>=0)); CREATE TABLE synthetic_debits(id uuid PRIMARY KEY); CREATE TABLE synthetic_deliveries(id uuid PRIMARY KEY,operation_id uuid NOT NULL UNIQUE,account_id uuid,grant_key text);").execute(&pool).await?;
         let account = Uuid::now_v7();
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,'pass@example.invalid','unused','active',now(),'en')").bind(account).execute(&pool).await?;
         sqlx::query("INSERT INTO synthetic_wallet VALUES($1,200)")
@@ -421,7 +423,18 @@ async fn postgres_claim_eligibility_replay_and_atomic_wire_failure() -> TestResu
         service.claim(db.account, db.season.id, paid_reward, op),
         service.claim(db.account, db.season.id, paid_reward, op)
     );
-    assert_eq!(a?, b?);
+    let delivery: Uuid =
+        sqlx::query_scalar("SELECT id FROM synthetic_deliveries WHERE operation_id=$1")
+            .bind(op)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_ne!(delivery, op);
+    let expected = Claim {
+        operation: op,
+        delivery,
+    };
+    assert_eq!(a?, expected);
+    assert_eq!(b?, expected);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM synthetic_deliveries")
         .fetch_one(&db.pool)
         .await?;
@@ -878,15 +891,29 @@ async fn postgres_expired_season_reconciles_receipts() -> TestResult {
     let claim = Uuid::now_v7();
     let reward = db.season.rewards[0].id;
     let receipt = s.claim(db.account, db.season.id, reward, claim).await?;
+    let delivery: Uuid =
+        sqlx::query_scalar("SELECT id FROM synthetic_deliveries WHERE operation_id=$1")
+            .bind(claim)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_ne!(delivery, claim);
+    assert_eq!(
+        receipt,
+        Claim {
+            operation: claim,
+            delivery
+        }
+    );
     sqlx::query("UPDATE pass_seasons SET starts_at=starts_at-interval '42 days',ends_at=clock_timestamp()-interval '1 second'")
         .execute(&db.pool)
         .await?;
     assert!(s.buy(db.account, db.season.id, buy).await?.paid);
     assert_eq!(
-        s.claim(db.account, db.season.id, reward, claim)
-            .await?
-            .delivery,
-        receipt.delivery
+        s.claim(db.account, db.season.id, reward, claim).await?,
+        Claim {
+            operation: claim,
+            delivery
+        }
     );
     assert_eq!(s.record(&event).await?.xp, 15);
     let fresh_event = Event {
@@ -1010,5 +1037,88 @@ async fn postgres_platform_purchase_reconciles_and_refuses_changed_account() -> 
     .fetch_one(&db.pool)
     .await?;
     assert_eq!(audited, (100, 0));
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_purchase_key_waits_for_in_flight_receipt_before_refusing_unknown_season()
+-> TestResult {
+    async fn wait_for_blocked(
+        observer: &PgPool,
+        holder: i32,
+    ) -> std::result::Result<i32, Box<dyn std::error::Error>> {
+        Ok(tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let blocked: Option<i32> = sqlx::query_scalar(
+                    "SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND $1=ANY(pg_blocking_pids(pid)) LIMIT 1",
+                )
+                .bind(holder)
+                .fetch_optional(observer)
+                .await?;
+                if let Some(pid) = blocked {
+                    return Ok::<_, sqlx::Error>(pid);
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await??)
+    }
+
+    let db = Db::new().await?.ok_or("PostgreSQL required")?;
+    let ledger = oteryn_wallet::Ledger::new(
+        db.pool.clone(),
+        oteryn_wallet::WalletFlags { enabled: true },
+        WalletAuthority,
+        WalletAuthority,
+        WalletAuthority,
+    );
+    ledger
+        .adjust(Uuid::now_v7(), db.account, 100, db.account, "Test funding")
+        .await?;
+    let service = Passes::new(
+        db.pool.clone(),
+        Flags {
+            enabled: true,
+            paid: true,
+            rewards: false,
+        },
+        platform::AccountAuthority,
+        platform::payment(db.pool.clone(), true),
+        Unavailable,
+    );
+
+    // Keep two established connections available for the contenders.
+    let (mut blocker, first, second) =
+        tokio::try_join!(db.pool.begin(), db.pool.acquire(), db.pool.acquire())?;
+    drop((first, second));
+    let holder: i32 = sqlx::query_scalar(
+        "SELECT pg_backend_pid() FROM wallet_accounts WHERE account_id=$1 FOR UPDATE",
+    )
+    .bind(db.account)
+    .fetch_one(&mut *blocker)
+    .await?;
+    let op = Uuid::now_v7();
+    let unknown_season = Uuid::now_v7();
+    let mut purchase = std::pin::pin!(service.buy(db.account, db.season.id, op));
+    let buyer = tokio::select! {
+        result = &mut purchase => return Err(format!("purchase completed before the Wallet lock was released: {result:?}").into()),
+        waiting = wait_for_blocked(&db.admin, holder) => waiting?,
+    };
+    let mut mismatch = std::pin::pin!(service.buy(db.account, unknown_season, op));
+    tokio::select! {
+        result = &mut mismatch => return Err(format!("different-season replay completed before the purchase: {result:?}").into()),
+        waiting = wait_for_blocked(&db.admin, buyer) => { waiting?; },
+    }
+    blocker.rollback().await?;
+    let (purchase, mismatch) = tokio::join!(purchase, mismatch);
+    assert!(purchase?.paid);
+    assert!(matches!(mismatch, Err(Error::Conflict)));
+    let purchases: Vec<i64> =
+        sqlx::query_scalar("SELECT available_delta FROM wallet_entries WHERE operation_id=$1")
+            .bind(op)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(purchases, [-100]);
+    assert_eq!(ledger.balance(db.account).await?.available, 0);
     db.close().await
 }
