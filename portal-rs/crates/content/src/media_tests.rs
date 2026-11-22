@@ -707,6 +707,13 @@ async fn browser_lifecycle(pool: &PgPool) {
     assert!(html.contains("Alternative text"));
     assert!(html.contains(r#"aria-label="Main navigation""#));
     assert!(html.contains(r#"aria-label="Footer navigation""#));
+    let upload_key = html
+        .split("name=\"upload_key\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
     // A real lock prevents the preflight from reading the session row. The
     // short budget must include that lookup, and origin checks precede it.
     let mut lock = pool.begin().await.unwrap();
@@ -750,6 +757,48 @@ async fn browser_lifecycle(pool: &PgPool) {
             .unwrap()
     );
 
+    // The cutoff above also gives the earlier quota fixtures time to age out.
+    let retry = |alt| {
+        let mut request = make(csrf, alt, "image/png");
+        request
+            .headers_mut()
+            .insert("idempotency-key", upload_key.parse().unwrap());
+        request
+    };
+    let (first, second) = tokio::join!(
+        app.clone().oneshot(retry("Concurrent replay")),
+        app.clone().oneshot(retry("Concurrent replay")),
+    );
+    for response in [first.unwrap(), second.unwrap()] {
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], "/admin/media?lang=en");
+    }
+    let uploads: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM media WHERE alt_text='Concurrent replay'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(uploads, 1);
+    let audit_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log a JOIN media m ON m.id::text=a.target WHERE m.alt_text='Concurrent replay' AND a.action='editorial_media.uploaded'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(audit_rows, 1);
+    let conflict = app
+        .clone()
+        .oneshot(retry("Changed replay payload"))
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM media WHERE alt_text='Changed replay payload')"
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    );
+
     // A kick advances the account generation without removing the browser cookie or MFA grant.
     sqlx::query(
         "UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1",
@@ -772,6 +821,12 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap()
     );
+    let denied = app
+        .clone()
+        .oneshot(retry("Concurrent replay"))
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
     sqlx::query("UPDATE web_sessions SET authorization_generation=(SELECT native_security_generation FROM accounts WHERE id=$1) WHERE account_id=$1")
         .bind(actor)
         .execute(pool)

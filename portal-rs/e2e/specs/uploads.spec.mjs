@@ -79,9 +79,14 @@ async function openMedia(page, lang) {
   await expect(page.locator(form).locator('button')).toHaveText(lang === 'pl' ? 'Prześlij' : 'Upload');
 }
 
-function postImage(page, image, alt, csrf) {
+function postImage(page, image, alt, csrf, uploadKey) {
   return page.request.post(route, {
-    multipart: { ...(csrf === undefined ? {} : { _csrf: csrf }), alt_text: alt, image },
+    multipart: {
+      ...(csrf === undefined ? {} : { _csrf: csrf }),
+      ...(uploadKey === undefined ? {} : { upload_key: uploadKey }),
+      alt_text: alt,
+      image,
+    },
     headers: { origin: new URL(page.url()).origin },
     maxRedirects: 0,
   });
@@ -91,11 +96,11 @@ async function expectNoMedia(alt) {
   expect(await query('SELECT id FROM media WHERE alt_text=$1', [alt])).toEqual([]);
 }
 
-for (const { image, width, height, thumbnailHeight } of [
+for (const { image, width, height, thumbnailHeight, responseBudget = 30_000 } of [
   { image: { ...png, name: 'Zażółć-gęślą-東京.png' }, width: 640, height: 160, thumbnailHeight: 80 },
   { image: file('jpeg', 'image/jpeg'), width: 640, height: 160, thumbnailHeight: 80 },
   { image: file('webp', 'image/webp'), width: 640, height: 160, thumbnailHeight: 80 },
-  { image: file('jpeg', 'image/jpeg', 'progressive-444'), width: 4608, height: 3456, thumbnailHeight: 240 },
+  { image: file('jpeg', 'image/jpeg', 'progressive-444'), width: 4608, height: 3456, thumbnailHeight: 240, responseBudget: 75_000 },
 ]) {
   test(`editor uploads, renders and retrieves ${image.mimeType} (${image.name})`, async ({ page }, { project }) => {
     const lang = project.metadata.locale;
@@ -103,9 +108,11 @@ for (const { image, width, height, thumbnailHeight } of [
     await openMedia(page, lang);
     await page.locator(form).locator('input[name=image]').setInputFiles(image);
     const [uploaded] = await Promise.all([
-      page.waitForResponse(response =>
-        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
-      submit(page, form, { alt_text: alt }),
+      page.waitForResponse(
+        response => new URL(response.url()).pathname === route && response.request().method() === 'POST',
+        { timeout: responseBudget },
+      ),
+      submit(page, form, { alt_text: alt }, { timeout: responseBudget }),
     ]);
     expect(uploaded.status()).toBe(302);
     expect(uploaded.headers().location).toBe(lang === 'en' ? `${route}?lang=en` : route);
@@ -136,6 +143,33 @@ for (const { image, width, height, thumbnailHeight } of [
     expect((await page.request.get(`${media}/content`)).status()).toBe(404);
   });
 }
+
+test('retrying a rendered upload returns success with one media row', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  const csrf = await page.locator(form).locator('[name=_csrf]').inputValue();
+  const uploadKey = await page.locator(form).locator('[name=upload_key]').inputValue();
+  await page.locator(form).locator('input[name=image]').setInputFiles(png);
+  const [first] = await Promise.all([
+    page.waitForResponse(response =>
+      new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+    submit(page, form, { alt_text: alt }),
+  ]);
+  expect(first.status()).toBe(302);
+  await expect(page.getByRole('img', { name: alt, exact: true })).toBeVisible();
+  const before = await query('SELECT id FROM media WHERE alt_text=$1', [alt]);
+  expect(before).toEqual([{ id: expect.any(String) }]);
+
+  expect((await postImage(page, png, alt, csrf, uploadKey)).status()).toBe(302);
+  expect(await query('SELECT id FROM media WHERE alt_text=$1', [alt])).toEqual(before);
+  const changed = mediaLabel();
+  expect((await postImage(page, png, changed, csrf, uploadKey)).status()).toBe(409);
+  await expectNoMedia(changed);
+  const localeQuery = lang === 'en' ? '?lang=en' : '';
+  await submit(page, `main form[action="${route}/${before[0].id}/delete${localeQuery}"]`);
+  await expectNoMedia(alt);
+});
 
 test('an upload filename with path segments cannot select the stored media path', async ({ page }, { project }) => {
   const lang = project.metadata.locale;

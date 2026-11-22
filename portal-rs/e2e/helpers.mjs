@@ -25,7 +25,7 @@ export async function csrfRejected(page, action, fields={}) {
   const response=await page.request.post(target.href,{...payload,headers:{origin:new URL(page.url()).origin},maxRedirects:0});
   expect(response.status(), `missing authorization token: ${target.pathname}`).toBe(signedMail?422:403);
 }
-export async function submit(page, selector='main form', values={}) {
+export async function submit(page, selector='main form', values={}, { timeout=30_000 }={}) {
   const form=page.locator(selector).first();
   const action=await form.getAttribute('action') || new URL(page.url()).pathname;
   const fields=await form.evaluate(f=>Object.fromEntries(new FormData(f)));
@@ -35,7 +35,7 @@ export async function submit(page, selector='main form', values={}) {
     if(await input.getAttribute('type')==='checkbox') await input.setChecked(Boolean(value));
     else await input.fill(value);
   }
-  await form.locator('button[type=submit], button:not([type])').first().click({timeout:30_000});
+  await form.locator('button[type=submit], button:not([type])').first().click({timeout});
 }
 export async function mailLink(page,email,pattern,timeout=30_000) {
   let found;

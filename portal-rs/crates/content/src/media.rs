@@ -4,7 +4,7 @@ use axum::{
     Extension, Router,
     body::Bytes,
     extract::{DefaultBodyLimit, FromRequest, Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -24,6 +24,7 @@ use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
 const MAX_DECODE_BYTES: usize = 160_000_000;
 const JPEG_MAX_COMPONENTS: u8 = 4;
+const THUMBNAIL_EDGE: u32 = 320;
 // Header CSRF is verified before reading the body. Allow the full byte cap
 // over a slower uplink while keeping the pre-authentication form read short.
 const AUTHENTICATED_UPLOAD_TIMEOUT: Duration = Duration::from_secs(15);
@@ -46,23 +47,35 @@ pub struct ProcessedImage {
     pub width: u32,
     pub height: u32,
 }
-/// Decode only verified containers with bounded dimensions and allocation.
-pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
-    let bad = StatusCode::UNPROCESSABLE_ENTITY;
-    if bytes.is_empty() || bytes.len() > MAX_BYTES {
-        return Err(bad);
-    }
+fn file_format(name: &str) -> Result<(ImageFormat, &'static str), StatusCode> {
     let extension = name
         .rsplit('.')
         .next()
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let (format, mime) = match extension.as_str() {
-        "jpg" | "jpeg" => (ImageFormat::Jpeg, "image/jpeg"),
-        "png" => (ImageFormat::Png, "image/png"),
-        "webp" => (ImageFormat::WebP, "image/webp"),
-        _ => return Err(bad),
-    };
+    match extension.as_str() {
+        "jpg" | "jpeg" => Ok((ImageFormat::Jpeg, "image/jpeg")),
+        "png" => Ok((ImageFormat::Png, "image/png")),
+        "webp" => Ok((ImageFormat::WebP, "image/webp")),
+        _ => Err(StatusCode::UNPROCESSABLE_ENTITY),
+    }
+}
+
+/// Decode only verified containers with bounded dimensions and allocation.
+pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
+    let (format, mime) = file_format(name)?;
+    process_image(format, mime, bytes)
+}
+
+fn process_image(
+    format: ImageFormat,
+    mime: &'static str,
+    bytes: &[u8],
+) -> Result<ProcessedImage, StatusCode> {
+    let bad = StatusCode::UNPROCESSABLE_ENTITY;
+    if bytes.is_empty() || bytes.len() > MAX_BYTES {
+        return Err(bad);
+    }
     if image::guess_format(bytes).map_err(invalid)? != format {
         return Err(bad);
     }
@@ -86,7 +99,7 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
     {
         return Err(bad);
     }
-    let decoded = if format == ImageFormat::Jpeg {
+    let (decoded, preview) = if format == ImageFormat::Jpeg {
         decode_jpeg(bytes, width, height)?
     } else {
         let mut reader = ImageReader::with_format(Cursor::new(bytes), format);
@@ -95,7 +108,7 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         limits.max_image_height = Some(6000);
         limits.max_alloc = Some(MAX_DECODE_BYTES as u64);
         reader.limits(limits);
-        reader.decode().map_err(invalid)?
+        (reader.decode().map_err(invalid)?, None)
     };
     if decoded.dimensions() != (width, height) {
         return Err(bad);
@@ -116,8 +129,15 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
         Ok(bytes)
     };
     let content = encode(&decoded)?;
-    let thumbnail = if width > 320 || height > 320 {
-        Some(encode(&decoded.thumbnail(320, 320))?)
+    let thumbnail = if width.max(height) > THUMBNAIL_EDGE {
+        let thumb = if let Some(preview) = preview {
+            let scale = f64::from(THUMBNAIL_EDGE) / f64::from(width.max(height));
+            let edge = |length| ((f64::from(length) * scale).round() as u32).max(1);
+            preview.thumbnail_exact(edge(width), edge(height))
+        } else {
+            decoded.thumbnail(THUMBNAIL_EDGE, THUMBNAIL_EDGE)
+        };
+        Some(encode(&thumb)?)
     } else {
         None
     };
@@ -249,7 +269,11 @@ fn verify_jpeg_structure(bytes: &[u8]) -> Option<()> {
     }
 }
 
-fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicImage, StatusCode> {
+fn decode_jpeg(
+    bytes: &[u8],
+    width: u32,
+    height: u32,
+) -> Result<(image::DynamicImage, Option<image::DynamicImage>), StatusCode> {
     use zune_jpeg::{
         JpegDecoder,
         zune_core::{bytestream::ZCursor, colorspace::ColorSpace, options::DecoderOptions},
@@ -280,9 +304,25 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
         scale: oxiarc_jpeg::Scale::ONE_EIGHTH,
         ..oxiarc_jpeg::DecodeOptions::strict()
     };
-    oxiarc_jpeg::Decoder::with_options(bytes, verification)
-        .decode()
-        .map_err(invalid)?;
+    let mut verifier = oxiarc_jpeg::Decoder::with_options(bytes, verification);
+    let scaled_pixels = verifier.decode().map_err(invalid)?;
+    // The strict scan verification already produces a downsampled image.
+    // Reuse it when it has enough pixels for the thumbnail at the same aspect ratio.
+    let preview =
+        verifier.info().and_then(|info| {
+            let (w, h) = (info.scaled_width, info.scaled_height);
+            if w.max(h) < THUMBNAIL_EDGE || (w, h) == (width, height) {
+                return None;
+            }
+            match info.pixel_format() {
+                oxiarc_jpeg::PixelFormat::L8 => image::GrayImage::from_raw(w, h, scaled_pixels)
+                    .map(image::DynamicImage::ImageLuma8),
+                oxiarc_jpeg::PixelFormat::Rgb8 => image::RgbImage::from_raw(w, h, scaled_pixels)
+                    .map(image::DynamicImage::ImageRgb8),
+                _ => None,
+            }
+        });
+    drop(verifier);
 
     let options = DecoderOptions::default()
         .set_strict_mode(true)
@@ -300,7 +340,7 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
     };
     decoder.set_options(decoder.options().jpeg_set_out_colorspace(color));
     let pixels = decoder.decode().map_err(invalid)?;
-    match color {
+    let decoded = match color {
         ColorSpace::Luma => {
             image::GrayImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageLuma8)
         }
@@ -311,7 +351,8 @@ fn decode_jpeg(bytes: &[u8], width: u32, height: u32) -> Result<image::DynamicIm
         }
         _ => image::RgbImage::from_raw(width, height, pixels).map(image::DynamicImage::ImageRgb8),
     }
-    .ok_or(bad)
+    .ok_or(bad)?;
+    Ok((decoded, preview))
 }
 
 /// Routes must be wrapped in the staff guard before mounting.
@@ -483,7 +524,7 @@ struct Options {
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media{% if lang == \"en\" %}?lang=en{% endif %}\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete{% if lang == \"en\" %}?lang=en{% endif %}\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">{{ next_label }}</a>{% endif %}</main></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media{% if lang == \"en\" %}?lang=en{% endif %}\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"upload_key\" value=\"{{ upload_key }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete{% if lang == \"en\" %}?lang=en{% endif %}\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">{{ next_label }}</a>{% endif %}</main></html>",
     ext = "html"
 )]
 struct MediaPage {
@@ -497,6 +538,7 @@ struct MediaPage {
     upload: String,
     delete: String,
     csrf: String,
+    upload_key: Uuid,
     items: Vec<(Uuid, String)>,
 }
 fn label(lang: &str, key: &str) -> String {
@@ -553,6 +595,7 @@ async fn index(
         upload: label(lang, "upload"),
         delete: label(lang, "delete"),
         csrf: session.csrf_token().await.map_err(unavailable)?,
+        upload_key: Uuid::now_v7(),
         items: rows
             .iter()
             .map(|r| (r.get("id"), r.get("alt_text")))
@@ -588,8 +631,14 @@ async fn upload(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Query(options): Query<Options>,
+    headers: HeaderMap,
     CheckedMultipart(mut multipart): CheckedMultipart,
 ) -> Result<Response, StatusCode> {
+    let bad = StatusCode::UNPROCESSABLE_ENTITY;
+    let mut upload_key = None;
+    for value in headers.get_all("idempotency-key") {
+        set_upload_key(&mut upload_key, value.to_str().map_err(invalid)?)?;
+    }
     let mut image = None;
     let mut alt = None;
     while let Some(field) = multipart.next_field().await.map_err(invalid)? {
@@ -606,25 +655,51 @@ async fn upload(
             Some("_csrf") => {
                 let _ = field.text().await.map_err(invalid)?;
             }
+            Some("upload_key") => {
+                set_upload_key(&mut upload_key, &field.text().await.map_err(invalid)?)?;
+            }
             Some("alt_text") if alt.is_none() => {
                 alt = Some(field.text().await.map_err(invalid)?);
             }
             _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
         }
     }
-    let alt = alt.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+    let alt = alt.ok_or(bad)?;
     if alt.trim().is_empty() || alt.chars().count() > 500 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let (name, declared_type, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-    let processed = tokio_process(name, bytes.to_vec()).await?;
-    if declared_type.is_some_and(|value| {
-        let value = value.as_bytes();
-        !value.eq_ignore_ascii_case(b"application/octet-stream")
-            && !value.eq_ignore_ascii_case(processed.mime.as_bytes())
-    }) {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    let alt = alt.trim();
+    let (name, declared_type, bytes) = image.ok_or(bad)?;
+    let (format, mime) = file_format(&name)?;
+    if bytes.is_empty()
+        || bytes.len() > MAX_BYTES
+        || declared_type.is_some_and(|value| {
+            let value = value.as_bytes();
+            !value.eq_ignore_ascii_case(b"application/octet-stream")
+                && !value.eq_ignore_ascii_case(mime.as_bytes())
+        })
+    {
+        return Err(bad);
     }
+    let fingerprint = upload_key.map(|key| {
+        let mut digest = Sha256::new();
+        digest.update(mime.as_bytes());
+        digest.update((alt.len() as u64).to_be_bytes());
+        digest.update(alt.as_bytes());
+        digest.update(&bytes);
+        (key, <[u8; 32]>::from(digest.finalize()))
+    });
+    // The fast path avoids decoding a completed upload again. Its result is
+    // checked below while holding the same locks as a new upload.
+    let completed = match upload_key {
+        Some(key) => upload_receipt(&pool, context.account, key).await?.is_some(),
+        None => false,
+    };
+    let processed = if completed {
+        None
+    } else {
+        Some(tokio_process(format, mime, bytes).await?)
+    };
     // Persist only after processing, with fresh transactional authorization.
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -662,15 +737,34 @@ async fn upload(
                 unavailable(e)
             }
         })?;
+    if let Some((key, fingerprint)) = &fingerprint
+        && let Some(previous) = upload_receipt(&mut *tx, context.account, *key).await?
+    {
+        if previous.as_slice() != fingerprint.as_slice() {
+            return Err(StatusCode::CONFLICT);
+        }
+        tx.commit().await.map_err(unavailable)?;
+        return Ok(media_redirect(&options));
+    }
+    let processed = processed.ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE actor=$1 AND action='editorial_media.uploaded' AND created_at > now()-interval '1 minute'").bind(context.account).fetch_one(&mut *tx).await.map_err(unavailable)?;
     if recent >= 10 {
         return Err(StatusCode::TOO_MANY_REQUESTS);
     }
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO media(id,alt_text,mime_type,width,height,content,sha256,thumbnail,thumbnail_sha256) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-        .bind(id).bind(alt.trim()).bind(processed.mime).bind(processed.width as i32).bind(processed.height as i32)
+        .bind(id).bind(alt).bind(processed.mime).bind(processed.width as i32).bind(processed.height as i32)
         .bind(&processed.content).bind(Sha256::digest(&processed.content).to_vec()).bind(&processed.thumbnail)
         .bind(processed.thumbnail.as_ref().map(|b| Sha256::digest(b).to_vec())).execute(&mut *tx).await.map_err(unavailable)?;
+    if let Some((key, fingerprint)) = fingerprint {
+        sqlx::query("INSERT INTO editorial_media_upload_receipts(account_id,upload_key,fingerprint) VALUES($1,$2,$3)")
+            .bind(context.account)
+            .bind(key)
+            .bind(fingerprint.as_slice())
+            .execute(&mut *tx)
+            .await
+            .map_err(unavailable)?;
+    }
     record(&mut tx, context, id, "editorial_media.uploaded").await?;
     crate::revalidate(
         &auth,
@@ -686,13 +780,41 @@ async fn upload(
     tx.commit().await.map_err(unavailable)?;
     Ok(media_redirect(&options))
 }
-async fn tokio_process(name: String, bytes: Vec<u8>) -> Result<ProcessedImage, StatusCode> {
+fn set_upload_key(key: &mut Option<Uuid>, value: &str) -> Result<(), StatusCode> {
+    let parsed = Uuid::parse_str(value).map_err(invalid)?;
+    if parsed.is_nil() || key.is_some() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    *key = Some(parsed);
+    Ok(())
+}
+
+async fn upload_receipt<'e>(
+    executor: impl sqlx::PgExecutor<'e>,
+    actor: Uuid,
+    key: Uuid,
+) -> Result<Option<Vec<u8>>, StatusCode> {
+    sqlx::query_scalar(
+        "SELECT fingerprint FROM editorial_media_upload_receipts WHERE account_id=$1 AND upload_key=$2",
+    )
+    .bind(actor)
+    .bind(key)
+    .fetch_optional(executor)
+    .await
+    .map_err(unavailable)
+}
+
+async fn tokio_process(
+    format: ImageFormat,
+    mime: &'static str,
+    bytes: Bytes,
+) -> Result<ProcessedImage, StatusCode> {
     let permit = DECODERS
         .try_acquire()
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
     tokio::task::spawn_blocking(move || {
         let _permit = permit;
-        process(&name, &bytes)
+        process_image(format, mime, &bytes)
     })
     .await
     .map_err(unavailable)?
