@@ -96,6 +96,15 @@ async fn postgres_news_lifecycle() {
     let mut first = make();
     first.expected_revision = revision.clone();
     save(&pool, &auth, context, Some(id), first).await.unwrap();
+    let publication: (String, String) = sqlx::query_as(
+        "SELECT before->>'published_at',after->>'published_at' FROM audit_log
+         WHERE action='cms.news_updated' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(publication.0, publication.1);
     let mut stale = make();
     stale.expected_revision = revision;
     stale.title = "Stale editor overwrite".into();

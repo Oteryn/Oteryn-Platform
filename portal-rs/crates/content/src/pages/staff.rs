@@ -7,7 +7,7 @@ use oteryn_admin::{
 };
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Value, json};
 use uuid::Uuid;
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(
@@ -267,24 +267,28 @@ pub(super) async fn persist(
         .await?;
     auth.check_in(&mut tx, context, Permission::ManagePages)
         .await?;
-    let id:Uuid=sqlx::query_scalar("INSERT INTO pages(id,slug) VALUES($1,$2) ON CONFLICT(slug) DO UPDATE SET updated_at=now() RETURNING id").bind(Uuid::now_v7()).bind(slug).fetch_one(&mut *tx).await?;
-    let before: Option<serde_json::Value> = sqlx::query_scalar(
-        "SELECT to_jsonb(e) FROM editorial_pages e WHERE page_id=$1 AND locale=$2",
+    let deleting = form.action == "delete";
+    let existing: Option<(Uuid, String, Value)> = sqlx::query_as(
+        "SELECT p.id, e.updated_at::text, to_jsonb(e)
+         FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+         WHERE p.slug=$1 AND e.locale=$2 FOR UPDATE OF e",
     )
-    .bind(id)
+    .bind(slug)
     .bind(locale)
     .fetch_optional(&mut *tx)
     .await?;
-    let revision: Option<String> = sqlx::query_scalar(
-        "SELECT updated_at::text FROM editorial_pages WHERE page_id=$1 AND locale=$2",
-    )
-    .bind(id)
-    .bind(locale)
-    .fetch_optional(&mut *tx)
-    .await?;
-    if form.expected_revision != revision.unwrap_or_default() {
+    let revision = existing
+        .as_ref()
+        .map_or("", |(_, revision, _)| revision.as_str());
+    if form.expected_revision != revision || (deleting && (existing.is_none() || legal(slug))) {
         return Err(Error::InvalidInput);
     }
+    let id = if deleting {
+        existing.as_ref().ok_or(Error::InvalidInput)?.0
+    } else {
+        sqlx::query_scalar("INSERT INTO pages(id,slug) VALUES($1,$2) ON CONFLICT(slug) DO UPDATE SET updated_at=now() RETURNING id")
+            .bind(Uuid::now_v7()).bind(slug).fetch_one(&mut *tx).await?
+    };
     if locale != "en" {
         let source: Option<i64> = sqlx::query_scalar(
             "SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'",
@@ -296,16 +300,16 @@ pub(super) async fn persist(
             return Err(Error::InvalidInput);
         }
     }
-    let deleting = form.action == "delete";
-    if deleting {
-        if legal(slug) {
-            return Err(Error::InvalidInput);
-        }
-        sqlx::query("DELETE FROM editorial_pages WHERE page_id=$1 AND locale=$2")
+    let after = if deleting {
+        let deleted = sqlx::query("DELETE FROM editorial_pages WHERE page_id=$1 AND locale=$2")
             .bind(id)
             .bind(locale)
             .execute(&mut *tx)
             .await?;
+        if deleted.rows_affected() != 1 {
+            return Err(Error::InvalidInput);
+        }
+        Value::Null
     } else {
         if locale != "en" {
             let source_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM editorial_pages WHERE page_id=$1 AND locale='en' AND body <> '')")
@@ -323,9 +327,9 @@ pub(super) async fn persist(
             }
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
-        sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond')")
-            .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await?;
-    }
+        sqlx::query_scalar("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond') RETURNING to_jsonb(editorial_pages)")
+            .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).fetch_one(&mut *tx).await?
+    };
     audit::append(
         &mut tx,
         Entry {
@@ -339,12 +343,8 @@ pub(super) async fn persist(
                 "cms.page.saved"
             },
             target: slug,
-            before: before.unwrap_or(json!(null)),
-            after: if deleting {
-                serde_json::Value::Null
-            } else {
-                json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date})
-            },
+            before: existing.map_or(Value::Null, |(_, _, before)| before),
+            after,
         },
     )
     .await?;
