@@ -479,17 +479,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn console_refusal_uses_explicit_locale_in_chrome_and_response_headers() -> TestResult {
+    async fn console_fallback_uses_explicit_locale_in_chrome_and_response_headers() -> TestResult {
         let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
-        let app = finish(
-            Router::new()
-                .route(
-                    "/console/dashboard",
-                    get(|| async { StatusCode::FORBIDDEN }),
-                )
-                .route("/other", get(|| async { StatusCode::FORBIDDEN })),
-        )
-        .layer(axum::middleware::from_fn_with_state(
+        let app = app()?.layer(axum::middleware::from_fn_with_state(
             crate::chrome::Shell {
                 registry: oteryn_ui::Registry::default(),
                 sessions: crate::session::SessionLayer::new(pool),
@@ -497,10 +489,14 @@ mod tests {
             crate::chrome::middleware,
         ));
         for (path, lang, title) in [
-            ("/console/dashboard?lang=en", "en", "Access denied"),
-            ("/console/dashboard?lang=pl", "pl", "Brak dostępu"),
-            ("/console/dashboard?lang=invalid", "pl", "Brak dostępu"),
-            ("/other?lang=en", "pl", "Brak dostępu"),
+            ("/console/missing?lang=en", "en", "Page not found"),
+            ("/console/missing?lang=pl", "pl", "Nie znaleziono strony"),
+            (
+                "/console/missing?lang=invalid",
+                "pl",
+                "Nie znaleziono strony",
+            ),
+            ("/other?lang=en", "pl", "Nie znaleziono strony"),
         ] {
             let response = app
                 .clone()
@@ -511,7 +507,7 @@ mod tests {
                         .body(Body::empty())?,
                 )
                 .await?;
-            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
             assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
             let body = html(response).await?;
             assert!(body.contains(&format!("<html lang=\"{lang}\"")), "{path}");
