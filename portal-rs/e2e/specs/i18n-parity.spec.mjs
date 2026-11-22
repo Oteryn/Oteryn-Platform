@@ -40,7 +40,7 @@ const markerKeys = new Set([
   'skip', 'shell-register', 'shell-login', 'shell-logout',
   'login-error', 'reset-error', 'mfa-error', 'error-403-description',
   'error-404-description', 'error-422-description', 'error-503-description',
-  'announcements-heading', 'announcements-save', 'coin-checkout-title', 'refused',
+  'announcements-heading', 'announcements-save', 'coin-checkout-title', 'refused', 'error', 'invalid',
 ]);
 const opposite = (locale) => locale === 'en' ? 'pl' : 'en';
 const markers = Object.fromEntries(['pl', 'en'].map((locale) => {
@@ -82,36 +82,40 @@ function assertText(value, locale, scope, title = false) {
 async function assertDocument(page, locale, target) {
   expect.soft(await page.locator('html').getAttribute('lang'), `${target}: document language`).toBe(locale);
   const title = await page.title();
-  expect.soft(normalize(title).length, `${target}: document title`).toBeGreaterThan(0);
+  const titleLabel = normalize(title).replace(/\s*[·|–—]\s*Oteryn$/u, '').trim();
+  expect.soft(titleLabel.length, `${target}: localized document title`).toBeGreaterThan(0);
   assertText(title, locale, `${target}: title`, true);
   // Text nodes preserve boundaries between labels and include closed menus.
-  const values = await page.locator('body').evaluate((body) => {
+  const values = await page.locator('body').evaluate((body, locale) => {
     const values = [];
+    const append = (element, value) => {
+      const declaredLanguage = element.closest('[lang]:not(html), [hreflang]');
+      const declaredLocale = declaredLanguage?.getAttribute('lang') ?? declaredLanguage?.getAttribute('hreflang');
+      values.push({ value, checkLocale: !declaredLocale || declaredLocale === locale });
+    };
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-      if (!node.parentElement.closest('script, style, template, noscript, code, pre, textarea, [hreflang], [lang]:not(html)')) {
-        if (node.textContent.trim()) values.push(node.textContent);
+      if (node.textContent.trim() && !node.parentElement.closest('script, style, template, noscript, code, pre, textarea')) {
+        append(node.parentElement, node.textContent);
       }
     }
     for (const element of body.querySelectorAll('[aria-label], [alt], [title], [placeholder], input[type=submit]')) {
       for (const attribute of ['aria-label', 'alt', 'title', 'placeholder']) {
-        if (element.hasAttribute(attribute) && !element.closest('[hreflang], [lang]:not(html)')) {
-          values.push(element.getAttribute(attribute));
-        }
+        if (element.hasAttribute(attribute)) append(element, element.getAttribute(attribute));
       }
-      if (element.matches('input[type=submit]')) values.push(element.value);
+      if (element.matches('input[type=submit]')) append(element, element.value);
     }
     return values;
-  });
+  }, locale);
   const rawKeys = new Set();
   const leaks = new Set();
   let interpolation = false;
-  for (const value of values) {
+  for (const { value, checkLocale } of values) {
     const text = normalize(value);
     for (const token of text.match(/(?<![\w/-])[a-z][\w]*(?:-[\w]+)+(?![\w/-])/gu) ?? []) {
       if (keys.has(token)) rawKeys.add(token);
     }
-    const leak = wrongLocale(text, locale);
+    const leak = checkLocale && wrongLocale(text, locale);
     if (leak) leaks.add(leak);
     interpolation ||= /\{\{\s*[\w.]|\{\s*\$[\w-]+/u.test(text);
   }
@@ -283,6 +287,7 @@ async function signInStaff(page, locale) {
   const recovery = page.locator('textarea[readonly]').first();
   await expect(recovery).toBeVisible();
   await loginWithRecoveryCode(page, locale, account, await recovery.inputValue());
+  await expect(page).toHaveURL(new RegExp(`/${locale}/$`, 'u'));
   expect((await page.goto(`/admin?lang=${locale}`)).status()).toBe(200);
 }
 
@@ -319,8 +324,8 @@ for (const actor of ['anonymous', 'player', 'staff']) {
         if (navigation.ok()) {
           await addLinkedPages(page, targets, locale, actor);
           await nativeValidation(page, locale, checked, uncovered);
+          await serverValidation(page, locale, actor, target, targets);
         }
-        if (navigation.ok()) await serverValidation(page, locale, actor, target, targets);
       });
     }
     expect(documents.size, `${actor}: HTML documents visited`).toBeGreaterThan(0);
