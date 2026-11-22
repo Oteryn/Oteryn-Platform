@@ -26,8 +26,11 @@ async function focusState(page) {
 
 const soft = expect.configure({ soft: true, timeout: 1000 });
 
+// Chromium exposes a single active input while Tab traverses its native date fields.
+const nativeTabSteps = { date: 3, 'datetime-local': 8, month: 2, time: 5, week: 2 };
+
 async function tabStops(page) {
-  return page.evaluate(() => {
+  return page.evaluate(nativeTabSteps => {
     window.portalQualityFocusStyles = new WeakMap();
     return [...document.querySelectorAll('*')].flatMap((element, index) => {
       if (!element.matches('a[href], button, input, select, textarea, summary, iframe, [contenteditable], [tabindex]') ||
@@ -46,9 +49,10 @@ async function tabStops(page) {
       const style = getComputedStyle(element);
       window.portalQualityFocusStyles.set(element,
         [style.boxShadow, style.backgroundColor, style.borderColor, style.textDecorationLine]);
-      return [{ index, inHeader: !!element.closest('header'), inDialog: !!element.closest('dialog'), inScope: !!(element.form || element.closest('form, header, nav')), tabIndex: element.tabIndex }];
+      const internalSteps = element instanceof HTMLInputElement ? nativeTabSteps[element.type] ?? 0 : 0;
+      return [{ index, inHeader: !!element.closest('header'), inDialog: !!element.closest('dialog'), inScope: !!(element.form || element.closest('form, header, nav')), tabIndex: element.tabIndex, internalSteps }];
     });
-  });
+  }, nativeTabSteps);
 }
 
 async function tabUntil(page, locator, bound) {
@@ -57,6 +61,16 @@ async function tabUntil(page, locator, bound) {
     await page.keyboard.press('Tab');
   }
   return false;
+}
+
+async function tabPastControl(page, stop, label) {
+  await page.keyboard.press('Tab');
+  for (let step = 0; step < stop.internalSteps; step++) {
+    const focus = await focusState(page);
+    if (focus.index !== stop.index) break;
+    soft(focus.visible, `${label}: native input focus indicator`).toBe(true);
+    await page.keyboard.press('Tab');
+  }
 }
 
 async function assertAccountDialog(page, header, toggle, label, bound, mobile) {
@@ -73,7 +87,7 @@ async function assertAccountDialog(page, header, toggle, label, bound, mobile) {
       const focus = await focusState(page);
       soft(focus.index, `${label}: account dialog order`).toBe(stop.index);
       soft(focus.visible, `${label}: account dialog focus indicator`).toBe(true);
-      await page.keyboard.press('Tab');
+      await tabPastControl(page, stop, label);
     }
     await page.keyboard.press('Escape');
     await soft(dialog).not.toHaveAttribute('open', '');
@@ -192,7 +206,7 @@ async function assertDisclosedForms(page, label, bound) {
     const stops = (await tabStops(page)).filter(stop =>
       stop.index !== summaryIndex && descendants.includes(stop.index));
     for (const stop of stops) {
-      await page.keyboard.press('Tab');
+      await tabPastControl(page, stop, label);
       const focus = await focusState(page);
       soft(focus.index, `${label}: keyboard order in form disclosure`).toBe(stop.index);
       if (stop.inScope) soft(focus.visible, `${label}: disclosed form control has visible focus`).toBe(true);
@@ -224,14 +238,25 @@ export async function assertKeyboard(page, label) {
   const reached = [];
   const visited = new Set();
   const invisible = [];
+  const native = new Map(stops.map(stop => [stop.index, stop.internalSteps]));
+  const bound = stops.reduce((total, stop) => total + 1 + stop.internalSteps, 4);
+  let previous;
+  let remainingInternalSteps = 0;
   let exited = false;
-  for (let step = 0; step < stops.length + 4; step++) {
+  for (let step = 0; step < bound; step++) {
     await page.keyboard.press('Tab');
     const focus = await focusState(page);
+    if (focus.index === previous && remainingInternalSteps > 0) {
+      remainingInternalSteps--;
+      if (focus.inScope && !focus.visible) invisible.push(focus.target);
+      continue;
+    }
     if (focus.target === 'body' || visited.has(focus.index)) {
       exited = focus.target === 'body' || focus.index === visited.values().next().value;
       break;
     }
+    previous = focus.index;
+    remainingInternalSteps = native.get(focus.index) ?? 0;
     visited.add(focus.index);
     if (focus.inScope) {
       reached.push(focus.index);
@@ -244,9 +269,9 @@ export async function assertKeyboard(page, label) {
 
   await resetTabStart(page);
   if (await page.locator('#portal-header.is-enhanced').count()) {
-    await assertMenu(page, label, stops.length + 4);
+    await assertMenu(page, label, bound);
   } else {
-    await assertNativeMenu(page, label, stops.length + 4);
+    await assertNativeMenu(page, label, bound);
   }
-  await assertDisclosedForms(page, label, stops.length + 4);
+  await assertDisclosedForms(page, label, bound);
 }
