@@ -17,7 +17,7 @@ use oteryn_ui::{
 };
 use oteryn_web::session::{self, BrowserSession, SessionLayer};
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
 const FLAG: &str = "OTERYN_PANEL_STORE_ORDERS_ENABLED";
@@ -177,8 +177,10 @@ async fn history(
     Path(lang): Path<String>,
     filter: Result<Query<Paging>, QueryRejection>,
 ) -> Response {
-    let Some(account) = session.account_id().await else {
-        return login(&chrome);
+    let (mut tx, account) = match order_reader(&pool, &session).await {
+        Ok(reader) => reader,
+        Err(StatusCode::SEE_OTHER) => return login(&chrome),
+        Err(status) => return oteryn_ui::error(&chrome, status),
     };
     let Ok(Query(filter)) = filter else {
         return oteryn_ui::error(&chrome, StatusCode::UNPROCESSABLE_ENTITY);
@@ -190,7 +192,7 @@ async fn history(
         .bind(account)
         .bind(filter.before)
         .bind(PAGE_SIZE as i64 + 1)
-        .fetch_all(&pool)
+        .fetch_all(&mut *tx)
         .await
     {
         Ok(orders) => orders,
@@ -202,6 +204,9 @@ async fn history(
     } else {
         None
     };
+    if tx.commit().await.is_err() {
+        return oteryn_ui::error(&chrome, StatusCode::SERVICE_UNAVAILABLE);
+    }
     oteryn_web::render(&Page {
         chrome,
         orders,
@@ -217,8 +222,10 @@ async fn detail(
     Extension(session): Extension<BrowserSession>,
     path: Result<Path<(String, Uuid)>, PathRejection>,
 ) -> Response {
-    let Some(account) = session.account_id().await else {
-        return login(&chrome);
+    let (mut tx, account) = match order_reader(&pool, &session).await {
+        Ok(reader) => reader,
+        Err(StatusCode::SEE_OTHER) => return login(&chrome),
+        Err(status) => return oteryn_ui::error(&chrome, status),
     };
     let Ok(Path((lang, id))) = path else {
         return oteryn_ui::error(&chrome, StatusCode::UNPROCESSABLE_ENTITY);
@@ -229,7 +236,7 @@ async fn detail(
     let order = match sqlx::query_as(DETAIL)
         .bind(account)
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&mut *tx)
         .await
     {
         Ok(Some(order)) => order,
@@ -239,12 +246,15 @@ async fn detail(
     let units = match sqlx::query_as(UNITS)
         .bind(account)
         .bind(id)
-        .fetch_all(&pool)
+        .fetch_all(&mut *tx)
         .await
     {
         Ok(units) => units,
         Err(_) => return oteryn_ui::error(&chrome, StatusCode::SERVICE_UNAVAILABLE),
     };
+    if tx.commit().await.is_err() {
+        return oteryn_ui::error(&chrome, StatusCode::SERVICE_UNAVAILABLE);
+    }
     oteryn_web::render(&Page {
         chrome,
         orders: vec![order],
@@ -252,6 +262,46 @@ async fn detail(
         detail: true,
         next: None,
     })
+}
+
+async fn order_reader<'a>(
+    pool: &'a PgPool,
+    session: &BrowserSession,
+) -> Result<(Transaction<'a, Postgres>, Uuid), StatusCode> {
+    let (Some(account), Some(session_hash)) =
+        (session.account_id().await, session.identity_hash().await)
+    else {
+        return Err(StatusCode::SEE_OTHER);
+    };
+    let unavailable = |_| StatusCode::SERVICE_UNAVAILABLE;
+    let mut tx = pool.begin().await.map_err(unavailable)?;
+    sqlx::query(
+        "SELECT set_config('lock_timeout','1s',true),set_config('statement_timeout','2500ms',true)",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(unavailable)?;
+    if !oteryn_wallet::value_eligible_in(&mut tx, account)
+        .await
+        .map_err(unavailable)?
+    {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    // Match session rotation's account-before-session locking order.
+    let live: Option<Uuid> = sqlx::query_scalar(
+        "SELECT account_id FROM web_sessions WHERE id_hash=$1 AND account_id=$2
+         AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()
+         FOR SHARE",
+    )
+    .bind(session_hash)
+    .bind(account)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(unavailable)?;
+    if live.is_none() {
+        return Err(StatusCode::SEE_OTHER);
+    }
+    Ok((tx, account))
 }
 
 fn login(chrome: &Chrome) -> Response {

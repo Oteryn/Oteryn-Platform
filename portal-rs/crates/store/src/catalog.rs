@@ -313,12 +313,10 @@ impl CatalogStore {
         oteryn_db::mutation_budget(&mut tx).await?;
         self.authorize(actor, Action::Import, access, &mut tx)
             .await?;
-        if insert_revision(&mut tx, &catalog, actor).await? {
-            if self.audit_log {
-                write_audit(&mut tx, actor, "store.catalog.imported", catalog.revision(),
-                    serde_json::json!({"catalog_revision": catalog.revision(), "offers": catalog.offers().len()}),
-                    Uuid::now_v7()).await?;
-            }
+        if insert_revision(&mut tx, &catalog, actor).await? && self.audit_log {
+            write_audit(&mut tx, actor, "store.catalog.imported", catalog.revision(),
+                serde_json::json!({"catalog_revision": catalog.revision(), "offers": catalog.offers().len()}),
+                Uuid::now_v7()).await?;
         }
         tx.commit().await?;
         Ok(catalog.revision)

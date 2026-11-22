@@ -903,6 +903,14 @@ async fn order_history_handlers_scope_reads_and_reject_malformed_references() ->
         .await?
         .ok_or("PORTAL_TEST_DATABASE_URL is required")?;
     let account = Uuid::now_v7();
+    let other = Uuid::now_v7();
+    for id in [account, other] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at) VALUES($1,$2,'test','active',now())")
+            .bind(id)
+            .bind(format!("{id}@example.test"))
+            .execute(&db.pool)
+            .await?;
+    }
     let (cookie, _) = session(&db.pool, account).await?;
     let catalog = crate::catalog::Catalog::parse(br#"{"contract_version":1,"offers":[{"offer_key":"test.offer","currency":"COINS","unit_price":"10","max_quantity":1,"purchasable":true,"units":[{"product_id":"premium.test","product_version":"1","unit_kind":"PREMIUM_TIME","grant_key":"test","grant_revision":"1","quantity":1}]}]}"#)?;
     let order = Uuid::now_v7();
@@ -924,7 +932,7 @@ async fn order_history_handlers_scope_reads_and_reject_malformed_references() ->
     sqlx::query("INSERT INTO store_order_lines(line_id,order_id,catalog_revision,offer_key,quantity,unit_price) VALUES($1,$2,$3,'test.offer',1,10)")
         .bind(Uuid::now_v7()).bind(order).bind(catalog.revision()).execute(&mut *tx).await?;
     tx.commit().await?;
-    let (other_cookie, _) = session(&db.pool, Uuid::now_v7()).await?;
+    let (other_cookie, _) = session(&db.pool, other).await?;
     let app = super::orders::routes(db.pool.clone()).layer(Extension(oteryn_ui::Chrome::default()));
     for (path, session, status) in [
         (
@@ -968,6 +976,26 @@ async fn order_history_handlers_scope_reads_and_reject_malformed_references() ->
             .await?;
         assert_eq!(response.status(), status, "{path}");
         assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
+    for path in [
+        "/pl/account/store-orders".to_owned(),
+        format!("/pl/account/store-orders/{order}"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::get(path)
+                    .header(header::COOKIE, &cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert!(!body(response).await?.contains("test.offer"));
     }
     db.close().await
 }
