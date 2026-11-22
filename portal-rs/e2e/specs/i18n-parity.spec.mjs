@@ -356,34 +356,49 @@ async function assertRouteResponse(response, target, contract = {}) {
 }
 
 async function assertProfileControls(page, locale) {
-  const copy = (key) => catalogText(`templates/profile/${locale}.ftl`, key);
+  const language = locale === 'pl' ? 0 : 1;
   const form = page.locator('main form');
   const labels = {
-    show_guild: 'guild',
-    is_main_character: 'main',
-    hidden: 'hidden',
-    hide_all_characters: 'hide-all',
-    show_account: 'account',
-    show_status: 'status',
-    show_house: 'house',
-    show_skills: 'skills',
-    show_deaths: 'deaths',
-    show_kills: 'kills',
-    show_online_time: 'online-time',
-    comment: 'comment',
+    show_guild: ['Pokaż gildię, jeśli gra na to pozwala', 'Show guild when the game permits it'],
+    is_main_character: ['Wybierz jako postać główną', 'Select as main character'],
+    hidden: ['Ukryj postać', 'Hide character'],
+    hide_all_characters: ['Ukryj wszystkie moje postacie', 'Hide all my characters'],
+    show_account: ['Pokaż powiązanie z kontem', 'Show account association'],
+    show_status: ['Pokaż status', 'Show status'],
+    show_house: ['Pokaż dom', 'Show house'],
+    show_skills: ['Pokaż umiejętności', 'Show skills'],
+    show_deaths: ['Pokaż zgony', 'Show deaths'],
+    show_kills: ['Pokaż zabójstwa', 'Show kills'],
+    show_online_time: ['Pokaż czas online', 'Show online time'],
+    comment: ['Komentarz publiczny (500 znaków)', 'Public comment (500 characters)'],
   };
-  for (const [field, key] of Object.entries(labels)) {
-    await expect(form.locator(`label[for="${field}"]`)).toHaveText(copy(key));
+  for (const [field, copy] of Object.entries(labels)) {
+    await expect(form.locator(`label[for="${field}"]`)).toHaveText(copy[language]);
   }
-  await expect(form.locator('button[type=submit]')).toHaveText(copy('save'));
+  await expect(form.locator('button[type=submit]')).toHaveText(locale === 'pl' ? 'Zapisz ustawienia' : 'Save settings');
 }
 
+const signInCopy = {
+  pl: {
+    email: 'Adres e-mail',
+    password: 'Obecne hasło',
+    submit: 'Zaloguj się',
+    error: 'Nie udało się zweryfikować żądania. Sprawdź dane i spróbuj ponownie.',
+  },
+  en: {
+    email: 'Email address',
+    password: 'Current password',
+    submit: 'Sign in',
+    error: 'The request could not be verified. Check your details and try again.',
+  },
+};
+
 async function assertSignInControls(page, locale) {
-  const copy = (key) => catalogText(`templates/account/mfa/${locale}.ftl`, `mfa-${key}`);
+  const copy = signInCopy[locale];
   const form = page.locator('main form[action$="/login"]');
-  await expect(form.locator('label[for=email]')).toHaveText(copy('email'));
-  await expect(form.locator('label[for=password]')).toHaveText(copy('password'));
-  await expect(form.getByRole('button')).toHaveText(copy('login'));
+  await expect(form.locator('label[for=email]')).toHaveText(copy.email);
+  await expect(form.locator('label[for=password]')).toHaveText(copy.password);
+  await expect(form.getByRole('button')).toHaveText(copy.submit);
   for (const field of ['email', 'password']) {
     await expect(form.locator(`input[name="${field}"]`), `sign-in requires ${field}`).toHaveJSProperty('required', true);
   }
@@ -1096,9 +1111,7 @@ test('invalid sign-in submits a localized server error', async ({ page }, info) 
   const locale = info.project.metadata.locale;
   await login(page, locale, { email: 'i18n-missing@example.invalid', password: 'Invalid local input!' });
   await expect(page).toHaveURL(new RegExp(`/${locale}/login$`, 'u'));
-  await expect(page.locator('main [role=alert]')).toHaveText(
-    catalogText(`templates/account/mfa/${locale}.ftl`, 'mfa-error'),
-  );
+  await expect(page.locator('main [role=alert]')).toHaveText(signInCopy[locale].error);
   await assertDocument(page, locale, 'sign-in refusal');
   await assertSignInControls(page, locale);
 });
