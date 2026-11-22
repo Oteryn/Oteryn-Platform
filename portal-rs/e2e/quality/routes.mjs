@@ -12,6 +12,14 @@ const kinds = {
   community: ['experience', 'magic', 'distance'],
   stats: ['yesterday', 'week', 'month'],
 };
+// This launcher supplies no native Game producer. These browser routes
+// explicitly fail closed when Bazaar or character creation authority is absent.
+const coldGameRoutes = new Set([
+  '/{lang}/bazaar', '/{lang}/account/bazaar', '/{lang}/bazaar/{listing}',
+  '/{lang}/account/bazaar/sell', '/{lang}/bazaar/items', '/{lang}/bazaar/items/new',
+  '/{lang}/bazaar/items/{listing}', '/{lang}/bazaar/items/{id}',
+  '/{lang}/account/characters/requests/{operation}', '/{lang}/account/characters/suggest',
+]);
 
 function candidates(pattern, locale, ids) {
   const replacements = {
@@ -45,8 +53,8 @@ export function routes(locale, ids) {
   const landing = ['/{lang}/', '/{lang}/login', '/account', '/admin'];
   return [...new Set([...landing.filter(pattern => patterns.has(pattern)), ...patterns])].map(pattern => ({
     pattern, paths: candidates(pattern, locale, ids),
-    documentedStatuses: expectations.filter(row => row.route === pattern && row.method === 'GET')
-      .map(row => row.status),
+    documentedStatuses: coldGameRoutes.has(pattern) ? [503] :
+      expectations.filter(row => row.route === pattern && row.method === 'GET').map(row => row.status),
   }));
 }
 
