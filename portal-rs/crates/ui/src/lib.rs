@@ -578,39 +578,6 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn player_panel_only_offers_passkeys_to_eligible_accounts() {
-        let mut registry = Registry::default();
-        registry.section(
-            true,
-            "account-passkeys",
-            "shell-account-passkeys",
-            "account/passkeys",
-            Group::Account,
-            false,
-        );
-        for lang in ["pl", "en"] {
-            let route = format!("/{lang}/account/passkeys");
-            for passkeys_eligible in [false, true] {
-                let chrome = registry.chrome(
-                    lang,
-                    "/account",
-                    Account::SignedIn {
-                        csrf: String::new(),
-                        passkeys_eligible,
-                    },
-                );
-                assert_eq!(
-                    chrome
-                        .player_navigation
-                        .iter()
-                        .any(|link| link.url == route),
-                    passkeys_eligible,
-                );
-            }
-        }
-    }
-
-    #[test]
     fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
         let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
         let html = ShellHeader { chrome: &chrome }.render()?;
@@ -756,5 +723,37 @@ mod tests {
             }
         }
         Ok(())
+    }
+    #[test]
+    fn player_panel_only_offers_passkeys_to_eligible_accounts() {
+        let mut registry = Registry::default();
+        registry.section(
+            true,
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys",
+            Group::Account,
+            false,
+        );
+        for lang in ["pl", "en"] {
+            let route = format!("/{lang}/account/passkeys");
+            for passkeys_eligible in [false, true] {
+                let chrome = registry.chrome(
+                    lang,
+                    "/account",
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible,
+                    },
+                );
+                assert_eq!(
+                    chrome
+                        .player_navigation
+                        .iter()
+                        .any(|link| link.url == route),
+                    passkeys_eligible,
+                );
+            }
+        }
     }
 }
