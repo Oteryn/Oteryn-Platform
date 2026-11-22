@@ -47,7 +47,7 @@ impl std::fmt::Debug for DeliveryDecision {
     }
 }
 
-/// Decide from the current role definitions and the exact delivery credential.
+/// Decide from current delegation authority and the exact delivery credential.
 /// An invite that is still awaiting approval keeps its encrypted outbox job.
 pub async fn delivery(
     pool: &PgPool,
@@ -59,9 +59,10 @@ pub async fn delivery(
         .open(&job.ciphertext)
         .ok_or("invalid staff invite ciphertext")?;
     let address: Option<(String, String, OffsetDateTime, bool)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
-        "SELECT i.email,i.locale,i.expires_at,{awaiting} FROM staff_invites i WHERE i.id=$1 AND i.token_hash=$2
-         AND i.expires_at>clock_timestamp() AND i.accepted_at IS NULL AND i.revoked_at IS NULL",
+        "SELECT i.email,i.locale,i.expires_at,{awaiting} FROM staff_invites i
+         WHERE {PENDING} AND i.id=$1 AND i.token_hash=$2 AND {issuer_authorized}",
         awaiting = awaiting_approval_sql(),
+        issuer_authorized = current_manager_sql("a.id=i.invited_by"),
     )))
     .bind(job.invite)
     .bind(token_hash(&token))
@@ -181,15 +182,13 @@ struct Listing {
     awaiting_approval: bool,
 }
 
-// Use the same database snapshot for the invitation and its current
-// approver's account, permissions and memberships.
-fn awaiting_approval_sql() -> String {
+// Verify the account, permissions and role memberships against the same
+// snapshot as the invitation. Callers supply a fixed SQL account predicate.
+fn current_manager_sql(account_predicate: &'static str) -> String {
     format!(
-        "((i.requires_approval OR
-           EXISTS (SELECT 1 FROM roles r WHERE r.id=ANY(i.role_ids) AND {protected_role}))
-          AND NOT EXISTS (
-            SELECT 1 FROM accounts a WHERE a.id=i.approved_by AND a.id<>i.invited_by
-            AND a.status='active' AND a.email_verified_at IS NOT NULL AND lower(a.email)<>i.email
+        "EXISTS (
+            SELECT 1 FROM accounts a WHERE {account_predicate}
+            AND a.status='active' AND a.email_verified_at IS NOT NULL
             AND 2=(SELECT count(DISTINCT rp.permission)
                    FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
                    WHERE ar.account_id=a.id AND rp.permission IN ('{access}','{manage}'))
@@ -200,10 +199,21 @@ fn awaiting_approval_sql() -> String {
                 WHERE ar.account_id=a.id AND r.id=requested.id AND {DELEGABLE_ROLE}
               )
             )
-          ))",
-        protected_role = rbac::PROTECTED_ROLE,
+          )",
         access = MANAGE[0].as_str(),
         manage = MANAGE[1].as_str(),
+    )
+}
+
+fn awaiting_approval_sql() -> String {
+    format!(
+        "((i.requires_approval OR
+           EXISTS (SELECT 1 FROM roles r WHERE r.id=ANY(i.role_ids) AND {protected_role}))
+          AND NOT {approver_authorized})",
+        protected_role = rbac::PROTECTED_ROLE,
+        approver_authorized = current_manager_sql(
+            "a.id=i.approved_by AND a.id<>i.invited_by AND lower(a.email)<>i.email"
+        ),
     )
 }
 

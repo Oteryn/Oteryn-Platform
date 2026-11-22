@@ -241,24 +241,50 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
             .await,
         Err(Error::Denied)
     ));
-    let (_, token) = f.create().await?;
-    // The inviter keeps a separate management role and loses only their
-    // platform admin and support memberships.
+    let (id, token) = f.create().await?;
+    let payload: String =
+        sqlx::query_scalar("SELECT payload::text FROM outbox WHERE kind=$1 AND idempotency_key=$2")
+            .bind(MAIL_KIND)
+            .bind(id.to_string())
+            .fetch_one(&f.invites.pool)
+            .await?;
+    // The inviter retains management access but loses the requested role.
     let manager: Uuid =
         sqlx::query_scalar("INSERT INTO roles(key) VALUES('invite_manager') RETURNING id")
             .fetch_one(&f.invites.pool)
             .await?;
     sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.access')")
         .bind(manager).execute(&f.invites.pool).await?;
-    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
-        .bind(f.inviter.account)
-        .execute(&f.invites.pool)
-        .await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
         .bind(f.inviter.account)
         .bind(manager)
         .execute(&f.invites.pool)
         .await?;
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1 AND role_id=$2")
+        .bind(f.inviter.account)
+        .bind(f.role)
+        .execute(&f.invites.pool)
+        .await?;
+    assert!(matches!(
+        delivery(&f.invites.pool, &f.key, &payload).await?,
+        DeliveryDecision::Closed
+    ));
+    assert!(matches!(
+        f.invites.accept(f.recipient, &token).await,
+        Err(Error::Denied)
+    ));
+    // Restoring the requested role while removing management access also
+    // leaves the issuer ineligible to delegate it.
+    sqlx::query("UPDATE account_roles SET role_id=$2 WHERE account_id=$1 AND role_id=$3")
+        .bind(f.inviter.account)
+        .bind(f.role)
+        .bind(admin)
+        .execute(&f.invites.pool)
+        .await?;
+    assert!(matches!(
+        delivery(&f.invites.pool, &f.key, &payload).await?,
+        DeliveryDecision::Send { .. }
+    ));
     assert!(matches!(
         f.invites
             .create(
@@ -272,9 +298,13 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
             .await,
         Err(Error::Denied)
     ));
+    sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.manage'")
+        .bind(manager)
+        .execute(&f.invites.pool)
+        .await?;
     assert!(matches!(
-        f.invites.accept(f.recipient, &token).await,
-        Err(Error::Denied)
+        delivery(&f.invites.pool, &f.key, &payload).await?,
+        DeliveryDecision::Closed
     ));
     assert_eq!(f.memberships().await?, 0);
     f.close().await
