@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { test, expect } from '../fixtures.mjs';
 import { login, password, seedAccount, seedPasswordRange, waitForWikiBudget } from '../helpers.mjs';
+import { coldView, emptyGameFixture, protectedDestination } from '../crawl-contracts.mjs';
 import { enrollMfa, loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 const read = path => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -34,33 +35,7 @@ const sectionOf = pathname => {
 const routes = inventory.routes.filter(row => row.methods.includes('GET'))
   .map(({route}) => ({route, matches: pattern(route)}))
   .sort((a, b) => b.route.replace(/\{[^}]+\}/g, '').length - a.route.replace(/\{[^}]+\}/g, '').length);
-const coldProjections = [...read('../COVERAGE.md').matchAll(
-  /^\| `([^`]+)` \| .*PASS: GET 503; (?:authority or projection unavailable|valid experience tab refuses absent accepted character\/privacy projection authority)/gm,
-)].map(([, route]) => pattern(route));
-const cold = pathname => coldProjections.some(route => route.test(pathname));
-const coldViews = [
-  {
-    path: /^\/(pl|en)\/league$/,
-    file: lang => `../../crates/minigames/src/league/${lang}.ftl`,
-    key: 'unavailable',
-    locator: 'main [role="status"]',
-  },
-  {
-    path: /^\/(pl|en)\/atlas$/,
-    file: lang => `../../crates/ui/i18n/${lang}.ftl`,
-    key: 'error-503-title',
-    locator: 'main h1',
-  },
-  {
-    path: /^\/(pl|en)\/(?:account\/)?bazaar$/,
-    file: lang => `../../templates/bazaar/${lang}.ftl`,
-    key: 'authority-unavailable',
-    locator: 'main p',
-  },
-];
-const expectedColdView = pathname => process.env.PORTAL_E2E_CRAWL_WITHOUT_GAME === '1'
-  && coldViews.find(view => view.path.test(pathname));
-const unavailable = pathname => cold(pathname) || Boolean(expectedColdView(pathname));
+const emptyGame = emptyGameFixture(process.env);
 
 const normalize = value => value.normalize('NFC').replace(/\s+/g, ' ').trim();
 const catalogues = Object.fromEntries(['pl', 'en'].map(locale => [
@@ -174,7 +149,7 @@ function enqueue(state, url, from, link) {
 const probeKey = (url, link) => JSON.stringify([url.href, link]);
 const assetTypes = new Set(['font', 'image', 'media', 'script', 'stylesheet']);
 
-async function crawl(page, origin, locale, section, state, defects, pages, workers) {
+async function crawl(page, origin, locale, actor, section, state, defects, pages, workers) {
   const {probes, visited} = state;
   let current = '/';
   await page.addInitScript(() => {
@@ -183,16 +158,16 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
       window.siteIntegrityCspViolations.push(event.effectiveDirective);
     });
   });
-  const checkStatus = (url, status, source) => {
-    if (status === 404 || (status >= 500 && !(status === 503 && unavailable(url.pathname)))) {
+  const checkStatus = (url, status, source, document) => {
+    if (status === 404 || (status >= 500 && !(status === 503 && document && coldView(url, actor, emptyGame)))) {
       defects.add(`${source} → ${label(url)} returned HTTP ${status}`);
     }
   };
   page.on('response', response => {
     const url = sameOrigin(response.url(), origin, origin);
     if (!url) return;
-    checkStatus(url, response.status(), current);
     const request = response.request();
+    checkStatus(url, response.status(), current, request.isNavigationRequest());
     // Use the browser's successful GET for assets it actually fetched. Links
     // and resources the browser didn't fetch still get their own probe.
     if (response.ok() && request.method() === 'GET' && assetTypes.has(request.resourceType())) {
@@ -210,7 +185,7 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
   page.on('console', message => {
     if (message.type() !== 'error') return;
     const url = sameOrigin(message.location().url, origin, origin);
-    if (url && unavailable(url.pathname) && /^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(message.text())) return;
+    if (url && coldView(url, actor, emptyGame) && /^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(message.text())) return;
     defects.add(`${current} console error: ${message.text()}`);
   });
 
@@ -244,12 +219,12 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
         location: response.headers().location,
         html: /^text\/html\b/i.test(type) && /<(?:html[\s>]|!doctype\s+html)/i.test(await response.text()),
       };
-      if (status === 503 && unavailable(url.pathname) && !response.headers()['cache-control']?.includes('no-store')) {
-        defects.add(`${label(url)} cold projection returned 503 without no-store`);
-      }
-      if (expectedColdView(url.pathname)) {
+      if (link && coldView(url, actor, emptyGame)) {
         if (status !== 503) defects.add(`${label(url)} without a producer returned HTTP ${status}, expected 503`);
         if (!result.html) defects.add(`${label(url)} did not return the unavailable view`);
+        if (!response.headers()['cache-control']?.split(',').some(value => value.trim() === 'no-store')) {
+          defects.add(`${label(url)} cold projection returned without no-store`);
+        }
       }
       probes.set(key, result);
       return result;
@@ -263,6 +238,7 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
     const url = new URL(entry.url);
     if (entry.done || (section !== 'cross-section' && sectionOf(url.pathname) !== section)) continue;
     const {from, link} = entry;
+    const expected = link && protectedDestination(url, locale, actor, emptyGame);
     entry.done = true;
     let target = url;
     let phase = 'probing the response';
@@ -275,11 +251,17 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
         redirects.add(target.href);
         phase = 'probing the response';
         const result = await probe(target, link);
-        checkStatus(target, result.status, from);
+        checkStatus(target, result.status, from, link);
         if (result.status >= 300 && result.status < 400 && result.location) {
           target = sameOrigin(result.location, target, origin);
-          if (!target) break;
+          if (!target) {
+            if (expected) defects.add(`${label(url)} redirected outside the portal`);
+            break;
+          }
           continue;
+        }
+        if (expected && (target.pathname !== expected.path || result.status !== expected.status)) {
+          defects.add(`${label(url)} ended at ${label(target)} with HTTP ${result.status}, expected ${expected.path} with HTTP ${expected.status}`);
         }
         if (section !== 'cross-section' && sectionOf(target.pathname) !== section && link && result.html) {
           enqueue(state, target, from === 'seed' ? from : label(url), true);
@@ -300,16 +282,20 @@ async function crawl(page, origin, locale, section, state, defects, pages, worke
         await waitForWikiBudget(target.href, workers);
         phase = 'loading the document';
         const response = await page.goto(target.href, {waitUntil: 'load'});
-        if (response?.status() !== result.status) {
-          defects.add(`${current} browser received HTTP ${response?.status()}, probe received HTTP ${result.status}`);
+        if (response?.status() !== result.status || page.url() !== target.href) {
+          defects.add(`${current} browser ended at ${label(new URL(page.url()))} with HTTP ${response?.status()}, expected ${label(target)} with HTTP ${result.status}`);
         }
         phase = 'inspecting the document';
-        const view = expectedColdView(target.pathname);
+        const view = coldView(target, actor, emptyGame);
         if (view) {
-          const [, lang] = target.pathname.match(view.path);
-          const value = read(view.file(lang)).match(new RegExp(`^${view.key} = (.+)$`, 'm'))[1];
-          await expect(page.locator(view.locator).filter({hasText: value})).toBeVisible();
-          await expect(page.locator('main article, main form')).toHaveCount(0);
+          expect(response?.headers()['cache-control']?.split(',').map(value => value.trim())).toContain('no-store');
+          const main = page.locator('main');
+          if (view.selector) {
+            await expect(main.locator(view.selector)).toHaveText(view.text);
+          } else {
+            await expect(main).toContainText(view.text);
+          }
+          await expect(main.locator(view.filters ? 'article, ol > li, form:not([method="get" i])' : 'article, form')).toHaveCount(0);
         }
         samples.push(target.href);
         visited.set(key, samples);
@@ -381,6 +367,11 @@ for (const actor of actors) {
           ]);
           expect(document?.status()).toBe(200);
           expect(frame.status()).toBe(200);
+          const csp = (await document.headerValue('content-security-policy')) ?? '';
+          expect(csp.split(';').map(directive => directive.trim()).filter(Boolean).sort()).toEqual([
+            "base-uri 'none'", "default-src 'self'", "font-src 'self'",
+            "frame-ancestors 'none'", "img-src 'self'", "object-src 'none'",
+          ]);
         }
       }
       fs.writeFileSync(file(info, 'auth'), JSON.stringify(await page.context().storageState()), {mode: 0o600});
@@ -413,7 +404,7 @@ for (const actor of actors) {
         const defects = new Set();
         const before = state.probes.size;
         try {
-          await crawl(page, origin, locale, section, state, defects, pages, info.config.workers);
+          await crawl(page, origin, locale, actor, section, state, defects, pages, info.config.workers);
           if (section === 'home') {
             expect(pages.length, 'crawl rendered a seed HTML page').toBeGreaterThan(0);
           }

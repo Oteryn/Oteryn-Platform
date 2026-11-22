@@ -275,7 +275,7 @@ if (browserCrawl) {
   }
   fs.writeFileSync(path.join(dirs.secrets, 'browser.json'), JSON.stringify({
     ...env, PORTAL_E2E_ORIGIN: env.OTERYN_PUBLIC_ORIGIN, PORTAL_E2E_BINARY: binary,
-    PORTAL_E2E_CRAWL_WITHOUT_GAME: '1',
+    PORTAL_E2E_CRAWL_FIXTURE: seedPlanFile ? 'seed-plan' : 'empty-game',
   }), {mode: 0o600});
 }
 log('services ready');

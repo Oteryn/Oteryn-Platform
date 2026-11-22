@@ -141,11 +141,13 @@ From `portal-rs/e2e`, run the crawl in all four projects.
 node run.mjs .harness/run/secrets/browser.json test specs/site-integrity.spec.mjs
 ```
 
-This profile has no Game producer. For League, Atlas, and character Bazaar,
-the crawl requires HTTP 503, `Cache-Control: no-store`, and the localized
-unavailable view without entries or forms. An expired League watermark also
-produces that response. The dedicated League spec verifies expiry using the
-full-shell launcher's producer.
+This profile has no Game producer. The crawl checks the exact status and
+localized fallback for each documented route and actor in
+[`crawl-contracts.mjs`](crawl-contracts.mjs). The empty-Game expectations apply to
+the unseeded browser fixture and require HTTP 503 and `Cache-Control: no-store`.
+Configured catalogues and Game producers use the normal success expectations.
+The dedicated League spec verifies watermark expiry using the full-shell
+launcher's producer.
 
 ### Seed commands
 
