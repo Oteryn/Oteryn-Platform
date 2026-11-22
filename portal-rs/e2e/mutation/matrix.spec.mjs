@@ -32,12 +32,14 @@ async function seededPlayer(page, lang, role) {
     expect(assignments).toHaveLength(1);
   }
   await login(page, lang, account);
+  await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
   if (role) {
     await enrollMfa(page, lang, account);
     const code = await page.locator('textarea[readonly]').first().inputValue();
     await loginWithRecoveryCode(page, lang, account, code);
+    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
   }
-  return { id };
+  return { ...account, id };
 }
 
 const formSelector = 'main form[method=post]';
@@ -775,6 +777,128 @@ test('unwired hunt sharing, shop purchasing and bearer-only watches expose their
     expect(await query('SELECT account_id FROM stats_watches WHERE account_id=$1', [player.id])).toEqual([]);
   }
 });
+
+for (const prefix of ['locale', 'unprefixed']) {
+  test(`session revocation confines every ${prefix} alias to the signed-in account`, async ({ page, browser }, info) => {
+    test.setTimeout(600_000);
+    const lang = info.project.metadata.locale;
+    const localized = `/${lang}/account/sessions`;
+    const base = prefix === 'locale' ? localized : '/account/sessions';
+    const contexts = [];
+    const actorPage = async () => {
+      const context = await browser.newContext({
+        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        viewport: info.project.use.viewport,
+      });
+      contexts.push(context);
+      return context.newPage();
+    };
+    try {
+      const owner = await seededPlayer(page, lang);
+      const openOwnerSession = async () => {
+        const extra = await actorPage();
+        await login(extra, lang, owner);
+        await expect(extra).toHaveURL(new RegExp(`/${lang}/$`));
+      };
+      const other = await actorPage();
+      await seededPlayer(other, lang);
+      const editor = await actorPage();
+      await seededPlayer(editor, lang, 'content_editor');
+      const tokens = [];
+      const othersForm = 'main form[action$="/others"]';
+      for (const outsider of [other, editor]) {
+        expect((await outsider.goto(localized)).status()).toBe(200);
+        const { fields } = await prepare(outsider, othersForm);
+        tokens.push({ outsider, csrf: fields._csrf });
+      }
+      const snapshot = async () => ({
+        sessions: (await query('SELECT session_id FROM web_sessions WHERE account_id=$1 ORDER BY session_id', [owner.id]))
+          .map(row => row.session_id),
+        events: await query(
+          "SELECT kind, session_id FROM security_events WHERE account_id=$1 AND kind<>'login_succeeded' ORDER BY id",
+          [owner.id],
+        ),
+      });
+      const [{ session_id: current }] = await query('SELECT session_id FROM web_sessions WHERE account_id=$1', [owner.id]);
+      const expectedEvents = [];
+      for (const method of ['POST', 'DELETE']) {
+        await openOwnerSession();
+        const baseline = await snapshot();
+        const target = baseline.sessions.find(id => id !== current);
+        expect(baseline.sessions).toHaveLength(2);
+        expect(Boolean(target)).toBe(true);
+        expect((await page.goto(base)).status()).toBe(200);
+        const selector = `main form[action$="/${target}"]`;
+        const form = await prepare(page, selector);
+        const url = new URL(`${base}/${target}`, form.url).href;
+        await rejected({ page, url, fields: form.fields, snapshot, baseline, method });
+        for (const { outsider, csrf } of tokens) {
+          const denied = await sendForm(outsider, url, { _csrf: csrf }, method);
+          expect(denied.status()).toBe(method === 'POST' ? 302 : 303);
+          await outsider.goto(denied.headers().location);
+          await expect(outsider.getByRole('status')).toHaveText(lang === 'pl'
+            ? 'Wybrana sesja jest nieaktywna lub niedostępna.'
+            : 'The selected session is inactive or unavailable.');
+          expect(await snapshot()).toEqual(baseline);
+        }
+        const malformed = await sendForm(page, new URL(`${base}/invalid`, form.url).href, form.fields, method);
+        expect(malformed.status()).toBe(400);
+        expect(await snapshot()).toEqual(baseline);
+        await useFormMethod(page, form.url, method, () => submit(page, selector), url);
+        await expect(page.locator(selector)).toHaveCount(0);
+        await expect(page.getByRole('status')).toHaveText(lang === 'pl' ? 'Sesje zostały wylogowane.' : 'Sessions signed out.');
+        expectedEvents.push({ kind: 'session_revoked', session_id: target });
+        expect(await snapshot()).toEqual({ sessions: [current], events: expectedEvents });
+        expect((await sendForm(page, url, form.fields, method)).status()).toBe(method === 'POST' ? 302 : 303);
+        expect(await snapshot()).toEqual({ sessions: [current], events: expectedEvents });
+      }
+
+      const anonymous = await actorPage();
+      for (const method of ['POST', 'DELETE']) {
+        await openOwnerSession();
+        const baseline = await snapshot();
+        await page.goto(base);
+        const form = await prepare(page, othersForm);
+        const url = new URL(method === 'POST' ? `${base}/others` : base, form.url).href;
+        await rejected({ page, url, fields: form.fields, snapshot, baseline, method });
+        await anonymous.goto(`/${lang}/login`);
+        const token = await anonymous.locator('main form [name=_csrf]').inputValue();
+        expect((await sendForm(anonymous, url, { _csrf: token }, method)).status()).toBe(403);
+        expect(await snapshot()).toEqual(baseline);
+        for (const { outsider, csrf } of tokens) {
+          const response = await sendForm(outsider, url, { _csrf: csrf, account_id: owner.id }, method);
+          expect(response.status()).toBe(method === 'POST' ? 302 : 303);
+          expect(await snapshot()).toEqual(baseline);
+        }
+        await useFormMethod(page, form.url, method, () => submit(page, othersForm), url);
+        await expect(page.getByRole('status')).toHaveText(lang === 'pl' ? 'Sesje zostały wylogowane.' : 'Sessions signed out.');
+        expectedEvents.push({ kind: 'other_sessions_revoked', session_id: null });
+        expect(await snapshot()).toEqual({ sessions: [current], events: expectedEvents });
+      }
+
+      await openOwnerSession();
+      const baseline = await snapshot();
+      await page.goto(base);
+      const all = 'main form[action$="/all"]';
+      const form = await prepare(page, all);
+      const url = new URL(`${base}/all`, form.url).href;
+      await rejected({ page, url, fields: form.fields, snapshot, baseline });
+      await wrongActor({ page: anonymous, lang, url, fields: form.fields, status: 403, snapshot, baseline });
+      for (const { outsider, csrf } of tokens) {
+        expect((await sendForm(outsider, url, { _csrf: csrf, account_id: owner.id })).status()).toBe(302);
+        expect(await snapshot()).toEqual(baseline);
+      }
+      await useFormMethod(page, form.url, 'POST', () => submit(page, all), url);
+      await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
+      expectedEvents.push({ kind: 'all_sessions_revoked', session_id: null });
+      expect(await snapshot()).toEqual({ sessions: [], events: expectedEvents });
+      expect((await sendForm(page, url, form.fields)).status()).toBe(403);
+      expect(await snapshot()).toEqual({ sessions: [], events: expectedEvents });
+    } finally {
+      await Promise.all(contexts.map(context => context.close()));
+    }
+  });
+}
 
 test('journal write boundary refuses notes without source authority and isolates email preferences', async ({ page, browser }, info) => {
   test.setTimeout(240_000);
