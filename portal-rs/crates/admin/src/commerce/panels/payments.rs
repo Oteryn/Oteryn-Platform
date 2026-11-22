@@ -61,6 +61,7 @@ struct Payment {
     refund_settled: bool,
     refund_refused: bool,
     updated_at: String,
+    review_version: String,
     refund_state: Option<String>,
     refund_delivery: Option<String>,
     refund_attempts: Option<i32>,
@@ -136,37 +137,61 @@ impl Payment {
     }
 }
 
-const PAYMENTS: &str = "
+// The native order revision also covers changes that leave the payment state
+// intact. Use the same projection when rendering and recording the review.
+macro_rules! review_version {
+    () => {
+        "concat(p.state,':',to_char(p.updated_at AT TIME ZONE 'UTC','YYYYMMDDHH24MISSUS'),':',COALESCE(o.revision,0))"
+    };
+}
+
+const PAYMENTS: &str = concat!("
     SELECT p.id,p.account_id,p.provider,p.currency,p.amount,p.state,o.exponent,
         (p.state='refunded' OR (p.state='chargeback' AND EXISTS(
             SELECT 1 FROM payment_events WHERE intent_id=p.id AND state='refunded'
         ))) AS refund_settled,
         COALESCE(refund.result->>'refund_outcome'='refused',false) AS refund_refused,
         to_char(p.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS updated_at,
+        version.observed AS review_version,
         f.state AS refund_state, job.state AS refund_delivery,job.attempts AS refund_attempts,
         EXISTS(SELECT 1 FROM commerce_operations where target_id=p.id AND command->>'kind'='refund' AND result IS NULL) AS refund_requested,
         EXISTS(SELECT 1 FROM wallet_operations WHERE id=p.id AND kind='top_up') AS credited,
         r.kind AS reversal_kind, r.outcome AS reversal_outcome, h.account_id IS NOT NULL AS purchase_hold,
         COALESCE(d.owed,0) AS outstanding_debt,
-        COALESCE(o.review_required AND (review.updated_at IS NULL OR GREATEST(o.updated_at,p.updated_at) > review.updated_at),false) AS requires_review,
+        needs_review.pending AS requires_review,
         to_char(review.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS reviewed_at
     FROM payment_intents p
     LEFT JOIN commerce_refunds f ON f.intent_id=p.id
     LEFT JOIN commerce_operations refund ON refund.id=f.operation_id
     LEFT JOIN outbox job ON job.kind='commerce.refund' AND job.idempotency_key=p.id::text AND job.payload->>'operation'=f.operation_id::text
     LEFT JOIN coin_purchase_orders o ON o.payment_intent_id=p.id
+    CROSS JOIN LATERAL (SELECT ", review_version!(), " AS observed) version
     LEFT JOIN coin_purchase_reversals r ON r.order_id=o.id
     LEFT JOIN coin_purchase_holds h ON h.order_id=r.order_id AND h.account_id=p.account_id
     LEFT JOIN coin_outstanding_debts d ON d.reversal_id=r.id
     LEFT JOIN LATERAL (
-        SELECT updated_at FROM commerce_operations
+        SELECT updated_at,result->>'review_version' AS observed FROM commerce_operations
         WHERE target_id=p.id AND command->>'kind'='reconcile' AND result->>'resolution_code'='reviewed_no_payment_state_change'
         ORDER BY updated_at DESC LIMIT 1
     ) review ON true
+    CROSS JOIN LATERAL (
+        SELECT COALESCE(o.review_required,false) AND
+            CASE WHEN review.observed IS NOT NULL THEN version.observed <> review.observed
+                 ELSE review.updated_at IS NULL OR GREATEST(o.updated_at,p.updated_at) > review.updated_at
+            END AS pending
+    ) needs_review
     WHERE ($1::uuid IS NULL OR p.id=$1) AND ($2::uuid IS NULL OR p.account_id=$2)
-      AND (NOT $3 OR (o.review_required AND (review.updated_at IS NULL OR GREATEST(o.updated_at,p.updated_at) > review.updated_at)) OR job.state='dead')
+      AND (NOT $3 OR needs_review.pending OR job.state='dead')
       AND ($4::uuid IS NULL OR (p.created_at,p.id)<(SELECT created_at,id FROM payment_intents WHERE id=$4))
-    ORDER BY p.created_at DESC,p.id DESC LIMIT 26";
+    ORDER BY p.created_at DESC,p.id DESC LIMIT 26");
+
+const REVIEW_VERSION_QUERY: &str = concat!(
+    "SELECT p.state,",
+    review_version!(),
+    "
+     FROM payment_intents p LEFT JOIN coin_purchase_orders o ON o.payment_intent_id=p.id
+     WHERE p.id=$1"
+);
 
 #[derive(Template)]
 #[template(
@@ -242,6 +267,7 @@ async fn review(
 struct ReviewForm {
     id: Uuid,
     request_id: Uuid,
+    version: String,
     reason: String,
 }
 
@@ -258,6 +284,7 @@ async fn record_review(
     let Ok(Form(ReviewForm {
         id,
         request_id,
+        version,
         reason,
     })) = form
     else {
@@ -269,14 +296,22 @@ async fn record_review(
         Guard { actor, authority: &authority, csrf: csrf.map(|value| value.0) },
         Action { permission: Permission::ReconcilePayments, action: "commerce.payment.reviewed", reason: &reason },
         || {
-            if !super::super::valid_id(id) || !super::super::valid_id(request_id) {
+            if !super::super::valid_id(id) || !super::super::valid_id(request_id)
+                || version.is_empty() || version.len() > 80
+                || !version.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b':')
+            {
                 return Err(Error::Invalid);
             }
-            Ok((vec![], hash))
+            Ok((vec![], (hash, version)))
         },
-        |conn, hash| Box::pin(async move {
-            let state: String = sqlx::query_scalar("SELECT state FROM payment_intents WHERE id=$1 FOR UPDATE")
+        |conn, (hash, version)| Box::pin(async move {
+            let _: Uuid = sqlx::query_scalar("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
                 .bind(id).fetch_optional(&mut *conn).await?.ok_or(Error::Invalid)?;
+            let (state, observed): (String, String) = sqlx::query_as(REVIEW_VERSION_QUERY)
+                .bind(id).fetch_one(&mut *conn).await?;
+            if observed != version {
+                return Err(Error::Conflict);
+            }
             let payment_state = match state.as_str() {
                 "created" => "created", "pending" => "pending", "succeeded" => "succeeded",
                 "failed" => "failed", "refunded" => "refunded", "chargeback" => "chargeback",
@@ -285,16 +320,17 @@ async fn record_review(
             let inserted = sqlx::query(
                 "INSERT INTO commerce_operations(id,actor_id,target_id,command,reason_sha256,requires_approval,result,created_at,updated_at)
                  VALUES($1,$2,$3,'{\"kind\":\"reconcile\"}',$4,false,
-                        jsonb_build_object('resolution_code','reviewed_no_payment_state_change','state',$5::text,'intent',$3::uuid),statement_timestamp(),statement_timestamp())
+                        jsonb_build_object('resolution_code','reviewed_no_payment_state_change','state',$5::text,'intent',$3::uuid,'review_version',$6::text),statement_timestamp(),statement_timestamp())
                  ON CONFLICT DO NOTHING"
-            ).bind(request_id).bind(actor.account).bind(id).bind(&hash).bind(payment_state)
+            ).bind(request_id).bind(actor.account).bind(id).bind(&hash).bind(payment_state).bind(&version)
                 .execute(&mut *conn).await?.rows_affected();
             if inserted == 0 {
                 let replay: bool = sqlx::query_scalar(
                     "SELECT EXISTS(SELECT 1 FROM commerce_operations
                      WHERE id=$1 AND actor_id=$2 AND target_id=$3 AND reason_sha256=$4
-                       AND command->>'kind'='reconcile' AND result->>'resolution_code'='reviewed_no_payment_state_change')"
-                ).bind(request_id).bind(actor.account).bind(id).bind(hash).fetch_one(&mut *conn).await?;
+                       AND command->>'kind'='reconcile' AND result->>'resolution_code'='reviewed_no_payment_state_change'
+                       AND result->>'review_version'=$5)"
+                ).bind(request_id).bind(actor.account).bind(id).bind(hash).bind(version).fetch_one(&mut *conn).await?;
                 return if replay { Ok(None) } else { Err(Error::Conflict) };
             }
             Ok(Some(AuditChange {

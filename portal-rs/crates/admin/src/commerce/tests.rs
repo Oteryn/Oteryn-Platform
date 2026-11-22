@@ -2818,6 +2818,32 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
                  VALUES($1,$2,'external',$3,250,'EUR','pending')")
         .bind(intent).bind(h.target).bind(intent.to_string()).execute(&h.pool).await.unwrap();
+    let detail = staff
+        .clone()
+        .oneshot(
+            HttpRequest::get(format!("/admin/payment-review?id={intent}"))
+                .header("host", "staff.test")
+                .header("cookie", &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(detail.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(detail.into_body(), 100_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let version = html
+        .split_once("name=\"version\" value=\"")
+        .unwrap()
+        .1
+        .split_once('"')
+        .unwrap()
+        .0;
     let review = Uuid::now_v7();
     let submit_review = |reason: &str, token: &str| {
         HttpRequest::post("/admin/payment-review?lang=en")
@@ -2826,7 +2852,7 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
             .header("cookie", &cookie)
             .header("content-type", "application/x-www-form-urlencoded")
             .body(Body::from(format!(
-                "id={intent}&request_id={review}&reason={reason}&_csrf={token}"
+                "id={intent}&request_id={review}&version={version}&reason={reason}&_csrf={token}"
             )))
             .unwrap()
     };
@@ -2854,6 +2880,21 @@ async fn commerce_panel_handlers_validate_forms_and_enforce_route_permissions() 
             expected
         );
     }
+    // A different intent version cannot reuse the old review form.
+    sqlx::query("UPDATE payment_intents SET updated_at=updated_at+interval '1 second' WHERE id=$1")
+        .bind(intent)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        staff
+            .clone()
+            .oneshot(submit_review("Reviewed+payment+evidence", &csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CONFLICT
+    );
     let ledger: (String, i64) =
         sqlx::query_as("SELECT state,amount FROM payment_intents WHERE id=$1")
             .bind(intent)

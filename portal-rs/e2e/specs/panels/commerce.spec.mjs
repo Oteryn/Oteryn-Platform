@@ -251,10 +251,17 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
 
     const reconcile = '/admin/payment-review';
     const reviewForm = admin.locator(`form[action^="${reconcile}?"]`);
-    const reviewFields = {
+    const readReview = async () => ({
       ...await reviewForm.evaluate(form => Object.fromEntries(new FormData(form))),
       reason: 'Verify recorded reversal and outstanding balance',
-    };
+    });
+    const staleReview = await readReview();
+    // An order revision can change without a payment-state transition.
+    await query('UPDATE coin_purchase_orders SET revision=revision+1 WHERE id=$1', [order]);
+    await post(admin, reconcile, staleReview, 409);
+    expect(await query("SELECT id FROM commerce_operations WHERE id=$1", [staleReview.request_id])).toEqual([]);
+    await open(admin, `${base}&id=${reversed}`);
+    const reviewFields = await readReview();
     await csrfRejected(admin, reconcile, reviewFields);
     await post(page, reconcile, {...reviewFields, _csrf: refusedCsrf}, 403);
     await post(admin, reconcile, {...reviewFields, id: 'bad'}, 422);
@@ -267,6 +274,9 @@ test('payment review supports scoped search, reconciliation, and four-eyes refun
     await expect(admin.locator('main')).toContainText(lang === 'pl' ? 'Ostatnia zapisana weryfikacja' : 'Last review recorded');
     await open(admin, `${base}&queue=true`);
     await expect(admin.getByRole('link', {name: reversed})).toHaveCount(0);
+    await query('UPDATE coin_purchase_orders SET revision=revision+1 WHERE id=$1', [order]);
+    await open(admin, `${base}&queue=true`);
+    await expect(admin.getByRole('link', {name: reversed})).toBeVisible();
 
     const common = {target: intent, reason: 'Verify payment and provider records'};
     const refund = '/admin/commerce/refund';

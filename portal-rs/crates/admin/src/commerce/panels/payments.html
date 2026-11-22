@@ -37,6 +37,7 @@
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="id" value="{{ p.id }}">
 <input type="hidden" name="request_id" value="{{ request_id }}">
+<input type="hidden" name="version" value="{{ p.review_version }}">
 <label class="op-field">{{ chrome.text("staff-action-reason") }} <input class="op-input" name="reason" required minlength="8" maxlength="500"></label>
 <button class="op-button">{{ chrome.text("commerce-record-review") }}</button>
 </form>
