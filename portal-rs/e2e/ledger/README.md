@@ -36,4 +36,4 @@ node run.mjs /absolute/scratch/env.json test --project=pl-1440 --project=en-390 
 node ledger/report.mjs --delta
 ```
 
-The current-rule [baseline](LEDGER.md) uses browser form submissions and passing attempts. The [delta](DELTA.md) lists each additional row with its passing test and project. A report generated under older rules must be rebuilt before generating the delta.
+The current-rule [baseline](LEDGER.md) uses browser form submissions and passing attempts. The [delta](DELTA.md) lists each additional row with its passing test and project. [Remaining coverage gaps](GAPS.md) explains each unhit delta row. A report generated under older rules must be rebuilt before generating the delta.

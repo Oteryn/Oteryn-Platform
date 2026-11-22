@@ -2,6 +2,7 @@ import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {uuid7} from '../game-sim-helpers.mjs';
 import {test, expect} from '../fixtures.mjs';
 import {login, register, submit} from '../helpers.mjs';
+import {recordedPrincipals} from '../ledger/record.mjs';
 import {isolatedAdmin, query} from '../staff-rbac-helpers.mjs';
 
 test('staff submits filters on each analytics page', async ({browser}, info) => {
@@ -107,10 +108,15 @@ test('ledger keeps bearer credentials separate from an unrelated staff session',
   try {
     expect((await staff.page.request.get('/admin/roles', {maxRedirects: 0})).status()).toBe(200);
     const headers = {authorization: `Bearer ${access_token}`};
+    const path = '/api/v1/worlds';
     for (const client of [request, staff.page.request]) {
-      const response = await client.get('/api/v1/worlds', {headers, maxRedirects: 0});
+      const response = await client.get(path, {headers, maxRedirects: 0});
       expect(response.status()).toBe(200);
     }
+    await expect.poll(() => recordedPrincipals(info, path, 'GET')).toEqual([
+      {actor: null, credential: 'bearer', status: 200},
+      {actor: null, credential: 'bearer', status: 200},
+    ]);
   } finally {
     await staff.context.close();
   }

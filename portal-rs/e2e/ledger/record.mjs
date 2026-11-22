@@ -191,6 +191,12 @@ function start(url, method, headers) {
   return hit;
 }
 
+export async function recordedPrincipals(info, route, method) {
+  const hits = attempts.get(info)?.hits.filter(({row}) => row.route_pattern === route && row.method === method) ?? [];
+  await Promise.all(hits.map(hit => hit.actor));
+  return hits.map(({row: {actor, credential, status}}) => ({actor, credential, status}));
+}
+
 export async function flushRecorder(info) {
   const attempt = attempts.get(info);
   if (!attempt) return;
