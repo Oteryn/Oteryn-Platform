@@ -1028,3 +1028,105 @@ async fn checkout_observes_wallet_capacity() -> TestResult {
         .await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_competing_checkout_decisions_conflict_and_winner_replays() -> TestResult {
+    let Some((pool, admin, schema)) = database().await? else {
+        return Ok(());
+    };
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,email_verified_at,password_hash,status,locale) VALUES($1,'decision@example.invalid',now(),'unused-test-hash','active','en')")
+        .bind(account).execute(&pool).await?;
+    let topups = recovery_topups(&pool, vec![recovery_package()])?;
+    let intent = topups
+        .create(account, Uuid::now_v7(), "fixture".into())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+
+    let mut lock = pool.begin().await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *lock)
+        .await?;
+    sqlx::query("SELECT id FROM payment_intents WHERE id=$1 FOR UPDATE")
+        .bind(intent)
+        .execute(&mut *lock)
+        .await?;
+    let pay = {
+        let topups = topups.clone();
+        tokio::spawn(async move { topups.checkout(account, intent, Some("pay".into())).await })
+    };
+    let reject = {
+        let topups = topups.clone();
+        tokio::spawn(async move {
+            topups
+                .checkout(account, intent, Some("reject".into()))
+                .await
+        })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let waiting: i64 = sqlx::query_scalar(
+                "WITH RECURSIVE blocked(pid) AS (
+                    SELECT $1::int
+                    UNION
+                    SELECT a.pid FROM pg_stat_activity a
+                    JOIN blocked b ON b.pid = ANY(pg_blocking_pids(a.pid))
+                    WHERE a.datname = current_database() AND a.wait_event_type = 'Lock'
+                      AND a.query LIKE '%FROM payment_intents%FOR UPDATE%'
+                ) SELECT count(*) - 1 FROM blocked",
+            )
+            .bind(blocker)
+            .fetch_one(&pool)
+            .await?;
+            if waiting == 2 {
+                return Ok::<_, sqlx::Error>(());
+            }
+            assert!(!pay.is_finished() && !reject.is_finished());
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .map_err(|_| "both checkout decisions must wait for the held intent")??;
+    lock.commit().await?;
+    let (paid, rejected) = (pay.await?, reject.await?);
+    let (winning_action, losing_action, terminal_status) = match (paid, rejected) {
+        (Ok(Some(checkout)), Err(Error::Conflict)) => {
+            assert_eq!(checkout.status, "checkout-succeeded");
+            ("pay", "reject", "checkout-succeeded")
+        }
+        (Err(Error::Conflict), Ok(Some(checkout))) => {
+            assert_eq!(checkout.status, "checkout-failed");
+            ("reject", "pay", "checkout-failed")
+        }
+        other => {
+            return Err(
+                format!("expected one checkout decision and one conflict, got {other:?}").into(),
+            );
+        }
+    };
+    let replay = topups
+        .checkout(account, intent, Some(winning_action.into()))
+        .await
+        .map_err(|e| format!("{e:?}"))?
+        .ok_or("missing checkout on replay")?;
+    assert_eq!(replay.status, terminal_status);
+    assert!(matches!(
+        topups
+            .checkout(account, intent, Some(losing_action.into()))
+            .await,
+        Err(Error::Conflict)
+    ));
+    let decisions: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM payment_events WHERE intent_id=$1")
+            .bind(intent)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(decisions, 1);
+
+    pool.close().await;
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&admin)
+        .await?;
+    admin.close().await;
+    Ok(())
+}
