@@ -15,13 +15,32 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
+import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { localPostgresUrl } from './postgres-url.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 const log = (...line) => console.error('[harness]', ...line);
+
+// Pass through only validation text whose fields and format are known. Some
+// seed errors include rejected input, such as an unknown argument name.
+function seedDiagnostic(output) {
+  if (output?.error === 'conflict') return 'conflicts with existing seed data';
+  if (output?.error !== 'bad_input') return 'seed command unavailable or invalid response';
+  const reason = output.reason;
+  if (typeof reason === 'string') {
+    if (reason.startsWith('unknown argument ')) return 'unknown argument (name omitted)';
+    if (reason.startsWith('unknown entity ')) return 'unknown seed entity';
+    if (/^(?:name|region) must be 1\.\.=96 characters, trimmed$/.test(reason) ||
+        /^(?:name|region|worldId|channelId|accountId|email|password|locale|operationId|directory) (?:is required|must be a string|is not a UUID|must be a lower-case RFC 4122 UUIDv7)$/.test(reason)) {
+      return reason;
+    }
+  }
+  return 'invalid seed arguments';
+}
 
 // ---- arguments and test.env -------------------------------------------------
 const argv = process.argv.slice(2);
@@ -78,9 +97,7 @@ const ports = {
   gateway: Number(process.env.PORTAL_E2E_GATEWAY_PORT || 18090),
 };
 
-const adminURL = process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
-if (!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway local PostgreSQL administrator URL');
-if (!['localhost', '127.0.0.1', '[::1]'].includes(new URL(adminURL).hostname)) throw new Error('Local PostgreSQL only');
+const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
@@ -145,40 +162,128 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-const admin = new pg.Client({ connectionString: adminURL });
-const children = [];
-let closeOutboxBrowser;
-let staffConsole;
-let createdDatabase = false;
+async function withAdminConnection(operation) {
+  const socket = new Socket();
+  const admin = new pg.Client({
+    connectionString: adminURL.href,
+    stream: socket,
+    connectionTimeoutMillis: 3_000,
+    statement_timeout: 5_000,
+    query_timeout: 6_500,
+  });
+  // A disconnect can arrive between queries. An active operation rejects
+  // through its own promise, and the socket is always closed before returning.
+  admin.on('error', () => {});
+  try {
+    await admin.connect();
+    return await operation(admin);
+  } finally {
+    const ended = admin.end();
+    socket.destroy();
+    await ended;
+  }
+}
+
+// Hold the same session lock for CREATE and reconciliation. A disconnected
+// creator can still be finishing its statement when the cleanup client connects.
+function lockDatabaseName(admin) {
+  return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
+}
+const children = new Set();
+const useProcessGroups = process.platform !== 'win32';
+const shutdownGraceMs = 2_000;
+
+function launch(program, args, options) {
+  if (closing) throw new Error('Harness is shutting down');
+  const child = spawn(program, args, { cwd: root, detached: useProcessGroups, ...options });
+  // A failed spawn also emits close. Resolve with the failure status so the
+  // same cleanup path covers both failed spawns and processes that exit.
+  child.on('error', () => {});
+  const closed = new Promise(resolve => child.once('close', (status, signal) => {
+    children.delete(tracked);
+    resolve({ status, signal });
+  }));
+  const tracked = { child, closed };
+  children.add(tracked);
+  return tracked;
+}
+
+function signalChild(child, signal) {
+  if (!child.pid) return;
+  try {
+    if (useProcessGroups) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
+
+async function stopChild({ child, closed }) {
+  signalChild(child, 'SIGINT');
+  const escalation = setTimeout(() => signalChild(child, 'SIGKILL'), shutdownGraceMs);
+  try {
+    await closed;
+  } finally {
+    clearTimeout(escalation);
+    // A build can exit before a compiler subprocess in its group.
+    if (useProcessGroups) signalChild(child, 'SIGKILL');
+  }
+}
 let closing = false;
+let outboxBrowser;
+let staffConsoleStartup;
+let createRequested = false;
+let creation;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
-  await Promise.all(children.map(async child => {
-    if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
-    const stopped = new Promise(resolve => child.once('exit', resolve));
-    child.kill('SIGINT');
-    await stopped;
-  }));
+  // A signal can arrive while CREATE DATABASE is in flight.
+  await creation.catch(() => {});
+  await Promise.all([...children].map(stopChild));
+  const closeOutboxBrowser = await outboxBrowser?.catch(() => {});
   closeOutboxBrowser?.();
+  const staffConsole = await staffConsoleStartup?.catch(() => {});
   staffConsole?.close();
-  if (createdDatabase && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+  if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
-      await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+      await withAdminConnection(async admin => {
+        await lockDatabaseName(admin);
+        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      });
     } catch {
-      log('failed to drop database', dbName);
+      log('failed to reconcile disposable database', dbName);
       code = 1;
     }
   }
-  await admin.end().catch(() => {});
   process.exit(code);
 }
+process.on('SIGINT', () => close(0));
+process.on('SIGTERM', () => close(0));
+
+async function createDatabase() {
+  await withAdminConnection(async admin => {
+    if (closing) return;
+    await lockDatabaseName(admin);
+    if (closing) return;
+    const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
+    if (closing) return;
+    if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    createRequested = true;
+    try {
+      await admin.query('CREATE DATABASE "' + dbName + '"');
+    } catch (error) {
+      // A definite name collision belongs to the existing database owner.
+      if (error.code === '42P04') createRequested = false;
+      throw error;
+    }
+  });
+}
+creation = createDatabase();
 
 async function start() {
-  await admin.connect();
-  await admin.query(`CREATE DATABASE "${dbName}"`);
-  createdDatabase = true;
-  const databaseURL = (() => { const url = new URL(adminURL); url.pathname = `/${dbName}`; return url.toString(); })();
+  await creation;
+  if (closing) return;
+  const databaseURL = new URL(`/${dbName}`, adminURL).href;
   log('database', dbName);
 
   // Gateway service token for the native admission listener (sha256 hex on the portal side).
@@ -190,8 +295,11 @@ async function start() {
 
   if (argv.includes('--staff-console')) {
     const { prepareAdminAgent } = await import('./admin-agent.mjs');
-    staffConsole = await prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports });
+    if (closing) return;
+    staffConsoleStartup = prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports });
   }
+  const staffConsole = await staffConsoleStartup;
+  if (closing) return;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
     ...identityEnv,
@@ -215,16 +323,33 @@ async function start() {
   for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
 
   // ---- build, migrate ----------------------------------------------------------
-  function run(program, args, options = {}) {
-    const result = spawnSync(program, args, { cwd: root, env, encoding: 'utf8', ...options });
-    if (result.status !== 0) throw new Error(`${path.basename(program)} ${args[0] ?? ''} failed (${result.status})`);
-    return result;
+  async function run(program, args, {
+    commandEnv = env, stdio = ['ignore', 'pipe', 'ignore'],
+    maxBuffer = 1 << 20, allowed = [0], reportPid = false, label,
+  } = {}) {
+    const { child, closed } = launch(program, args, { env: commandEnv, stdio });
+    const command = `${path.basename(program)} ${args[0] ?? ''}`;
+    if (reportPid && child.pid) log(`${command} started (pid ${child.pid})`);
+    const output = [];
+    let bytes = 0;
+    child.stdout?.on('data', chunk => {
+      bytes += chunk.length;
+      if (bytes <= maxBuffer) output.push(chunk);
+      else signalChild(child, 'SIGKILL');
+    });
+    const { status, signal } = await closed;
+    if (closing) throw new Error('Harness is shutting down');
+    if (!allowed.includes(status) || bytes > maxBuffer) {
+      log(`${label ?? command} failed (${signal ?? status})`);
+      throw new Error('Harness command failed');
+    }
+    return { status, stdout: Buffer.concat(output).toString('utf8') };
   }
   let binary = process.env.PORTAL_E2E_BINARY;
   if (!binary) {
     log('cargo build --locked -p oteryn-portal');
-    run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], env: process.env });
-    const meta = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { env: process.env, maxBuffer: 64 << 20 }).stdout);
+    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env });
+    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: process.env, maxBuffer: 64 << 20 })).stdout);
     // A private copy: a shared target directory may be rebuilt by another checkout.
     binary = path.join(dirs.bin, 'oteryn-portal');
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
@@ -235,7 +360,7 @@ async function start() {
   if (outbox) {
     env.OTERYN_SHOP_TEST_PAYMENT_KEY = crypto.randomBytes(32).toString('hex');
     env.PORTAL_E2E_OUTBOX_REPORT = path.join(out, 'report.json');
-    env.PORTAL_E2E_OUTBOX_BINARY = path.resolve(binary);
+    env.PORTAL_E2E_OUTBOX_BINARY = binary;
     env.PORTAL_E2E_DATABASE_URL = databaseURL;
     env.OTERYN_SMTP_HOST = 'localhost';
     env.OTERYN_SMTP_USERNAME = 'local';
@@ -243,27 +368,43 @@ async function start() {
     env.OTERYN_SMTP_FROM = 'portal@local.test';
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
-    closeOutboxBrowser = await startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    if (closing) return;
+    outboxBrowser = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    await outboxBrowser;
+    if (closing) return;
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
   log('migrate');
   if (staffConsole) fs.writeFileSync(path.join(dirs.secrets, 'seed-binary'), binary, { mode: 0o600 });
-  run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a'), fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a')] });
+  const migrationLog = fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a');
+  try {
+    await run(binary, ['migrate'], { stdio: ['ignore', migrationLog, migrationLog], reportPid: true });
+  } finally {
+    fs.closeSync(migrationLog);
+  }
 
   // ---- services ----------------------------------------------------------------
   for (const role of ['serve', 'worker', 'gateway']) {
     const file = path.join(dirs.logs, `${role}.log`);
-    const child = spawn(binary, [role], { cwd: root, env, stdio: ['ignore', fs.openSync(file, 'a'), fs.openSync(file, 'a')] });
-    child.once('error', error => { if (!closing) { log(`${role} failed to start (${error.code})`); void close(1); } });
-    child.once('exit', status => { if (!closing) { log(`${role} exited (${status}); see ${file}`); close(1); } });
-    children.push(child);
+    const fd = fs.openSync(file, 'a');
+    try {
+      const { child, closed } = launch(binary, [role], { env, stdio: ['ignore', fd, fd] });
+      child.once('error', () => { log(`failed to start ${role}; see ${file}`); void close(1); });
+      void closed.then(({ status, signal }) => {
+        if (!closing) { log(`${role} exited (${signal ?? status}); see ${file}`); void close(1); }
+      });
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 
   const deadline = Date.now() + 120_000;
   async function until(probe, what) {
     for (;;) {
-      if (await probe().catch(() => false)) return;
+      const ready = await probe().catch(() => false);
+      if (closing) throw new Error('Harness is shutting down');
+      if (ready) return;
       if (Date.now() > deadline) { log(`${what} not ready`); await close(1); }
       await new Promise(resolve => setTimeout(resolve, 250));
     }
@@ -293,16 +434,25 @@ async function start() {
   const pending = [];
   if (seedPlanFile) {
     const plan = JSON.parse(fs.readFileSync(seedPlanFile, 'utf8'));
-    for (const step of plan.steps ?? plan) {
+    for (const [index, step] of (plan.steps ?? plan).entries()) {
+      const name = typeof step.name === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(step.name)
+        ? step.name : '#' + (index + 1);
+      const label = 'seed step ' + name;
       const args = JSON.parse(JSON.stringify(step.args ?? {}), (key, value) => typeof value !== 'string' ? value : value.replace(/\$\{([A-Za-z0-9_-]+)\.([A-Za-z0-9_]+)\}/g, (_, name, field) => {
-        if (seed[name]?.[field] === undefined) throw new Error(`seed step ${step.name}: unknown reference ${name}.${field}`);
+        if (seed[name]?.[field] === undefined) {
+          log(label + ' failed: unknown seed reference');
+          throw new Error('Harness seed reference failed');
+        }
         return String(seed[name][field]);
       }));
-      const result = spawnSync(binary, ['seed', step.entity, JSON.stringify(args)], { cwd: root, env, encoding: 'utf8' });
+      const result = await run(binary, ['seed', step.entity, JSON.stringify(args)], { allowed: [0, 1, 2, 3], label });
       let output;
       try { output = JSON.parse(result.stdout); } catch { output = { error: 'unavailable', reason: 'no JSON output' }; }
+      if (result.status === 1 || result.status === 2) {
+        log(label + ' failed (' + result.status + '): ' + seedDiagnostic(output));
+        throw new Error('Harness seed step failed');
+      }
       if (result.status === 3) { pending.push({ step: step.name, entity: step.entity, ...output }); seed[step.name] = output; continue; }
-      if (result.status !== 0) { log(`seed step ${step.name} failed: ${JSON.stringify(output)}`); await close(1); }
       seed[step.name ?? step.entity] = output;
     }
   }
@@ -333,13 +483,11 @@ async function start() {
   console.log(JSON.stringify(report));
   if (exitAfterReady) await close(0);
 }
-
-process.on('SIGINT', () => void close(0));
-process.on('SIGTERM', () => void close(0));
 try {
   await start();
 } catch (error) {
-  // Startup errors can come from the database client or tool environment.
-  log('startup failed', error.code ?? error.name);
-  await close(1);
+  if (!closing) {
+    log('startup failed', error.code ?? error.name);
+    await close(1);
+  }
 }
