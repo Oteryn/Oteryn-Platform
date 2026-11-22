@@ -91,11 +91,11 @@ try {
   let nightlyCases;
   if (tier === 'nightly') {
     const plans = await planNightly(async (filters, label) => {
-      const logfile = `discovery-${label}.json`;
-      const status = await launch('run.mjs', [...args, ...filters, '--list', '--reporter=json'], logfile,
-        { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: '' }).done;
+      const discovery = join(scratch, `discovery-${label}.json`);
+      const status = await launch('run.mjs', [...args, ...filters, '--list', '--reporter=json'],
+        `discovery-${label}.log`, { ...env, PLAYWRIGHT_JSON_OUTPUT_FILE: discovery }).done;
       if (status !== 0) throw new Error(`Playwright discovery failed for ${label}`);
-      return discoveredCases(JSON.parse(await readFile(join(scratch, logfile), 'utf8')).suites);
+      return discoveredCases(JSON.parse(await readFile(discovery, 'utf8')).suites);
     });
     const plan = plans[Number(shard) - 1];
     args.push(...plan.filters);
