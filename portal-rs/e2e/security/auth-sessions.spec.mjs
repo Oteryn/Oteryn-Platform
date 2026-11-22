@@ -20,7 +20,12 @@ test('login and sudo rotate sessions, and logout removes the active session', as
     expect(signedIn !== anonymous, 'login rotated the guest session').toBe(true);
     await expectSession(signedIn, account.id);
     await expectSession(anonymous);
-    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    const requiresSudo = async requester => {
+      const response = await requester.get(exportPath, {maxRedirects: 0});
+      expect(response.status()).toBe(303);
+      expect(response.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
+    };
+    await requiresSudo(page.request);
 
     const other = await second.newPage();
     await login(other, lang, account);
@@ -31,7 +36,7 @@ test('login and sudo rotate sessions, and logout removes the active session', as
     expect(refused.status()).toBe(302);
     expect(refused.headers().location).toBe(`/${lang}/account/sudo`);
     await expectSession(signedIn, account.id);
-    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    await requiresSudo(page.request);
     await submit(page, 'main form', { current_password: account.password });
     await expect(page).toHaveURL(new RegExp(`/${lang}/password/change$`));
     const elevated = await cookie(context);
@@ -39,13 +44,13 @@ test('login and sudo rotate sessions, and logout removes the active session', as
     await expectSession(elevated, account.id);
     await expectSession(signedIn);
     expect((await page.request.get(exportPath)).status()).toBe(200);
-    expect((await other.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    await requiresSudo(other.request);
     const expired = await query(
       "UPDATE web_sessions SET sudo_until=clock_timestamp()-interval '1 second' WHERE id_hash=$1 AND account_id=$2 RETURNING account_id",
       [hash(elevated), account.id],
     );
     expect(expired).toEqual([{ account_id: account.id }]);
-    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    await requiresSudo(page.request);
 
 
     await logout(page, lang);

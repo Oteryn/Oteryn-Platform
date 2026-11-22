@@ -384,9 +384,11 @@ test('a new player goes from discovering Oteryn to managing their account', asyn
     await submit(page, 'main form', { current_password: account.password });
     const exportLink = await visibleLink(page, path('account/privacy/export'));
     await expect(exportLink).toHaveText(t('Pobierz dane konta', 'Download account data'));
-    const downloaded = page.waitForEvent('download');
-    await exportLink.click();
-    const file = await downloaded;
+    await follow(page, path('account/privacy/export'));
+    const [file] = await Promise.all([
+      page.waitForEvent('download'),
+      main.getByRole('button', { name: t('Pobierz dane konta', 'Download account data') }).click(),
+    ]);
     expect(file.suggestedFilename()).toBe('account-data.json');
     const data = JSON.parse(await readFile(await file.path(), 'utf8'));
     expect(data.schema_version).toBe(1);

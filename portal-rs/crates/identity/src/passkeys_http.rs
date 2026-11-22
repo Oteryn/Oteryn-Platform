@@ -118,6 +118,18 @@ impl Page {
             .into_owned()
     }
 }
+async fn manage(
+    state: State<Passkeys>,
+    lang: Path<String>,
+    Extension(session): Extension<BrowserSession>,
+) -> Result<Response, StatusCode> {
+    language(&lang)?;
+    if session.account_id().await.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    page(state, lang, Extension(session)).await
+}
+
 async fn page(
     State(service): State<Passkeys>,
     Path(lang): Path<String>,

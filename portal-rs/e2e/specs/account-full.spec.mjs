@@ -1,7 +1,7 @@
 import {createHmac} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 import {test, expect} from '../fixtures.mjs';
-import {csrfRejected, pool, submit} from '../helpers.mjs';
+import {csrfRejected, exportOptions, pool, submit} from '../helpers.mjs';
 import {post, privatePage, refusesAnonymous, seedPlayer, signIn, strings, sudo} from '../account-helpers.mjs';
 
 const identity = 'crates/identity/src';
@@ -119,23 +119,27 @@ test('sudo unlocks the owner JSON download with an explicit public field set', a
   const other = seedPlayer(lang);
   await refusesAnonymous(page, target, 303, `/${lang}/login`);
   await signIn(page, lang, owner);
-  expect((await page.request.get(target)).status()).toBe(403);
+  const beforeSudo = await page.request.get(target, {maxRedirects: 0});
+  expect(beforeSudo.status()).toBe(303);
+  expect(beforeSudo.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
 
   await page.goto(`/${lang}/account/notifications`);
   await submit(page, 'main form', {news_email: true, news_portal: false});
   await privatePage(page, `/${lang}/account/consents`);
   await submit(page, 'main form:has(#play_session)', {granted: true});
   const db = pool();
+  let fixture;
   try {
-    await db.query(
-      "INSERT INTO notifications(account_id,category,subject,body) VALUES($1,'news','Local export fixture','Synthetic notice'),($2,'news','Foreign export fixture','Foreign notice')",
+    const {rows} = await db.query(
+      "INSERT INTO notifications(account_id,category,subject,body) VALUES($1,'news','Local export fixture','Synthetic notice'),($2,'news','Foreign export fixture','Foreign notice') RETURNING account_id, jsonb_build_object('id',id,'category',category,'subject',subject,'body',body,'read_at',read_at,'created_at',created_at) AS exported",
       [owner.id, other.id],
     );
+    fixture = rows.find(row => row.account_id === owner.id).exported;
   } finally {
     await db.end();
   }
   await sudo(page, lang, owner);
-  const response = await page.request.get(target);
+  const response = await page.request.post(target, await exportOptions(page, lang));
   expect(response.status()).toBe(200);
   expect(response.headers()).toMatchObject({
     'content-disposition': 'attachment; filename="account-data.json"',
@@ -144,15 +148,13 @@ test('sudo unlocks the owner JSON download with an explicit public field set', a
     'x-content-type-options': 'nosniff',
   });
 
-  const link = page.locator('main').getByRole('link', {name: 'account-data.json'});
-  // The production export is a direct URL. Use a browser link to verify attachment handling.
-  await page.locator('main').evaluate((main, href) => {
-    const anchor = document.createElement('a');
-    anchor.href = href;
-    anchor.textContent = 'account-data.json';
-    main.append(anchor);
-  }, `${target}?account_id=${other.id}`);
-  const [download] = await Promise.all([page.waitForEvent('download'), link.click()]);
+  const confirmation = await page.goto(`${target}?account_id=${other.id}`);
+  expect(confirmation.status()).toBe(200);
+  expect(confirmation.headers()['content-disposition']).toBeUndefined();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('main form[method=post] button[type=submit]').click(),
+  ]);
   expect(download.suggestedFilename()).toBe('account-data.json');
   expect(await download.failure()).toBeNull();
   const data = JSON.parse(await readFile(await download.path(), 'utf8'));
@@ -162,14 +164,12 @@ test('sudo unlocks the owner JSON download with an explicit public field set', a
   expect(data.schema_version).toBe(1);
   expect(data.account).toMatchObject({id: owner.id, email: owner.email, locale: lang, status: 'active'});
   expect(Object.keys(data.account).sort()).toEqual([
-    'created_at', 'email', 'email_verified_at', 'id', 'locale', 'public_account_association',
+    'created_at', 'display_name', 'email', 'email_verified_at', 'id', 'locale', 'public_account_association',
     'public_status_visible', 'status', 'updated_at',
   ]);
   expect(data.notification_preferences).toContainEqual({category: 'news', email_enabled: true, portal_enabled: false});
   expect(data.consents).toContainEqual(expect.objectContaining({document_kind: 'play_session', granted: true}));
-  expect(data.notifications).toContainEqual(expect.objectContaining({
-    category: 'news', subject: 'Local export fixture', body: 'Synthetic notice', read_at: null,
-  }));
+  expect(data.notifications).toContainEqual(fixture);
   expect(data.notifications.map(item => item.subject)).not.toContain('Foreign export fixture');
   expect(data.sessions).toHaveLength(1);
   expect(Object.keys(data.sessions[0]).sort()).toEqual(['created_at', 'device', 'expires_at', 'ip', 'last_seen_at']);
