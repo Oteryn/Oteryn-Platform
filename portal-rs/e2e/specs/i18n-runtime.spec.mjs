@@ -10,7 +10,7 @@ import { uuid7 } from '../support/bazaar-game.mjs';
 
 const promotionRoute = '/{lang}/account/bazaar/{listing}/promote';
 const collectionRoutes = [
-  { route: '/{lang}/collection/{character}', warmStatus: 403 },
+  { route: '/{lang}/collection/{character}', warmStatus: 200 },
   // A portfolio does not supply the Game sprite projection.
   { route: '/{lang}/collection/{character}/cards/{id}/image', warmStatus: 503 },
 ];
@@ -174,7 +174,7 @@ async function publishWarmPortfolio(page, locale) {
     'SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2',
     [buyer, buyerCharacter],
   );
-  return name;
+  return { id: buyerCharacter, name };
 }
 
 test.afterAll(async () => {
@@ -223,15 +223,20 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
   const cold = await playerContext.newPage();
   const warm = await warmPlayerContext.newPage();
   try {
-    await publishWarmPortfolio(warm, locale);
+    const { id: character } = await publishWarmPortfolio(warm, locale);
     for (const { route, warmStatus } of collectionRoutes) {
-      const path = targetFor(route, locale);
+      const path = targetFor(route.replace('{character}', character), locale);
       const coldExpected = expectations.get(route);
       expect(coldExpected?.actor).toBe('player');
       expect((await cold.goto(path)).status(), `${route} (cold ownership)`).toBe(coldExpected.status);
       await assertLocale(cold, locale, `${route} (cold ownership)`);
       expect((await warm.goto(path)).status(), `${route} (warm ownership)`).toBe(warmStatus);
       await assertLocale(warm, locale, `${route} (warm ownership)`);
+      if (warmStatus === 200) {
+        const unknown = targetFor(route, locale);
+        expect((await warm.goto(unknown)).status(), `${route} (unknown character)`).toBe(403);
+        await assertLocale(warm, locale, `${route} (unknown character)`);
+      }
     }
   } finally {
     await cold.close();
@@ -263,7 +268,7 @@ test('locale parity across the GET route inventory', async ({ browser, page: ano
         const witness = `${actor} ${locale} ${route}`;
         await test.step(witness, async () => {
           if (actor === 'player' && route.endsWith('/account/characters/{name}/profile')) {
-            const ownedCharacter = await publishWarmPortfolio(warmPlayer, locale);
+            const { name: ownedCharacter } = await publishWarmPortfolio(warmPlayer, locale);
             const profile = route.replace('{lang}', locale).replace('{name}', encodeURIComponent(ownedCharacter));
             const result = await warmPlayer.goto(profile, { waitUntil: 'domcontentloaded' });
             expect.soft(result.status(), witness).toBe(200);

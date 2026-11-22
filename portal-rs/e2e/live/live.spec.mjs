@@ -160,13 +160,18 @@ async function openPage(context, source, report, note, request, responseNote) {
   const documentResponses = new Map();
   const pending = new Set();
   const policyBlocks = new Set();
+  const expectedDocumentStatuses = new Map();
   let closing = false;
   const requestFailure = (url, reason) => report('console/CSP', source, `${url}: ${reason}`);
   page.on('console', message => {
     const value = message.text();
     if (message.type() === 'error' || /mixed content/i.test(value)) {
       const location = message.location();
-      if (!policyBlocks.has(location.url)) requestFailure(location.url || source, value);
+      const status = expectedDocumentStatuses.get(location.url);
+      const documentStatusMessage = /^Failed to load resource: the server responded with a status of (\d+)(?: \([^)]*\))?$/.exec(value);
+      if (!policyBlocks.has(location.url) && !(status && Number(documentStatusMessage?.[1]) === status)) {
+        requestFailure(location.url || source, value);
+      }
     }
   });
   page.on('pageerror', error => requestFailure(source, error.message));
@@ -198,6 +203,7 @@ async function openPage(context, source, report, note, request, responseNote) {
         const response = await request(url, intercepted.method);
         if (resourceType === 'Document') documentResponses.set(url.href, response);
         const expectedUnavailable = resourceType === 'Document' && responseNote(url, response);
+        if (expectedUnavailable) expectedDocumentStatuses.set(url.href, response.status);
         if (!expectedUnavailable && (response.status < 200 || response.status >= 400)) {
           report('broken links', source, `HTTP ${response.status} ${url.href}`);
         }
@@ -257,12 +263,14 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
   };
   const note = (url, evidence) => notes.add(JSON.stringify({ url: diagnosticURL(url), evidence: redactURLs(evidence) }));
 
+  const expectedGameRefusal = (url, result) => url.origin === home.origin && isGameUnavailable(url, result);
+
   function responseNote(url, result) {
     if (legalPath.test(url.pathname) && [404, 410].includes(result.status)) {
       note(url, `legal content unavailable (HTTP ${result.status})`);
       return true;
     }
-    if (url.origin === home.origin && isGameUnavailable(url, result)) {
+    if (expectedGameRefusal(url, result)) {
       note(url, 'Game data unavailable (HTTP 503, localized portal view, no-store)');
       return true;
     }
@@ -289,7 +297,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         if ((result.status < 200 || result.status >= 400) && !(document && responseNote(url, result))) {
           defect('broken links', source, `HTTP ${result.status} ${url.href}`);
         }
-        return result;
+        return { ...result, url };
       }
       defect('broken links', source, `redirect loop or over 10 hops from ${target.href}`);
     } catch (error) {
@@ -332,8 +340,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       break;
     }
     const first = await probe(url, url);
-    if (!first || (first.status >= 400 && legalPath.test(url.pathname))) continue;
-    if (first.status >= 400) continue;
+    if (!first || (first.status >= 400 && !expectedGameRefusal(first.url, first))) continue;
     if (!first.headers.get('content-type')?.includes('text/html')) {
       defect('other', url, `expected a rendered HTML page, received ${first.headers.get('content-type') || '(no content-type)'}`);
       continue;
@@ -352,7 +359,8 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         defect('other', url, `localized home redirected to ${final.href}`);
       }
       const result = documentResponses.get(final.href);
-      if (!result || result.status >= 400 || inspected.has(final.href)) continue;
+      if (!result || (result.status >= 400 && !expectedGameRefusal(final, result)) ||
+          inspected.has(final.href)) continue;
       inspected.add(final.href);
       console.log(`LIVE PAGE ${info.project.name} ${diagnosticURL(final)}`);
       const data = await page.evaluate(inspectPage, { language, assetSelector });
@@ -401,8 +409,10 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
         }
         const link = data.links.includes(value);
         const locale = target.pathname.match(/^\/(pl|en)(?:\/|$)/)?.[1];
-        const response = await probe(final, target, link && !data.assets.includes(value));
-        if (link && response?.status < 400 && response.headers.get('content-type')?.includes('text/html') &&
+        const document = link && !data.assets.includes(value);
+        const response = await probe(final, target, document);
+        if (document && response && (response.status < 400 || expectedGameRefusal(response.url, response)) &&
+            response.headers.get('content-type')?.includes('text/html') &&
             (!locale || locale === language)) enqueue(target);
       }
     } catch (error) {
@@ -411,7 +421,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       await browser.close();
     }
   }
-  if (!innerChecked) defect('headers', home, 'no successful inner page was available for header checks');
+  if (!innerChecked) defect('headers', home, 'no rendered inner page was available for header checks');
 
   await edgeCheck('/robots.txt', ({ status, body }) =>
     status === 200 && /^\s*user-agent\s*:/im.test(body.toString()) ? null : `robots.txt HTTP ${status}, expected rules`);
