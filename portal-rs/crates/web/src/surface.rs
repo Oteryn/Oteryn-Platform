@@ -2,7 +2,6 @@
 
 use axum::{
     Router,
-    body::Body,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -224,7 +223,6 @@ async fn policy(mut request: Request, next: Next) -> Response {
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
-    let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
     let nonce = if getrandom::fill(&mut random).is_ok() {
         random
@@ -326,9 +324,6 @@ async fn policy(mut request: Request, next: Next) -> Response {
         "no-store"
     };
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    if is_head {
-        *response.body_mut() = Body::empty();
-    }
     response
 }
 
@@ -342,7 +337,7 @@ fn hashed_name(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::to_bytes;
+    use axum::body::{Body, to_bytes};
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
 

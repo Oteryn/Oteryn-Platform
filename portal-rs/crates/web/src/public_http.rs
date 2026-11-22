@@ -2,7 +2,6 @@
 
 use axum::{
     Router,
-    body::Body,
     extract::Request,
     handler::Handler,
     http::{HeaderMap, HeaderValue, Method, StatusCode, header, uri::Authority},
@@ -62,8 +61,7 @@ pub(crate) fn html_refusal(request: &Request) -> Option<Response> {
 async fn policy(request: Request, next: Next) -> Response {
     let headers = request.headers();
     let static_asset = request.uri().path().starts_with("/static/");
-    let head = request.method() == Method::HEAD;
-    let reads_document = request.method() == Method::GET || head;
+    let reads_document = matches!(*request.method(), Method::GET | Method::HEAD);
     let accepts_html = !reads_document || accepts_html(headers);
 
     let mut response = if oversized(headers) {
@@ -126,9 +124,6 @@ async fn policy(request: Request, next: Next) -> Response {
         headers
             .entry(header::CACHE_CONTROL)
             .or_insert(HeaderValue::from_static("no-store"));
-    }
-    if head {
-        *response.body_mut() = Body::empty();
     }
     response
 }
@@ -207,8 +202,52 @@ fn refusal(status: StatusCode, path: &str, lang: surface::Language) -> Response 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::http::Request;
+    use axum::{body::Body, http::Request};
     use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn head_preserves_get_metadata_with_both_policy_layers()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let routes = || {
+            Router::new().route(
+                "/en/example",
+                get(|| async { axum::response::Html("<p>Example</p>") }),
+            )
+        };
+        for app in [
+            secure_public(routes()),
+            secure_public(surface::finish(routes())),
+        ] {
+            let get = app
+                .clone()
+                .oneshot(Request::get("/en/example").body(Body::empty())?)
+                .await?;
+            let head = app
+                .oneshot(Request::head("/en/example").body(Body::empty())?)
+                .await?;
+            assert_eq!(get.status(), StatusCode::OK);
+            assert_eq!(head.status(), get.status());
+            for name in [
+                header::CONTENT_TYPE,
+                header::CONTENT_LENGTH,
+                header::CACHE_CONTROL,
+            ] {
+                assert_eq!(head.headers()[&name], get.headers()[name]);
+            }
+            let content_length = get.headers()[header::CONTENT_LENGTH]
+                .to_str()?
+                .parse::<usize>()?;
+            let body = axum::body::to_bytes(get.into_body(), 1024).await?;
+            assert!(!body.is_empty());
+            assert_eq!(content_length, body.len());
+            assert!(
+                axum::body::to_bytes(head.into_body(), 1024)
+                    .await?
+                    .is_empty()
+            );
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn html_negotiation_leaves_unsupported_methods_to_axum()
