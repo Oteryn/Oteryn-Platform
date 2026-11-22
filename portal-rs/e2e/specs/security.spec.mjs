@@ -10,9 +10,20 @@ test('privacy changes persist and account export contains the owning account',as
  await page.reload();
  await expect(page.locator('[name=public_account_association]')).toBeChecked();
  await expect(page.locator('[name=public_status_visible]')).toBeChecked();
- await page.goto(`/${lang}/account/sudo`);
- await submit(page,'main form',{current_password:account.password});
- const exported=await page.request.get(`/${lang}/account/privacy/export`);
+ const exportPath=`/${lang}/account/privacy/export`;
+ expect((await page.request.get(exportPath)).status()).toBe(403);
+ await page.locator('nav[data-panel="player"] a[href$="return_to=export"]').click();
+ await expect(page).toHaveURL(url=>url.pathname===`/${lang}/account/sudo` && url.searchParams.get('return_to')==='export');
+ const [download]=await Promise.all([
+  page.waitForEvent('download'),
+  submit(page,'main form',{current_password:account.password}),
+ ]);
+ expect(new URL(download.url()).pathname).toBe(exportPath);
+ const data=await download.createReadStream();
+ const chunks=[];
+ for await(const chunk of data) chunks.push(chunk);
+ expect(Buffer.concat(chunks).toString()).toContain(account.email);
+ const exported=await page.request.get(exportPath);
  expect(exported.status()).toBe(200);
  expect(exported.headers()['cache-control']).toContain('no-store');
  expect(await exported.text()).toContain(account.email);

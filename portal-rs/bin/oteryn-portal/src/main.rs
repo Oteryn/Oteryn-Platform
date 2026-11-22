@@ -233,8 +233,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 oteryn_wiki::entities::EntityState::configured(db.clone(), catalog_ready.clone()),
             );
             let app = app.merge(oteryn_support::tickets::configured_router(db.clone())?);
-            let app = app.merge(credentials_http::configured_router(db.clone()));
-            let app = app.merge(oteryn_identity::export::configured_router(db.clone()));
+            let credentials = credentials_http::configured_router(db.clone());
+            let export = oteryn_identity::export::configured_router(db.clone());
+            let export_confirmation_enabled = credentials.has_routes() && export.has_routes();
+            let app = app.merge(credentials).merge(export);
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
                 db.clone(),
@@ -390,8 +392,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     "panel-email",
                 ),
                 (
-                    std::env::var("OTERYN_ACCOUNT_EXPORT_ENABLED").as_deref() == Ok("true"),
-                    "account/privacy/export",
+                    export_confirmation_enabled,
+                    "account/sudo?return_to=export",
                     "panel-export",
                 ),
                 (
