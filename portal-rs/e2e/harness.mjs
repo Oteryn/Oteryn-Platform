@@ -47,11 +47,43 @@ const argv = process.argv.slice(2);
 const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
+const outbox = argv.includes('--outbox');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
   const match = /^([A-Z][A-Z0-9_]*)=(.*)$/.exec(line.trim());
   if (match) testEnv[match[1]] = process.env[match[1]] ?? match[2];
+}
+if (outbox) {
+  Object.assign(testEnv, {
+    OTERYN_ACCOUNT_LOGIN: 'true',
+    OTERYN_ACCOUNT_CREDENTIALS: 'true',
+    OTERYN_CHARACTER_SERVICES_ENABLED: 'true',
+    OTERYN_CHARACTER_SERVICES_SCHEDULE_ENABLED: 'true',
+    OTERYN_CHARACTER_SERVICES_CANCEL_ENABLED: 'true',
+    OTERYN_CHARACTER_SERVICES_RENAME_ENABLED: 'true',
+    OTERYN_CHARACTER_RENAME_PRODUCT_ID: 'character.rename',
+    OTERYN_CHARACTER_RENAME_PRODUCT_VERSION: '1',
+    OTERYN_CHARACTER_RENAME_PRICE: '70',
+    OTERYN_WALLET_ENABLED: 'true',
+    OTERYN_SHOP_ENABLED: 'true',
+    OTERYN_SHOP_TOP_UPS_ENABLED: 'true',
+    OTERYN_SHOP_TEST_PAYMENTS_ENABLED: 'true',
+    OTERYN_SHOP_TOP_UP_PACKAGES: JSON.stringify([{ key: 'e2e-coins', coins: 1234, minor_units: 250, currency: 'PLN' }]),
+    OTERYN_PAYMENTS_ENABLED: 'true',
+    OTERYN_PREMIUM_ENABLED: 'true',
+    PANEL_PREMIUM_PAYMENTS: 'true',
+    PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED: 'true',
+    PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS: '["ITEM","PREMIUM_TIME"]',
+    PLATFORM_BUILD_REVISION: '0000000000000000000000000000000000000001',
+    OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED: 'true',
+    OTERYN_CHARACTER_SERVICES_PROJECTION_ENABLED: 'true',
+    OTERYN_CHARACTER_SERVICES_COMMAND_AUTHORITY: testEnv.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
+    OTERYN_CHARACTER_SERVICES_PROJECTION_AUTHORITY: testEnv.PORTAL_CHARACTER_SERVICES_PROJECTION_AUTHORITY,
+    OTERYN_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS: '0',
+    PORTAL_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS: '0',
+    PORTAL_CHARACTER_SERVICES_FRESHNESS_SECONDS: '30',
+  });
 }
 const port = name => {
   const value = Number(testEnv[name]);
@@ -104,6 +136,8 @@ const identities = [
   ['scope-assignment', 'GAME_AUTH_NATIVE_SCOPE_ASSIGNMENT_IDENTITIES', scopes],
   ['bootstrap-intents', 'GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_MTLS_CLIENT_IDENTITY'],
   ['lcfa', 'PORTAL_LCFA_INTERNAL_IDENTITY'],
+  ['journal-items', 'PORTAL_PLAYERDATA_JOURNAL_ITEMS_SAN'],
+  ['journal-progress', 'PORTAL_PLAYERDATA_JOURNAL_PROGRESS_SAN'],
   ['character-commands', 'PORTAL_CHARACTER_COMMAND_IDENTITIES', []],
   ['character-services', 'PORTAL_CHARACTER_SERVICES_IDENTITY'],
   ['restore-notice', 'PORTAL_GAME_RESTORE_NOTICE_IDENTITY'],
@@ -196,6 +230,7 @@ async function stopChild({ child, closed }) {
   }
 }
 let closing = false;
+let outboxBrowser;
 let createRequested = false;
 let creation;
 async function close(code = 0) {
@@ -204,6 +239,8 @@ async function close(code = 0) {
   // A signal can arrive while CREATE DATABASE is in flight.
   await creation.catch(() => {});
   await Promise.all([...children].map(stopChild));
+  const closeOutboxBrowser = await outboxBrowser?.catch(() => {});
+  closeOutboxBrowser?.();
   if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
       await withAdminConnection(async admin => {
@@ -273,7 +310,6 @@ async function start() {
     OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
   };
   for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
-  fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
   // ---- build, migrate ----------------------------------------------------------
   async function run(program, args, {
@@ -308,6 +344,26 @@ async function start() {
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
     fs.chmodSync(binary, 0o755);
   }
+  binary = path.resolve(root, binary);
+  env.PORTAL_E2E_BINARY = binary;
+  if (outbox) {
+    env.OTERYN_SHOP_TEST_PAYMENT_KEY = crypto.randomBytes(32).toString('hex');
+    env.PORTAL_E2E_OUTBOX_REPORT = path.join(out, 'report.json');
+    env.PORTAL_E2E_OUTBOX_BINARY = binary;
+    env.PORTAL_E2E_DATABASE_URL = databaseURL;
+    env.OTERYN_SMTP_HOST = 'localhost';
+    env.OTERYN_SMTP_USERNAME = 'local';
+    env.OTERYN_SMTP_PASSWORD = crypto.randomBytes(24).toString('hex');
+    env.OTERYN_SMTP_FROM = 'portal@local.test';
+    env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
+    const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
+    if (closing) return;
+    outboxBrowser = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    await outboxBrowser;
+    if (closing) return;
+  }
+  fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
+
   log('migrate');
   const migrationLog = fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a');
   try {
@@ -356,6 +412,7 @@ async function start() {
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
+  await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------
@@ -415,9 +472,9 @@ async function start() {
 }
 try {
   await start();
-} catch {
+} catch (error) {
   if (!closing) {
-    log('startup failed; see harness logs');
+    log('startup failed', error.code ?? error.name);
     await close(1);
   }
 }

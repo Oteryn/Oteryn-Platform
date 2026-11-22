@@ -9,6 +9,7 @@
 <div class="op-field"><label for="email">{{ self.text("mfa-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required></div>
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-login") }}</button></form>
+<p>{{ self.text("mfa-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("mfa-register") }}</a></p>
 {% else if mode == "challenge" %}
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/challenge">
 <input type="hidden" name="_csrf" value="{{ csrf }}">

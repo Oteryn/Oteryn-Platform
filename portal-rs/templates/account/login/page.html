@@ -10,5 +10,5 @@
 <div class="op-field"><label for="password">{{ self.text("login-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"{% if failed %} aria-describedby="login-error" aria-invalid="true"{% endif %}></div>
 <button class="op-button op-button--primary" type="submit">{{ self.text("login-submit") }}</button>
 </form>
-<p>{{ self.text("login-no-account") }} <a href="/{{ lang }}/register">{{ self.text("login-register") }}</a></p>
+<p>{{ self.text("login-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("login-register") }}</a></p>
 {% endblock %}
