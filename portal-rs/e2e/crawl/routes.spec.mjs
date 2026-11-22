@@ -92,6 +92,8 @@ function seed(entity, args) {
 }
 
 test.beforeAll(async () => {
+  const [fixture] = await query('SELECT session_user = current_database() AS scoped_login');
+  expect(fixture.scoped_login, 'runner uses the fixture database role').toBe(true);
   seed('world', { worldId: '019a0000-0000-7000-8000-00000000e001', name: 'Crawl World', region: 'local' });
   await seedPasswordRange(password());
 });

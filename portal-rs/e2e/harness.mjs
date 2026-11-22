@@ -19,6 +19,7 @@ import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { crawlDatabase as createCrawlDatabase } from './crawl/database.mjs';
 import { localPostgresUrl } from './postgres-url.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -166,7 +167,7 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-const crawlDatabase = crawl ? (await import('./crawl/database.mjs')).crawlDatabase(dbName, adminURL) : undefined;
+const crawlDatabase = crawl ? createCrawlDatabase(dbName, adminURL) : undefined;
 async function withAdminConnection(operation) {
   const socket = new Socket();
   const admin = new pg.Client({

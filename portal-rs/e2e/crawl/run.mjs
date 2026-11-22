@@ -60,6 +60,8 @@ try {
     cwd: e2e,
     env: {
       ...runnerEnvironment,
+      // Playwright's failure context can otherwise persist MFA enrollment data.
+      PLAYWRIGHT_NO_COPY_PROMPT: '1',
       PORTAL_E2E_ORIGIN: env.PORTAL_E2E_ORIGIN,
       PORTAL_E2E_CRAWL_PROXY: env.PORTAL_E2E_CRAWL_PROXY,
       PORTAL_E2E_DATABASE_URL: env.OTERYN_DATABASE_URL,
