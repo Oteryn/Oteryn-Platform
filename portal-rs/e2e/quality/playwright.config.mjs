@@ -6,6 +6,6 @@ export default defineConfig({
   testDir: '.',
   timeout: 0,
   outputDir: '../test-results/quality',
-  reporter: [['list'], ['json', { outputFile: 'test-results/quality-results.json' }]],
+  reporter: [['list'], ['json', { outputFile: '../test-results/quality-results.json' }]],
   use: { ...harness.use, trace: 'off', screenshot: 'off' },
 });

@@ -58,6 +58,29 @@ async function tabUntil(page, locator, bound) {
   return false;
 }
 
+async function assertAccountDialog(page, header, toggle, label, bound, mobile) {
+  const account = header.locator('[data-account-link]');
+  if (await account.isVisible()) {
+    const reached = await tabUntil(page, account, bound + (await tabStops(page)).length);
+    soft(reached, `${label}: account menu is keyboard reachable`).toBe(true);
+    if (!reached) return false;
+    await page.keyboard.press('Enter');
+    const dialog = page.locator('#podglad-konta');
+    await soft(dialog).toHaveAttribute('open', '');
+    const dialogStops = (await tabStops(page)).filter(stop => stop.inDialog);
+    for (const stop of dialogStops) {
+      const focus = await focusState(page);
+      soft(focus.index, `${label}: account dialog order`).toBe(stop.index);
+      soft(focus.visible, `${label}: account dialog focus indicator`).toBe(true);
+      await page.keyboard.press('Tab');
+    }
+    await page.keyboard.press('Escape');
+    await soft(dialog).not.toHaveAttribute('open', '');
+    await soft(mobile ? toggle : account, `${label}: account dialog restores focus`).toBeFocused();
+  }
+  return true;
+}
+
 async function assertMenu(page, label, bound) {
   const header = page.locator('#portal-header');
   const toggle = header.locator('#portal-menu-toggle');
@@ -69,8 +92,13 @@ async function assertMenu(page, label, bound) {
     soft((await focusState(page)).visible, `${label}: mobile menu toggle focus`).toBe(true);
     await page.keyboard.press('Enter');
     await soft(toggle).toHaveAttribute('aria-expanded', 'true');
+    if (!await assertAccountDialog(page, header, toggle, label, bound, true)) return;
+    if (await toggle.getAttribute('aria-expanded') === 'false') {
+      await page.keyboard.press('Enter');
+      await soft(toggle).toHaveAttribute('aria-expanded', 'true');
+    }
   }
-  for (const button of await header.locator('[data-nav-section]:visible').all()) {
+  for (const button of await header.locator('[data-nav-section]:enabled').all()) {
     const reached = await tabUntil(page, button, bound);
     soft(reached, `${label}: menu section is keyboard reachable`).toBe(true);
     if (!reached) return;
@@ -90,25 +118,7 @@ async function assertMenu(page, label, bound) {
     await soft(button).toBeFocused();
     await soft(button).toHaveAttribute('aria-expanded', 'false');
   }
-  const account = header.locator('[data-account-link]:visible');
-  if (await account.count()) {
-    const reached = await tabUntil(page, account, bound + (await tabStops(page)).length);
-    soft(reached, `${label}: account menu is keyboard reachable`).toBe(true);
-    if (!reached) return;
-    await page.keyboard.press('Enter');
-    const dialog = page.locator('#podglad-konta');
-    await soft(dialog).toHaveAttribute('open', '');
-    const dialogStops = (await tabStops(page)).filter(stop => stop.inDialog);
-    for (const stop of dialogStops) {
-      const focus = await focusState(page);
-      soft(focus.index, `${label}: account dialog order`).toBe(stop.index);
-      soft(focus.visible, `${label}: account dialog focus indicator`).toBe(true);
-      await page.keyboard.press('Tab');
-    }
-    await page.keyboard.press('Escape');
-    await soft(dialog).not.toHaveAttribute('open', '');
-    await soft(mobile ? toggle : account, `${label}: account dialog restores focus`).toBeFocused();
-  }
+  if (!mobile) await assertAccountDialog(page, header, toggle, label, bound, false);
   if (mobile && await toggle.getAttribute('aria-expanded') === 'true') {
     await page.keyboard.press('Escape');
     await soft(toggle).toBeFocused();
