@@ -28,13 +28,7 @@ async function assertModuleNavigation(page) {
   }
 }
 
-async function probeLink(page, url) {
-  await waitForWikiBudget(url);
-  const response=await page.request.get(url,{headers:{accept:'text/html'}});
-  return { status:response.status(), cacheControl:response.headers()['cache-control'] };
-}
-
-export async function assertShell(page, {accessibility=true,status=200,linkProbes}={}) {
+export async function assertShell(page, {accessibility=true,status=200}={}) {
   const home = isHome(page);
   if (home) {
     await expect(page.locator('header a.om-brand')).toHaveAttribute('aria-current','page');
@@ -59,15 +53,10 @@ export async function assertShell(page, {accessibility=true,status=200,linkProbe
   }
   const links=await page.locator('main a[href], footer a[hreflang]').evaluateAll(nodes=>nodes.map(n=>({href:n.getAttribute('href'),language:n.hasAttribute('hreflang')})).filter(n=>n.href.startsWith('/')&&!n.href.startsWith('//')));
   for(const link of links) {
-    const url=new URL(link.href,page.url()).href;
-    let pending=linkProbes?.get(url);
-    if (!pending) {
-      pending=probeLink(page,url);
-      linkProbes?.set(url,pending);
-    }
-    const response=await pending;
-    expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status);
-    if(response.status===503)expect(response.cacheControl).toContain('no-store');
+    await waitForWikiBudget(link.href);
+    const response=await page.request.get(link.href,{headers:{accept:'text/html'}});
+    expect(link.language?[200,503,status]:[200,503],`linked destination ${link.href}`).toContain(response.status());
+    if(response.status()===503)expect(response.headers()['cache-control']).toContain('no-store');
   }
   if(accessibility) {
     const axe=await new AxeBuilder({page}).analyze();

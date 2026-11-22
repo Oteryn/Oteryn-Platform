@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { createInterface } from 'node:readline';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -52,6 +54,57 @@ test('the harness drops its database when the migration executable cannot start'
     const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
     assert.deepEqual(rows, []);
   } finally {
+    await admin.end();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('SIGTERM cancels a stopped migration and drops the disposable database', { timeout: 900_000 }, async t => {
+  const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-cancel-'));
+  const admin = new pg.Client({ connectionString: adminURL.href });
+  const harness = fileURLToPath(new URL('../harness.mjs', import.meta.url));
+  let child, closed, database, migrationPid;
+  try {
+    await admin.connect();
+    child = spawn(process.execPath, [harness], {
+      env: {
+        ...process.env,
+        PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href,
+        PORTAL_E2E_OUT: path.join(directory, 'run'),
+        PORTAL_E2E_KEEP_DATABASE: '0',
+      },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    closed = once(child, 'close');
+    const lines = createInterface({ input: child.stderr, signal: t.signal });
+    for await (const line of lines) {
+      database ??= line.match(/^\[harness\] database (portal_e2e_[a-f0-9]{12})$/)?.[1];
+      if (line === '[harness] services ready') break;
+      const pid = line.match(/^\[harness\] .* migrate started \(pid (\d+)\)$/)?.[1];
+      if (pid) {
+        // Stop the real migration process so graceful cancellation cannot
+        // complete before the harness exercises its forced shutdown path.
+        process.kill(Number(pid), 'SIGSTOP');
+        migrationPid = Number(pid);
+        break;
+      }
+    }
+    assert.ok(database && migrationPid, 'Harness created a database and started a migration');
+    const shutdown = once(child, 'close', { signal: AbortSignal.timeout(10_000) });
+    assert.ok(child.kill('SIGTERM'), 'Harness received SIGTERM during migration');
+    assert.deepEqual(await shutdown, [0, null]);
+    assert.throws(() => process.kill(migrationPid, 0), { code: 'ESRCH' });
+    const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
+    assert.deepEqual(rows, []);
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      if (migrationPid) {
+        try { process.kill(migrationPid, 'SIGKILL'); } catch (error) { if (error.code !== 'ESRCH') throw error; }
+      }
+      child.kill('SIGTERM');
+      await closed;
+    }
     await admin.end();
     fs.rmSync(directory, { recursive: true, force: true });
   }

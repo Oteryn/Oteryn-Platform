@@ -111,7 +111,46 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const admin = new pg.Client({ connectionString: adminURL.href });
-const children = [];
+const children = new Set();
+const useProcessGroups = process.platform !== 'win32';
+const shutdownGraceMs = 2_000;
+
+function launch(program, args, options) {
+  if (closing) throw new Error('Harness is shutting down');
+  const child = spawn(program, args, { cwd: root, detached: useProcessGroups, ...options });
+  // A failed spawn also emits close. Resolve with the failure status so the
+  // same cleanup path covers both failed spawns and processes that exit.
+  child.on('error', () => {});
+  const closed = new Promise(resolve => child.once('close', (status, signal) => {
+    children.delete(tracked);
+    resolve({ status, signal });
+  }));
+  const tracked = { child, closed };
+  children.add(tracked);
+  return tracked;
+}
+
+function signalChild(child, signal) {
+  if (!child.pid) return;
+  try {
+    if (useProcessGroups) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch (error) {
+    if (error.code !== 'ESRCH') throw error;
+  }
+}
+
+async function stopChild({ child, closed }) {
+  signalChild(child, 'SIGINT');
+  const escalation = setTimeout(() => signalChild(child, 'SIGKILL'), shutdownGraceMs);
+  try {
+    await closed;
+  } finally {
+    clearTimeout(escalation);
+    // A build can exit before a compiler subprocess in its group.
+    if (useProcessGroups) signalChild(child, 'SIGKILL');
+  }
+}
 let closing = false;
 let created = false;
 let creation;
@@ -120,10 +159,7 @@ async function close(code = 0) {
   closing = true;
   // A signal can arrive while CREATE DATABASE is in flight.
   await creation.catch(() => {});
-  for (const { child } of children) {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGINT');
-  }
-  await Promise.all(children.map(({ closed }) => closed));
+  await Promise.all([...children].map(stopChild));
   if (created && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
     try {
       await admin.query(`DROP DATABASE "${dbName}" WITH (FORCE)`);
@@ -186,41 +222,67 @@ async function start() {
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
   // ---- build, migrate ----------------------------------------------------------
-  function run(program, args, options = {}) {
-    const result = spawnSync(program, args, { cwd: root, env, encoding: 'utf8', ...options });
-    if (result.status !== 0) {
-      log(`${path.basename(program)} ${args[0] ?? ''} failed (${result.status})`);
+  async function run(program, args, {
+    commandEnv = env, stdio = ['ignore', 'pipe', 'ignore'],
+    maxBuffer = 1 << 20, allowed = [0], reportPid = false,
+  } = {}) {
+    const { child, closed } = launch(program, args, { env: commandEnv, stdio });
+    const command = `${path.basename(program)} ${args[0] ?? ''}`;
+    if (reportPid && child.pid) log(`${command} started (pid ${child.pid})`);
+    const output = [];
+    let bytes = 0;
+    child.stdout?.on('data', chunk => {
+      bytes += chunk.length;
+      if (bytes <= maxBuffer) output.push(chunk);
+      else signalChild(child, 'SIGKILL');
+    });
+    const { status, signal } = await closed;
+    if (closing) throw new Error('Harness is shutting down');
+    if (!allowed.includes(status) || bytes > maxBuffer) {
+      log(`${command} failed (${signal ?? status})`);
       throw new Error('Harness command failed');
     }
-    return result;
+    return { status, stdout: Buffer.concat(output).toString('utf8') };
   }
   let binary = process.env.PORTAL_E2E_BINARY;
   if (!binary) {
     log('cargo build --locked -p oteryn-portal');
-    run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], env: process.env });
-    const meta = JSON.parse(run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { env: process.env, maxBuffer: 64 << 20 }).stdout);
+    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env });
+    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: process.env, maxBuffer: 64 << 20 })).stdout);
     // A private copy: a shared target directory may be rebuilt by another checkout.
     binary = path.join(dirs.bin, 'oteryn-portal');
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
     fs.chmodSync(binary, 0o755);
   }
   log('migrate');
-  run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a'), fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a')] });
+  const migrationLog = fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a');
+  try {
+    await run(binary, ['migrate'], { stdio: ['ignore', migrationLog, migrationLog], reportPid: true });
+  } finally {
+    fs.closeSync(migrationLog);
+  }
 
   // ---- services ----------------------------------------------------------------
   for (const role of ['serve', 'worker', 'gateway']) {
     const file = path.join(dirs.logs, `${role}.log`);
-    const child = spawn(binary, [role], { cwd: root, env, stdio: ['ignore', fs.openSync(file, 'a'), fs.openSync(file, 'a')] });
-    const closed = new Promise(resolve => child.once('close', resolve));
-    children.push({ child, closed });
-    child.once('error', () => { log(`failed to start ${role}; see ${file}`); void close(1); });
-    child.once('exit', status => { if (!closing) { log(`${role} exited (${status}); see ${file}`); void close(1); } });
+    const fd = fs.openSync(file, 'a');
+    try {
+      const { child, closed } = launch(binary, [role], { env, stdio: ['ignore', fd, fd] });
+      child.once('error', () => { log(`failed to start ${role}; see ${file}`); void close(1); });
+      void closed.then(({ status, signal }) => {
+        if (!closing) { log(`${role} exited (${signal ?? status}); see ${file}`); void close(1); }
+      });
+    } finally {
+      fs.closeSync(fd);
+    }
   }
 
   const deadline = Date.now() + 120_000;
   async function until(probe, what) {
     for (;;) {
-      if (await probe().catch(() => false)) return;
+      const ready = await probe().catch(() => false);
+      if (closing) throw new Error('Harness is shutting down');
+      if (ready) return;
       if (Date.now() > deadline) { log(`${what} not ready`); await close(1); }
       await new Promise(resolve => setTimeout(resolve, 250));
     }
@@ -254,11 +316,10 @@ async function start() {
         if (seed[name]?.[field] === undefined) throw new Error(`seed step ${step.name}: unknown reference ${name}.${field}`);
         return String(seed[name][field]);
       }));
-      const result = spawnSync(binary, ['seed', step.entity, JSON.stringify(args)], { cwd: root, env, encoding: 'utf8' });
+      const result = await run(binary, ['seed', step.entity, JSON.stringify(args)], { allowed: [0, 3] });
       let output;
       try { output = JSON.parse(result.stdout); } catch { output = { error: 'unavailable', reason: 'no JSON output' }; }
       if (result.status === 3) { pending.push({ step: step.name, entity: step.entity, ...output }); seed[step.name] = output; continue; }
-      if (result.status !== 0) { log(`seed step ${step.name} failed (${result.status})`); await close(1); }
       seed[step.name ?? step.entity] = output;
     }
   }
@@ -291,6 +352,8 @@ async function start() {
 try {
   await start();
 } catch {
-  log('startup failed; see harness logs');
-  await close(1);
+  if (!closing) {
+    log('startup failed; see harness logs');
+    await close(1);
+  }
 }
