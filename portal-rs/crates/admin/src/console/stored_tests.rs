@@ -219,7 +219,7 @@ async fn exercise_reads(
         web::PortalIdentity::configured(pool.clone()),
         control::Config { enabled: true },
     )
-    .with_channel(channel);
+    .with_channel(channel.clone());
     let reads = super::super::access::router(
         pool.clone(),
         super::super::access::Flags { console: true },
@@ -301,8 +301,50 @@ async fn exercise_reads(
     assert!(html.contains("verified-item") && html.contains("verified-sanction"));
     browser_get(&reads, cookie, "/admin/console/access?lang=en").await?;
     browser_get(&reads, cookie, "/admin/console/audit?lang=en").await?;
-    let requests = poll(internal).await?;
+    let mut requests = poll(internal).await?;
     assert_eq!(requests.len(), 2);
+    if check_correlation {
+        for request in &requests {
+            let value = match request.operation.as_str() {
+                "admin.policy.get" => json!({"operations":[{
+                    "operation":"legacy-policy","min_risk_class":"R9",
+                    "allowed_permissions":["game.world.read"],"worlds":["world-a"]
+                }]}),
+                "admin.ledger.query" => json!({"entries":[{
+                    "request_id":request.request_id,"admin_operation_id":request.admin_operation_id,
+                    "admin_id":actor,"ledger_id":"legacy-ledger","operation":"world.list",
+                    "risk_class":"R9","status":"succeeded",
+                    "target":{"world_id":"world-a","node_id":null,"character_id":null,"account_ref":null},
+                    "started_at":"2026-11-15T00:00:00Z","finished_at":"2026-11-15T00:00:01Z","error_code":null
+                }],"next_cursor":null}),
+                _ => return Err(missing().into()),
+            };
+            let result = signed_result(agent_key, request, value)?;
+            channel.store.record_result(&control::NewResult {
+                request_id: request.request_id,
+                agent_id: result.agent_id.clone(),
+                status: control::Status::Succeeded,
+                game_ledger_id: None,
+                error_code: None,
+                payload: serde_json::to_value(result)?,
+            }, 1).await?;
+        }
+        for (path, marker) in [
+            ("/admin/console/access?lang=en", "legacy-policy"),
+            ("/admin/console/audit?lang=en", "legacy-ledger"),
+        ] {
+            let html = browser_get(&reads, cookie, path).await?;
+            assert!(html.contains("Unavailable"));
+            assert!(!html.contains(marker));
+        }
+        let replacement = poll(internal).await?;
+        assert_eq!(replacement.len(), 2);
+        for fresh in &replacement {
+            let old = requests.iter().find(|r| r.operation == fresh.operation).ok_or_else(missing)?;
+            assert_ne!(fresh.request_id, old.request_id);
+        }
+        requests = replacement;
+    }
     let query_id = requests
         .iter()
         .find(|r| r.operation == "admin.ledger.query")

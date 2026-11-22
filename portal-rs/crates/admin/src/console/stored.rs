@@ -450,8 +450,17 @@ impl StoredChannel {
             || completed < request.issued_at
             || completed > request.expires_at
             || completed > OffsetDateTime::now_utc()
-            || !bounded_json(&result.result.0, 0)
         {
+            return Err(Error::Unavailable);
+        }
+        let bounded = bounded_json(&result.result.0, 0);
+        if matches!(request.operation.as_str(), "admin.ledger.query" | "admin.policy.get") {
+            if !bounded || !control::result_schema::valid_success(
+                &request.operation, request.operation_version, &result.result.0,
+            ) {
+                return Ok(None);
+            }
+        } else if !bounded {
             return Err(Error::Unavailable);
         }
         Ok(Some((request, result)))
