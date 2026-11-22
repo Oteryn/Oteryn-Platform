@@ -3,19 +3,27 @@ import {register,login,submit,pool} from '../helpers.mjs';
 test.setTimeout(240_000);
 async function sudo(page,lang,account){await page.goto(`/${lang}/account/sudo`);await submit(page,'main form',{current_password:account.password});}
 async function fault(account_id,mode){const response=await fetch(`${process.env.PORTAL_E2E_GAME_CLOSURE_CONTROL_URL}/fault`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({account_id,mode})});expect(response.status).toBe(200);}
-async function requestDeletion(page,lang,account){await login(page,lang,account);await sudo(page,lang,account);await page.goto(`/${lang}/account/privacy/delete`);await submit(page,'main form',{current_password:account.password,confirmation:'TERMINATE'});await expect(page).toHaveURL(/login/);}
+async function requestDeletion(page,lang,account,displayName){
+ await login(page,lang,account);
+ if(displayName){
+  await page.goto(`/${lang}/account/profile`);
+  await submit(page,'main form',{display_name:displayName});
+  await expect(page.locator('[name=display_name]')).toHaveValue(displayName);
+ }
+ await sudo(page,lang,account);await page.goto(`/${lang}/account/privacy/delete`);await submit(page,'main form',{current_password:account.password,confirmation:'TERMINATE'});await expect(page).toHaveURL(/login/);}
 // Test clock advancement only: no command, receipt, proof or eligibility is seeded.
 async function advanceGrace(db,account){await db.query("UPDATE account_terminations SET created_at=now()-interval '15 days',scheduled_for=now()-interval '1 day' WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL",[account]);}
 test('verified Game receipt finalizes deletion after grace; finalized accounts cannot log in',async({page},info)=>{
  const lang=info.project.metadata.locale,account=await register(page,lang),db=pool();
  try{
   const id=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
-  await requestDeletion(page,lang,account);
+  await requestDeletion(page,lang,account,'Żółty Lis');
   let state=await db.query('SELECT finalized_at,scheduled_for>now() AS grace FROM account_terminations WHERE account_id=$1',[id]);expect(state.rows[0].finalized_at).toBeNull();expect(state.rows[0].grace).toBe(true);
   expect(Number((await db.query('SELECT count(*) AS n FROM plat3_closure_commands c JOIN plat3_closure_work w USING(termination_id) WHERE w.account_id=$1',[id])).rows[0].n)).toBe(0);
   await advanceGrace(db,id);
   await expect.poll(async()=>(await db.query('SELECT status FROM accounts WHERE id=$1',[id])).rows[0].status,{timeout:90_000}).toBe('closed');
   expect((await db.query('SELECT finalized_at FROM account_terminations WHERE account_id=$1',[id])).rows[0].finalized_at).not.toBeNull();
+  expect((await db.query('SELECT profile_display_name FROM accounts WHERE id=$1',[id])).rows[0].profile_display_name).toBe('');
   expect((await db.query('SELECT resolution FROM plat3_closure_work WHERE account_id=$1',[id])).rows[0].resolution).toBe('FINALIZE');
   const evidence=await db.query("SELECT r.receipt_sha256,c.intent_sha256 FROM plat3_closure_receipts r JOIN plat3_closure_commands c USING(operation_id) JOIN plat3_closure_work w USING(termination_id) WHERE w.account_id=$1 AND c.command='CloseAccount'",[id]);expect(evidence.rows).toHaveLength(1);expect(evidence.rows[0].receipt_sha256.length).toBe(32);
   await login(page,lang,account);await expect(page).toHaveURL(/login/);await expect(page.locator('[role=alert]')).toBeVisible();
