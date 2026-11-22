@@ -13,7 +13,7 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-b
 node local.mjs
 ```
 
-`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates two uniquely named databases, generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxy on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops only its two databases; the scratch directory is retained for local investigation and should be removed after inspecting the report.
+`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates uniquely named disposable databases for the portal, Rust tests and query catalog. It generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the local services. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. The query catalog listener uses ports 18083 and 18448. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops their databases. The scratch directory is retained for local investigation and should be removed after inspecting the report.
 
 In a second shell, export the same local `PORTAL_E2E_ADMIN_DATABASE_URL` for the
 Bazaar fallback test, which creates its own disposable database. Use the scratch
@@ -26,12 +26,15 @@ CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
-For the query-parameter matrix, start a fresh local harness with
-`PORTAL_E2E_CATALOG_MODE=query-fixture node local.mjs`. This selects the legacy
-WorldStore read path and imports the checked-in synthetic WorldStore catalog
-through `seed query-catalog '{}'` before the listeners start. The native catalog
-harness keeps its default pinned fixture. Run the matrix with
-`node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs --workers=1`.
+Start the query-parameter matrix from the same default `node local.mjs` stack.
+The matrix selects its catalog listener and quota database from `env.json` for
+Wiki, Atlas and portal catalog searches. The listener serves the checked-in
+WorldStore fixture imported by `seed query-catalog '{}'`. `wiki-world.spec.mjs`
+continues to use the default portal listener and pinned native fixture.
+
+```sh
+node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs specs/wiki-world.spec.mjs --workers=1
+```
 
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 

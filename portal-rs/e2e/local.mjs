@@ -22,8 +22,12 @@ if(!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway 
 if(!['localhost','127.0.0.1','[::1]'].includes(new URL(adminURL).hostname)) throw new Error('Local PostgreSQL only');
 const dbName=`portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const testName=`${dbName}_tests`;
+const queryName=`${dbName}_queries`;
+const databases=[dbName,testName,queryName];
+const queryPort=18083;
+const queryProxyPort=18448;
 const admin=new pg.Client({connectionString:adminURL});await admin.connect();
-for(const name of [dbName,testName]) await admin.query(`CREATE DATABASE "${name}"`);
+for(const name of databases) await admin.query(`CREATE DATABASE "${name}"`);
 const databaseURL=name=>{const url=new URL(adminURL);url.pathname=`/${name}`;return url.toString();};
 const env={...process.env};
 function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(directory,e.name)):[path.join(directory,e.name)]);}
@@ -47,11 +51,7 @@ Object.assign(env,{
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
  PORTAL_ADMIN_CONTROL_AGENTS_JSON:JSON.stringify([{cn:'oteryn-admin-agent/e2e-local',allowed_worlds:['019b0760-0000-7000-8000-000000000001'],allowed_nodes:[],identity:{san:'spiffe://local.test/admin/e2e'}}]),
 });
-const queryCatalog=process.env.PORTAL_E2E_CATALOG_MODE==='query-fixture';
-if(queryCatalog&&process.env.PORTAL_E2E_CATALOG_FILE)throw new Error('Query fixture mode takes no external catalog artifact');
-if(queryCatalog){
- env.OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED='false';
-} else {
+{
  // The pinned lane producer still emits an unsupported negative compatibility candidate.
  // Never read raw Game content or fabricate a Today producer/catalogue.
  const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
@@ -120,9 +120,23 @@ if(!binary){
 }
 binary=path.resolve(root,binary);
 env.PORTAL_E2E_BINARY=binary;
-fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
+env.PORTAL_E2E_QUERY_ORIGIN=`https://localhost:${queryProxyPort}`;
+env.PORTAL_E2E_QUERY_DATABASE_URL=databaseURL(queryName);
+const queryEnv={
+ OTERYN_ENV:'testing',
+ OTERYN_DATABASE_URL:env.PORTAL_E2E_QUERY_DATABASE_URL,
+ OTERYN_STATIC_DIR:env.OTERYN_STATIC_DIR,
+ PORTAL_WIKI_ENTITIES_ENABLED:'true',
+ PORTAL_WORLD_ENABLED:'1',
+ PORTAL_ATLAS_DELIVERY_ENABLED:'1',
+ OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'false',
+ OTERYN_BIND:`127.0.0.1:${queryPort}`,
+ OTERYN_PUBLIC_ORIGIN:env.PORTAL_E2E_QUERY_ORIGIN,
+ PORTAL_NATIVE_ADMISSION_BIND:'127.0.0.1:0',
+};
 command(binary,['migrate']);
-if(queryCatalog)command(binary,['seed','query-catalog','{}'],{stdio:'ignore'});
+command(binary,['migrate'],{env:queryEnv,stdio:'ignore'});
+command(binary,['seed','query-catalog','{}'],{env:queryEnv,stdio:'ignore'});
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
 const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();
@@ -142,6 +156,10 @@ smtp.listen(465,'127.0.0.1');
 const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
+function forward(req,res,port,headers=req.headers,localAddress='127.0.0.1'){
+ const upstream=http.request({hostname:'127.0.0.1',port,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
+ upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
+}
 const proxy=https.createServer(tls,(req,res)=>{
  // Browser fixture controls invoke the producer, which makes the mTLS exchanges.
  if(req.url.startsWith('/__bazaar_game/')){
@@ -153,14 +171,21 @@ const proxy=https.createServer(tls,(req,res)=>{
  const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
  const localAddress=req.method==='POST'&&/^\/(?:pl\/|en\/)?login$/.test(req.url)&&
   ['127.0.0.2','127.0.0.3'].includes(peer)?peer:'127.0.0.1';
- const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
- upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
+ forward(req,res,18080,headers,localAddress);
 });
 proxy.listen(18443,'127.0.0.1');
-const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
+const queryProxy=https.createServer(tls,(req,res)=>forward(req,res,queryPort));
+queryProxy.listen(queryProxyPort,'127.0.0.1');
+function start(role,instanceEnv,log){
+ const fd=fs.openSync(`${scratch}/${log}.log`,'a');
+ try{return spawn(binary,[role],{cwd:root,env:instanceEnv,stdio:['ignore',fd,fd]});}
+ finally{fs.closeSync(fd);}
+}
+const children=[start('serve',env,'serve'),start('worker',env,'worker'),start('serve',queryEnv,'query-serve')];
 league.start();
 await gameProducer.start();
-console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the two task databases.`);
+fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});
+console.log(`Services starting. Scratch: ${scratch}\nRun: node run.mjs ${scratch}/env.json test\nStop with Ctrl-C to stop services and drop the task databases.`);
 let closing=false;
-async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
+async function close(){if(closing)return;closing=true;await league.close();await bazaarGame.close();await gameProducer.stop();for(const child of children)child.kill('SIGINT');await Promise.all(children.map(child=>child.exitCode!==null||child.signalCode!==null?Promise.resolve():new Promise(resolve=>child.once('exit',resolve))));smtp.close();starttls.close();proxy.close();queryProxy.close();for(const name of databases)await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);await admin.end();process.exit(0);}
 process.on('SIGINT',close);process.on('SIGTERM',close);

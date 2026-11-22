@@ -17,6 +17,14 @@ const invalidPage = new Set(['-1', '0', '2147483647', huge, unknown, overlong, u
   markup, sqlPunctuation]);
 const world = '019b0760-0000-7000-8000-000000000001';
 const statsDates = {world, start: '2026-01-01', end: '2026-01-01'};
+const comparison = {
+  ids: `${world},019b0760-0000-7000-8000-000000000002`,
+  metric: 'level', start: statsDates.start, end: statsDates.end,
+};
+const places = {sort: 'experience', purpose: 'hunt', party: '1'};
+const analyticsEpochRange = {start: '1767225600', end: '1767312000'};
+const analyticsCalendarRange = {from: '2026-01-01T00:00', to: '2026-01-02T00:00'};
+const catalogRoutes = new Set(['search', 'wiki/search', 'wiki/items', 'atlas/delivery']);
 
 const rankings = ['level', 'experience', 'magic', 'fist', 'club', 'sword', 'axe',
   'distance', 'shielding', 'fishing'];
@@ -38,7 +46,7 @@ const publicRoutes = {
     ['search', {q: 'e2e control query', kind: 'news', page: '1'}],
     ['wiki/search', wikiFilters],
     ['wiki/items', wikiFilters],
-    ['wiki/places', {sort: 'name', purpose: '', party: '1'}],
+    ['wiki/places', places, places],
     ['atlas/delivery', {
       item: 'fixture.alpha', creature: 'rat', q: 'e2e control query', level: '20', floor: '7',
       city: 'thais', rarity: '1', count: '10', tab: 'items',
@@ -61,7 +69,7 @@ const publicRoutes = {
     ...growth.map(kind => [`stats/rankings/${kind}`, {world, vocation: '0', pvp: 'open', page: '1'}]),
     ['stats/world', statsDates, statsDates],
     ['stats/guilds', {guild: 'Rose', compare: 'Second', days: '7'}, {guild: 'Rose'}],
-    ['stats/compare', {ids: world, metric: 'level', start: statsDates.start, end: statsDates.end}],
+    ['stats/compare', comparison, comparison],
   ],
 };
 
@@ -77,18 +85,17 @@ const staffRoutes = [
   ['/admin/announcements', {page: '1'}],
   ['/admin/roles', {after: world}],
   ['/admin/players', {q: 'e2e control query'}],
-  ['/admin/support/tickets', {page: '1'}],
-  ['/admin/moderation/reports', {page: '1'}],
-  ['/admin/moderation/enforcement', {page: '1'}],
   ['/admin/commerce', {after: world, lang: 'pl'}],
-  ['/admin/world', {version: world, compare: world, page: '1'}],
   ['/admin/console/players', {q: 'e2e control query', character: 'Aldric Vale', lang: 'pl'}],
-  ...['', '/creatures', '/activity', '/levels', '/health', '/economy'].map(suffix => [
-    `/admin/analytics${suffix}`, {
-      world, family: suffix === '/economy' ? 'economy_circulation_daily' : 'characters_created_daily',
-      start: '1767225600', end: '1767312000', from: '2026-01-01T00:00', to: '2026-01-02T00:00',
-    },
-  ]),
+  ...['', '/creatures', '/activity', '/levels', '/health', '/economy'].flatMap(suffix => {
+    const route = `/admin/analytics${suffix}`;
+    const family = suffix === '/economy' ? 'economy_circulation_daily' : 'characters_created_daily';
+    return [
+      [route, {world, family}],
+      [route, analyticsEpochRange, analyticsEpochRange],
+      [route, analyticsCalendarRange, analyticsCalendarRange],
+    ];
+  }),
 ];
 
 const auditRoute = ['/admin/console/audit', {
@@ -108,6 +115,20 @@ const gatedListings = new Map([
     textParameters: ['guild', 'compare'],
     notice: {pl: 'Niedostępne', en: 'Unavailable'},
   }],
+  ['stats/world', {
+    textParameters: [],
+    notice: {pl: 'Niedostępne', en: 'Unavailable'},
+    noticeCount: 2,
+  }],
+  ['stats/compare', {
+    textParameters: [],
+    notice: {pl: 'Niedostępne', en: 'Unavailable'},
+  }],
+  ['wiki/places', {
+    textParameters: [],
+    notice: {pl: 'Brak zatwierdzonych danych.', en: 'No qualified data available.'},
+    noticeSelector: 'main > p:last-child',
+  }],
 ]);
 
 const invalidRequest = {pl: 'Nieprawidłowe żądanie', en: 'Invalid request'};
@@ -115,6 +136,7 @@ const invalidMessages = [
   [/^(?:rankings\/|\/highscores$)/, {pl: 'Nieprawidłowe zapytanie', en: 'Invalid query'}],
   [/^(?:stats\/rankings\/|atlas\/delivery$)/, {pl: 'Nieprawidłowe filtry', en: 'Invalid filters'}],
   [/^stats\/compare$/, {pl: 'Nieprawidłowe zapytanie o statystyki', en: 'Invalid statistics request'}],
+  [/^shop\/history$/, {pl: 'Sprawdź przesłane wartości.', en: 'Check the submitted values.'}],
   [/^wiki(?:$|\/(?!places$))/, {pl: 'Nieprawidłowe filtry lub zapytanie', en: 'Invalid filters or search query'}],
 ];
 
@@ -124,15 +146,15 @@ function expectLocalizedError(document, locale, route, label) {
   expect.soft(document.content, label).toContain(messages[locale]);
 }
 
-async function inspectDocument(page, html, url, parameter) {
-  return page.evaluate(({html, url, parameter}) => {
+async function inspectDocument(page, html, url, parameter, noticeSelector = 'main [role=status]') {
+  return page.evaluate(({html, url, parameter, noticeSelector}) => {
     const doc = html === null ? document : new DOMParser().parseFromString(html, 'text/html');
     const path = new URL(url).pathname;
     const controls = [...doc.querySelectorAll('main input, main select, main a[href]')];
     return {
       lang: doc.documentElement.lang,
       mainCount: doc.querySelectorAll('main').length,
-      notices: [...doc.querySelectorAll('main [role=status]')].map(element => element.textContent.trim()),
+      notices: [...doc.querySelectorAll(noticeSelector)].map(element => element.textContent.trim()),
       content: doc.querySelector('main')?.textContent ?? '',
       markerCount: doc.querySelectorAll('query-probe, [data-query-probe="marker"]').length,
       effectiveValues: controls.flatMap(element => {
@@ -143,10 +165,10 @@ async function inspectDocument(page, html, url, parameter) {
         return element.name === parameter ? [element.value] : [];
       }),
     };
-  }, {html, url, parameter});
+  }, {html, url, parameter, noticeSelector});
 }
 
-async function readResponse(page, target, locale, browserNavigation) {
+async function readResponse(page, target, locale, browserNavigation, accept) {
   if (browserNavigation) {
     const response = await page.goto(target, {waitUntil: 'domcontentloaded'});
     return {
@@ -157,7 +179,7 @@ async function readResponse(page, target, locale, browserNavigation) {
 
   const started = performance.now();
   const response = await page.request.get(target, {
-    headers: {accept: 'text/html', 'accept-language': locale},
+    headers: {accept, 'accept-language': locale},
     timeout: 10_000,
   });
   try {
@@ -171,6 +193,42 @@ async function readResponse(page, target, locale, browserNavigation) {
 }
 const freeText = new Set(['q', 'operation', 'target', 'character', 'item', 'creature', 'city']);
 const zeroBased = new Set(['/admin/media', 'support/tickets', 'admin/support/tickets']);
+const boundedText = ['unknown', 'unicode', 'SQL punctuation', 'HTML punctuation'];
+const singleValue = [...boundedText, 'overlong'];
+const clampedPage = ['zero', 'large integer'];
+
+// Every other malformed probe must be rejected. These routes accept bounded
+// text, clamp paging, or fall back to a default when a selector is unknown.
+const acceptedProbes = new Map([
+  ['news', {lang: singleValue}],
+  ['events', {page: clampedPage}],
+  ['today', {lang: [...singleValue, 'repeated']}],
+  ['search', {q: boundedText}],
+  ['wiki/search', {q: boundedText, category: boundedText, classification: boundedText}],
+  ['wiki/items', {q: boundedText, category: boundedText, classification: boundedText}],
+  ['atlas/delivery', {q: boundedText, creature: boundedText, city: boundedText}],
+  ['shop/history', {before: ['valid']}],
+  ['support/tickets', {page: clampedPage}],
+  ['support/reports', {page: ['large integer']}],
+  ['admin/support/tickets', {page: clampedPage}],
+  ['/admin/news', {lang: singleValue}],
+  ['/admin/media', {lang: singleValue, page: clampedPage}],
+  ['/admin/events', {page: clampedPage}],
+  ['/admin/announcements', {page: clampedPage}],
+  ['/admin/commerce', {lang: singleValue}],
+  ['/admin/console/players', {q: ['unknown', 'unicode'], character: ['unknown']}],
+  ['/admin/console/audit', {operation: boundedText, target: boundedText}],
+]);
+
+function expectedStatus(route, parameter, probe, gated) {
+  if (gated) {
+    // Punctuation and Unicode are well-formed in these bounded text fields.
+    const wellFormed = probe === 'valid'
+      || gated.textParameters.includes(parameter) && boundedText.includes(probe);
+    return wellFormed ? 503 : 400;
+  }
+  return acceptedProbes.get(route)?.[parameter]?.includes(probe) ? 200 : 400;
+}
 
 function cases(parameter, valid, locale) {
   const values = [
@@ -187,7 +245,7 @@ function cases(parameter, valid, locale) {
   ];
 }
 
-async function checkRoute(page, locale, [route, parameters, required = {}, destination]) {
+async function checkRoute(page, locale, [route, parameters, required = {}, destination], catalog) {
   const path = route.startsWith('/') ? route : `/${locale}/${route}`;
   const expectedPath = destination ?? path;
   const expectedLocale = destination ? 'pl' : locale;
@@ -196,7 +254,7 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
   await test.step(path, async () => {
     for (const [parameter, valid] of Object.entries(parameters)) {
       const probes = cases(parameter, valid, locale);
-      if (gated) probes.unshift({name: 'valid', values: [valid]});
+      if (gated || route === 'shop/history') probes.unshift({name: 'valid', values: [valid]});
       if (route === 'stats/guilds' && parameter === 'days') {
         probes.push({name: 'under minimum', values: ['0']}, {name: 'over maximum', values: ['32']});
       }
@@ -206,21 +264,17 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           if (route.startsWith('/admin') && 'lang' in parameters) query.set('lang', locale);
           query.delete(parameter);
           for (const value of probe.values) query.append(parameter, value);
-          await waitForWikiBudget(path);
+          await waitForWikiBudget(path, 1, catalog?.database);
           // Browser navigation exercises the rendered HTML at each project viewport.
           // The console player search also requires real browser Fetch Metadata.
           const browserNavigation = probe.name === 'HTML punctuation' || route === '/admin/console/players';
-          const response = await readResponse(page, `${path}?${query}`, locale, browserNavigation);
+          const target = `${catalog?.origin ?? ''}${path}?${query}`;
+          const accept = route === 'shop/history' ? '*/*' : 'text/html';
+          const response = await readResponse(page, target, locale, browserNavigation, accept);
           const label = `${path} ${parameter} (${probe.name})`;
+          const status = expectedStatus(route, parameter, probe.name, gated);
           expect.soft(new URL(response.url).pathname, label).toBe(expectedPath);
-          if (gated) {
-            // Punctuation and Unicode are well-formed in these bounded text fields.
-            const wellFormed = probe.name === 'valid' || gated.textParameters.includes(parameter)
-              && !['overlong', 'repeated'].includes(probe.name);
-            expect.soft(response.status, `${label} HTTP status`).toBe(wellFormed ? 503 : 400);
-          } else {
-            expect.soft([200, 400], `${label} HTTP status`).toContain(response.status);
-          }
+          expect.soft(response.status, `${label} HTTP status`).toBe(status);
 
           slowest = Math.max(slowest, response.elapsed);
           expect.soft(response.elapsed, `${label} response timing recorded`).toBeGreaterThanOrEqual(0);
@@ -228,14 +282,16 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
           expect.soft(/<\/?query-probe[\s>]/i.test(response.body), `${label} raw HTML marker`).toBe(false);
 
           const document = await inspectDocument(
-            page, browserNavigation ? null : response.body, response.url, parameter,
+            page, browserNavigation ? null : response.body, response.url, parameter, gated?.noticeSelector,
           );
           expect.soft(document.markerCount, `${label} inert HTML marker in DOM`).toBe(0);
-          if (response.status === 400) expectLocalizedError(document, expectedLocale, route, label);
-          if (gated && response.status === 503) {
+          if (status === 400) expectLocalizedError(document, expectedLocale, route, label);
+          if (status === 503) {
             expect.soft(document.lang, label).toBe(expectedLocale);
             expect.soft(document.mainCount, `${label} unavailable page`).toBe(1);
-            expect.soft(document.notices, `${label} unavailable message`).toEqual([gated.notice[expectedLocale]]);
+            expect.soft(document.notices, `${label} unavailable message`).toEqual(
+              Array(gated.noticeCount ?? 1).fill(gated.notice[expectedLocale]),
+            );
           }
           if (response.status === 200) {
             expect.soft(document.mainCount, `${label} listing content`).toBe(1);
@@ -299,11 +355,27 @@ for (const [group, routes] of Object.entries(publicRoutes)) {
   test(`public ${group} query parameters`, async ({page}, info) => {
     test.setTimeout(group === 'search' ? 900_000 : 360_000);
     const locale = info.project.metadata.locale;
-    if (group === 'search' && process.env.PORTAL_E2E_CATALOG_MODE === 'query-fixture') {
+    let catalog;
+    if (group === 'search') {
+      catalog = {
+        origin: process.env.PORTAL_E2E_QUERY_ORIGIN,
+        database: process.env.PORTAL_E2E_QUERY_DATABASE_URL,
+      };
+      if (!catalog.origin || !catalog.database) {
+        throw new Error('Start local.mjs and run the matrix with its env.json to select the query catalog');
+      }
+      await expect.poll(async () => {
+        const response = await page.request.get(`${catalog.origin}/readyz`);
+        try {
+          return response.status();
+        } finally {
+          await response.dispose();
+        }
+      }).toBe(200);
       for (const suffix of ['wiki/items', 'wiki/search?q=fixture.alpha', 'atlas/delivery?item=fixture.alpha']) {
         const path = `/${locale}/${suffix}`;
-        await waitForWikiBudget(path);
-        const response = await page.goto(path);
+        await waitForWikiBudget(path, 1, catalog.database);
+        const response = await page.goto(`${catalog.origin}${path}`);
         expect(response.status(), path).toBe(200);
         if (suffix.startsWith('atlas/')) {
           await expect(page.locator('main input[name=item]')).toHaveValue('fixture.alpha');
@@ -312,7 +384,7 @@ for (const [group, routes] of Object.entries(publicRoutes)) {
         }
       }
     }
-    for (const route of routes) await checkRoute(page, locale, route);
+    for (const route of routes) await checkRoute(page, locale, route, catalogRoutes.has(route[0]) ? catalog : undefined);
   });
 }
 

@@ -192,8 +192,6 @@ pub async fn execute(
 
 /// Import the existing schema-validated WorldStore fixture for browser queries.
 async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
-    use oteryn_world::{ImportMapping, SchemaScope, WorldOptions, WorldStore};
-
     args.only(&[])?;
     let database: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(pool)
@@ -203,25 +201,35 @@ async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedErro
             "query-catalog requires a disposable portal_e2e_ database",
         ));
     }
+    let version = seed_query_catalog_fixture(pool).await?;
+    Ok(json!({"versionId": version}))
+}
+
+async fn seed_query_catalog_fixture(pool: &PgPool) -> Result<Uuid, SeedError> {
+    use oteryn_world::{ImportMapping, SchemaScope, WorldOptions, WorldStore};
+
     const FIXTURE_REVISION: &str = "0000000000000000000000000000000000000001";
-    let store = WorldStore::new(pool.clone(), WorldOptions { enabled: true });
-    let version = if let Some(version) = store
-        .active_version_id()
-        .await
-        .map_err(|_| SeedError::Unavailable("query catalog version"))?
-    {
-        let report = store
-            .import_report(version)
-            .await
-            .map_err(|_| SeedError::Unavailable("query catalog report"))?;
-        if report.is_none_or(|report| report.source_commit != FIXTURE_REVISION) {
+    let mut transaction = pool.begin().await?;
+    // The importer owns its publication transaction. Hold a separate seed lock
+    // across the active-version lookup, import and visibility update.
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('oteryn:e2e:query-catalog', 0))")
+        .execute(&mut *transaction)
+        .await?;
+    let active: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT v.id, v.source_commit FROM world_active_version a
+         JOIN world_versions v ON a.version_id = v.id WHERE a.singleton",
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let version = if let Some((version, revision)) = active {
+        if revision != FIXTURE_REVISION {
             return Err(SeedError::Conflict(
                 "another world catalog is active".into(),
             ));
         }
         version
     } else {
-        store
+        WorldStore::new(pool.clone(), WorldOptions { enabled: true })
             .import_directory(
                 PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                     .join("../../crates/world/tests/fixtures/valid"),
@@ -240,13 +248,15 @@ async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedErro
             .map_err(|_| SeedError::Unavailable("query catalog import"))?
             .version_id
     };
-    for key in ["fixture.alpha", "fixture.beta"] {
-        store
-            .allow("Item", key)
-            .await
-            .map_err(|_| SeedError::Unavailable("query catalog visibility"))?;
-    }
-    Ok(json!({"versionId": version}))
+    sqlx::query(
+        "INSERT INTO world_visibility (kind, key, allowed)
+         VALUES ('Item', 'fixture.alpha', true), ('Item', 'fixture.beta', true)
+         ON CONFLICT (kind, key) DO UPDATE SET allowed = EXCLUDED.allowed, updated_at = now()",
+    )
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(version)
 }
 
 /// A JSON object whose keys are checked against each command's allow-list.
