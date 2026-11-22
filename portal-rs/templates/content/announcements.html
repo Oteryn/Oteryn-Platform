@@ -34,7 +34,7 @@
 {% endfor %}
 </select>
 {% else %}
-<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}"{% if field.0.as_str() == "title" || field.0.as_str() == "body" || field.0.as_str() == "starts_at" %} required{% endif %}>{{ field.1 }}</textarea>
+<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{{ field.1 }}</textarea>
 {% endif %}
 {% endfor %}
 <button class="op-button">{{ self.text("save") }}</button>

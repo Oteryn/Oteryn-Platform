@@ -271,11 +271,19 @@ async function serverValidation(page, locale, actor, target, targets) {
     targets.set(new URL(page.url()).pathname, 200);
   }
   if (actor === 'staff' && target === '/admin/announcements/create') {
-    const response = posted(page, '/admin/announcements');
-    await submit(page, 'main form', { starts_at: 'invalid-date', title: 'Parity fixture', body: 'Parity fixture' });
-    expect((await response).status()).toBe(422);
-    await expect(page.locator('main')).toContainText(catalogText(`crates/ui/i18n/${locale}.ftl`, 'error-422-description'));
-    await assertDocument(page, locale, 'announcement validation refusal');
+    for (const fields of [
+      { starts_at: '', title: '', body: '' },
+      { starts_at: 'invalid-date', title: 'Parity fixture', body: 'Parity fixture' },
+    ]) {
+      expect((await page.goto(target)).status()).toBe(200);
+      const [response] = await Promise.all([
+        posted(page, '/admin/announcements'),
+        submit(page, 'main form', fields),
+      ]);
+      expect(response.status()).toBe(422);
+      await expect(page.locator('main')).toContainText(catalogText(`crates/ui/i18n/${locale}.ftl`, 'error-422-description'));
+      await assertDocument(page, locale, 'announcement validation refusal');
+    }
   }
 }
 
