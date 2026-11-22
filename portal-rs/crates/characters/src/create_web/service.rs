@@ -10,11 +10,26 @@ pub struct Settings {
     pub commands: commands::Settings,
 }
 impl Settings {
+    pub(crate) fn configured(lookup: impl Fn(&str) -> Option<String>) -> Self {
+        let flag = |key| lookup(key).as_deref() == Some("true");
+        Self {
+            enabled: flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED"),
+            commands: commands::Settings {
+                enabled: flag("OTERYN_CHARACTER_COMMANDS_ENABLED"),
+                create_enabled: flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
+                source_authority: lookup("OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY")
+                    .unwrap_or_default(),
+                ..Default::default()
+            },
+        }
+    }
+
+    pub(crate) fn mounted(&self) -> bool {
+        self.enabled && self.commands.enabled && self.commands.create_enabled
+    }
+
     pub fn available(&self) -> bool {
-        self.enabled
-            && self.commands.enabled
-            && self.commands.create_enabled
-            && !self.commands.source_authority.is_empty()
+        self.mounted() && !self.commands.source_authority.is_empty()
     }
 }
 #[derive(Debug, thiserror::Error)]
