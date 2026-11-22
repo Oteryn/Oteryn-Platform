@@ -1,15 +1,18 @@
 //! Browser adapter for personal-data exports.
 use crate::export::{ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until};
+use askama::Template;
 use axum::{
     Extension, Router,
     extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode, header},
+    middleware,
     response::{IntoResponse, Response},
     routing::get,
 };
 use oteryn_web::{
     Language,
     ratelimit::{Denial, Keys, NamedPolicy, RateLimiter},
+    session::{self, BrowserSession, SessionLayer},
 };
 use sqlx::PgPool;
 use std::net::SocketAddr;
@@ -34,6 +37,43 @@ pub(super) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
         }
     }
     found
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/app.css"></head><body class="op-theme"><main><h1>{{ title }}</h1><form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">{{ title }}</button></form></main></body></html>"#,
+    ext = "html"
+)]
+struct Confirmation<'a> {
+    lang: &'a str,
+    title: &'a str,
+    csrf: String,
+}
+
+async fn confirmation(
+    State(state): State<ExportState>,
+    Extension(language): Extension<Language>,
+    Extension(browser): Extension<BrowserSession>,
+    headers: HeaderMap,
+) -> Response {
+    let session = session_cookie(&headers).unwrap_or_default();
+    let result = async {
+        export_account(&state.pool, &state.config, session).await?;
+        let csrf = browser
+            .csrf_token()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        Ok::<_, StatusCode>(oteryn_web::render(&Confirmation {
+            lang: language.code(),
+            title: match language {
+                Language::Pl => "Pobierz dane konta",
+                Language::En => "Download account data",
+            },
+            csrf,
+        }))
+    }
+    .await;
+    private_response(result.into_response())
 }
 
 async fn handler(
@@ -85,7 +125,10 @@ async fn handler(
             .into_response(),
         Err(response) => response,
     };
-    let mut response = response;
+    private_response(response)
+}
+
+fn private_response(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store, private"),
@@ -98,15 +141,27 @@ async fn handler(
 }
 
 pub(super) fn router(pool: PgPool, config: ExportConfig) -> Router {
+    let mut sessions = SessionLayer::new(pool.clone());
+    if let Ok(origin) = std::env::var("OTERYN_PUBLIC_ORIGIN") {
+        sessions.csrf.trusted_origins.push(origin);
+    }
     Router::new()
         .route(
             "/pl/account/privacy/export",
-            get(handler).layer(Extension(Language::Pl)),
+            get(confirmation)
+                .post(handler)
+                .layer(Extension(Language::Pl)),
         )
         .route(
             "/en/account/privacy/export",
-            get(handler).layer(Extension(Language::En)),
+            get(confirmation)
+                .post(handler)
+                .layer(Extension(Language::En)),
         )
+        .route_layer(middleware::from_fn_with_state(
+            sessions,
+            session::middleware,
+        ))
         .with_state(ExportState {
             limiter: RateLimiter::new(pool.clone()),
             pool,

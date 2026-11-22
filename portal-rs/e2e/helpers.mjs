@@ -119,3 +119,12 @@ export async function login(page,lang,account) {
  await waitForLoginBudget();
  await submit(page,'main form',{email:account.email,password:account.password});
 }
+
+
+// Read the token from the same confirmation form a browser uses for downloads.
+export async function exportOptions(page, lang) {
+ const target=`/${lang}/account/privacy/export`;
+ expect((await page.goto(target)).status()).toBe(200);
+ const csrf=await page.locator('main form[method=post] [name=_csrf]').inputValue();
+ return {form:{_csrf:csrf},headers:{origin:new URL(page.url()).origin},maxRedirects:0};
+}

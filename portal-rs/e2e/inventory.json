@@ -1843,11 +1843,12 @@
         "OTERYN_ACCOUNT_EXPORT_ENABLED"
       ],
       "methods": [
-        "GET"
+        "GET",
+        "POST"
       ],
       "sources": [
-        "crates/identity/src/export.rs:134",
-        "crates/identity/src/export.rs:135"
+        "crates/identity/src/export_http.rs:150",
+        "crates/identity/src/export_http.rs:156"
       ]
     },
     {
