@@ -747,6 +747,12 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             .await;
             return match result {
                 Ok(()) => Redirect::to("/admin/roles").into_response(),
+                Err(staff_actions::Error::Forbidden) => {
+                    match refusal(&s.pool, context.account, "/admin/roles").await {
+                        Ok(()) => staff_actions::Error::Forbidden.response(chrome),
+                        Err(_) => staff_actions::Error::Unavailable.response(chrome),
+                    }
+                }
                 Err(error) => error.response(chrome),
             };
         }

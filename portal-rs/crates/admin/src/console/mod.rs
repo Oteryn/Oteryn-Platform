@@ -598,11 +598,24 @@ async fn render<P: Permissions, C: Channel>(
     {
         return Err(Error::Invalid);
     }
-    s.permissions.navigation(context).await?;
-    for op in operations {
-        s.permissions.check(context, *op).await?;
-    }
     let language = lang(&headers, &q);
+    let access = async {
+        s.permissions.navigation(context).await?;
+        for op in operations {
+            s.permissions.check(context, *op).await?;
+        }
+        Ok(())
+    }
+    .await;
+    if matches!(access, Err(Error::Denied)) {
+        let locale = if language == "en" {
+            oteryn_web::Language::En
+        } else {
+            oteryn_web::Language::Pl
+        };
+        return Ok((Extension(locale), StatusCode::FORBIDDEN).into_response());
+    }
+    access?;
     let mut sections = Vec::new();
     for op in operations {
         let mut section = Section {

@@ -46,6 +46,11 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    for(const form of forms)await csrfRejected(page,form.action,form.fields);
    } finally {await page.close();}
  });
+ const other = lang === 'en' ? 'pl' : 'en';
+ const denied = await page.request.get(`/console/dashboard?lang=${other}`, {headers: {accept: 'text/html'}});
+ expect(denied.status()).toBe(403);
+ expect(denied.headers()['content-language']).toBe(other);
+ expect(await denied.text()).toContain(other === 'en' ? 'Access denied' : 'Brak dostępu');
  // Opening navigation must not grant Game read permission to the bootstrap role.
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
@@ -54,14 +59,18 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
    const db=pool();
    try {
+     const actor=(await db.query('SELECT id FROM accounts WHERE email=$1',[staff.email])).rows[0].id;
+     const denials=async()=>(await db.query("SELECT request_id FROM audit_log WHERE action='admin.access.denied' AND actor=$1 AND target='/admin/roles' AND after->>'allowed'='false'",[actor])).rowCount;
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
      await page.goto('/admin/roles');
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'Assign privileged workflow role'};
      await csrfRejected(page,'/admin/roles',fields);
+     const denialCount=await denials();
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);
+     expect(await denials(),'protected grant records one access denial').toBe(denialCount+1);
      expect(Number((await db.query('SELECT count(*) AS n FROM account_roles WHERE account_id=$1 AND role_id=$2',[target,role])).rows[0].n)).toBe(0);
    }finally{await db.end();}
  });

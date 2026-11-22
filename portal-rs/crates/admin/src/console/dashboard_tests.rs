@@ -283,12 +283,32 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
     let fixture = fixture(0);
     for path in ["dashboard", "worlds", "nodes", "database"] {
         let url = format!("/console/{path}?agent=agent-1&lang=en");
-        let response = get(
-            app(db.pool.clone(), actor, fixture.clone(), false, true),
-            &url,
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        for (lang, other, title) in [("en", "pl", "Access denied"), ("pl", "en", "Brak dostępu")] {
+            let response = app(db.pool.clone(), actor, fixture.clone(), false, true)
+                .layer(axum::middleware::from_fn_with_state(
+                    oteryn_web::chrome::Shell {
+                        registry: oteryn_ui::Registry::default(),
+                        sessions: oteryn_web::session::SessionLayer::new(db.pool.clone()),
+                    },
+                    oteryn_web::chrome::middleware,
+                ))
+                .oneshot(
+                    Request::get(format!("/console/{path}?agent=agent-1&lang={lang}"))
+                        .header("host", "staff.test")
+                        .header(header::ACCEPT, "text/html")
+                        .header(header::ACCEPT_LANGUAGE, other)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let html = body(response).await;
+            assert!(html.contains(&format!(r#"lang="{lang}""#)));
+            assert!(html.contains(title));
+            assert!(!html.contains("fixture-healthy"));
+        }
         let response = get(
             app(db.pool.clone(), actor, fixture.clone(), true, false),
             &url,
