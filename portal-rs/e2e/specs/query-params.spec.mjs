@@ -59,7 +59,7 @@ const publicRoutes = {
     ['deaths', {world: 'Example'}],
     ['houses', {world}],
     ['guilds', {q: 'e2e control query', page: '1'}],
-    ['party', {world, purpose: '', level: '100', profession: ''}],
+    ['party', {world, purpose: 'hunt', level: '100', profession: 'any'}],
   ],
   bazaar: [
     ['bazaar', {before: `1:${world}`}],
@@ -102,7 +102,36 @@ const auditRoute = ['/admin/console/audit', {
   admin: world, request_id: world, operation: 'rbac.role.created', target: world, lang: 'pl',
 }];
 
+const ranksUnavailable = {
+  // No admitted highscores world exists. Exercise the default selection.
+  control: {vocation: '0'},
+  notice: {
+    pl: 'Tymczasowo niedostępne. Spróbuj ponownie później.',
+    en: 'Temporarily unavailable. Please try again later.',
+  },
+};
+const growthUnavailable = {
+  control: {vocation: '0', pvp: 'open', page: '1'},
+  notice: {
+    pl: 'Statystyki są niedostępne. Spróbuj ponownie później.',
+    en: 'Statistics are unavailable. Please try again later.',
+  },
+};
 const gatedListings = new Map([
+  ...rankings.map(kind => [`rankings/${kind}`, ranksUnavailable]),
+  ['/highscores', ranksUnavailable],
+  ...growth.map(kind => [`stats/rankings/${kind}`, growthUnavailable]),
+  ['online', {
+    control: {sort: 'level'},
+    notice: {pl: 'Tymczasowo niedostępne.', en: 'Temporarily unavailable.'},
+  }],
+  ['houses', {
+    control: {},
+    notice: {
+      pl: 'Informacje o domach są niedostępne. Spróbuj ponownie później.',
+      en: 'House information is unavailable. Please try again later.',
+    },
+  }],
   ['deaths', {
     textParameters: ['world'],
     notice: {pl: 'Dane o zgonach są obecnie niedostępne.', en: 'Death records are currently unavailable.'},
@@ -116,16 +145,13 @@ const gatedListings = new Map([
     notice: {pl: 'Niedostępne', en: 'Unavailable'},
   }],
   ['stats/world', {
-    textParameters: [],
     notice: {pl: 'Niedostępne', en: 'Unavailable'},
     noticeCount: 2,
   }],
   ['stats/compare', {
-    textParameters: [],
     notice: {pl: 'Niedostępne', en: 'Unavailable'},
   }],
   ['wiki/places', {
-    textParameters: [],
     notice: {pl: 'Brak zatwierdzonych danych.', en: 'No qualified data available.'},
     noticeSelector: 'main > p:last-child',
   }],
@@ -224,7 +250,7 @@ function expectedStatus(route, parameter, probe, gated) {
   if (gated) {
     // Punctuation and Unicode are well-formed in these bounded text fields.
     const wellFormed = probe === 'valid'
-      || gated.textParameters.includes(parameter) && boundedText.includes(probe);
+      || gated.textParameters?.includes(parameter) && boundedText.includes(probe);
     return wellFormed ? 503 : 400;
   }
   return acceptedProbes.get(route)?.[parameter]?.includes(probe) ? 200 : 400;
@@ -250,17 +276,21 @@ async function checkRoute(page, locale, [route, parameters, required = {}, desti
   const expectedPath = destination ?? path;
   const expectedLocale = destination ? 'pl' : locale;
   const gated = gatedListings.get(route);
+  const entries = Object.entries(parameters);
   let slowest = 0;
   await test.step(path, async () => {
-    for (const [parameter, valid] of Object.entries(parameters)) {
+    for (const [parameter, valid] of entries) {
       const probes = cases(parameter, valid, locale);
-      if (gated || route === 'shop/history') probes.unshift({name: 'valid', values: [valid]});
+      if (route === 'shop/history' || gated && (!gated.control || parameter === entries[0][0])) {
+        probes.unshift({name: 'valid', values: [valid]});
+      }
       if (route === 'stats/guilds' && parameter === 'days') {
         probes.push({name: 'under minimum', values: ['0']}, {name: 'over maximum', values: ['32']});
       }
       for (const probe of probes) {
         await test.step(`${parameter}: ${probe.name}`, async () => {
-          const query = new URLSearchParams(required);
+          const companion = probe.name === 'valid' ? (gated?.control ?? required) : required;
+          const query = new URLSearchParams(companion);
           if (route.startsWith('/admin') && 'lang' in parameters) query.set('lang', locale);
           query.delete(parameter);
           for (const value of probe.values) query.append(parameter, value);
