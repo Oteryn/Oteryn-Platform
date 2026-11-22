@@ -70,9 +70,9 @@ struct HttpState {
 }
 
 #[derive(Debug, Clone)]
-struct EvidenceSources {
-    inventory: String,
-    progress: String,
+pub(super) struct EvidenceSources {
+    pub(super) inventory: String,
+    pub(super) progress: String,
 }
 /// Does not register routes when disabled. All browser mutations retain the
 /// shared synchronizer-token CSRF and current authenticated session middleware.
@@ -86,7 +86,7 @@ pub fn router(
     router_with_evidence(pool, service, flags, authority, csrf, None)
 }
 
-fn router_with_evidence(
+pub(super) fn router_with_evidence(
     pool: PgPool,
     service: Collection,
     flags: Flags,
@@ -297,7 +297,10 @@ async fn index(
 ) -> std::result::Result<Html<String>, StatusCode> {
     let characters = if s.evidence.is_some() {
         let account = account(&session).await?;
-        match CollectionEvidence::characters(&s.pool, account).await {
+        let tx = crate::browser::begin(&s.pool)
+            .await
+            .map_err(|e| status(e.into()))?;
+        match CollectionEvidence::characters(tx, account).await {
             Ok(characters) => characters,
             Err(oteryn_playerdata::store::Error::Unavailable) => Vec::new(),
             Err(error) => return Err(evidence_status(error)),
@@ -352,8 +355,11 @@ async fn page(
 ) -> std::result::Result<Html<String>, StatusCode> {
     let account = account(&session).await?;
     if let Some(sources) = &s.evidence {
+        let tx = crate::browser::begin(&s.pool)
+            .await
+            .map_err(|e| status(e.into()))?;
         let evidence = CollectionEvidence::read(
-            &s.pool,
+            tx,
             account,
             character,
             &sources.inventory,

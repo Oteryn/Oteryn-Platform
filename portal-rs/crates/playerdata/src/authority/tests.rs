@@ -2992,24 +2992,25 @@ async fn collection_evidence_requires_current_ownership_and_valid_character_id()
     let owner = uuid(SELLER).unwrap();
     let other = uuid(BUYER).unwrap();
     let character = uuid(CHARACTER).unwrap();
-    let read = |actor, character| {
+    let read = async |actor, character| {
         CollectionEvidence::read(
-            &db.pool,
+            db.pool.begin().await.unwrap(),
             actor,
             character,
             ITEMS_AUTHORITY,
             PROGRESS_AUTHORITY,
         )
+        .await
     };
 
     assert_eq!(
-        CollectionEvidence::characters(&db.pool, owner)
+        CollectionEvidence::characters(db.pool.begin().await.unwrap(), owner)
             .await
             .unwrap(),
         vec![(character, "Hero".into())]
     );
     assert!(
-        CollectionEvidence::characters(&db.pool, other)
+        CollectionEvidence::characters(db.pool.begin().await.unwrap(), other)
             .await
             .unwrap()
             .is_empty()
@@ -3033,7 +3034,7 @@ async fn collection_evidence_requires_current_ownership_and_valid_character_id()
         Err(Error::Unavailable)
     ));
     assert!(
-        CollectionEvidence::characters(&db.pool, owner)
+        CollectionEvidence::characters(db.pool.begin().await.unwrap(), owner)
             .await
             .unwrap()
             .is_empty()

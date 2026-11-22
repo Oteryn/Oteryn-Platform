@@ -411,10 +411,9 @@ pub struct CollectionEvidence {
 
 impl CollectionEvidence {
     pub async fn characters(
-        pool: &sqlx::PgPool,
+        mut tx: Transaction<'_, Postgres>,
         actor: Uuid,
     ) -> Result<Vec<(Uuid, String)>, Error> {
-        let mut tx = pool.begin().await?;
         store::lock_account(&mut tx, &actor.to_string()).await?;
         collection_account(&mut tx, actor).await?;
         shared_fences(&mut tx).await?;
@@ -440,7 +439,7 @@ impl CollectionEvidence {
     }
 
     pub async fn read(
-        pool: &sqlx::PgPool,
+        mut tx: Transaction<'_, Postgres>,
         actor: Uuid,
         character: Uuid,
         inventory_source: &str,
@@ -449,7 +448,6 @@ impl CollectionEvidence {
         if character.get_version_num() != 7 || character.get_variant() != uuid::Variant::RFC4122 {
             return Err(Error::Invalid);
         }
-        let mut tx = pool.begin().await?;
         store::lock_account(&mut tx, &actor.to_string()).await?;
         collection_account(&mut tx, actor).await?;
         shared_fences(&mut tx).await?;
