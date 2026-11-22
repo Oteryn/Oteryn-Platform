@@ -24,7 +24,7 @@
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/{% if mode == "replacement" %}replace/{% endif %}confirm">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
-<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
+<div class="op-field"><label for="code">{{ self.text("mfa-new-authenticator-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
 {% else if mode == "codes" %}
 <p>{{ self.text("mfa-save") }}</p>
@@ -47,7 +47,7 @@
 <option value="remove">{{ self.text("panel-identity-remove") }}</option>
 </select></div>
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
-<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
+<div class="op-field"><label for="code">{{ self.text("mfa-current-authenticator-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
 <button class="op-button">{{ self.text("panel-identity-apply") }}</button>
 </form>
 {% endif %}
