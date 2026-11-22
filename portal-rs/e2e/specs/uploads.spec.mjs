@@ -160,9 +160,9 @@ test('media pagination uses the selected language', async ({ page }, { project }
   }
 });
 
-function oversizedPng() {
-  // Add a valid text chunk before IEND so the only violation is the file size.
-  const dataLength = maxFileBytes + 1 - png.buffer.length - 12;
+function pngOfSize(fileBytes) {
+  // A valid text chunk before IEND lets us control upload size without changing the pixels.
+  const dataLength = fileBytes - png.buffer.length - 12;
   const chunk = Buffer.alloc(dataLength + 12, 'a');
   chunk.writeUInt32BE(dataLength);
   chunk.write('tEXtComment\0', 4, 'ascii');
@@ -170,8 +170,45 @@ function oversizedPng() {
   return { ...png, buffer: Buffer.concat([png.buffer.subarray(0, -12), chunk, png.buffer.subarray(-12)]) };
 }
 
+test('signed-in editor submits a 7 MiB native form over a 10 Mbps uplink', async ({ page, context }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  const image = pngOfSize(7 * 1024 * 1024);
+  await page.locator(form).locator('input[name=image]').setInputFiles(image);
+  await page.locator(form).locator('[name=alt_text]').fill(alt);
+
+  const cdp = await context.newCDPSession(page);
+  try {
+    await cdp.send('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: 1_250_000,
+    });
+    const started = performance.now();
+    const [uploaded] = await Promise.all([
+      page.waitForResponse(response =>
+        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+      page.locator(form).locator('button').click(),
+    ]);
+    expect(await uploaded.request().headerValue('x-csrf-token')).toBeNull();
+    expect(uploaded.status()).toBe(302);
+    expect(performance.now() - started).toBeGreaterThan(5000);
+    const localeQuery = lang === 'en' ? '?lang=en' : '';
+    await expect(page).toHaveURL(`${route}${localeQuery}`);
+    await expect(page.getByRole('img', { name: alt, exact: true })).toBeVisible();
+    const rows = await query('SELECT id, mime_type FROM media WHERE alt_text=$1', [alt]);
+    expect(rows).toEqual([{ id: expect.any(String), mime_type: 'image/png' }]);
+    await submit(page, `main form[action="${route}/${rows[0].id}/delete${localeQuery}"]`);
+    await expect(page.getByRole('img', { name: alt, exact: true })).toHaveCount(0);
+  } finally {
+    await cdp.detach();
+  }
+});
+
 const rejectedImages = [
-  ['file greater than 8 MiB', oversizedPng, 422],
+  ['file greater than 8 MiB', () => pngOfSize(maxFileBytes + 1), 422],
   ['multipart body above the request limit', () => ({ ...png, buffer: Buffer.alloc(maxFileBytes + 16385) }), 413],
   ['declared MIME does not match the PNG', () => ({ ...png, mimeType: 'image/jpeg' }), 422],
   ['extension does not match the PNG', () => ({ ...png, name: 'editorial.jpeg' }), 422],

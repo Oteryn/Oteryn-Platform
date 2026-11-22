@@ -263,6 +263,7 @@ impl oteryn_admin::rbac::AccountStateReader for Staff {
     }
 }
 fn test_app(pool: PgPool, actor: Uuid) -> Router {
+    let sessions = SessionLayer::new(pool.clone());
     oteryn_admin::web::guarded(
         admin_router(pool.clone()),
         pool,
@@ -274,7 +275,10 @@ fn test_app(pool: PgPool, actor: Uuid) -> Router {
         Staff(actor),
         Permission::ManageMedia,
     )
-    .layer(axum::middleware::from_fn(multipart_csrf))
+    .layer(axum::middleware::from_fn_with_state(
+        sessions,
+        multipart_csrf,
+    ))
     .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
 }
 async fn browser_lifecycle(pool: &PgPool) {
@@ -419,6 +423,17 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap()
     );
+
+    let mut anonymous = make(csrf, "Anonymous stalled upload", "image/png");
+    anonymous.headers_mut().remove(header::COOKIE);
+    *anonymous.body_mut() = Body::from_stream(futures_util::stream::pending::<
+        Result<Bytes, std::convert::Infallible>,
+    >());
+    let refusal = tokio::time::timeout(Duration::from_secs(8), app.clone().oneshot(anonymous))
+        .await
+        .expect("anonymous forms must keep the short body deadline")
+        .unwrap();
+    assert_eq!(refusal.status(), StatusCode::REQUEST_TIMEOUT);
 
     let uploaded = app
         .clone()

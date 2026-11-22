@@ -500,21 +500,37 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
     Ok(session)
 }
 
+/// Check for a live signed-in session without touching its idle deadline.
+/// Request handlers must still apply their normal CSRF and authorization checks.
+pub async fn has_signed_in_session(layer: &SessionLayer, headers: &axum::http::HeaderMap) -> bool {
+    signed_in_csrf(layer, headers, layer.config).await.is_some()
+}
+
 /// Read presentation state without refreshing expiry, creating a session or setting cookies.
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
-    request: &mut Request,
+    headers: &axum::http::HeaderMap,
+    extensions: &axum::http::Extensions,
 ) -> oteryn_ui::Account {
-    let config = request
-        .extensions()
+    let config = extensions
         .get::<SessionConfig>()
         .copied()
         .unwrap_or(layer.config);
-    if config.validate().is_err() {
-        return oteryn_ui::Account::Anonymous;
+    match signed_in_csrf(layer, headers, config).await {
+        Some(csrf) => oteryn_ui::Account::SignedIn { csrf },
+        None => oteryn_ui::Account::Anonymous,
     }
-    let mut identifiers = request
-        .headers()
+}
+
+async fn signed_in_csrf(
+    layer: &SessionLayer,
+    headers: &axum::http::HeaderMap,
+    config: SessionConfig,
+) -> Option<String> {
+    if config.validate().is_err() {
+        return None;
+    }
+    let mut identifiers = headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
@@ -522,19 +538,19 @@ pub(crate) async fn chrome_account(
         .filter_map(|v| v.trim().split_once('='))
         .filter(|(name, _)| *name == COOKIE_NAME)
         .map(|(_, value)| value);
-    let Some(id) = identifiers.next().filter(|id| valid_id(id)) else {
-        return oteryn_ui::Account::Anonymous;
-    };
+    let id = identifiers.next().filter(|id| valid_id(id))?;
     if identifiers.next().is_some() {
-        return oteryn_ui::Account::Anonymous;
+        return None;
     }
-    let row: Result<Option<(String, Option<Uuid>)>, _> = sqlx::query_as(
-        "SELECT csrf_token, account_id FROM web_sessions WHERE id_hash=$1 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(id)).fetch_optional(&layer.pool).await;
-    match row {
-        Ok(Some((csrf, Some(_)))) => oteryn_ui::Account::SignedIn { csrf },
-        _ => oteryn_ui::Account::Anonymous,
-    }
+    sqlx::query_scalar(
+        "SELECT csrf_token FROM web_sessions WHERE id_hash=$1 AND account_id IS NOT NULL
+         AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(&layer.pool)
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.

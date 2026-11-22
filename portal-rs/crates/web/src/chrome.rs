@@ -21,7 +21,9 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
     let lang = crate::surface::path_language(request.uri().path())
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
+    let account =
+        crate::session::chrome_account(&shell.sessions, request.headers(), request.extensions())
+            .await;
     let path = request.uri().path();
     let local = path
         .strip_prefix("/pl/")

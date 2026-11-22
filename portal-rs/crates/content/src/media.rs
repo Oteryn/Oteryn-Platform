@@ -14,6 +14,7 @@ use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{CheckContext, MutationAuthorization, Permission},
 };
+use oteryn_web::session::{SessionLayer, has_signed_in_session};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
@@ -24,7 +25,9 @@ const MAX_DECODE_BYTES: usize = 160_000_000;
 // Header CSRF is verified before reading the body. Allow the full byte cap
 // over a slower uplink while keeping the pre-authentication form read short.
 const AUTHENTICATED_UPLOAD_TIMEOUT: Duration = Duration::from_secs(15);
-const FORM_CSRF_UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
+const ANONYMOUS_FORM_UPLOAD_TIMEOUT: Duration = Duration::from_secs(3);
+// At 2 Mbps, the full 8 MiB file takes about 34 seconds before overhead.
+const SIGNED_IN_FORM_UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
@@ -201,6 +204,7 @@ fn configured_router_from(
     pool: PgPool,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
+    let sessions = SessionLayer::new(pool.clone());
     oteryn_admin::web::configured_host_boundary_from(
         oteryn_admin::web::configured_guard_from(
             admin_router(pool.clone()),
@@ -208,7 +212,10 @@ fn configured_router_from(
             Permission::ManageMedia,
             lookup,
         )?
-        .layer(axum::middleware::from_fn(multipart_csrf))
+        .layer(axum::middleware::from_fn_with_state(
+            sessions,
+            multipart_csrf,
+        ))
         .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
         .layer(axum::middleware::from_fn(headers)),
         lookup,
@@ -293,6 +300,7 @@ impl<S: Send + Sync> FromRequest<S> for CheckedMultipart {
 /// Adapt a native multipart form token to the shared synchronizer-token verifier.
 /// The shared guard still validates the origin, session and constant-time token.
 async fn multipart_csrf(
+    State(sessions): State<SessionLayer>,
     mut request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Result<Response, StatusCode> {
@@ -305,7 +313,12 @@ async fn multipart_csrf(
             .get(header::CONTENT_TYPE)
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-        let bytes = checked_body(&mut request, FORM_CSRF_UPLOAD_TIMEOUT).await?;
+        let deadline = if has_signed_in_session(&sessions, request.headers()).await {
+            SIGNED_IN_FORM_UPLOAD_TIMEOUT
+        } else {
+            ANONYMOUS_FORM_UPLOAD_TIMEOUT
+        };
+        let bytes = checked_body(&mut request, deadline).await?;
         let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));
         copy.extensions_mut().extend(request.extensions().clone());
         copy.headers_mut()
