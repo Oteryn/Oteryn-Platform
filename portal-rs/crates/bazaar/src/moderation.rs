@@ -398,6 +398,7 @@ impl StaffCommand {
 /// Retains all holds. Approval queues reconciliation only, with no automatic
 /// dispatch, state cancellation, balance credit, fabricated receipt or asset reversal.
 pub async fn lock_staff_target(tx: &mut PgConnection, command: &StaffCommand) -> Result<(), Error> {
+    valid_id(command.target())?;
     // Every staff command may take an account FOR UPDATE after its target.
     // Exclude trading transactions before taking either, never upgrade a shared gate.
     sqlx::query("SELECT pg_advisory_xact_lock(64002)")
@@ -449,7 +450,6 @@ pub async fn execute_staff(
     command: &StaffCommand,
 ) -> Result<(), Error> {
     valid_id(actor)?;
-    valid_id(command.target())?;
     lock_staff_target(tx, command).await?;
     match command {
         StaffCommand::Suspend { listing, reason } => {
