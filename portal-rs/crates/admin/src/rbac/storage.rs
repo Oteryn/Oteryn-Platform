@@ -94,7 +94,7 @@ impl<A: AccountStateReader> Authorizer<A> {
     }
 
     /// Apply a role edit under the staff-action transaction's authorization and locks.
-    pub(crate) async fn edit_grant_permission(
+    pub(crate) async fn edit_role_with_grant_controls(
         &self,
         connection: &mut PgConnection,
         context: CheckContext,
@@ -107,9 +107,7 @@ impl<A: AccountStateReader> Authorizer<A> {
             Change::SetPermissions { role, permissions } => (*permissions, Some(*role)),
             _ => return Err(Error::InvalidInput),
         };
-        if !permissions.contains(&Permission::GrantRoles)
-            || permissions.contains(&Permission::ManageRoles)
-        {
+        if permissions.contains(&Permission::ManageRoles) {
             return Err(Error::Denied);
         }
         let audit = match (&change, role) {
@@ -322,14 +320,14 @@ async fn create_role(
     Ok(role)
 }
 
-/// Call with the role-writer fence held. Only trusted or freshly confirmed
-/// staff workflows may introduce the permission to grant roles.
+/// Call with the role-writer fence held. Widening an assigned role confers
+/// permissions on its holders, so it requires the same controls as a grant.
 async fn set_role_permissions(
     connection: &mut PgConnection,
     actor: CheckContext,
     role: Uuid,
     permissions: &[Permission],
-    may_add_grant: bool,
+    may_grant_permissions: bool,
 ) -> Result<Option<Vec<String>>, Error> {
     validate_permissions(permissions)?;
     require_role(connection, role).await?;
@@ -349,19 +347,23 @@ async fn set_role_permissions(
     if before == after {
         return Ok(None);
     }
-    let grant = Permission::GrantRoles.as_str();
-    if !may_add_grant && after.contains(&grant) && !before.iter().any(|p| p == grant) {
-        return Err(Error::Denied);
-    }
-    if after.iter().any(|p| !before.iter().any(|b| b == p)) {
-        let held: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+    let additions = after.iter().filter(|p| !before.iter().any(|b| b == *p));
+    if additions.clone().next().is_some() {
+        let (assigned, held): (bool, bool) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1),
+                    EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
         )
-        .bind(actor.account)
         .bind(role)
+        .bind(actor.account)
         .fetch_one(&mut *connection)
         .await?;
-        if held {
+        if held
+            || (!may_grant_permissions
+                && (assigned
+                    || additions
+                        .into_iter()
+                        .any(|p| *p == Permission::GrantRoles.as_str())))
+        {
             return Err(Error::Denied);
         }
     }
