@@ -546,5 +546,18 @@ async fn postgres_binding_alerts_require_the_dedicated_permission() {
     assert!(page.contains("binding-fingerprint"));
     assert!(!page.contains("malformed-alarm"));
     assert!(!body(read(false).await).await.contains(&alarm.to_string()));
+    let polish = body(
+        get(
+            app(db.pool.clone(), actor, fixture(3), true, true),
+            "/console/dashboard?lang=pl",
+        )
+        .await,
+    )
+    .await;
+    for label in ["Źródło danych", "Rodzina", "Rekord", "Powiązanie"] {
+        assert!(polish.contains(label), "missing Polish field label {label}");
+    }
+    assert!(!polish.contains(">Authority<"));
+    assert!(!polish.contains(">Binding<"));
     db.close().await;
 }

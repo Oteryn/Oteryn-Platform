@@ -13,14 +13,14 @@ pub(super) async fn section(pool: &PgPool, lang: &str) -> Section {
         operation: "",
         can_query: false,
     };
-    if let Ok(records) = records(pool).await {
+    if let Ok(records) = records(pool, lang).await {
         section.records = records;
         section.state = text(lang, "fresh");
         section.freshness = text(lang, "now");
     }
     section
 }
-async fn records(pool: &PgPool) -> Result<Vec<DisplayRecord>, sqlx::Error> {
+async fn records(pool: &PgPool, lang: &str) -> Result<Vec<DisplayRecord>, sqlx::Error> {
     let rows: Vec<(String, String, String, String, String, String)> = sqlx::query_as(
         "SELECT id::text,created_at::text,after->>'authority',after->>'family',after->>'record_id',target
          FROM audit_log
@@ -39,12 +39,12 @@ async fn records(pool: &PgPool) -> Result<Vec<DisplayRecord>, sqlx::Error> {
             |(id, at, authority, family, record, binding)| DisplayRecord {
                 name: "IMMUTABLE_BINDING".into(),
                 fields: vec![
-                    ("Alarm".into(), id),
-                    ("UTC".into(), at),
-                    ("Authority".into(), authority),
-                    ("Family".into(), family),
-                    ("Record".into(), record),
-                    ("Binding".into(), binding),
+                    (text(lang, "alert-alarm"), id),
+                    (text(lang, "alert-utc"), at),
+                    (text(lang, "alert-authority"), authority),
+                    (text(lang, "alert-family"), family),
+                    (text(lang, "alert-record"), record),
+                    (text(lang, "alert-binding"), binding),
                 ],
             },
         )
