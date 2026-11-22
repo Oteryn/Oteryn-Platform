@@ -27,3 +27,12 @@ test('account menu shows a localized staff link only with admin.access', async (
   expect((await page.goto(`/${lang}/`)).status()).toBe(200);
   await expect(link).toHaveText(lang === 'pl' ? 'Panel zespołu' : 'Staff panel');
 });
+
+test('cold atlas sends no-store for document and direct GET requests', async ({request}, info) => {
+  const lang = info.project.metadata.locale;
+  for (const accept of ['text/html', '*/*']) {
+    const atlas = await request.get(`/${lang}/atlas`, {headers: {accept}});
+    expect(atlas.status()).toBe(503);
+    expect(atlas.headers()['cache-control']).toBe('no-store');
+  }
+});

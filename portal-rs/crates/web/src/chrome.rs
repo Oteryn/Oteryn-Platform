@@ -108,6 +108,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             response = replacement;
         }
     }
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
+        response.headers_mut().insert(
+            header::CACHE_CONTROL,
+            axum::http::HeaderValue::from_static("no-store"),
+        );
+    }
     let mut response = wrap_document(response, &chrome).await;
     if response
         .headers()
