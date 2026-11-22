@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {test, expect} from '../fixtures.mjs';
-import {csrfRejected, login, password, submit, waitForLoginBudget} from '../helpers.mjs';
+import {exportOptions, login, password, submit, waitForLoginBudget} from '../helpers.mjs';
 import {query} from '../staff-rbac-helpers.mjs';
 
 function seedAccount(locale) {
@@ -26,8 +26,29 @@ async function expectThrottle(response, lang, window) {
 }
 
 function testSource() {
-  const suffix = crypto.randomBytes(8).toString('hex').match(/.{4}/g).join(':');
+  const suffix = crypto.randomBytes(8).toString('hex').match(/.{4}/g).map(group => (parseInt(group, 16) || 1).toString(16)).join(':');
   return {'x-forwarded-for': `2001:db8::${suffix}`};
+}
+
+function quotaHash(policy, key) {
+  const hash = crypto.createHash('sha256');
+  for (const part of [policy, key]) {
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(Buffer.byteLength(part)));
+    hash.update(length).update(part);
+  }
+  return hash.digest();
+}
+
+async function quotaCounters(policy, account, source) {
+  return query(`
+    SELECT limiter_name, window_start::text, count::text
+      FROM web_rate_limits
+     WHERE (limiter_name = $1 AND key_hash = $2)
+        OR (limiter_name = $3 AND key_hash = $4)
+     ORDER BY limiter_name, window_start
+  `, [policy, quotaHash(policy, account.id), `${policy}-source`,
+    quotaHash(`${policy}-source`, source['x-forwarded-for'])]);
 }
 
 async function loginSeededAccount(page, lang) {
@@ -95,21 +116,50 @@ test('personal export requires sudo and throttles repeat downloads', async ({pag
     headers: {cookie: '__Host-oteryn_session=malformed'},
     maxRedirects: 0,
   });
-  expect(malformed.status()).toBe(401);
+  expect(malformed.status()).toBe(400);
 
   const account = await loginSeededAccount(page, lang);
   expect((await page.request.get(target)).status()).toBe(403);
   const source = testSource();
+  const counters = () => quotaCounters('identity-data-export', account, source);
+  await page.goto(`/${lang}/account/sudo`);
+  const csrf = await page.locator('main form [name=_csrf]').inputValue();
+  const origin = new URL(page.url()).origin;
+  const beforeSudo = await counters();
+  expect((await page.request.post(target, {
+    form: {_csrf: csrf}, headers: {origin, ...source}, maxRedirects: 0,
+  })).status()).toBe(403);
+  expect(await counters()).toEqual(beforeSudo);
+
   await enableSudo(page, lang, account);
+  const post = await exportOptions(page, lang);
+  const beforeProbes = await counters();
+  for (const method of ['GET', 'HEAD']) {
+    const response = await page.request.fetch(target, {
+      method, headers: {...source, 'sec-fetch-site': 'cross-site'}, maxRedirects: 0,
+    });
+    expect(response.status()).toBe(200);
+    expect(response.headers()['content-disposition']).toBeUndefined();
+    expect(await counters()).toEqual(beforeProbes);
+  }
+  expect((await page.request.post(target, {
+    ...post, form: {}, headers: {...post.headers, ...source},
+  })).status()).toBe(403);
+  expect(await counters()).toEqual(beforeProbes);
+  expect((await page.request.post(target, {
+    ...post, headers: {...post.headers, ...source, 'sec-fetch-site': 'cross-site'},
+  })).status()).toBe(403);
+  expect(await counters()).toEqual(beforeProbes);
   await startQuotaWindow(900);
   for (let index = 0; index < 3; index++) {
-    const response = await page.request.get(target, {headers: source});
+    const response = await page.request.post(target, {...post, headers: {...post.headers, ...source}});
     expect(response.status()).toBe(200);
     expect(response.headers()['content-disposition']).toBe('attachment; filename="account-data.json"');
     expect(response.headers()['cache-control']).toContain('no-store');
     expect((await response.json()).account.id).toBe(account.id);
   }
-  const refused = await page.request.get(target, {headers: testSource()});
+  expect((await counters()).map(row => row.count)).toEqual(['3', '3']);
+  const refused = await page.request.post(target, {...post, headers: {...post.headers, ...testSource()}});
   await expectThrottle(refused, lang, 900);
   expect(refused.headers()['content-disposition']).toBeUndefined();
 });
@@ -119,8 +169,13 @@ test('profile comment validates submissions and refuses writes over quota', asyn
   const lang = info.project.metadata.locale;
   const account = await loginSeededAccount(page, lang);
   const {target, form, options} = await profileForm(page, lang, account);
-  await csrfRejected(page, target, {comment: 'Missing CSRF'});
   const source = testSource();
+  const counters = () => quotaCounters('character-profile-update', account, source);
+  const before = await counters();
+  const missing = options('Missing CSRF', source);
+  delete missing.form._csrf;
+  expect((await page.request.post(target, missing)).status()).toBe(403);
+  expect(await counters()).toEqual(before);
   await startQuotaWindow(60);
   expect((await page.request.post(target, options('a'.repeat(501), source))).status()).toBe(422);
   for (let index = 1; index <= 9; index++) {
@@ -128,6 +183,7 @@ test('profile comment validates submissions and refuses writes over quota', asyn
     expect(response.status()).toBe(303);
     expect(response.headers().location).toBe(target);
   }
+  expect((await counters()).map(row => row.count)).toEqual(['10', '10']);
   await expectThrottle(await page.request.put(target, options('Refused comment', testSource())), lang, 60);
   expect((await page.reload()).status()).toBe(200);
   await expect(form.locator('[name=comment]')).toHaveValue('Allowed comment 9');
@@ -158,22 +214,37 @@ test('the same IP exhausts each budget across distinct authenticated accounts', 
         current_password: account.password,
       })).toBe(`/${lang}/account/security`);
       const profile = index < 4 ? await profileForm(page, lang, account) : null;
-      actors.push({page, account, profile});
+      actors.push({page, account, profile, exportPost: await exportOptions(page, lang)});
     }
 
+    const attemptExport = ({page, exportPost}, source) => page.request.post(exportTarget, {
+      ...exportPost, headers: {...exportPost.headers, ...source},
+    });
     await startQuotaWindow(900);
-    for (const {page, account} of actors.slice(0, 4)) {
+    for (const actor of actors.slice(0, 4)) {
       for (let index = 0; index < 3; index++) {
-        const response = await page.request.get(exportTarget, {headers: sharedSource});
+        const response = await attemptExport(actor, sharedSource);
         expect(response.status()).toBe(200);
-        expect((await response.json()).account.id).toBe(account.id);
+        expect((await response.json()).account.id).toBe(actor.account.id);
       }
     }
     const exporter = actors[4];
-    await expectThrottle(await exporter.page.request.get(exportTarget, {headers: sharedSource}), lang, 900);
-    const exportFromAnotherSource = await exporter.page.request.get(exportTarget, {headers: testSource()});
+    const freeExportSource = testSource();
+    for (let index = 0; index < 2; index++) {
+      expect((await attemptExport(exporter, freeExportSource)).status()).toBe(200);
+    }
+    await expectThrottle(await attemptExport(exporter, sharedSource), lang, 900);
+    const exportFromAnotherSource = await attemptExport(exporter, freeExportSource);
     expect(exportFromAnotherSource.status()).toBe(200);
     expect((await exportFromAnotherSource.json()).account.id).toBe(exporter.account.id);
+
+    const foreignActor = actors[3];
+    const foreignCounters = () => quotaCounters('character-profile-update', foreignActor.account, sharedSource);
+    const beforeForeign = await foreignCounters();
+    const otherTarget = actors[0].profile.target;
+    expect((await foreignActor.page.request.post(otherTarget,
+      foreignActor.profile.options('Foreign edit', sharedSource))).status()).toBe(404);
+    expect(await foreignCounters()).toEqual(beforeForeign);
 
     await startQuotaWindow(60);
     for (const {page, profile: {target, options}} of actors.slice(0, 3)) {
@@ -183,7 +254,7 @@ test('the same IP exhausts each budget across distinct authenticated accounts', 
     }
     const {page, profile: {target, options, form}} = actors[3];
     await expectThrottle(await page.request.post(target, options('Refused by IP', sharedSource)), lang, 60);
-    expect((await page.reload()).status()).toBe(200);
+    expect((await page.goto(target)).status()).toBe(200);
     await expect(form.locator('[name=comment]')).toHaveValue('');
     expect((await page.request.post(target, options('Allowed from another IP', testSource()))).status()).toBe(303);
     expect((await page.reload()).status()).toBe(200);
