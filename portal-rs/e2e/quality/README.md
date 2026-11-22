@@ -21,7 +21,9 @@ The launcher regenerates the existing Rust route inventory in scratch. The
 tests use GET registrations, navigation registry destinations and same-origin
 links rendered by the portal. Each pattern has at most three samples per
 actor and project. The seed CLI creates verified accounts and a local world.
-The browser creates editorial content, support tickets and reports through their real forms.
+The existing registration helper enables the disposable password-range
+fixture so the real registration form is available. The browser creates
+editorial content, support tickets and reports through their real forms.
 The platform administrator signs in with the real MFA challenge. Source
 patterns that require a resource absent from the harness use a representative
 missing identifier, with the resulting status recorded. Each actor gets a

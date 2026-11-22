@@ -4,7 +4,7 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { login, password, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, password, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { maxSamples, matches, routes } from './routes.mjs';
 import { assertKeyboard } from './keyboard.mjs';
@@ -36,9 +36,11 @@ function seed(entity, input) {
 }
 
 async function actorState(browser, info, actor) {
+  const fixturePassword = password();
+  await seedPasswordRange(fixturePassword);
   if (actor === 'anonymous') return { cookies: [], origins: [] };
   const locale = info.project.metadata.locale;
-  const credentials = { email: `quality-${randomUUID()}@example.invalid`, password: password() };
+  const credentials = { email: `quality-${randomUUID()}@example.invalid`, password: fixturePassword };
   const { accountId } = seed('account', { ...credentials, locale });
   const context = await browser.newContext({
     ...info.project.use, baseURL: process.env.PORTAL_E2E_ORIGIN,
