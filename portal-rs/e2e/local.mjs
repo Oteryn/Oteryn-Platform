@@ -9,7 +9,7 @@ import dns from 'node:dns';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
-import { SMTPServer } from 'smtp-server';
+import { mailSink } from './support/mail-sink.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
 import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
@@ -122,11 +122,12 @@ await bazaarSeed.end();
 const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
-const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
+const mail={tls,username:env.OTERYN_SMTP_USERNAME,password:env.OTERYN_SMTP_PASSWORD,messages};
+const smtp=mailSink({...mail,secure:true});
 smtp.on('error',error=>console.error('Local SMTP error:',error.code));
 smtp.listen(465,'127.0.0.1');
 // Notification delivery uses the existing authenticated STARTTLS adapter on port 587.
-const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
+const starttls=mailSink({...mail,secure:false});
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
 const proxy=https.createServer(tls,(req,res)=>{

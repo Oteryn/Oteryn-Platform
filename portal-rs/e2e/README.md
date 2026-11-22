@@ -308,7 +308,9 @@ evidence-only commit can refer to the immutable tested source candidate.
 
 With the local PostgreSQL administrator URL set as above, start the existing
 harness from the repository root. The loopback HTTPS proxy lets Chromium use
-the configured WebAuthn origin and preserves the configured staff host.
+the configured WebAuthn origin and preserves the configured staff host. This
+mode also starts the existing authenticated local SMTP sink on ports 465 and
+587 for the identity worker.
 
 ```sh
 PORTAL_E2E_BROWSER_HTTPS_PORT=18443 \

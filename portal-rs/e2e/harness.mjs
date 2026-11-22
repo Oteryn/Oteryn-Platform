@@ -18,6 +18,7 @@ import http from 'node:http';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { mailSink } from './support/mail-sink.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -144,6 +145,18 @@ const env = {
   GATEWAY_NATIVE_LOGIN_ENABLED: 'true',
   OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
 };
+if (ports.browser !== null) {
+  Object.assign(env, {
+    OTERYN_SMTP_HOST: 'localhost',
+    OTERYN_SMTP_USERNAME: 'local',
+    OTERYN_SMTP_PASSWORD: crypto.randomBytes(24).toString('hex'),
+    OTERYN_SMTP_FROM: 'portal@local.test',
+    OTERYN_MAIL_FROM: 'portal@local.test',
+    OTERYN_NOTIFY_UNSUBSCRIBE_KEY: crypto.randomBytes(32).toString('hex'),
+    OTERYN_NOTIFY_UNSUBSCRIBE_URL: `https://localhost:${ports.browser}/en/unsubscribe`,
+    SSL_CERT_FILE: caFile,
+  });
+}
 for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
 
 // ---- build, migrate ----------------------------------------------------------
@@ -170,9 +183,10 @@ run(binary, ['migrate'], { stdio: ['ignore', fs.openSync(path.join(dirs.logs, 'm
 
 // ---- services ----------------------------------------------------------------
 // Browser TLS terminates on loopback and preserves the Host seen by staff routes.
-const browserProxy = ports.browser === null ? null : https.createServer({
+const browserTls = ports.browser === null ? null : {
   key: fs.readFileSync(server.key), cert: fs.readFileSync(server.cert),
-}, (request, response) => {
+};
+const browserProxy = browserTls && https.createServer(browserTls, (request, response) => {
   const upstream = http.request({
     host: '127.0.0.1', port: ports.http, path: request.url,
     method: request.method, headers: request.headers,
@@ -183,12 +197,22 @@ const browserProxy = ports.browser === null ? null : https.createServer({
   upstream.on('error', () => { response.writeHead(502); response.end(); });
   request.pipe(upstream);
 });
+const mailMessages = [];
+const mailServers = browserTls ? [465, 587].map(port => ({
+  port,
+  listener: mailSink({
+    tls: browserTls, secure: port === 465,
+    username: env.OTERYN_SMTP_USERNAME, password: env.OTERYN_SMTP_PASSWORD,
+    messages: mailMessages,
+  }),
+})) : [];
 const children = [];
 let closing = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
   browserProxy?.close();
+  for (const { listener } of mailServers) listener.close();
   for (const child of children) if (child.exitCode === null) child.kill('SIGINT');
   await Promise.all(children.map(child => child.exitCode !== null ? null : new Promise(resolve => child.once('exit', resolve))));
   if (process.env.PORTAL_E2E_KEEP_DATABASE !== '1') await admin.query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`).catch(() => {});
@@ -197,6 +221,12 @@ async function close(code = 0) {
 }
 process.on('SIGINT', () => close(0));
 process.on('SIGTERM', () => close(0));
+for (const { port, listener } of mailServers) {
+  await new Promise((resolve, reject) => {
+    listener.once('error', reject);
+    listener.listen(port, '127.0.0.1', resolve);
+  }).catch(async () => { log(`local SMTP listener could not bind port ${port}`); await close(1); });
+}
 for (const role of ['serve', 'worker', 'gateway']) {
   const file = path.join(dirs.logs, `${role}.log`);
   const child = spawn(binary, [role], { cwd: root, env, stdio: ['ignore', fs.openSync(file, 'a'), fs.openSync(file, 'a')] });
