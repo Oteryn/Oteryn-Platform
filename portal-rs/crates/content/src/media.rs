@@ -275,12 +275,13 @@ struct Options {
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media{% if lang == \"en\" %}?lang=en{% endif %}\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">Next / Następna</a>{% endif %}</main></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title><main class=\"op-stack\"><h1>{{ title }}</h1><form class=\"op-stack\" method=\"post\" action=\"/admin/media{% if lang == \"en\" %}?lang=en{% endif %}\" enctype=\"multipart/form-data\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label for=\"image\">{{ image }}</label><input class=\"op-input\" id=\"image\" name=\"image\" type=\"file\" accept=\"image/jpeg,image/png,image/webp\" required><label for=\"alt\">{{ alt }}</label><textarea class=\"op-input\" id=\"alt\" name=\"alt_text\" maxlength=\"500\" required></textarea><button class=\"op-button\">{{ upload }}</button></form><ul>{% for item in items %}<li><img src=\"/admin/media/{{ item.0 }}/thumbnail\" width=\"160\" alt=\"{{ item.1 }}\"><p>{{ item.1 }}</p><form method=\"post\" action=\"/admin/media/{{ item.0 }}/delete{% if lang == \"en\" %}?lang=en{% endif %}\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><button class=\"op-button\">{{ delete }}</button></form></li>{% endfor %}</ul>{% if more %}<a href=\"?page={{ next }}&amp;lang={{ lang }}\">{{ next_label }}</a>{% endif %}</main></html>",
     ext = "html"
 )]
 struct MediaPage {
     next: u64,
     more: bool,
+    next_label: String,
     lang: &'static str,
     title: String,
     image: String,
@@ -293,9 +294,9 @@ struct MediaPage {
 fn label(lang: &str, key: &str) -> String {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "en" {
-        "title = Media\nimage = Image (JPEG, PNG, WebP; max 8 MiB)\nalt = Alternative text\nupload = Upload\ndelete = Delete"
+        "title = Media\nimage = Image (JPEG, PNG, WebP; max 8 MiB)\nalt = Alternative text\nupload = Upload\ndelete = Delete\nnext = Next"
     } else {
-        "title = Media\nimage = Obraz (JPEG, PNG, WebP; maks. 8 MiB)\nalt = Tekst alternatywny\nupload = Prześlij\ndelete = Usuń"
+        "title = Media\nimage = Obraz (JPEG, PNG, WebP; maks. 8 MiB)\nalt = Tekst alternatywny\nupload = Prześlij\ndelete = Usuń\nnext = Następna"
     };
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -335,6 +336,7 @@ async fn index(
     let page = MediaPage {
         next: u64::from(options.page) + 1,
         more: rows.len() == 100,
+        next_label: label(lang, "next"),
         lang,
         title: label(lang, "title"),
         image: label(lang, "image"),
@@ -473,12 +475,7 @@ async fn upload(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    let location = if options.lang.as_deref() == Some("en") {
-        "/admin/media?lang=en"
-    } else {
-        "/admin/media"
-    };
-    Ok((StatusCode::FOUND, [(header::LOCATION, location)]).into_response())
+    Ok(media_redirect(&options))
 }
 async fn tokio_process(name: String, bytes: Vec<u8>) -> Result<ProcessedImage, StatusCode> {
     let permit = DECODERS
@@ -543,6 +540,7 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    Query(options): Query<Options>,
 ) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -621,7 +619,16 @@ async fn delete(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
+    Ok(media_redirect(&options))
+}
+
+fn media_redirect(options: &Options) -> Response {
+    let location = if options.lang.as_deref() == Some("en") {
+        "/admin/media?lang=en"
+    } else {
+        "/admin/media"
+    };
+    (StatusCode::FOUND, [(header::LOCATION, location)]).into_response()
 }
 #[cfg(test)]
 #[path = "media_tests.rs"]

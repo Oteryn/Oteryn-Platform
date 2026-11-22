@@ -104,7 +104,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            Query(Options::default()),
         )
         .await
         .err(),
@@ -130,7 +131,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            Query(Options::default()),
         )
         .await
         .err(),
@@ -155,6 +157,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            Query(Options::default()),
         ),
     )
     .await
@@ -396,7 +399,7 @@ async fn browser_lifecycle(pool: &PgPool) {
 
     let response = app
         .oneshot(
-            Request::post(format!("/admin/media/{id}/delete"))
+            Request::post(format!("/admin/media/{id}/delete?lang=en"))
                 .header("host", "staff.test")
                 .header("cookie", &cookie)
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
@@ -406,6 +409,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()[header::LOCATION], "/admin/media?lang=en");
     assert_eq!(
         read(pool, id, false).await.err(),
         Some(StatusCode::NOT_FOUND)

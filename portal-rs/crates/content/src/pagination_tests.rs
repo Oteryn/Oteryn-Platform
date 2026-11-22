@@ -120,6 +120,12 @@ async fn postgres_a3_staff_libraries_reach_records_beyond_each_cap()
     ];
     for (path, app, expected) in routes {
         assert!(html(app.clone(), path).await?.contains("?page=1"));
+        if path == "/admin/media" {
+            for (lang, label) in [("en", "Next"), ("pl", "Następna")] {
+                let page = html(app.clone(), &format!("{path}?lang={lang}")).await?;
+                assert!(page.contains(&format!(r#"href="?page=1&amp;lang={lang}">{label}</a>"#)));
+            }
+        }
         assert!(
             html(app, &format!("{path}?page=1"))
                 .await?
