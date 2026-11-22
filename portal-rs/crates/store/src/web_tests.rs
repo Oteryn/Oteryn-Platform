@@ -333,26 +333,31 @@ async fn postgres_pages_authentication_flags_and_pagination() -> TestResult {
         },
         oteryn_web::chrome::middleware,
     ));
-    for (lang, message) in [("en", "Invalid request"), ("pl", "Nieprawidłowe żądanie")] {
+    for (lang, message) in [
+        ("en", "Check the submitted values."),
+        ("pl", "Sprawdź przesłane wartości."),
+    ] {
         for query in [
             "before=bad",
             "before=00000000-0000-0000-0000-000000000000",
             "before=019b0760-0000-7000-8000-000000000001&before=019b0760-0000-7000-8000-000000000002",
             "account=other",
         ] {
-            let response = browser
-                .clone()
-                .oneshot(
-                    HttpRequest::get(format!("/{lang}/shop/history?{query}"))
-                        .header(header::ACCEPT, "text/html")
-                        .header(header::COOKIE, &cookie)
-                        .body(Body::empty())?,
-                )
-                .await?;
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-            let html = body(response).await?;
-            assert!(html.contains(&format!("lang=\"{lang}\"")));
-            assert!(html.contains(message));
+            for accept in ["*/*", "text/html"] {
+                let response = browser
+                    .clone()
+                    .oneshot(
+                        HttpRequest::get(format!("/{lang}/shop/history?{query}"))
+                            .header(header::ACCEPT, accept)
+                            .header(header::COOKIE, &cookie)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                let html = body(response).await?;
+                assert!(html.contains(&format!("lang=\"{lang}\"")));
+                assert!(html.contains(message));
+            }
         }
     }
     db.close().await
