@@ -37,10 +37,11 @@ export function lockDatabaseName(admin, dbName) {
 
 export async function removeDatabase(adminURL, dbName, onRetry = () => {}, {
   dropDatabase = true,
+  retryTimeout = 15_000,
   afterDrop,
 } = {}) {
   if (!/^portal_e2e_[a-f0-9]{12}$/.test(dbName)) throw new Error('Invalid disposable database name');
-  const signal = AbortSignal.timeout(24_000);
+  const signal = AbortSignal.timeout(9_000 + retryTimeout);
   const drop = statementTimeout => withAdminConnection(adminURL, async admin => {
     await lockDatabaseName(admin, dbName);
     if (dropDatabase) {
@@ -57,6 +58,6 @@ export async function removeDatabase(adminURL, dbName, onRetry = () => {}, {
     // A checkpoint can outlast the first statement, and a lost reply can hide
     // a successful drop. Reconcile under the same lock on a fresh connection.
     onRetry();
-    await drop(15_000);
+    await drop(retryTimeout);
   }
 }

@@ -234,9 +234,11 @@ async function stopChild({ child, closed }) {
 }
 let closing = false;
 let browserNetwork;
+let staffConsoleStartup;
 let createRequested = false;
 let createConfirmed = false;
 let creation;
+let servicesReady = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
@@ -247,6 +249,7 @@ async function close(code = 0) {
     withDeadline(Promise.all([
       ...[...children].map(stopChild),
       browserNetwork?.then(closeBrowser => closeBrowser?.(), () => {}),
+      staffConsoleStartup?.then(staffConsole => staffConsole.close(), () => {}),
     ]), 6_000, 'service shutdown timed out'),
   ]);
   if (services.status === 'rejected') {
@@ -257,6 +260,7 @@ async function close(code = 0) {
     try {
       await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName), {
         dropDatabase: createRequested,
+        retryTimeout: servicesReady ? 30_000 : 15_000,
         afterDrop: crawlDatabase?.dropRole,
       });
     } catch {
@@ -323,6 +327,13 @@ async function start() {
   fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
   fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
+  if (argv.includes('--staff-console')) {
+    const { prepareAdminAgent } = await import('./admin-agent.mjs');
+    if (closing) return;
+    staffConsoleStartup = prepareAdminAgent({ out, dirs, openssl, server, caKey, caFile, ports });
+  }
+  const staffConsole = await staffConsoleStartup;
+  if (closing) return;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
     ...identityEnv,
@@ -341,6 +352,7 @@ async function start() {
     GATEWAY_LISTEN_ADDR: `127.0.0.1:${ports.gateway}`,
     GATEWAY_NATIVE_LOGIN_ENABLED: 'true',
     OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
+    ...staffConsole?.env,
   };
   for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
 
@@ -415,6 +427,7 @@ async function start() {
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
 
   log('migrate');
+  if (staffConsole) fs.writeFileSync(path.join(dirs.secrets, 'seed-binary'), binary, { mode: 0o600 });
   const migrationLog = fs.openSync(path.join(dirs.logs, 'migrate.log'), 'a');
   try {
     await run(binary, ['migrate'], { stdio: ['ignore', migrationLog, migrationLog], reportPid: true });
@@ -465,6 +478,7 @@ async function start() {
   if (roles.includes('gateway')) {
     await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
   }
+  servicesReady = true;
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------
@@ -503,6 +517,7 @@ async function start() {
     database: dbName,
     baseUrls: {
       public: `http://127.0.0.1:${ports.http}`,
+      ...(staffConsole && { staff: staffConsole.origin }),
       internal: `https://127.0.0.1:${ports.internal}`,
       nativeAdmission: `http://127.0.0.1:${ports.admission}`,
       gateway: `http://127.0.0.1:${ports.gateway}`,

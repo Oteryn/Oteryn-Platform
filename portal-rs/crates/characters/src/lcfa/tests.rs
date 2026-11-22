@@ -610,6 +610,168 @@ async fn db_watermark_freshness_boundaries_missing_and_unknown_accounts() -> Tes
 }
 
 #[tokio::test]
+async fn db_staff_character_owner_requires_one_current_valid_snapshot() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let staff = db.with_account(AccountState::Denied);
+    let account = AccountId::parse(ACCOUNT)?;
+    let other = AccountId::parse(OTHER)?;
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&db.pool)
+            .await?;
+    let complete = now - 5;
+    let covered_completion = complete - 1;
+    let snapshot_wire = SNAPSHOT.replace("1790000000", &complete.to_string());
+    let watermark_wire = WATERMARK
+        .replace("1790000000", &complete.to_string())
+        .replace("1790000003", &now.to_string());
+    let snapshot = Snapshot::decode(snapshot_wire.as_bytes())?;
+    let character = snapshot.characters[0].character_id;
+    staff.snapshot(snapshot, now).await?;
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion)
+            .await?,
+        None
+    );
+    staff
+        .watermark(Watermark::decode(watermark_wire.as_bytes())?, now)
+        .await?;
+    assert_eq!(
+        staff.list_characters(account, now).await?.state,
+        ReadState::Denied
+    );
+    // This watermark is fresh, but its cut does not cover the completion
+    // once the one-second clock uncertainty is included.
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion + 1)
+            .await?,
+        None
+    );
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion)
+            .await?,
+        Some(account)
+    );
+    let competing = snapshot_wire.replace(ACCOUNT, OTHER);
+    staff
+        .snapshot(Snapshot::decode(competing.as_bytes())?, now)
+        .await?;
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion)
+            .await?,
+        None
+    );
+    assert!(matches!(
+        staff
+            .snapshot(
+                Snapshot::decode(competing.replace("Aldric", "Other").as_bytes())?,
+                now
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion)
+            .await?,
+        None
+    );
+
+    staff
+        .snapshot(Snapshot::decode(epoch(&competing, "2").as_bytes())?, now)
+        .await?;
+    staff
+        .watermark(
+            Watermark::decode(epoch(&watermark_wire, "2").as_bytes())?,
+            now,
+        )
+        .await?;
+    assert_eq!(
+        staff
+            .staff_character_owner(character, covered_completion)
+            .await?,
+        Some(other)
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn db_staff_owner_rejects_watermark_that_ages_out_while_waiting_for_feed_lock() -> TestResult
+{
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let staff = db.projection();
+    let now_sql = "SELECT floor(extract(epoch FROM clock_timestamp()))::bigint";
+    let now: i64 = sqlx::query_scalar(now_sql).fetch_one(&db.pool).await?;
+    let snapshot = Snapshot::decode(SNAPSHOT.replace("1790000000", &now.to_string()).as_bytes())?;
+    let character = snapshot.characters[0].character_id;
+    staff.snapshot(snapshot, now).await?;
+    let uncertainty = i64::from(staff.settings.clock_uncertainty_seconds);
+    let fresh_for = i64::from(staff.settings.freshness_seconds) - uncertainty;
+    let complete = now - fresh_for + 1;
+    let fresh_through = complete + fresh_for;
+    let watermark = WATERMARK
+        .replace("1790000000", &complete.to_string())
+        .replace("1790000003", &now.to_string());
+    staff
+        .watermark(Watermark::decode(watermark.as_bytes())?, now)
+        .await?;
+    let mut blocker = db.pool.begin().await?;
+    let pid: i32 = sqlx::query_scalar(
+        "SELECT pg_backend_pid() FROM account_character_feed WHERE id=1 FOR UPDATE",
+    )
+    .fetch_one(&mut *blocker)
+    .await?;
+    let reader = tokio::spawn(async move {
+        staff
+            .staff_character_owner(character, complete - uncertainty)
+            .await
+    });
+    tokio::time::timeout(Duration::from_millis(2500), async {
+        loop {
+            sqlx::query("SELECT pg_stat_clear_snapshot()")
+                .execute(&mut *blocker)
+                .await?;
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(pid)
+            .fetch_one(&mut *blocker)
+            .await?;
+            if waiting {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        let start: i64 = sqlx::query_scalar(now_sql).fetch_one(&mut *blocker).await?;
+        assert!(
+            start <= fresh_through,
+            "feed must be fresh at lock admission"
+        );
+        loop {
+            let current: i64 = sqlx::query_scalar(now_sql).fetch_one(&mut *blocker).await?;
+            if current > fresh_through {
+                return Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    blocker.commit().await?;
+    assert_eq!(reader.await??, None);
+    db.close().await
+}
+
+#[tokio::test]
 async fn db_concurrent_snapshots_wait_for_feed_lock_and_finish_at_highest_revision() -> TestResult {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::open().await? else {

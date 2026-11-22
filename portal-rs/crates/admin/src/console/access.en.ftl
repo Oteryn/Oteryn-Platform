@@ -88,3 +88,19 @@ audit-value-restriction = Restriction
 audit-value-suspension = Suspension
 audit-target-hidden = Page target hidden
 audit-field-approved-by = Approver
+
+sanction-warning = Warning
+sanction-notation = Notation
+sanction-namelock = Name lock
+sanction-ban = Ban
+sanction-mute = Mute
+sanction-jail = Jail
+sanction-unknown = Unknown sanction
+sanction-active = Active
+sanction-inactive = Inactive
+
+query-failed = Query failed
+query-rejected = Query rejected
+query-expired = Query expired
+query-cancelled = Query cancelled
+retry-query = Retry query

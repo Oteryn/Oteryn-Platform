@@ -45,18 +45,38 @@ fn signed_result(
     request: &signer::RequestEnvelope,
     value: Value,
 ) -> Result<signer::ResultEnvelope, Box<dyn std::error::Error>> {
+    signed_result_with_status(key, request, value, signer::Status::Succeeded)
+}
+
+fn signed_result_with_status(
+    key: &SigningKey,
+    request: &signer::RequestEnvelope,
+    value: Value,
+    status: signer::Status,
+) -> Result<signer::ResultEnvelope, Box<dyn std::error::Error>> {
     let mut result = signer::ResultEnvelope {
         request_id: request.request_id,
         admin_operation_id: request.admin_operation_id,
-        status: signer::Status::Succeeded,
-        error: None,
+        status,
+        error: (status == signer::Status::Rejected).then(|| signer::ResultError {
+            code: "ADM_FORBIDDEN".into(),
+            message: "AdmForbidden".into(),
+            retryable: false,
+        }),
         result: Json(value),
         dry_run_preview: None,
         game_ledger_id: None,
         audit_event_ids: vec![],
         effective_revision: None,
         progress: None,
-        completed_at: Some(OffsetDateTime::now_utc().format(&Rfc3339)?),
+        completed_at: if matches!(
+            status,
+            signer::Status::Accepted | signer::Status::InProgress
+        ) {
+            None
+        } else {
+            Some(OffsetDateTime::now_utc().format(&Rfc3339)?)
+        },
         agent_id: "agent-a".into(),
         agent_build: "test-build".into(),
         signature: String::new(),
@@ -71,7 +91,17 @@ async fn answer(
     request: signer::RequestEnvelope,
     value: Value,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let result = signed_result(key, &request, value)?;
+    answer_with_status(internal, key, request, value, signer::Status::Succeeded).await
+}
+
+async fn answer_with_status(
+    internal: &Router,
+    key: &SigningKey,
+    request: signer::RequestEnvelope,
+    value: Value,
+    status: signer::Status,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result = signed_result_with_status(key, &request, value, status)?;
     let schema: Value = serde_json::from_str(include_str!(
         "../control/fixtures/admin-control-v1/result.schema.json"
     ))?;
@@ -204,6 +234,295 @@ async fn concurrent_identical_searches_share_pending_query(
     assert_eq!(submitted[0].operation, "player.search");
     Ok(())
 }
+async fn retry_refuses_a_second_live_agent(
+    reads: &Router,
+    internal: &Router,
+    pool: &PgPool,
+    cookie: &str,
+    key: &SigningKey,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = "/admin/console/players?lang=en&character=ambiguous-agent-target";
+    browser_get(reads, cookie, path).await?;
+    let requests = poll(internal).await?;
+    assert_eq!(requests.len(), 1);
+    let request = requests.into_iter().next().ok_or_else(missing)?;
+    assert_eq!(request.operation, "player.character.get");
+    let id = request.request_id;
+    answer_with_status(
+        internal,
+        key,
+        request,
+        Value::Null,
+        signer::Status::Rejected,
+    )
+    .await?;
+    let html = browser_get(reads, cookie, path).await?;
+    assert!(html.contains("Query rejected"));
+    assert!(html.contains(&id.to_string()));
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .ok_or_else(missing)?;
+
+    let late_path = "/admin/console/players?lang=en&character=late-result-target";
+    browser_get(reads, cookie, late_path).await?;
+    let pending = poll(internal).await?;
+    assert_eq!(pending.len(), 1);
+    let pending = pending.into_iter().next().ok_or_else(missing)?;
+    assert_eq!(pending.operation, "player.character.get");
+
+    let store = control::Store::new(pool.clone(), control::Config { enabled: true });
+    let mut registration = pool.begin().await?;
+    store
+        .register_agent_in(
+            &mut registration,
+            &control::AgentHello {
+                agent_id: "separate-scope".into(),
+                build: "test-build".into(),
+                catalog_digest: vec![2; 32],
+                advertised_operations: vec![control::AdvertisedOperation {
+                    operation: "world.list".into(),
+                    operation_version: 1,
+                    kind: control::Kind::Query,
+                }],
+                served_worlds: vec!["world-separate".into()],
+                served_nodes: vec![],
+                owner_epoch: 1,
+            },
+        )
+        .await?;
+    let blocker: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *registration)
+        .await?;
+    let read = reads.clone().oneshot(
+        Request::get(late_path)
+            .header("sec-fetch-site", "same-origin")
+            .header("host", "staff.test")
+            .header("cookie", cookie)
+            .body(Body::empty())?,
+    );
+    tokio::pin!(read);
+    tokio::select! {
+        response = &mut read => {
+            return Err(std::io::Error::other(format!(
+                "dossier read must wait for the ownership fence, received {}", response?.status()
+            )).into());
+        }
+        barrier = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let waiting: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1=ANY(pg_blocking_pids(pid)))",
+                )
+                .bind(blocker)
+                .fetch_one(pool)
+                .await?;
+                if waiting {
+                    return Ok::<(), sqlx::Error>(());
+                }
+                tokio::task::yield_now().await;
+            }
+        }) => barrier??,
+    }
+    registration.commit().await?;
+    assert_eq!(read.await?.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    answer(
+        internal,
+        key,
+        pending,
+        json!({
+            "character_id":"late-result-target","world_id":"world-a","name":"Late result knight",
+            "level":42,"vocation":"knight","skills":[],"position":{"x":1,"y":2,"z":3},
+            "online":true,"premium":true,"guild":null,"house":null,"bank_balance":"123",
+            "last_logins":[],"sanctions":[]
+        }),
+    )
+    .await?;
+    let hidden = browser_get(reads, cookie, late_path).await?;
+    assert!(hidden.contains("Unavailable"));
+    assert!(!hidden.contains("Late result knight"));
+
+    let retry = reads.clone().oneshot(
+        Request::post("/admin/console/players/retry")
+            .header("host", "staff.test")
+            .header("origin", "https://staff.test")
+            .header("cookie", cookie)
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(format!(
+                "_csrf={csrf}&lang=en&operation=player.character.get&character=ambiguous-agent-target&request={id}"
+            )))?,
+    ).await?;
+    assert_eq!(retry.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let unavailable = browser_get(reads, cookie, path).await?;
+    assert!(unavailable.contains("Unavailable"));
+    assert!(!unavailable.contains("Retry query"));
+    assert!(poll(internal).await?.is_empty());
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM admin_control_requests WHERE target->>'character_id'='ambiguous-agent-target'",
+    ).fetch_one(pool).await?;
+    assert_eq!(count, 1);
+    Ok(())
+}
+
+async fn expired_agent_owned_query_stays_pending(
+    reads: &Router,
+    internal: &Router,
+    pool: &PgPool,
+    cookie: &str,
+    key: &SigningKey,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let path = "/admin/console/players?lang=en&character=agent-owned";
+    browser_get(reads, cookie, path).await?;
+    let requests = poll(internal).await?;
+    assert_eq!(requests.len(), 1);
+    let request = requests.into_iter().next().ok_or_else(missing)?;
+    assert_eq!(request.operation, "player.character.get");
+    answer_with_status(
+        internal,
+        key,
+        request.clone(),
+        Value::Null,
+        signer::Status::Accepted,
+    )
+    .await?;
+    sqlx::query(
+        "UPDATE admin_control_requests SET issued_at=clock_timestamp()-interval '2 minutes',
+             expires_at=clock_timestamp()-interval '1 second' WHERE request_id=$1",
+    )
+    .bind(request.request_id)
+    .execute(pool)
+    .await?;
+    for status in [signer::Status::Accepted, signer::Status::InProgress] {
+        if status == signer::Status::InProgress {
+            answer_with_status(internal, key, request.clone(), Value::Null, status).await?;
+        }
+        let html = browser_get(reads, cookie, path).await?;
+        assert!(!html.contains("Query expired"));
+        assert!(!html.contains("Retry query"));
+        let csrf = html
+            .split("name=\"_csrf\" value=\"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .ok_or_else(missing)?;
+        let retry = reads.clone().oneshot(
+            Request::post("/admin/console/players/retry")
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={csrf}&operation=player.character.get&character=agent-owned&request={}&lang=en",
+                    request.request_id,
+                )))?,
+        ).await?;
+        assert_eq!(retry.status(), StatusCode::CONFLICT);
+        assert!(poll(internal).await?.is_empty());
+    }
+    answer_with_status(
+        internal,
+        key,
+        request,
+        Value::Null,
+        signer::Status::Cancelled,
+    )
+    .await?;
+    assert!(
+        browser_get(reads, cookie, path)
+            .await?
+            .contains("Query cancelled")
+    );
+    Ok(())
+}
+
+async fn admission_reuses_reconciled_dossier(
+    reads: &Router,
+    internal: &Router,
+    channel: &StoredChannel,
+    actor: Uuid,
+    cookie: &str,
+    key: &SigningKey,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use axum::{Extension, extract::State, routing::get};
+    let path = "/admin/console/players?lang=en&character=completed-during-admission";
+    browser_get(reads, cookie, path).await?;
+    let requests = poll(internal).await?;
+    assert_eq!(requests.len(), 1);
+    let request = requests.into_iter().next().ok_or_else(missing)?;
+    assert_eq!(request.operation, "player.character.get");
+    let expected = request.request_id;
+    let operation = "player.character.get";
+    let routes = Router::new()
+        .route(
+            "/admit",
+            get(
+                async move |State(channel): State<StoredChannel>,
+                            Extension(actor): Extension<CheckContext>,
+                            Extension(session): Extension<BrowserSession>| {
+                    let agent = {
+                        let mut connection = channel.pool.acquire().await?;
+                        channel
+                            .store
+                            .sole_live_query_agent(&mut connection, operation)
+                            .await
+                            .map_err(|_| Error::Unavailable)?
+                            .ok_or(Error::Unavailable)?
+                    };
+                    let target =
+                        StoredChannel::target(&agent, None, Some("completed-during-admission"))?;
+                    channel
+                        .submit_query(
+                            actor,
+                            &session,
+                            &agent,
+                            QuerySpec {
+                                operation,
+                                permission: "game.player.read",
+                                target,
+                                params: json!({}),
+                                risk: control::RiskClass::R1,
+                                retry: None,
+                            },
+                        )
+                        .await
+                        .map(Extension)
+                },
+            ),
+        )
+        .with_state(channel.clone());
+    let app = web::guarded(
+        routes,
+        channel.pool.clone(),
+        web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Browser(actor),
+        web::PortalIdentity::configured(channel.pool.clone()),
+        Permission::Access,
+    );
+    // The dossier was selected while delivered. Admission runs after the
+    // signed result has committed, as when a GET races reconciliation.
+    answer(internal, key, request, json!({
+        "character_id":"completed-during-admission","world_id":"world-a","name":"Reconciled Knight",
+        "level":42,"vocation":"knight","skills":[],"position":{"x":1,"y":2,"z":3},
+        "online":true,"premium":true,"guild":null,"house":null,"bank_balance":"0",
+        "last_logins":[],"sanctions":[]
+    })).await?;
+    let reply = app
+        .oneshot(
+            Request::get("/admit")
+                .header("host", "staff.test")
+                .header("cookie", cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(reply.status(), StatusCode::OK);
+    assert_eq!(reply.extensions().get::<Uuid>().copied(), Some(expected),);
+    assert!(poll(internal).await?.is_empty());
+    Ok(())
+}
+
 async fn exercise_reads(
     internal: &Router,
     channel: StoredChannel,
@@ -387,6 +706,10 @@ async fn exercise_reads(
         assert!(audited, "ledger read must reference its verified query");
     }
     browser_get(&reads, cookie, "/admin/console/approvals?lang=en").await?;
+    expired_agent_owned_query_stays_pending(&reads, internal, &pool, cookie, agent_key).await?;
+    admission_reuses_reconciled_dossier(&reads, internal, &channel, actor, cookie, agent_key)
+        .await?;
+    retry_refuses_a_second_live_agent(&reads, internal, &pool, cookie, agent_key).await?;
     Ok(())
 }
 async fn stored_console_browser_query_verified_result_and_ownership(
@@ -721,16 +1044,20 @@ async fn stored_console_browser_query_verified_result_and_ownership(
                     .await?;
                 assert!(matches!(foreign.status, QueryStatus::Pending));
             }
-            for status in ["queued", "delivered", "accepted", "in_progress"] {
+            for (status, label) in [
+                ("queued", "Query expired"),
+                ("delivered", "Query expired"),
+                ("accepted", "Awaiting a stored result"),
+                ("in_progress", "In progress"),
+            ] {
                 sqlx::query("UPDATE admin_control_requests SET status=$1,expires_at=clock_timestamp()-interval '1 second' WHERE request_id=$2").bind(status).bind(request.request_id).execute(&pool).await?;
                 let path = format!(
                     "/console/{page}?agent=agent-a&lang=en&request={}",
                     request.request_id
                 );
                 assert!(
-                    browser_get(&app, &cookie, &path)
-                        .await?
-                        .contains("Query expired")
+                    browser_get(&app, &cookie, &path).await?.contains(label),
+                    "overdue {status} must display {label}"
                 );
             }
         }
@@ -753,19 +1080,17 @@ async fn stored_console_browser_query_verified_result_and_ownership(
     sqlx::query("UPDATE admin_control_agents SET owner_epoch=2 WHERE agent_id='agent-a'")
         .execute(&pool)
         .await?;
-    assert!(
-        channel
-            .read(
-                actor,
-                "agent-a",
-                Operation::Worlds,
-                None,
-                Some(request.request_id)
-            )
-            .await?
-            .result
-            .is_none()
-    );
+    let old_epoch = channel
+        .read(
+            actor,
+            "agent-a",
+            Operation::Worlds,
+            None,
+            Some(request.request_id),
+        )
+        .await?;
+    assert!(old_epoch.result.is_none());
+    assert!(matches!(old_epoch.status, QueryStatus::Unavailable));
     sqlx::query("INSERT INTO admin_control_agents(agent_id, build, catalog_digest, advertised_operations, served_worlds, served_nodes, owner_epoch) SELECT 'agent-b',build,catalog_digest,advertised_operations,served_worlds,served_nodes,3 FROM admin_control_agents WHERE agent_id='agent-a'").execute(&pool).await?;
     sqlx::query("UPDATE admin_control_requests SET status='expired' WHERE request_id=$1")
         .bind(request.request_id)

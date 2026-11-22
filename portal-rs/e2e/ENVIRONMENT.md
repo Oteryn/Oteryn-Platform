@@ -558,3 +558,14 @@ The closure producer and LCFA/privacy, account-character and character-command
 readers share `characterSourceAuthority` from game-closure-producer.mjs. This
 prevents a background closure watermark from replacing a differently configured
 privacy authority during the combined suite; authority checks remain enabled.
+
+## GM player console
+
+`harness.mjs --staff-console` configures `OTERYN_ADMIN_PANEL`,
+`OTERYN_ADMIN_CONSOLE`, `OTERYN_ADMIN_HOST` and
+`PORTAL_ADMIN_CONTROL_ENABLED` for an isolated run, with an agent identity
+and signing material generated under the run's private directory. Point
+`PORTAL_E2E_ADMIN_AGENT_DIRECTORY` to the run directory to reuse it in Playwright.
+During the broader local browser suite, the spec can launch its own isolated
+agent harness using the existing disposable PostgreSQL connection. The agent
+advertises only the four player reads and uses no staff command allowlist.
