@@ -4,6 +4,7 @@ world = Szczegóły świata
 nodes = Węzły i hosty
 node = Szczegóły węzła
 database = Baza danych
+record-overview = Przegląd
 migrations = Migracje
 game-source = Agent gry
 platform-source = Platforma

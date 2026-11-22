@@ -4,6 +4,7 @@ world = World details
 nodes = Nodes and hosts
 node = Node details
 database = Database
+record-overview = Overview
 migrations = Migrations
 game-source = Game agent
 platform-source = Platform

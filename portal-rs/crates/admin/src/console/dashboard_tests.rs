@@ -91,7 +91,7 @@ impl Channel for Fixture {
                 observed_at: now - Duration::from_secs(if self.mode == 5 { 90 } else { 1 }),
                 revision: "fixture-revision".into(),
                 records: vec![Record {
-                    name: "<script>alert(1)</script>".into(),
+                    name: RecordName::Text("<script>alert(1)</script>".into()),
                     fields: vec![Field {
                         label: FieldLabel::Health,
                         value: "fixture-healthy".into(),

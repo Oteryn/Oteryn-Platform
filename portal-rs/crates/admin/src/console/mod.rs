@@ -243,8 +243,13 @@ impl FieldLabel {
     }
 }
 #[derive(Debug, Clone)]
+pub enum RecordName {
+    Text(String),
+    Label(&'static str),
+}
+#[derive(Debug, Clone)]
 pub struct Record {
-    pub name: String,
+    pub name: RecordName,
     pub fields: Vec<Field>,
 }
 #[derive(Debug, Clone)]
@@ -609,7 +614,10 @@ async fn render<P: Permissions, C: Channel>(
                     .into_iter()
                     .take(200)
                     .map(|r| DisplayRecord {
-                        name: r.name,
+                        name: match r.name {
+                            RecordName::Text(name) => name,
+                            RecordName::Label(key) => text(language, key),
+                        },
                         fields: r
                             .fields
                             .into_iter()

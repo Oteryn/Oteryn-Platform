@@ -146,13 +146,13 @@ test('ratified Game agent results render in every ops read view', async ({page},
 
   await agent.connect();
   try {
-    for (const [route, operation, target, expected] of [
-      ['/console/dashboard', 'ops.overview.get', null, '137'],
+    for (const [route, operation, target, expected, heading] of [
+      ['/console/dashboard', 'ops.overview.get', null, '137', lang === 'pl' ? 'Przegląd' : 'Overview'],
       ['/console/worlds', 'world.list', null, `${worldId} · Verified frontier`],
       ['/console/worlds', 'world.get', worldId, `${worldId} · Verified frontier`],
       ['/console/nodes', 'node.list', null, 'verified-build-42'],
       ['/console/nodes', 'node.get', nodeId, 'verified-build-42'],
-      ['/console/database', 'db.status', null, 'verified-runtime: 7'],
+      ['/console/database', 'db.status', null, 'verified-runtime: 7', lang === 'pl' ? 'Baza danych' : 'Database'],
       ['/console/database', 'db.migrations.list', null, '20261122004200'],
     ]) {
       await agent.heartbeat();
@@ -177,6 +177,7 @@ test('ratified Game agent results render in every ops read view', async ({page},
       await expect(record).toHaveCount(1);
       await expect(record.getByText(expected, {exact: true})).toBeVisible();
       await expect(record.getByText('verified-fixture-revision', {exact: true})).toBeVisible();
+      if (heading) await expect(record.getByRole('heading', {level: 3, name: heading, exact: true})).toBeVisible();
     }
 
     for (const [route, operation, expected] of [

@@ -1,6 +1,6 @@
 //! Allowlisted presentation of the pinned ADM-01 OperationResult union.
 use super::{
-    Field, FieldLabel as L, Operation, Record,
+    Field, FieldLabel as L, Operation, Record, RecordName,
     access::{Error, Policy},
     audit::LedgerRow,
     players,
@@ -44,7 +44,7 @@ fn field(label: L, value: String) -> Field {
 }
 fn world(v: &Value) -> Result<Record, Error> {
     Ok(Record {
-        name: format!("{} · {}", text(v, "world_id")?, text(v, "name")?),
+        name: RecordName::Text(format!("{} · {}", text(v, "world_id")?, text(v, "name")?)),
         fields: vec![
             field(L::State, text(v, "state")?),
             field(
@@ -63,7 +63,7 @@ fn world(v: &Value) -> Result<Record, Error> {
 }
 fn node(v: &Value) -> Result<Record, Error> {
     Ok(Record {
-        name: text(v, "node_id")?,
+        name: RecordName::Text(text(v, "node_id")?),
         fields: vec![
             field(L::Health, boolean(v, "ready")?.to_string()),
             field(L::Build, text(v, "build")?),
@@ -80,7 +80,7 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
         Operation::Nodes => array(v, "nodes")?.iter().map(node).collect(),
         Operation::Node => Ok(vec![node(v)?]),
         Operation::Overview => Ok(vec![Record {
-            name: "Overview".into(),
+            name: RecordName::Label("record-overview"),
             fields: vec![
                 field(L::Players, number(v, "players_online")?),
                 field(L::Health, boolean(v, "db_available")?.to_string()),
@@ -121,7 +121,7 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
                 }
             }
             Ok(vec![Record {
-                name: "Database".into(),
+                name: RecordName::Label("database"),
                 fields,
             }])
         }
@@ -129,7 +129,7 @@ pub(super) fn records(operation: Operation, v: &Value) -> Result<Vec<Record>, Er
             .iter()
             .map(|m| {
                 Ok(Record {
-                    name: text(m, "version")?,
+                    name: RecordName::Text(text(m, "version")?),
                     fields: vec![
                         field(L::Applied, boolean(m, "applied")?.to_string()),
                         field(L::Drift, boolean(m, "checksum_drift")?.to_string()),
