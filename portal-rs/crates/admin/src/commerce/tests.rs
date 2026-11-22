@@ -898,19 +898,22 @@ async fn refund_submission_audits_reason_atomically() {
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,250,'EUR','succeeded')")
         .bind(payment).bind(h.target).bind(payment.to_string()).execute(&h.pool).await.unwrap();
-    let app = router(
-        h.pool.clone(),
-        crate::web::PanelConfig {
-            admin_panel: true,
-            host: "staff.test".into(),
-        },
-        Session(h.actor, h.pool.clone()),
-        Authority(h.pool.clone()),
-        h.effects(),
-        flags(),
-    );
+    let app_for = |flags| {
+        router(
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(h.actor, h.pool.clone()),
+            Authority(h.pool.clone()),
+            h.effects(),
+            flags,
+        )
+    };
+    let app = app_for(flags());
     let (cookie, csrf) = login(app.clone()).await;
-    let submit = |token: &str, reason: &str| {
+    let submit = |app: &axum::Router, token: &str, reason: &str| {
         app.clone().oneshot(
             HttpRequest::post("/admin/commerce/refund")
                 .header("host", "staff.test")
@@ -924,17 +927,35 @@ async fn refund_submission_audits_reason_atomically() {
         )
     };
     assert_eq!(
-        submit("bad", "refund_requested").await.unwrap().status(),
+        submit(&app, "bad", "refund_requested")
+            .await
+            .unwrap()
+            .status(),
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        submit(&csrf, "").await.unwrap().status(),
+        submit(&app, &csrf, "").await.unwrap().status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
+    let disabled = app_for(Flags {
+        refunds: false,
+        ..flags()
+    });
+    assert_eq!(
+        submit(&disabled, &csrf, "refund_requested")
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(h.count("commerce_operations").await, 0);
     sqlx::raw_sql("CREATE FUNCTION reject_refund_request() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test audit failure'; END $$; CREATE TRIGGER reject_refund_request BEFORE INSERT ON audit_log FOR EACH ROW WHEN (NEW.action='commerce.requested') EXECUTE FUNCTION reject_refund_request()")
         .execute(&h.pool).await.unwrap();
     assert_eq!(
-        submit(&csrf, "refund_requested").await.unwrap().status(),
+        submit(&app, &csrf, "refund_requested")
+            .await
+            .unwrap()
+            .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
     assert_eq!(h.count("commerce_operations").await, 0);
@@ -944,7 +965,10 @@ async fn refund_submission_audits_reason_atomically() {
         .unwrap();
     for _ in 0..2 {
         assert_eq!(
-            submit(&csrf, "refund_requested").await.unwrap().status(),
+            submit(&app, &csrf, "refund_requested")
+                .await
+                .unwrap()
+                .status(),
             StatusCode::SEE_OTHER
         );
     }

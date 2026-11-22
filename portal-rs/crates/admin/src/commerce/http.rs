@@ -430,6 +430,9 @@ async fn submit<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
         command,
     };
     if request.command == Command::Refund {
+        if let Err(error) = request.command.validate(s.flags) {
+            return failure(locale, error);
+        }
         let chrome = decision_chrome(chrome, locale);
         let guard = Guard {
             actor: context,
@@ -481,10 +484,6 @@ async fn request_refund<A: rbac::AccountStateReader + 'static, E: Effects + 'sta
             step_up: StepUp::SessionMfa,
         },
         || {
-            request
-                .command
-                .validate(service.flags)
-                .map_err(approval_error)?;
             if owner == actor.account {
                 return Err(staff_actions::Error::Forbidden);
             }
@@ -570,6 +569,9 @@ async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
             Ok(target) => target,
             Err(error) => return failure(locale, error),
         };
+    if let Err(error) = target.command.validate(service.flags) {
+        return failure(locale, error);
+    }
     let Ok(Form(form)) = form else {
         return failure(locale, Error::Invalid);
     };
@@ -582,7 +584,6 @@ async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
         _ => return failure(locale, Error::Denied),
     };
     let pool = service.pool.clone();
-    let flags = service.flags;
     let result = staff_actions::run(
         &pool,
         guard,
@@ -593,7 +594,6 @@ async fn decide<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
             step_up: StepUp::SessionMfa,
         },
         || {
-            target.command.validate(flags).map_err(approval_error)?;
             Ok((
                 vec![target.original, target.owner],
                 (target.original, target.owner),
