@@ -54,6 +54,11 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("commerce-refunds-reconcile") {
         return refund_reconcile_cli::main().await;
     }
+    if std::env::args().nth(1).as_deref() == Some("migrate") && std::env::args_os().nth(2).is_some()
+    {
+        eprintln!("usage: oteryn-portal migrate");
+        return ExitCode::from(2);
+    }
     tracing_subscriber::fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),

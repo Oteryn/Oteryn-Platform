@@ -75,9 +75,9 @@ minutes, not CI cycles.
 
 1. **Bisect the CI history before reading code.** For the failing job, find
    the last green and first red commit on `main`
-   (`scripts/main-health.sh <workflow> 30` in `oteryn-platform-dev`). The
-   Merge Queue runs only `CI`, so a `Portal RS CI` failure on `main` is
-   usually two PRs that were green alone (`ci-merge.md`, *Blind spot*): look
+   (`scripts/main-health.sh <workflow> 30` in `oteryn-platform-dev`). There
+   is no Merge Queue, so a `Portal RS CI` failure on `main` is usually two
+   PRs that were green alone (`ci-merge.md`, *Blind spot*): look
    at the merges between the two runs first.
 2. **Read the last meaningful log line before the symptom**, not only the
    symptom.
