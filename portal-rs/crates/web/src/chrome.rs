@@ -102,10 +102,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .or_insert(axum::http::HeaderValue::from_static(value));
             }
             if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
-                for value in response.headers().get_all(header::CACHE_CONTROL) {
-                    replacement
-                        .headers_mut()
-                        .append(header::CACHE_CONTROL, value.clone());
+                for name in [header::CACHE_CONTROL, header::PRAGMA] {
+                    for value in response.headers().get_all(&name) {
+                        replacement.headers_mut().append(&name, value.clone());
+                    }
                 }
             } else {
                 replacement.headers_mut().insert(
@@ -505,7 +505,10 @@ mod response_tests {
                 get(|| async {
                     (
                         StatusCode::SERVICE_UNAVAILABLE,
-                        [(header::CACHE_CONTROL, "no-store, private")],
+                        [
+                            (header::CACHE_CONTROL, "no-store, private"),
+                            (header::PRAGMA, "no-cache"),
+                        ],
                     )
                 }),
             )
@@ -550,6 +553,9 @@ mod response_tests {
                     .map(|value| value.to_str())
                     .collect::<Result<Vec<_>, _>>()?;
                 assert_eq!(actual, expected);
+                if path == "/en/analytics/data" {
+                    assert_eq!(response.headers()[header::PRAGMA], "no-cache");
+                }
             }
         }
         Ok(())

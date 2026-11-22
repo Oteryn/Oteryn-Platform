@@ -129,16 +129,19 @@ test('browser preserves private cache directives on a non-HTML analytics 503', a
       return {
         status: result.status,
         cacheControl: result.headers.get('cache-control'),
+        pragma: result.headers.get('pragma'),
         contentType: result.headers.get('content-type') ?? '',
       };
     }, endpoint);
     expect(response.status).toBe(503);
     expect(response.contentType).not.toContain('text/html');
     expect(response.cacheControl).toBe('no-store, private');
+    expect(response.pragma).toBe('no-cache');
     const document = await page.goto(staffUrl(endpoint));
     expect(document.status()).toBe(503);
     expect(document.headers()['content-type']).toContain('text/html');
     expect(document.headers()['cache-control']).toBe('no-store, private');
+    expect(document.headers().pragma).toBe('no-cache');
   } finally {
     try {
       await client.query('ROLLBACK');
