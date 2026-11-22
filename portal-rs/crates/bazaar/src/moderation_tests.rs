@@ -856,3 +856,12 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     assert_eq!(releases, 2);
     Ok(())
 }
+
+#[test]
+fn moderation_reason_fits_persisted_character_limit() {
+    let at_limit = format!("{}{}", "Reason for moderation", " ".repeat(479));
+    assert_eq!(at_limit.chars().count(), 500);
+    assert!(reason_valid(&at_limit).is_ok());
+    let beyond_limit = format!("{at_limit} ");
+    assert!(matches!(reason_valid(&beyond_limit), Err(Error::InvalidInput)));
+}

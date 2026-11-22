@@ -593,7 +593,7 @@ pub async fn execute_staff(
     Ok(())
 }
 fn reason_valid(reason: &str) -> Result<(), Error> {
-    if text_valid(reason, 10, 500) {
+    if reason.chars().count() <= 500 && text_valid(reason, 10, 500) {
         Ok(())
     } else {
         Err(Error::InvalidInput)
