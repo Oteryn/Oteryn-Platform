@@ -1,0 +1,3579 @@
+{
+  "forms": [
+    {
+      "source": "templates/account/lifecycle.html:2",
+      "ordinal": 1,
+      "action": "{{ action }}",
+      "actionVariants": [
+        "/{lang}/account/privacy/delete",
+        "/{lang}/account/privacy/delete/cancel",
+        "/{lang}/account/notifications",
+        "/{lang}/unsubscribe"
+      ],
+      "fields": [
+        "_csrf",
+        "current_password",
+        "confirmation",
+        "token",
+        "news_email",
+        "news_portal",
+        "support_email",
+        "support_portal"
+      ],
+      "submits": [
+        {},
+        {},
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/login/page.html:7",
+      "ordinal": 1,
+      "action": "/{{ lang }}/login",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "email",
+        "password"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/mfa/page.html:7",
+      "ordinal": 1,
+      "action": "/{{ lang }}/login",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "email",
+        "password"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/mfa/page.html:13",
+      "ordinal": 1,
+      "action": "/{{ lang }}/mfa/challenge",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "code",
+        "remember"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/mfa/page.html:18",
+      "ordinal": 1,
+      "action": "/{{ lang }}/mfa/email",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/mfa/page.html:21",
+      "ordinal": 1,
+      "action": "/{{ lang }}/mfa/confirm",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "password",
+        "code"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/mfa/page.html:32",
+      "ordinal": 1,
+      "action": "/{{ lang }}/mfa/enroll",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "password"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/mfa/page.html:37",
+      "ordinal": 1,
+      "action": "/{{ lang }}/mfa/devices",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "device"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/register.html:5",
+      "ordinal": 1,
+      "action": "/{{ lang }}/register",
+      "actionVariants": [],
+      "fields": [
+        "work_token",
+        "work_nonce",
+        "_csrf",
+        "email",
+        "password",
+        "password_confirmation",
+        "terms",
+        "privacy"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/reset/page.html:7",
+      "ordinal": 1,
+      "action": "/{{ lang }}/{% if reset %}reset-password{% else %}forgot-password{% endif %}",
+      "actionVariants": [
+        "/{{ lang }}/reset-password",
+        "/{{ lang }}/forgot-password"
+      ],
+      "fields": [
+        "_csrf",
+        "token",
+        "email",
+        "password",
+        "password_confirmation"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/account/verify.html:6",
+      "ordinal": 1,
+      "action": "/{{ lang }}/verify-email/resend",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/events/form.html:1",
+      "ordinal": 1,
+      "action": "{{ action }}",
+      "actionVariants": [
+        "/admin/events",
+        "/admin/events/{id}"
+      ],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "starts_at",
+        "ends_at",
+        "featured",
+        "en_title",
+        "en_slug",
+        "en_summary",
+        "en_body",
+        "pl_title",
+        "pl_slug",
+        "pl_summary",
+        "pl_body"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/events/form.html:5",
+      "ordinal": 1,
+      "action": "/admin/events/{{ id }}/status",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "status"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/pages/edit.html:1",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "title",
+        "body",
+        "published_at",
+        "legal_version",
+        "legal_effective_date",
+        "action",
+        "expected_revision",
+        "reviewed_source_revision"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "save"
+        },
+        {
+          "name": "action",
+          "value": "delete"
+        }
+      ]
+    },
+    {
+      "source": "templates/admin/panel.html:5",
+      "ordinal": 1,
+      "action": "/admin/roles",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "account",
+        "role",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "grant"
+        },
+        {
+          "name": "action",
+          "value": "revoke"
+        }
+      ]
+    },
+    {
+      "source": "templates/admin/roles.html:5",
+      "ordinal": 1,
+      "action": "/admin/roles",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "account",
+        "role",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "grant"
+        },
+        {
+          "name": "action",
+          "value": "revoke"
+        }
+      ]
+    },
+    {
+      "source": "templates/admin/roles.html:8",
+      "ordinal": 1,
+      "action": "/admin/roles",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "key",
+        "permissions",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "create"
+        }
+      ]
+    },
+    {
+      "source": "templates/admin/roles.html:16",
+      "ordinal": 1,
+      "action": "/admin/roles",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "role",
+        "permissions",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "set-permissions"
+        }
+      ]
+    },
+    {
+      "source": "templates/admin/wiki/action.html:1",
+      "ordinal": 1,
+      "action": "/admin/wiki/articles/{{ id }}/{{ action }}",
+      "actionVariants": [
+        "/admin/wiki/articles/{{ id }}/submit-review",
+        "/admin/wiki/articles/{{ id }}/return-draft",
+        "/admin/wiki/articles/{{ id }}/publish",
+        "/admin/wiki/articles/{{ id }}/unpublish",
+        "/admin/wiki/articles/{{ id }}/archive"
+      ],
+      "fields": [
+        "_csrf",
+        "lock_version"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/wiki/edit.html:3",
+      "ordinal": 1,
+      "action": "/admin/wiki/articles{% if existing %}/{{ id }}{% endif %}",
+      "actionVariants": [
+        "/admin/wiki/articles/{{ id }}",
+        "/admin/wiki/articles"
+      ],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "entity_key",
+        "{{ value.locale }}_title",
+        "{{ value.locale }}_slug",
+        "{{ value.locale }}_summary",
+        "{{ value.locale }}_markdown",
+        "note"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/wiki/history.html:2",
+      "ordinal": 1,
+      "action": "/admin/wiki/articles/{{ id }}/revisions/{{ row.version }}/restore",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "lock_version"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/world/index.html:10",
+      "ordinal": 1,
+      "action": "/admin/world",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action",
+        "version"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "publish"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/world/index.html:13",
+      "ordinal": 1,
+      "action": "/admin/world",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action",
+        "version",
+        "kind",
+        "key",
+        "allowed"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "visibility"
+        },
+        {
+          "name": "kind",
+          "value": "{{ row.kind }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/admin/world/index.html:15",
+      "ordinal": 1,
+      "action": "/admin/world",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action",
+        "version",
+        "kind",
+        "key",
+        "pl",
+        "en"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "names"
+        },
+        {
+          "name": "kind",
+          "value": "{{ row.kind }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/badges/selection.html:6",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "badge",
+        "profile",
+        "achievement",
+        "ranking"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/characters.html:11",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "character_id",
+        "currency",
+        "starting_bid",
+        "duration_days",
+        "publish_snapshot"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/characters.html:44",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/bazaar/{{ card.id }}/bids",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "amount"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/item.html:5",
+      "ordinal": 1,
+      "action": "/{{ lang }}/bazaar/items/{{ item.id }}/{{ action }}",
+      "actionVariants": [
+        "/{{ lang }}/bazaar/items/{{ item.id }}/accept",
+        "/{{ lang }}/bazaar/items/{{ item.id }}/reject"
+      ],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "offer_id"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/item.html:6",
+      "ordinal": 1,
+      "action": "/{{ lang }}/bazaar/items/{{ item.id }}/{{ action }}",
+      "actionVariants": [
+        "/{{ lang }}/bazaar/items/{{ item.id }}/publish",
+        "/{{ lang }}/bazaar/items/{{ item.id }}/renew",
+        "/{{ lang }}/bazaar/items/{{ item.id }}/cancel"
+      ],
+      "fields": [
+        "_csrf",
+        "request_id"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/item.html:7",
+      "ordinal": 1,
+      "action": "/{{ lang }}/bazaar/items/{{ item.id }}/{% if item.form == crate::Form::Auction %}bid{% else %}offer{% endif %}",
+      "actionVariants": [
+        "/{{ lang }}/bazaar/items/{{ item.id }}/bid",
+        "/{{ lang }}/bazaar/items/{{ item.id }}/offer"
+      ],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "amount"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/item.html:7",
+      "ordinal": 2,
+      "action": "/{{ lang }}/bazaar/items/{{ item.id }}/buy-now",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/bazaar/new.html:1",
+      "ordinal": 1,
+      "action": "/{{ lang }}/bazaar/items",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "mode",
+        "{{ name }}",
+        "message"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/collection/battle.html:4",
+      "ordinal": 1,
+      "action": "/{{ lang }}/collection/battles/{{ id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "expected",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "strike"
+        },
+        {
+          "name": "action",
+          "value": "guard"
+        }
+      ]
+    },
+    {
+      "source": "templates/collection/index.html:4",
+      "ordinal": 1,
+      "action": "/{{ lang }}/collection/battles/{{ id }}/forfeit",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/collection/index.html:8",
+      "ordinal": 1,
+      "action": "/{{ lang }}/collection/decks/{{ deck.id }}/battle",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/collection/index.html:8",
+      "ordinal": 2,
+      "action": "/{{ lang }}/collection/decks/{{ deck.id }}/delete",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/collection/index.html:9",
+      "ordinal": 1,
+      "action": "/{{ lang }}/collection/{{ character }}/decks",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "name",
+        "first",
+        "second",
+        "third"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/components/thais-account-links.html:25",
+      "ordinal": 1,
+      "action": "/{{ chrome.lang }}/logout",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/components/thais-header.html:112",
+      "ordinal": 1,
+      "action": "/{{ chrome.lang }}/logout",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/content/announcements.html:18",
+      "ordinal": 1,
+      "action": "{{ action }}",
+      "actionVariants": [
+        "/admin/announcements",
+        "/admin/announcements/{id}/edit"
+      ],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "{{ field.0 }}"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/oauth/consent.html:7",
+      "ordinal": 1,
+      "action": "/oauth/authorize",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "response_type",
+        "client_id",
+        "redirect_uri",
+        "scope",
+        "state",
+        "code_challenge",
+        "code_challenge_method",
+        "decision"
+      ],
+      "submits": [
+        {
+          "name": "decision",
+          "value": "approve"
+        },
+        {
+          "name": "decision",
+          "value": "deny"
+        }
+      ]
+    },
+    {
+      "source": "templates/pass/page.html:7",
+      "ordinal": 1,
+      "action": "/{{ lang }}/pass/{{ view.season }}/buy",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "operation"
+      ],
+      "submits": [
+        {
+          "name": "operation",
+          "value": "{{ operation }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/pass/page.html:9",
+      "ordinal": 1,
+      "action": "/{{ lang }}/pass/{{ view.season }}/claim",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "operation",
+        "reward"
+      ],
+      "submits": [
+        {
+          "name": "operation",
+          "value": "{{ reward.operation }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/profile/settings.html:14",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "show_guild",
+        "is_main_character",
+        "hidden",
+        "rendered_hide_all_characters",
+        "hide_all_characters",
+        "show_account",
+        "show_status",
+        "show_house",
+        "show_skills",
+        "show_deaths",
+        "show_kills",
+        "show_online_time",
+        "comment"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "templates/services/manage.html:6",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/characters/{{ character }}/services",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "action",
+        "confirm"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "schedule"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/services/manage.html:7",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/characters/{{ character }}/services",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "action",
+        "deletion_operation_id",
+        "confirm"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "cancel"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "templates/services/manage.html:10",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/characters/{{ character }}/services",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "action",
+        "accepted_price",
+        "requested_name",
+        "confirm"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "rename"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/bazaar.rs:274",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action",
+        "id",
+        "accepted"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "review"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/bazaar.rs:278",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action",
+        "id",
+        "{{ field.name }}"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "suspend"
+        },
+        {
+          "name": "action",
+          "value": "request"
+        },
+        {
+          "name": "action",
+          "value": "approve"
+        },
+        {
+          "name": "action",
+          "value": "fees"
+        },
+        {
+          "name": "action",
+          "value": "restrict"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/commerce/page.html:6",
+      "ordinal": 1,
+      "action": "/admin/commerce/{{action.key}}",
+      "actionVariants": [
+        "/admin/commerce/grant",
+        "/admin/commerce/revoke",
+        "/admin/commerce/adjust",
+        "/admin/commerce/reconcile",
+        "/admin/commerce/refund"
+      ],
+      "fields": [
+        "_csrf",
+        "target",
+        "request_id",
+        "days",
+        "amount",
+        "reason"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/commerce/page.html:17",
+      "ordinal": 1,
+      "action": "/admin/commerce/approvals/{{item.id}}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {},
+        {
+          "formaction": "/admin/commerce/cancellations/{{item.id}}"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/console/templates/page.html:12",
+      "ordinal": 1,
+      "action": "{{ path }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "operation",
+        "agent",
+        "target",
+        "lang"
+      ],
+      "submits": [
+        {
+          "name": "operation",
+          "value": "{{ section.operation }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/console/templates/read.html:5",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "lang",
+        "q"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/control/controls_http.rs:107",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "code"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/control/controls_http.rs:107",
+      "ordinal": 2,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:5",
+      "ordinal": 1,
+      "action": "/admin/players/{{ id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "reason",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "kick"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:14",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "body",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "note"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:15",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "reason",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "logout"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:16",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "reason",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "kick"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:17",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "ticket",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "verify-identity"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:18",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "evidence",
+        "reason",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "request-reset"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:19",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "hold",
+        "reason",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "release-coin-hold"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/players/page.html:21",
+      "ordinal": 1,
+      "action": "/admin/players/{{ row.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "approve-reset"
+        }
+      ]
+    },
+    {
+      "source": "crates/admin/src/support_web.rs:348",
+      "ordinal": 1,
+      "action": "{}/{}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "action",
+        "create",
+        "{field}",
+        "internal"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "reply"
+        },
+        {
+          "name": "action",
+          "value": "ticket_status"
+        },
+        {
+          "name": "action",
+          "value": "moderate"
+        },
+        {
+          "name": "action",
+          "value": "sanction"
+        },
+        {
+          "name": "action",
+          "value": "appeal"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/bazaar/src/game/runtime/browser.rs:32",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/bazaar/sell",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "kind",
+        "world_id",
+        "seller_character_id",
+        "asset_id",
+        "expected_revision",
+        "quantity",
+        "definition_key",
+        "definition_revision",
+        "currency",
+        "starting_bid",
+        "duration_days",
+        "publish_snapshot"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/bazaar/src/game/runtime/browser.rs:32",
+      "ordinal": 2,
+      "action": "/{{ lang }}/account/bazaar/{{ card.id }}/control",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "resume"
+        },
+        {
+          "name": "action",
+          "value": "cancel"
+        }
+      ]
+    },
+    {
+      "source": "crates/bazaar/src/game/runtime/browser.rs:32",
+      "ordinal": 3,
+      "action": "/{{ lang }}/account/bazaar/{{ card.id }}/bids",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "buyer_character_id",
+        "maximum"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/bazaar/src/moderation_web.rs:116",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "id",
+        "category",
+        "detail",
+        "fee_revision",
+        "amount"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/characters/src/create_web/page.rs:45",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/characters/new",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "submission",
+        "name",
+        "world",
+        "sex",
+        "vocation"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/community/src/party/party_view.rs:96",
+      "ordinal": 1,
+      "action": "/{{ lang }}/party",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "character",
+        "purpose",
+        "min_level",
+        "max_level",
+        "profession",
+        "starts_at",
+        "expires_at",
+        "note"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/community/src/party/party_view.rs:149",
+      "ordinal": 1,
+      "action": "/admin/{{ lang }}/party/{{ row.id }}/moderate",
+      "actionVariants": [],
+      "fields": [
+        "report_ids",
+        "_csrf",
+        "reason",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "remove"
+        },
+        {
+          "name": "action",
+          "value": "dismiss"
+        }
+      ]
+    },
+    {
+      "source": "crates/community/src/party/party_view.rs:156",
+      "ordinal": 1,
+      "action": "/{{ lang }}/party/{{ row.id }}/report",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "reason"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/community/src/party/party_view.rs:162",
+      "ordinal": 1,
+      "action": "/{{ lang }}/party/{{ row.id }}/remove",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/community/src/referrals/web.rs:45",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/community/src/referrals/web.rs:46",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "kind"
+      ],
+      "submits": [
+        {
+          "name": "kind",
+          "value": "link"
+        }
+      ]
+    },
+    {
+      "source": "crates/community/src/referrals/web.rs:47",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "kind",
+        "email"
+      ],
+      "submits": [
+        {
+          "name": "kind",
+          "value": "new"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/community/src/referrals/web.rs:48",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "kind",
+        "email"
+      ],
+      "submits": [
+        {
+          "name": "kind",
+          "value": "returning"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/content/src/media.rs:207",
+      "ordinal": 1,
+      "action": "/admin/media",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "image",
+        "alt_text"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/content/src/media.rs:207",
+      "ordinal": 2,
+      "action": "/admin/media/{{ item.0 }}/delete",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/content/src/news.rs:347",
+      "ordinal": 1,
+      "action": "{action}?lang={lang}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "expected_revision",
+        "{name}"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/content/src/news.rs:395",
+      "ordinal": 1,
+      "action": "/admin/news/{id}/delete",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "expected_revision"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/consents_http.rs:18",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/consents",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "kind",
+        "version",
+        "granted"
+      ],
+      "submits": [
+        {
+          "name": "kind",
+          "value": "{{ item.kind }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/credentials_http.rs:129",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "current_password",
+        "password",
+        "password_confirmation"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/email_change_http.rs:76",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "email",
+        "email_confirmation",
+        "current_password",
+        "proof",
+        "recovery",
+        "backup"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/privacy_web.rs:77",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "public_account_association",
+        "public_status_visible",
+        "locale"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/recovery_key_http.rs:84",
+      "ordinal": 1,
+      "action": "/{{ context.language }}/{% if mode != \"recover\" %}account/{% endif %}recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}",
+      "actionVariants": [
+        "/{{ context.language }}/account/recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}",
+        "/{{ context.language }}/recovery-key{% if mode == \"confirm\" %}/confirm{% endif %}"
+      ],
+      "fields": [
+        "_csrf",
+        "email",
+        "recovery_key",
+        "password",
+        "password_confirmation",
+        "current_password"
+      ],
+      "submits": [
+        {},
+        {
+          "formaction": "/{{ context.language }}/account/recovery-key/revoke"
+        }
+      ]
+    },
+    {
+      "source": "crates/identity/src/sessions_http.rs:101",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/sessions/{{ entry.id }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/sessions_http.rs:102",
+      "ordinal": 1,
+      "action": "/{{ lang }}/account/sessions/others",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/identity/src/sessions_http.rs:102",
+      "ordinal": 2,
+      "action": "/{{ lang }}/account/sessions/all",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/minigames/src/collection_pvp/http.rs:88",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "op",
+        "{{ field.0 }}"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/minigames/src/puzzles/http.rs:180",
+      "ordinal": 1,
+      "action": "/{{ lang }}/puzzles/{{ card.id }}/answer",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "choice"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/payments/templates/coin/checkout.html:9",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "pay"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/payments/templates/coin/checkout.html:10",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "fail"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/playerdata/src/places/http.rs:116",
+      "ordinal": 1,
+      "action": "/{{ lang }}/atlas/places/participation",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "participating"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/playerdata/src/reports/render.rs:51",
+      "ordinal": 1,
+      "action": "reports/email",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "enabled"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/playerdata/src/reports/render.rs:112",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "body"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/store/src/web.rs:337",
+      "ordinal": 1,
+      "action": "/{{ lang }}/shop/test-checkout/{{ operation }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "action"
+      ],
+      "submits": [
+        {
+          "name": "action",
+          "value": "pay"
+        },
+        {
+          "name": "action",
+          "value": "reject"
+        },
+        {
+          "name": "action",
+          "value": "cancel"
+        }
+      ]
+    },
+    {
+      "source": "crates/store/src/web.rs:341",
+      "ordinal": 1,
+      "action": "/{{ lang }}/shop",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "operation",
+        "revision",
+        "offer",
+        "price",
+        "quantity",
+        "character",
+        "world"
+      ],
+      "submits": [
+        {
+          "name": "operation",
+          "value": "{{ offer.operation }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/store/src/web.rs:344",
+      "ordinal": 1,
+      "action": "/{{ lang }}/shop/transfer",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "operation",
+        "recipient",
+        "amount"
+      ],
+      "submits": [
+        {
+          "name": "operation",
+          "value": "{{ operation }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/store/src/web.rs:346",
+      "ordinal": 1,
+      "action": "/{{ lang }}/shop/coins",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "operation",
+        "package"
+      ],
+      "submits": [
+        {
+          "name": "operation",
+          "value": "{{ package.operation }}"
+        },
+        {}
+      ]
+    },
+    {
+      "source": "crates/support/src/reports/web.rs:111",
+      "ordinal": 1,
+      "action": "/{{ locale.0 }}/support/reports",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_key",
+        "report_type",
+        "category",
+        "target_reference",
+        "evidence_summary"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/support/src/tickets/page.html:8",
+      "ordinal": 1,
+      "action": "{{ base }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_key",
+        "category",
+        "subject",
+        "body"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/support/src/tickets/page.html:11",
+      "ordinal": 1,
+      "action": "{{ base }}/{{ id }}/read",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "reply",
+        "after"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/support/src/tickets/page.html:13",
+      "ordinal": 1,
+      "action": "{{ base }}/{{ id }}/reply",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "body",
+        "internal"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/support/src/tickets/page.html:14",
+      "ordinal": 1,
+      "action": "{{ base }}/{{ id }}/status",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "lock_version",
+        "status"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/web/src/routes/verify.rs:78",
+      "ordinal": 1,
+      "action": "/{{ lang }}/verify-email?token={{ token }}",
+      "actionVariants": [],
+      "fields": [
+        "_csrf"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "crates/web/src/routes/verify.rs:196",
+      "ordinal": 1,
+      "action": "/{{ lang }}/verify-email/resend",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "email"
+      ],
+      "submits": [
+        {}
+      ]
+    },
+    {
+      "source": "bin/oteryn-portal/templates/code_issuance.html:7",
+      "ordinal": 1,
+      "action": "",
+      "actionVariants": [],
+      "fields": [
+        "_csrf",
+        "request_id",
+        "kind",
+        "amount",
+        "count",
+        "max_per_code",
+        "max_per_account",
+        "valid_from",
+        "valid_until",
+        "note"
+      ],
+      "submits": [
+        {}
+      ]
+    }
+  ],
+  "routes": [
+    {
+      "method": "DELETE",
+      "route": "/account/recovery-key",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "handler": "revoke"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/account/sessions",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:39",
+          "handler": "revoke_others"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/account/sessions/{id}",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:48",
+          "handler": "revoke_one"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/admin/media/{id}",
+      "sources": [
+        {
+          "source": "crates/content/src/media.rs:126",
+          "handler": "delete"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/admin/news/{id}",
+      "sources": [
+        {
+          "source": "crates/content/src/news.rs:141",
+          "handler": "delete"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/api/v1/stats/watches",
+      "sources": [
+        {
+          "source": "crates/stats/src/watch/http.rs:17",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/atlas/private-markers/{id}",
+      "sources": [
+        {
+          "source": "crates/atlas/src/spawns.rs:42",
+          "handler": "remove_marker"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/{lang}/account/recovery-key",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "handler": "revoke"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/{lang}/account/sessions",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:39",
+          "handler": "revoke_others"
+        }
+      ]
+    },
+    {
+      "method": "DELETE",
+      "route": "/{lang}/account/sessions/{id}",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:48",
+          "handler": "revoke_one"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/badges",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:473",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/characters/{name}/profile",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:476",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/recovery-key",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "handler": "generate"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/recovery-key/confirm",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:44",
+          "handler": "confirm"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/recovery-key/revoke",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:48",
+          "handler": "revoke"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/security/email",
+      "sources": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:46",
+          "handler": "request"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/sessions/all",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:47",
+          "handler": "revoke_all"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/sessions/others",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:43",
+          "handler": "revoke_others"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/sessions/{id}",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:48",
+          "handler": "revoke_one"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/account/sudo",
+      "sources": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:107",
+          "handler": "sudo"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/announcements",
+      "sources": [
+        {
+          "source": "crates/content/src/announcements_staff.rs:41",
+          "handler": "create::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/announcements/{id}/edit",
+      "sources": [
+        {
+          "source": "crates/content/src/announcements_staff.rs:43",
+          "handler": "update::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/commerce/approvals/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/http.rs:56",
+          "handler": "approve::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/commerce/cancellations/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/http.rs:57",
+          "handler": "cancel::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/commerce/{action}",
+      "sources": [
+        {
+          "source": "crates/admin/src/commerce/http.rs:55",
+          "handler": "submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/console/players",
+      "sources": [
+        {
+          "source": "crates/admin/src/console/access.rs:441",
+          "handler": "super::players::search::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/control/approvals/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/control/controls_http.rs:46",
+          "handler": "approval_submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/control/step-up",
+      "sources": [
+        {
+          "source": "crates/admin/src/control/controls_http.rs:42",
+          "handler": "step_submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/events",
+      "sources": [
+        {
+          "source": "crates/content/src/events/web.rs:189",
+          "handler": "save_new::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/events/{id}",
+      "sources": [
+        {
+          "source": "crates/content/src/events/web.rs:192",
+          "handler": "save_existing::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/events/{id}/status",
+      "sources": [
+        {
+          "source": "crates/content/src/events/web.rs:196",
+          "handler": "status::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/media",
+      "sources": [
+        {
+          "source": "crates/content/src/media.rs:123",
+          "handler": "upload"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/media/{id}/delete",
+      "sources": [
+        {
+          "source": "crates/content/src/media.rs:127",
+          "handler": "delete"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/moderation/enforcement/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/support_web.rs:123",
+          "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/moderation/reports/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/support_web.rs:123",
+          "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/news",
+      "sources": [
+        {
+          "source": "crates/content/src/news.rs:138",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/news/{id}",
+      "sources": [
+        {
+          "source": "crates/content/src/news.rs:141",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/news/{id}/delete",
+      "sources": [
+        {
+          "source": "crates/content/src/news.rs:142",
+          "handler": "delete"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/pages/{slug}/{locale}",
+      "sources": [
+        {
+          "source": "crates/content/src/pages/staff.rs:40",
+          "handler": "save"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/players/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/players/http.rs:70",
+          "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/roles",
+      "sources": [
+        {
+          "source": "crates/admin/src/web.rs:255",
+          "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/support/tickets/{id}",
+      "sources": [
+        {
+          "source": "crates/admin/src/support_web.rs:123",
+          "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/wiki/articles",
+      "sources": [
+        {
+          "source": "crates/wiki/src/web.rs:71",
+          "handler": "create::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/wiki/articles/{id}",
+      "sources": [
+        {
+          "source": "crates/wiki/src/web.rs:73",
+          "handler": "edit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/wiki/articles/{id}/revisions/{source}/restore",
+      "sources": [
+        {
+          "source": "crates/wiki/src/web.rs:79",
+          "handler": "restore::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/wiki/articles/{id}/{action}",
+      "sources": [
+        {
+          "source": "crates/wiki/src/web.rs:83",
+          "handler": "transition::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/world",
+      "sources": [
+        {
+          "source": "crates/world/src/admin.rs:77",
+          "handler": "change::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/{lang}/bazaar",
+      "sources": [
+        {
+          "source": "crates/admin/src/bazaar.rs:169",
+          "handler": "store::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/admin/{lang}/party/{id}/moderate",
+      "sources": [
+        {
+          "source": "crates/community/src/party.rs:274",
+          "handler": "moderate"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/api/v1/stats/watches",
+      "sources": [
+        {
+          "source": "crates/stats/src/watch/http.rs:17",
+          "handler": "add"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/atlas/map-reports",
+      "sources": [
+        {
+          "source": "crates/atlas/src/spawns.rs:46",
+          "handler": "report"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/atlas/private-markers",
+      "sources": [
+        {
+          "source": "crates/atlas/src/spawns.rs:41",
+          "handler": "add_marker"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/console/dashboard",
+      "sources": [
+        {
+          "source": "crates/admin/src/console/mod.rs:377",
+          "handler": "submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/console/database",
+      "sources": [
+        {
+          "source": "crates/admin/src/console/mod.rs:389",
+          "handler": "submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/console/nodes",
+      "sources": [
+        {
+          "source": "crates/admin/src/console/mod.rs:385",
+          "handler": "submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/console/worlds",
+      "sources": [
+        {
+          "source": "crates/admin/src/console/mod.rs:381",
+          "handler": "submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/email-change/confirm/{token}",
+      "sources": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:50",
+          "handler": "confirm"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/email-change/revert/{token}",
+      "sources": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:54",
+          "handler": "revert"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/forgot-password",
+      "sources": [
+        {
+          "source": "crates/identity/src/reset_http.rs:46",
+          "handler": "submit_forgot"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/login",
+      "sources": [
+        {
+          "source": "crates/identity/src/login_http.rs:43",
+          "handler": "submit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/logout",
+      "sources": [
+        {
+          "source": "crates/identity/src/login_http.rs:46",
+          "handler": "logout"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/mfa/challenge",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:69",
+          "handler": "challenge"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/mfa/confirm",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:76",
+          "handler": "confirm"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/mfa/devices",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:77",
+          "handler": "remove_device"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/mfa/email",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:73",
+          "handler": "email"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/mfa/enroll",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:75",
+          "handler": "enroll"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/mfa/login",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:68",
+          "handler": "login"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/native-account/coin-checkout/{order_id}",
+      "sources": [
+        {
+          "source": "crates/payments/src/coin_http.rs:40",
+          "handler": "act"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/oauth/authorize",
+      "sources": [
+        {
+          "source": "crates/gameauth/src/oauth/oauth_http.rs:40",
+          "handler": "consent"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/password/change",
+      "sources": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "handler": "change"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/recovery-key",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:39",
+          "handler": "recover"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/register",
+      "sources": [
+        {
+          "source": "crates/web/src/routes/register.rs:22",
+          "handler": "submit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/register/abuse/challenge",
+      "sources": [
+        {
+          "source": "crates/identity/src/abuse/http.rs:17",
+          "handler": "challenge"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/reset-password",
+      "sources": [
+        {
+          "source": "crates/identity/src/reset_http.rs:47",
+          "handler": "submit_reset"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/verify-email",
+      "sources": [
+        {
+          "source": "crates/web/src/routes/verify.rs:21",
+          "handler": "verification"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/verify-email/resend",
+      "sources": [
+        {
+          "source": "crates/web/src/routes/verify.rs:24",
+          "handler": "resend"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/badges",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:474",
+          "handler": "inline closure"
+        },
+        {
+          "source": "crates/web/src/lib.rs:475",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/bazaar/sell",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:101",
+          "handler": "create::"
+        },
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:194",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/bazaar/{listing}/bids",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/characters/http.rs:105",
+          "handler": "bid::"
+        },
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:198",
+          "handler": "bid"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/bazaar/{listing}/control",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/game/runtime/browser.rs:199",
+          "handler": "control"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/bazaar/{listing}/promote",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/moderation_web.rs:90",
+          "handler": "promote::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/bazaar/{listing}/report",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/moderation_web.rs:86",
+          "handler": "report::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/characters/new",
+      "sources": [
+        {
+          "source": "crates/characters/src/create_web/http.rs:88",
+          "handler": "submit::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/characters/{character}/services",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:482",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/characters/{name}/profile",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:477",
+          "handler": "inline closure"
+        },
+        {
+          "source": "crates/web/src/lib.rs:481",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/consents",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:331",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/hunts/{id}/share",
+      "sources": [
+        {
+          "source": "crates/playerdata/src/hunts_web.rs:38",
+          "handler": "share"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/journal/reports/email",
+      "sources": [
+        {
+          "source": "crates/playerdata/src/reports/http.rs:239",
+          "handler": "preference"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/journal/reports/notes",
+      "sources": [
+        {
+          "source": "crates/playerdata/src/reports/http.rs:231",
+          "handler": "save_note"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/notifications",
+      "sources": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:150",
+          "handler": "save"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/passkeys/authenticate/finish",
+      "sources": [
+        {
+          "source": "crates/identity/src/passkeys_http.rs:48",
+          "handler": "authenticate_finish"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/passkeys/authenticate/start",
+      "sources": [
+        {
+          "source": "crates/identity/src/passkeys_http.rs:44",
+          "handler": "authenticate_start"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/passkeys/register/finish",
+      "sources": [
+        {
+          "source": "crates/identity/src/passkeys_http.rs:40",
+          "handler": "register_finish"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/passkeys/register/start",
+      "sources": [
+        {
+          "source": "crates/identity/src/passkeys_http.rs:36",
+          "handler": "register_start"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/passkeys/{id}/remove",
+      "sources": [
+        {
+          "source": "crates/identity/src/passkeys_http.rs:52",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/privacy",
+      "sources": [
+        {
+          "source": "crates/identity/src/privacy_web.rs:36",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/privacy/delete",
+      "sources": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:143",
+          "handler": "delete"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/privacy/delete/cancel",
+      "sources": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:138",
+          "handler": "cancel"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/recovery-key",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:40",
+          "handler": "generate"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/recovery-key/confirm",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:44",
+          "handler": "confirm"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/recovery-key/revoke",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:48",
+          "handler": "revoke"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/referrals",
+      "sources": [
+        {
+          "source": "crates/community/src/referrals/web.rs:137",
+          "handler": "submit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/security/email",
+      "sources": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:46",
+          "handler": "request"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/sessions/all",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:47",
+          "handler": "revoke_all"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/sessions/others",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:43",
+          "handler": "revoke_others"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/sessions/{id}",
+      "sources": [
+        {
+          "source": "crates/identity/src/sessions_http.rs:48",
+          "handler": "revoke_one"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/account/sudo",
+      "sources": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:107",
+          "handler": "sudo"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/admin/store/codes",
+      "sources": [
+        {
+          "source": "bin/oteryn-portal/src/code_routes.rs:126",
+          "handler": "generate"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/admin/support/tickets/{id}/reply",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:129",
+          "handler": "reply"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/admin/support/tickets/{id}/status",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:133",
+          "handler": "status"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/atlas/places/participation",
+      "sources": [
+        {
+          "source": "crates/playerdata/src/places/http.rs:40",
+          "handler": "inline closure"
+        },
+        {
+          "source": "crates/playerdata/src/places/http.rs:49",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/bazaar/items",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/items/web.rs:73",
+          "handler": "unavailable"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:96",
+          "handler": "create::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/bazaar/items/{id}/{action}",
+      "sources": [
+        {
+          "source": "crates/bazaar/src/items/web.rs:76",
+          "handler": "unavailable"
+        },
+        {
+          "source": "crates/bazaar/src/items/web.rs:102",
+          "handler": "action::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/collection-pvp",
+      "sources": [
+        {
+          "source": "crates/minigames/src/collection_pvp/http.rs:43",
+          "handler": "action::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/collection/battles/{id}",
+      "sources": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:91",
+          "handler": "turn"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/collection/battles/{id}/forfeit",
+      "sources": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:95",
+          "handler": "forfeit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/collection/decks/{id}/battle",
+      "sources": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:90",
+          "handler": "start"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/collection/decks/{id}/delete",
+      "sources": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:96",
+          "handler": "delete_deck"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/collection/{character}/decks",
+      "sources": [
+        {
+          "source": "crates/minigames/src/collection/http.rs:85",
+          "handler": "save"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/email-change/confirm/{token}",
+      "sources": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:50",
+          "handler": "confirm"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/email-change/revert/{token}",
+      "sources": [
+        {
+          "source": "crates/identity/src/email_change_http.rs:54",
+          "handler": "revert"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/forgot-password",
+      "sources": [
+        {
+          "source": "crates/identity/src/reset_http.rs:50",
+          "handler": "submit_forgot"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/login",
+      "sources": [
+        {
+          "source": "crates/identity/src/login_http.rs:44",
+          "handler": "submit"
+        },
+        {
+          "source": "crates/identity/src/login_http.rs:45",
+          "handler": "submit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/logout",
+      "sources": [
+        {
+          "source": "crates/identity/src/login_http.rs:47",
+          "handler": "logout"
+        },
+        {
+          "source": "crates/identity/src/login_http.rs:48",
+          "handler": "logout"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/mfa/challenge",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:69",
+          "handler": "challenge"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/mfa/confirm",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:76",
+          "handler": "confirm"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/mfa/devices",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:77",
+          "handler": "remove_device"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/mfa/email",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:73",
+          "handler": "email"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/mfa/enroll",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:75",
+          "handler": "enroll"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/mfa/login",
+      "sources": [
+        {
+          "source": "crates/identity/src/mfa_http.rs:68",
+          "handler": "login"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/party",
+      "sources": [
+        {
+          "source": "crates/community/src/party.rs:288",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/party/{id}/remove",
+      "sources": [
+        {
+          "source": "crates/community/src/party.rs:290",
+          "handler": "remove"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/party/{id}/report",
+      "sources": [
+        {
+          "source": "crates/community/src/party.rs:289",
+          "handler": "report"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/pass/{season}/buy",
+      "sources": [
+        {
+          "source": "crates/minigames/src/pass/web.rs:116",
+          "handler": "buy::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/pass/{season}/claim",
+      "sources": [
+        {
+          "source": "crates/minigames/src/pass/web.rs:120",
+          "handler": "claim::"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/password/change",
+      "sources": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "handler": "change"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/puzzles/{id}/answer",
+      "sources": [
+        {
+          "source": "crates/minigames/src/puzzles/http.rs:35",
+          "handler": "answer"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/recovery-key",
+      "sources": [
+        {
+          "source": "crates/identity/src/recovery_key_http.rs:39",
+          "handler": "recover"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/referrals/{code}",
+      "sources": [
+        {
+          "source": "crates/community/src/referrals/web.rs:138",
+          "handler": "accept"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/register",
+      "sources": [
+        {
+          "source": "crates/web/src/routes/register.rs:23",
+          "handler": "submit"
+        },
+        {
+          "source": "crates/web/src/routes/register.rs:24",
+          "handler": "submit"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/register/abuse/challenge",
+      "sources": [
+        {
+          "source": "crates/identity/src/abuse/http.rs:18",
+          "handler": "challenge"
+        },
+        {
+          "source": "crates/identity/src/abuse/http.rs:19",
+          "handler": "challenge"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/reset-password",
+      "sources": [
+        {
+          "source": "crates/identity/src/reset_http.rs:54",
+          "handler": "submit_reset"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/shop",
+      "sources": [
+        {
+          "source": "crates/store/src/web.rs:146",
+          "handler": "buy"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/shop/codes/redeem",
+      "sources": [
+        {
+          "source": "bin/oteryn-portal/src/code_routes.rs:137",
+          "handler": "redeem"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/shop/coins",
+      "sources": [
+        {
+          "source": "crates/store/src/web.rs:147",
+          "handler": "top_up"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/shop/test-checkout/{intent}",
+      "sources": [
+        {
+          "source": "crates/store/src/web.rs:140",
+          "handler": "checkout_post"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/shop/transfer",
+      "sources": [
+        {
+          "source": "crates/store/src/web.rs:149",
+          "handler": "transfer"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/support/reports",
+      "sources": [
+        {
+          "source": "crates/support/src/reports/web.rs:27",
+          "handler": "store"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/support/tickets",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:99",
+          "handler": "create"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/support/tickets/{id}/read",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:102",
+          "handler": "mark_read"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/support/tickets/{id}/reply",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:106",
+          "handler": "reply"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/support/tickets/{id}/status",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:110",
+          "handler": "status"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/unsubscribe",
+      "sources": [
+        {
+          "source": "crates/identity/src/account_lifecycle_http.rs:159",
+          "handler": "unsubscribe"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/verify-email",
+      "sources": [
+        {
+          "source": "crates/web/src/routes/verify.rs:22",
+          "handler": "verification"
+        },
+        {
+          "source": "crates/web/src/routes/verify.rs:23",
+          "handler": "verification"
+        }
+      ]
+    },
+    {
+      "method": "POST",
+      "route": "/{lang}/verify-email/resend",
+      "sources": [
+        {
+          "source": "crates/web/src/routes/verify.rs:25",
+          "handler": "resend"
+        },
+        {
+          "source": "crates/web/src/routes/verify.rs:29",
+          "handler": "resend"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/account/characters/{name}/profile",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:476",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/admin/events/{id}",
+      "sources": [
+        {
+          "source": "crates/content/src/events/web.rs:192",
+          "handler": "save_existing::"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/admin/events/{id}/status",
+      "sources": [
+        {
+          "source": "crates/content/src/events/web.rs:196",
+          "handler": "status::"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/admin/news/{id}",
+      "sources": [
+        {
+          "source": "crates/content/src/news.rs:141",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/password/change",
+      "sources": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "handler": "change"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/{lang}/account/characters/{name}/profile",
+      "sources": [
+        {
+          "source": "crates/web/src/lib.rs:477",
+          "handler": "inline closure"
+        },
+        {
+          "source": "crates/web/src/lib.rs:481",
+          "handler": "inline closure"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/{lang}/account/privacy",
+      "sources": [
+        {
+          "source": "crates/identity/src/privacy_web.rs:36",
+          "handler": "update"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/{lang}/admin/support/tickets/{id}/status",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:133",
+          "handler": "status"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/{lang}/password/change",
+      "sources": [
+        {
+          "source": "crates/identity/src/credentials_http.rs:103",
+          "handler": "change"
+        }
+      ]
+    },
+    {
+      "method": "PUT",
+      "route": "/{lang}/support/tickets/{id}/status",
+      "sources": [
+        {
+          "source": "crates/support/src/tickets/web.rs:110",
+          "handler": "status"
+        }
+      ]
+    }
+  ]
+}
