@@ -41,6 +41,8 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    const screen=await staffContext.newPage();
    attempted.push(path);
    try {
+     // Shell link probes visit both locales and can change the shared cookie.
+     await staffContext.addCookies([{name:'portal_language',value:lang,url:page.url()}]);
      const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
      const response=await screen.goto(localized?path:`${path}?lang=${lang}`,{waitUntil:'domcontentloaded'});
      const expected=new URL(path,page.url()).pathname;
