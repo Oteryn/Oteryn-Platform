@@ -207,13 +207,13 @@ async function assertDisclosedForms(page, label, bound) {
     const summaryIndex = (await focusState(page)).index;
     const stops = (await tabStops(page)).filter(stop =>
       stop.index !== summaryIndex && descendants.includes(stop.index));
+    await page.keyboard.press('Tab');
     for (const stop of stops) {
-      await tabPastControl(page, stop, label);
       const focus = await focusState(page);
       soft(focus.index, `${label}: keyboard order in form disclosure`).toBe(stop.index);
       if (stop.inScope) soft(focus.visible, `${label}: disclosed form control has visible focus`).toBe(true);
+      await tabPastControl(page, stop, label);
     }
-    await page.keyboard.press('Tab');
     soft(descendants.includes((await focusState(page)).index), `${label}: Tab leaves the disclosed form`).toBe(false);
     await resetTabStart(page);
     if (await tabUntil(page, summary, bound)) await page.keyboard.press('Space');

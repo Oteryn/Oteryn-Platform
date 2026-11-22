@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import axeCore from 'axe-core';
 import { test, expect, request as playwrightRequest } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import { login, password, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
@@ -152,10 +152,8 @@ async function discover(probe, entry, target, covered) {
     if (!/<html[\s>]/i.test(markup)) return { record: { ...record, outcome: 'HTML fragment' } };
     // The shared refusal renderer can return the same document for many
     // resources. Keep each route outcome and audit each distinct refusal.
-    const main = status >= 400 && markup.match(/<main[\s>][\s\S]*?<\/main>/i)?.[0];
-    const resources = main && markup.match(/<(?:link|script|img)\b[^>]*(?:href|src)="[^"]+"[^>]*>/gi);
-    const key = main
-      ? JSON.stringify([status, headers['content-language'], main, resources])
+    const key = status >= 400
+      ? JSON.stringify([status, headers['content-language'], createHash('sha256').update(markup).digest('hex')])
       : status + ' ' + label + url.search;
     if (covered.has(key)) return { record: { ...record, outcome: 'already audited', auditedAt: covered.get(key) } };
     return { record, key };
@@ -164,9 +162,16 @@ async function discover(probe, entry, target, covered) {
   }
 }
 
-async function assessPage(browser, info, state, entry, target, covered, inventory, probe) {
+async function assessPage(browser, info, state, entry, target, covered, inventory, probeOptions) {
   const origin = process.env.PORTAL_E2E_ORIGIN;
-  const { record, key } = await discover(probe, entry, target, covered);
+  const probe = await playwrightRequest.newContext(probeOptions);
+  let discovery;
+  try {
+    discovery = await discover(probe, entry, target, covered);
+  } finally {
+    await probe.dispose();
+  }
+  const { record, key } = discovery;
   if (record.outcome) return record;
   const { status, path: label } = record;
   const context = await browser.newContext({ ...info.project.use, baseURL: origin, storageState: state });
@@ -192,9 +197,7 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
     expect(url.origin, 'local document origin').toBe(origin);
     expect(response.status(), `${label}: browser and source discovery agree on status`).toBe(status);
     expect(url.pathname, 'browser and source discovery agree on destination').toBe(label);
-    const measurement = await vitals(page);
-    const paintTrace = await stopTrace?.();
-    stopTrace = undefined;
+    await vitals(page);
     expect.soft(await page.locator('html').getAttribute('lang'), `${label}: document language`)
       .toBe(documentLanguage(url.pathname, entry.pattern, info.project.metadata.locale));
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
@@ -214,6 +217,9 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
       ...[...document.forms].filter(form => form.method === 'get').map(form => form.action),
     ]);
     addLinks(inventory, links, url);
+    const measurement = await page.evaluate(() => window.portalQualityVitals());
+    const paintTrace = await stopTrace?.();
+    stopTrace = undefined;
     await assertKeyboard(page, label);
     const resources = await transfers();
     const totals = assertBudgets(measurement, resources, label);
@@ -244,12 +250,12 @@ for (const actor of actors) {
     for (const pattern of selected) {
       expect(inventory.some(row => row.pattern === pattern), `selected source pattern ${pattern} exists`).toBe(true);
     }
-    const probe = await playwrightRequest.newContext({
+    const probeOptions = {
       baseURL: process.env.PORTAL_E2E_ORIGIN,
       ignoreHTTPSErrors: true,
       storageState: state.storage ?? state,
       extraHTTPHeaders: { accept: 'text/html', 'accept-language': locale },
-    });
+    };
     try {
       const tested = new Map();
       let addedSamples;
@@ -262,7 +268,7 @@ for (const actor of actors) {
             tested.set(entry, index + 1);
             addedSamples = true;
             try {
-              evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probe));
+              evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probeOptions));
             } catch (error) {
               // Browser exceptions can include full URLs. Preserve the category and route without query data.
               const requestedPath = new URL(target, origin).pathname;
@@ -276,7 +282,6 @@ for (const actor of actors) {
       } while (addedSamples);
       expect(covered.size, 'rendered documents audited').toBeGreaterThan(0);
     } finally {
-      await probe.dispose();
       await info.attach('quality-inventory', {
         contentType: 'application/json', body: JSON.stringify({ actor, locale, evidence }),
       });
