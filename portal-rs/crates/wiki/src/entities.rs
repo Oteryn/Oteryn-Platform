@@ -494,6 +494,12 @@ async fn list(
         Err(s) => return error(s, "en"),
     };
     if !KINDS.contains(&kind.as_str()) {
+        if uri.path().starts_with("/wiki/") {
+            let legacy = oteryn_web::redirects::redirect(OriginalUri(uri)).await;
+            if legacy.status() == StatusCode::MOVED_PERMANENTLY {
+                return legacy;
+            }
+        }
         return error(StatusCode::NOT_FOUND, lang);
     }
     let mut filters = match query {
