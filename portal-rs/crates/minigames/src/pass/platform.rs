@@ -15,6 +15,18 @@ impl Authority for AccountAuthority {
         }
     }
 
+    async fn account_snapshot(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> Result<()> {
+        if oteryn_wallet::value_eligible_snapshot_in(tx, account).await? {
+            Ok(())
+        } else {
+            Err(Error::Denied)
+        }
+    }
+
     async fn publish(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
         Err(Error::Unavailable)
     }

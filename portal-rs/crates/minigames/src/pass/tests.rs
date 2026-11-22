@@ -16,6 +16,13 @@ impl Authority for Trusted {
         .await?;
         if active { Ok(()) } else { Err(Error::Denied) }
     }
+    async fn account_snapshot(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> Result<()> {
+        self.account(tx, account).await
+    }
     async fn publish(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
         Ok(())
     }
@@ -1026,6 +1033,14 @@ async fn postgres_platform_purchase_reconciles_and_refuses_changed_account() -> 
         Err(Error::Unavailable)
     ));
     assert_eq!(service.overview(db.account).await?.progress.xp, 0);
+    assert!(matches!(
+        service.overview(Uuid::nil()).await,
+        Err(Error::Invalid)
+    ));
+    assert!(matches!(
+        service.overview(Uuid::now_v7()).await,
+        Err(Error::Denied)
+    ));
     let operation = Uuid::now_v7();
     assert!(matches!(
         service.buy(db.account, db.season.id, Uuid::nil()).await,

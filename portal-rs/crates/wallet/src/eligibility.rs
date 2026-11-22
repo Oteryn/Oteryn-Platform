@@ -11,6 +11,18 @@ pub async fn value_eligible_in(db: &mut PgConnection, account: Uuid) -> Result<b
         .await
 }
 
+/// Read eligibility from the caller's snapshot without taking an account row
+/// lock. Value mutations must use `value_eligible_in`.
+pub async fn value_eligible_snapshot_in(
+    db: &mut PgConnection,
+    account: Uuid,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar("SELECT account_value_snapshot_restriction($1) IS NULL")
+        .bind(account)
+        .fetch_one(db)
+        .await
+}
+
 /// Lock an existing holder without authorizing new spending.
 pub async fn safe_return_in(db: &mut PgConnection, account: Uuid) -> Result<bool, sqlx::Error> {
     Ok(sqlx::query_scalar::<_, bool>(

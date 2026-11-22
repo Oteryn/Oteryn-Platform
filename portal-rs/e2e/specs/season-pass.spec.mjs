@@ -41,9 +41,30 @@ test('season pass spends sandbox coins once and keeps Game claims closed', async
       idle_expires_at::text, absolute_expires_at::text FROM web_sessions WHERE account_id=$1`, [seeded.accountId]);
     const before = await sessionTimestamps();
     expect(before).toHaveLength(1);
-    const overview = await page.goto(pass);
-    expect(overview.status()).toBe(200);
-    expect(overview.headers()['cache-control']).toBe('private, no-store');
+    const writer = await db.connect();
+    let committed = false;
+    try {
+      await writer.query('BEGIN');
+      await writer.query(`UPDATE accounts
+        SET email_change_blocked_until=clock_timestamp()+interval '1 hour' WHERE id=$1`, [seeded.accountId]);
+      // The configured overview must read committed eligibility while the update holds a row lock.
+      const overview = await page.goto(pass);
+      expect(overview.status()).toBe(200);
+      expect(overview.headers()['cache-control']).toBe('private, no-store');
+      await writer.query('COMMIT');
+      committed = true;
+      expect((await page.request.get(pass)).status()).toBe(403);
+    } finally {
+      try {
+        if (committed) {
+          await writer.query('UPDATE accounts SET email_change_blocked_until=DEFAULT WHERE id=$1', [seeded.accountId]);
+        } else {
+          await writer.query('ROLLBACK');
+        }
+      } finally {
+        writer.release();
+      }
+    }
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page.locator('main')).toContainText('synthetic.reward');
     expect(await query('SELECT season_id FROM pass_progress WHERE account_id=$1 AND season_id=$2',

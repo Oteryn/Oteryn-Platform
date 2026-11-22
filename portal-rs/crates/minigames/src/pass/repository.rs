@@ -145,10 +145,10 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         let mut tx = crate::browser::begin(&self.pool).await?;
         // Progress, challenge amounts and claims must reflect the same snapshot,
         // including when the first progress row is inserted concurrently.
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             .execute(&mut *tx)
             .await?;
-        self.authority.account(&mut tx, account).await?;
+        self.authority.account_snapshot(&mut tx, account).await?;
         let row = sqlx::query("SELECT id,ends_at,price FROM pass_seasons WHERE starts_at<=clock_timestamp() AND ends_at>clock_timestamp()")
             .fetch_optional(&mut *tx).await?.ok_or(Error::Unavailable)?;
         let season: Uuid = row.try_get("id")?;

@@ -141,12 +141,18 @@ pub struct Claim {
     pub delivery: Uuid,
 }
 
-/// Trusted adapters must validate current account eligibility and hold the
+/// Trusted adapters validate account eligibility. Mutations must hold the
 /// ownership/erasure/restore fence until the caller transaction ends. Unknown
 /// authority denies. Progress adapters verify immutable source bytes, custody,
 /// completion, catalog revision and event identity, never browser assertions.
 pub trait Authority: Send + Sync {
     fn account(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+    ) -> impl Future<Output = Result<()>> + Send;
+    /// Apply account eligibility to the overview's read-only snapshot.
+    fn account_snapshot(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         account: Uuid,
@@ -241,6 +247,9 @@ impl<
 pub struct Unavailable;
 impl Authority for Unavailable {
     async fn account(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
+        Err(Error::Unavailable)
+    }
+    async fn account_snapshot(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
         Err(Error::Unavailable)
     }
     async fn publish(&self, _: &mut Transaction<'_, Postgres>, _: Uuid) -> Result<()> {
