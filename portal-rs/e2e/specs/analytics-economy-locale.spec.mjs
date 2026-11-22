@@ -33,6 +33,10 @@ test('economy analytics localizes the unavailable view', async ({ page }, info) 
     await expect(page.locator('main').getByRole('heading', { level: 2, name, exact: true })).toBeVisible();
   }
   await expect(page.locator('main')).not.toContainText(/economy_\w+_daily/);
+  if (lang === 'pl') {
+    await expect(page.locator('main')).toContainText('zablokowanego w ofertach rynkowych');
+    await expect(page.locator('main')).not.toContainText('w depozycie');
+  }
   const end = lang === 'pl' ? 'Do (UTC, z wyłączeniem podanej daty)' : 'To (UTC, exclusive)';
   await expect(page.getByLabel(end, { exact: true })).toHaveAttribute('required', '');
   const status = page.locator('[data-state="unavailable"]');
