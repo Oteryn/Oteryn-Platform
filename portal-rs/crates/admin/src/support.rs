@@ -98,7 +98,7 @@ impl Command {
                     public_outcome,
                     4000,
                     matches!(status.as_str(), "actioned" | "rejected" | "closed"),
-                ) && text(moderator_notes, 8000, false)
+                ) && text(moderator_notes, 8000, true)
             }
             Self::Sanction {
                 status,

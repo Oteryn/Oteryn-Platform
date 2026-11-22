@@ -108,6 +108,15 @@ test('a moderator reaches the dashboard and reports with MFA, and passkeys stay 
   expect(await readReport()).toEqual([{ status: 'submitted', lock_version: 1, assigned_to: null, moderator_notes: null }]);
   expect(await readAudit()).toEqual([]);
 
+  const blankReason = await page.request.post(reportPath, {
+    headers: { origin: new URL(page.url()).origin },
+    form: { ...fields, status: 'reviewing', public_outcome: '', moderator_notes: '' },
+    maxRedirects: 0,
+  });
+  expect(blankReason.status()).toBe(422);
+  expect(await readReport()).toEqual([{ status: 'submitted', lock_version: 1, assigned_to: null, moderator_notes: null }]);
+  expect(await readAudit()).toEqual([]);
+
   await form.locator('select[name="status"]').selectOption('reviewing');
   await form.locator('[name="public_outcome"]').fill('');
   await form.locator('[name="moderator_notes"]').fill(notes);

@@ -369,7 +369,14 @@ async fn render_record(
                 _ => &[],
             };
             if choices.is_empty() {
-                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"8000\"></textarea></label></p>",text(lang,field)));
+                let private_reason = *action == "moderate" && *field == "moderator_notes";
+                let label = if private_reason {
+                    "moderator_reason"
+                } else {
+                    field
+                };
+                let required = if private_reason { " required" } else { "" };
+                body.push_str(&format!("<p><label>{}<br><textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"8000\"{required}></textarea></label></p>",text(lang,label)));
             } else {
                 body.push_str(&format!(
                     "<p><label>{}<select class=\"op-input\" name=\"{field}\">",

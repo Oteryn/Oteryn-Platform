@@ -145,7 +145,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                     "lock_version=1&action=sanction&status=active&target={owner}&category=warning&public_reason=Existing+sanction&moderator_notes=&effective_at=1794000000&expires_at=1894000000"
                 )
             } else {
-                "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes="
+                "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes=Review+started"
                     .into()
             };
             let a = concurrent_app.clone();
@@ -326,6 +326,32 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?,
         StatusCode::SEE_OTHER
     );
+    let report_snapshot = || {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(r) FROM player_reports r WHERE id=$1",
+        )
+        .bind(report)
+        .fetch_one(&pool)
+    };
+    let before_report = report_snapshot().await?;
+    assert_eq!(
+        post(
+            "moderation/reports",
+            report,
+            "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes="
+                .into(),
+        )
+        .await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(report_snapshot().await?, before_report);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1")
+            .bind(report.to_string())
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
     assert_eq!(post("moderation/reports",report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=Private".into()).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         sqlx::query_scalar::<_, String>(
@@ -448,7 +474,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/reports",
             report,
-            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes="
+            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes=Review+complete"
                 .into()
         )
         .await?,
@@ -473,7 +499,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/reports",
             report,
-            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes="
+            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes=Review+complete"
                 .into()
         )
         .await?,
@@ -482,7 +508,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
     let pending = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,$2,'synthetic-hash','pending_verification','en')").bind(pending).bind(format!("{pending}@example.invalid")).execute(&pool).await?;
     let pending_report:Uuid=sqlx::query_scalar("INSERT INTO player_reports(reporter_account_id,request_key,report_type,category,target_reference) VALUES($1,$2,'player','conduct','Pending reporter') RETURNING id").bind(pending).bind(Uuid::now_v7()).fetch_one(&pool).await?;
-    assert_eq!(post("moderation/reports",pending_report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=".into()).await?,StatusCode::SEE_OTHER);
+    assert_eq!(post("moderation/reports",pending_report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=Evidence+reviewed".into()).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications WHERE account_id=$1")
             .bind(pending)
