@@ -91,15 +91,31 @@ assert.equal(internalStatus, 404);
 assert.equal(internalType, 'text/html; charset=utf-8');
 
 const malformed = '{"protocol_version":2,"error":{"code":"NATIVE_LOGIN_REQUEST_MALFORMED","public_class":"RETRY_LOGIN"},"attempt_ref":null}';
-for (const body of [Buffer.from('{]'), Buffer.from('{"protocol_version":2,'),
-  Buffer.from([0x22, 0xff, 0x22]), Buffer.alloc(2049, 0x20)]) {
+for (const body of ['{]', '{"protocol_version":2,']) {
   assertResponse(await issuer(body), 400, malformed);
 }
+
+const unknownTicket = randomBytes(32).toString('base64url');
+const validRequest = JSON.stringify({ ...fixture, game_login_ticket: unknownTicket });
+assert.equal(Buffer.byteLength(validRequest), validRequest.length);
+assert.ok(validRequest.length < 2048);
+
+// The invalid byte sits inside a string in an otherwise valid request object.
+// Lossy decoding would preserve the attempt reference and change the refusal.
+const invalidUtf8 = Buffer.from(validRequest);
+const ticketStart = validRequest.indexOf(`"${unknownTicket}"`) + 1;
+assert.ok(ticketStart > 0);
+invalidUtf8[ticketStart] = 0xff;
+assertResponse(await issuer(invalidUtf8), 400, malformed);
 
 const unsupported = `{"protocol_version":2,"error":{"code":"NATIVE_LOGIN_UNSUPPORTED_VERSION","public_class":"CLIENT_UPDATE_REQUIRED"},"attempt_ref":"${fixture.attempt_ref}"}`;
 assertResponse(await issuer(JSON.stringify({ ...fixture, protocol_version: 4 })), 400, unsupported);
 
 const authentication = `{"protocol_version":2,"error":{"code":"NATIVE_LOGIN_AUTHENTICATION_REQUIRED","public_class":"AUTHENTICATION_REQUIRED"},"attempt_ref":"${fixture.attempt_ref}"}`;
+const atLimit = validRequest.padEnd(2048, ' ');
+assertResponse(await issuer(atLimit), 401, authentication);
+assertResponse(await issuer(atLimit + ' '), 400, malformed);
+
 for (const used of [false, true]) {
   // Set the two historical ticket states directly so the checks use the real
   // ticket authority without waiting for expiry or requiring a grant issuer.

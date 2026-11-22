@@ -63,7 +63,6 @@ async fn login_refuses_unclassifiable_bodies() -> TestResult {
             "invalid UTF-8",
             b"{\"protocol_version\":2,\"game_login_ticket\":\"\xff\"}".to_vec(),
         ),
-        ("over the outer body cap", vec![b' '; 16 * 1024 + 1]),
     ] {
         assert_refusal(case, body, INVALID_REQUEST).await?;
     }
@@ -117,12 +116,31 @@ async fn recognizable_protocol2_requests_use_go_refusals() -> TestResult {
         }
     }
 
+    let malformed = malformed.ok_or("missing malformed Go refusal")?;
     let mut oversized = LOGIN.as_bytes().to_vec();
     oversized.resize(2049, b' ');
     assert_refusal(
         "over the 2048-byte native request limit",
         oversized,
-        malformed.ok_or("missing malformed Go refusal")?.as_bytes(),
+        malformed.as_bytes(),
+    )
+    .await?;
+
+    // The request stays recognizable below the outer cap, even though it
+    // exceeds the native protocol limit.
+    let mut outer_limit = LOGIN.as_bytes().to_vec();
+    outer_limit.resize(16_384, b' ');
+    assert_refusal(
+        "at the 16 KiB outer body cap",
+        outer_limit.clone(),
+        malformed.as_bytes(),
+    )
+    .await?;
+    outer_limit.push(b' ');
+    assert_refusal(
+        "over the 16 KiB outer body cap",
+        outer_limit,
+        INVALID_REQUEST,
     )
     .await?;
 
