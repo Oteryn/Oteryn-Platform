@@ -69,6 +69,46 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
     .await
     .unwrap()
 }
+#[test]
+fn panel_config_accepts_only_host_and_optional_port() {
+    let configured = |host: &str, enabled: bool| {
+        config_from(&|key| match key {
+            "OTERYN_ADMIN_HOST" => Some(host.into()),
+            "OTERYN_ADMIN_PANEL" => Some(enabled.to_string()),
+            _ => None,
+        })
+    };
+    for host in [
+        "staff.example",
+        "admin-panel.example:8443",
+        "localhost:18443",
+        "127.0.0.1:18443",
+        "[::1]:18443",
+    ] {
+        assert_eq!(configured(host, true).unwrap().host, host);
+    }
+    for invalid in [
+        "",
+        "fixture-user:fixture-value@staff.example",
+        "fixture-user@staff.example",
+        "https://staff.example",
+        "staff.example/",
+        "staff.example:",
+        "staff.example:invalid",
+        "staff.example:65536",
+        "staff.example:+443",
+        "-staff.example",
+        "staff..example",
+        "staff_%40.example",
+        "[not-ip]:443",
+    ] {
+        let error = configured(invalid, true).unwrap_err();
+        assert_eq!(error.to_string(), "invalid admin host");
+    }
+    assert!(!configured("", false).unwrap().admin_panel);
+    assert!(configured("fixture-user@staff.example", false).is_err());
+}
+
 #[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();

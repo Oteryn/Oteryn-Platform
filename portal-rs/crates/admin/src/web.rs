@@ -153,13 +153,45 @@ pub(crate) fn config_from(
 ) -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
     let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
-    if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
+    if (enabled || !host.is_empty()) && !valid_admin_host(&host) {
         return Err("invalid admin host".into());
     }
     Ok(PanelConfig {
         admin_panel: enabled,
         host,
     })
+}
+
+fn valid_admin_host(input: &str) -> bool {
+    let Ok(authority) = input.parse::<axum::http::uri::Authority>() else {
+        return false;
+    };
+    // The authority parser also accepts userinfo. Require just the host and an optional port.
+    let host = authority.host();
+    let Some(suffix) = input.strip_prefix(host) else {
+        return false;
+    };
+    if !suffix.is_empty()
+        && !suffix.strip_prefix(':').is_some_and(|port| {
+            port.bytes().all(|byte| byte.is_ascii_digit()) && port.parse::<u16>().is_ok()
+        })
+    {
+        return false;
+    }
+    if let Some(ip) = host.strip_prefix('[').and_then(|ip| ip.strip_suffix(']')) {
+        return ip.parse::<std::net::Ipv6Addr>().is_ok();
+    }
+    let name = host.strip_suffix('.').unwrap_or(host);
+    name.len() <= 253
+        && name.split('.').all(|label| {
+            let label = label.as_bytes();
+            label.len() <= 63
+                && label.first().is_some_and(u8::is_ascii_alphanumeric)
+                && label.last().is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .iter()
+                    .all(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+        })
 }
 
 /// Register the dashboard destination from the same host and flag as the panel.
