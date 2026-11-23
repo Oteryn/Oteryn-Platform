@@ -3,7 +3,7 @@ import { test, expect } from '../fixtures.mjs';
 import { disposableDatabaseUrl, fixtureDatabaseEnv, pool } from '../helpers.mjs';
 import { messages, visit } from '../public-depth-helpers.mjs';
 
-test('unprefixed wiki routes negotiate locale and stats aliases default to Polish', async ({ page }, info) => {
+test('unprefixed wiki and stats aliases negotiate locale, with a Polish stats fallback', async ({ page, browser, browserDiagnostics }, info) => {
   const lang = info.project.metadata.locale;
   const wiki = messages('crates/wiki/src/entities', lang);
   const article = messages('crates/wiki/src/i18n', lang);
@@ -12,11 +12,21 @@ test('unprefixed wiki routes negotiate locale and stats aliases default to Polis
   }
   await visit(page, '/wiki/articles/absent-e2e', 404, { lang, message: article.missing });
 
-  const world = messages('templates/stats/world', 'pl');
-  await visit(page, '/stats/world', 200, { lang: 'pl', message: world['world-title'] });
-  await expect(page.locator('select[name=world]')).toBeVisible();
-  const guilds = messages('templates/stats/guilds', 'pl');
-  await visit(page, '/stats/guilds', 503, { lang: 'pl', message: guilds['guild-unavailable'] });
+  const fallback = await browser.newContext({
+    baseURL: info.project.use.baseURL, viewport: info.project.use.viewport, locale: 'fr-FR',
+  });
+  browserDiagnostics(fallback);
+  try {
+    for (const [screen, expected] of [[page, lang], [await fallback.newPage(), 'pl']]) {
+      const world = messages('templates/stats/world', expected);
+      await visit(screen, '/stats/world', 200, { lang: expected, message: world['world-title'] });
+      await expect(screen.locator('select[name=world]')).toBeVisible();
+      const guilds = messages('templates/stats/guilds', expected);
+      await visit(screen, '/stats/guilds', 503, { lang: expected, message: guilds['guild-unavailable'] });
+    }
+  } finally {
+    await fallback.close();
+  }
 });
 
 const resources = [

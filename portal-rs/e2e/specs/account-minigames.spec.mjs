@@ -61,6 +61,8 @@ async function seedPuzzles(page, target, catalog) {
         await client.query('DELETE FROM puzzles_daily WHERE id=ANY($1)', [puzzleIds]);
         await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_staged_cutoff');
         await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_immutable');
+        await client.query('DELETE FROM world_visibility WHERE kind=$1 AND key=ANY($2::text[])',
+          [kind, choices.map(({source}) => source.key)]);
         await client.query('COMMIT');
       } finally {
         client.release(true);
