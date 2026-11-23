@@ -23,11 +23,12 @@
           data-verification="{{ self.text("downloads-verification-failed") }}"
           data-conflict="{{ self.text("downloads-conflict") }}"
           data-denied="{{ self.text("downloads-denied") }}"
+          data-limited="{{ self.text("downloads-limited") }}"
           data-unavailable="{{ self.text("downloads-unavailable") }}">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <label class="op-stack" for="release-channel">{{ self.text("downloads-channel") }}</label>
       <select class="op-input" id="release-channel" name="channel" required>
-        {% for channel in ready %}<option value="{{ channel }}">{{ channel }}</option>{% endfor %}
+        {% for (channel, label) in ready %}<option value="{{ channel }}">{{ self.text(label) }}</option>{% endfor %}
       </select>
       <label class="op-stack" for="release-policy">{{ self.text("downloads-policy") }}</label>
       <input class="op-input" type="file" id="release-policy" name="policy" accept=".json" required>
@@ -44,8 +45,8 @@
     <p>{{ self.text("downloads-history-limit") }}</p>
     {% for channel in history %}
     <section class="op-stack">
-      <h3>{{ channel.name }}</h3>
-      {% if !ready.contains(channel.name) %}<p>{{ self.text("downloads-unavailable") }}</p>{% endif %}
+      <h3>{{ self.text(channel.label) }}</h3>
+      {% if !channel.ready %}<p>{{ self.text("downloads-unavailable") }}</p>{% endif %}
       {% if channel.publications.is_empty() %}
       <p>{{ self.text("downloads-empty") }}</p>
       {% endif %}

@@ -23,6 +23,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         ] {
             if let Some(path) = std::env::var_os(key)
                 && let Ok(root) = crate::command::read_bounded(Path::new(&path), 1024 * 1024)
+                && crate::verification::anchor_version(&root).is_ok()
             {
                 roots.insert(channel, root);
             }

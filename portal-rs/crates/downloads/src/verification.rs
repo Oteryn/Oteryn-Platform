@@ -50,6 +50,12 @@ impl Transport for BundleTransport {
     }
 }
 
+pub(crate) fn anchor_version(trusted_root: &[u8]) -> Result<u64, Error> {
+    let anchor: Signed<Root> =
+        serde_json::from_slice(trusted_root).map_err(|_| Error::Verification)?;
+    Ok(anchor.signed.version.get())
+}
+
 pub(crate) async fn verify(upload: Upload, trusted_root: &[u8]) -> Result<Verified, Error> {
     if upload.metadata.len() > 32
         || upload
@@ -86,9 +92,7 @@ pub(crate) async fn verify(upload: Upload, trusted_root: &[u8]) -> Result<Verifi
     let policy: UpdaterPolicy =
         serde_json::from_slice(&upload.policy).map_err(|_| Error::Invalid("policy JSON"))?;
     policy.validate(upload.channel)?;
-    let anchor: Signed<Root> =
-        serde_json::from_slice(trusted_root).map_err(|_| Error::Verification)?;
-    let anchor_version = anchor.signed.version.get();
+    let anchor_version = anchor_version(trusted_root)?;
     if upload
         .metadata
         .get(&format!("{anchor_version}.root.json"))

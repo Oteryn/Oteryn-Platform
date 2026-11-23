@@ -4,8 +4,10 @@ use std::{collections::BTreeMap, future::Future};
 use askama::Template;
 use axum::{
     Extension, Json, Router,
-    extract::{DefaultBodyLimit, State, rejection::JsonRejection},
-    http::{HeaderMap, StatusCode},
+    extract::{DefaultBodyLimit, Request, State, rejection::JsonRejection},
+    handler::Handler,
+    http::{HeaderMap, StatusCode, header},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
 };
@@ -23,6 +25,7 @@ const MAX_METADATA: usize = 8 * MAX_FILE;
 const MAX_POLICY: usize = 256 * 1024;
 const MAX_FILES: usize = 32;
 const MAX_REQUEST: usize = 12 * MAX_FILE;
+const PUBLICATIONS_PER_MINUTE: i64 = 10;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PublicationFailure {
@@ -70,10 +73,46 @@ pub fn configured_router(
     publisher: impl ReleasePublisher,
 ) -> Result<Router, Box<dyn std::error::Error>> {
     let routes = Router::new()
-        .route("/admin/downloads", get(page).post(publish))
+        .route(
+            "/admin/downloads",
+            get(page).post(publish.layer(middleware::from_fn_with_state(
+                pool.clone(),
+                publication_quota,
+            ))),
+        )
         .layer(DefaultBodyLimit::max(MAX_REQUEST))
         .with_state((pool.clone(), publisher));
     crate::web::configured_guard(routes, pool, Permission::ManageDownloads)
+}
+
+async fn publication_quota(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<CheckContext>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let result = sqlx::query_as::<_, (i64, i64)>(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES('downloads-publish',sha256(uuid_send($1)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$2+1)
+         RETURNING count, greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(context.account)
+    .bind(PUBLICATIONS_PER_MINUTE)
+    .fetch_one(&pool)
+    .await;
+    match result {
+        Ok((count, _)) if count <= PUBLICATIONS_PER_MINUTE => next.run(request).await,
+        Ok((_, retry_after)) => (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(header::RETRY_AFTER, retry_after.to_string())],
+            Json(json!({ "error": "limited" })),
+        )
+            .into_response(),
+        Err(_) => PublicationFailure::Unavailable.response(),
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -91,7 +130,8 @@ struct Publication {
 }
 
 struct ChannelHistory {
-    name: &'static str,
+    label: &'static str,
+    ready: bool,
     publications: Vec<Publication>,
 }
 
@@ -100,7 +140,7 @@ struct ChannelHistory {
 struct Page {
     lang: &'static str,
     csrf: String,
-    ready: Vec<&'static str>,
+    ready: Vec<(&'static str, &'static str)>,
     history: Vec<ChannelHistory>,
     labels: fluent_bundle::FluentBundle<fluent_bundle::FluentResource>,
 }
@@ -122,9 +162,10 @@ async fn page<P: ReleasePublisher>(
     };
     let mut ready = Vec::new();
     let mut history = Vec::new();
-    for name in ["stable", "beta"] {
-        if publisher.ready(name) {
-            ready.push(name);
+    for (name, label) in [("stable", "downloads-stable"), ("beta", "downloads-beta")] {
+        let channel_ready = publisher.ready(name);
+        if channel_ready {
+            ready.push((name, label));
         }
         let Ok(publications) = sqlx::query_as(
             "SELECT r.id, r.release_id, r.version_display, r.policy_revision,
@@ -142,7 +183,11 @@ async fn page<P: ReleasePublisher>(
         else {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         };
-        history.push(ChannelHistory { name, publications });
+        history.push(ChannelHistory {
+            label,
+            ready: channel_ready,
+            publications,
+        });
     }
     let Some(labels) = crate::web::messages(lang) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -225,10 +270,9 @@ async fn publish<P: ReleasePublisher>(
 ) -> Response {
     let bundle = match result {
         Ok(Json(submission)) => submission.decode(),
-        Err(error) if error.status() == StatusCode::PAYLOAD_TOO_LARGE => {
-            return error.status().into_response();
+        Err(error) => {
+            return (error.status(), Json(json!({ "error": "invalid" }))).into_response();
         }
-        Err(_) => Err(PublicationFailure::Invalid),
     };
     match bundle {
         Ok(bundle) => match publisher.publish(context, authority, bundle).await {

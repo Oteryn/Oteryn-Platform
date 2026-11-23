@@ -80,6 +80,7 @@ async function withReleasePortal(work) {
       OTERYN_STATIC_DIR: process.env.OTERYN_STATIC_DIR,
       OTERYN_DOWNLOADS_ENABLED: 'true',
       OTERYN_DOWNLOADS_ROOT_STABLE: path.join(fixture, 'metadata', '1.root.json'),
+      OTERYN_DOWNLOADS_ROOT_BETA: policy,
       OTERYN_WORLD_ADMIN: 'true',
       PORTAL_NATIVE_ADMISSION_BIND: '127.0.0.1:0',
     };
@@ -134,6 +135,8 @@ test('operators publish signed releases and inspect publication and catalog stat
       await expect(page.locator('html')).toHaveAttribute('lang', lang);
       const form = page.locator('#signed-release');
       await expect(form.locator('select')).toHaveValue('stable');
+      await expect(form.locator('option')).toHaveCount(1);
+      await expect(form.locator('option:checked')).toHaveText(labels['downloads-stable']);
       const csrf = await form.locator('input[name=_csrf]').inputValue();
       const target = new URL(downloads, origin).href;
       const payload = {
@@ -161,6 +164,15 @@ test('operators publish signed releases and inspect publication and catalog stat
         })).status()).toBe(403);
       } finally {
         await otherContext.close();
+      }
+
+      for (const [contentType, status] of [['application/json', 400], ['text/plain', 415]]) {
+        const invalid = await page.request.post(target, {
+          data: Buffer.from('{'),
+          headers: { origin, 'x-csrf-token': csrf, 'content-type': contentType },
+        });
+        expect(invalid.status()).toBe(status);
+        expect(await invalid.json()).toEqual({ error: 'invalid' });
       }
 
       const button = form.getByRole('button', { name: labels['downloads-publish'] });
@@ -201,6 +213,30 @@ test('operators publish signed releases and inspect publication and catalog stat
       await expect(page.locator('article[id^=publication-]')).toHaveCount(1);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
 
+      const db = new pg.Client({ connectionString: process.env.PORTAL_E2E_DATABASE_URL });
+      await db.connect();
+      try {
+        await db.query(
+          `INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+           SELECT 'downloads-publish', sha256(uuid_send($1)),
+                  date_trunc('minute', now()) + offset_minute * interval '1 minute', 10
+             FROM generate_series(0,1) AS offset_minute
+           ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE SET count=EXCLUDED.count`,
+          [staff],
+        );
+        await policyInput.setInputFiles(policy);
+        await metadataInput.setInputFiles(metadata);
+        const submitted = page.waitForResponse(response => response.url() === target
+          && response.request().method() === 'POST');
+        await button.click();
+        const limited = await submitted;
+        expect(limited.status()).toBe(429);
+        expect(limited.headers()['retry-after']).toMatch(/^[1-9]\d*$/);
+        await expect(form.getByRole('alert')).toHaveText(labels['downloads-limited']);
+      } finally {
+        await db.end();
+      }
+
       await page.goto(home);
       await page.getByRole('link', { name: labels['downloads-catalog'], exact: true }).click();
       const status = page.locator('#catalog-status');
@@ -218,7 +254,7 @@ test('operators publish signed releases and inspect publication and catalog stat
 
 test('i18n-parity for download publication and catalog status', () => {
   for (const [directory, keys] of [
-    ['templates/admin', ['downloads-title', 'downloads-verification-failed', 'downloads-catalog']],
+    ['templates/admin', ['downloads-title', 'downloads-verification-failed', 'downloads-catalog', 'downloads-stable', 'downloads-beta', 'downloads-limited']],
     ['templates/admin/world', ['candidates', 'activation', 'selected_for_publication', 'unavailable']],
   ]) {
     const [en, pl] = ['en', 'pl'].map(lang => messages(directory, lang));

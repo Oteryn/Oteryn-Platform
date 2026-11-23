@@ -132,7 +132,9 @@ struct Page {
     csrf: String,
     versions: Vec<Version>,
     candidates: Vec<Candidate>,
-    import_ready: bool,
+    can_publish: bool,
+    can_change_visibility: bool,
+    can_change_names: bool,
     selected: String,
     comparison: String,
     number: u32,
@@ -140,7 +142,6 @@ struct Page {
     rows: Vec<Row>,
     differences: Vec<Difference>,
     report: String,
-    catalog: bool,
 }
 struct Labels {
     title: String,
@@ -214,13 +215,14 @@ async fn page<A: AccountStateReader + 'static>(
     if let Err(status) = authorize(&s, context, Permission::ViewGameCatalogSnapshots).await {
         return status.into_response();
     }
-    match load_page(&s, session, headers, q).await {
+    match load_page(&s, context, session, headers, q).await {
         Ok(page) => oteryn_web::render(&page),
         Err(status) => status.into_response(),
     }
 }
-async fn load_page<A>(
+async fn load_page<A: AccountStateReader>(
     s: &Panel<A>,
+    context: CheckContext,
     session: BrowserSession,
     headers: HeaderMap,
     q: Selection,
@@ -241,9 +243,12 @@ async fn load_page<A>(
     let catalog_active: Option<Uuid> = sqlx::query_scalar("SELECT v.version_id FROM world_catalog_publication p JOIN world_catalog_versions v USING(snapshot_id) WHERE p.singleton")
         .fetch_optional(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let active = catalog_active.or(legacy_active);
+    let requested = q.version.or(active);
     let versions: Vec<Version> = sqlx::query_as(
-        "SELECT id,source_commit,status FROM world_versions ORDER BY created_at DESC,id DESC LIMIT 100",
+        "SELECT id,source_commit,status FROM world_versions
+         ORDER BY COALESCE(id=$1,false) DESC,created_at DESC,id DESC LIMIT 100",
     )
+    .bind(requested)
     .fetch_all(&s.pool)
     .await
     .map_err(unavailable)?;
@@ -260,10 +265,7 @@ async fn load_page<A>(
     .fetch_all(&s.pool)
     .await
     .map_err(unavailable)?;
-    let selected = q
-        .version
-        .or(active)
-        .or_else(|| versions.first().map(|v| v.id));
+    let selected = requested.or_else(|| versions.first().map(|v| v.id));
     let catalog: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM world_catalog_versions WHERE version_id=$1)",
     )
@@ -308,9 +310,27 @@ async fn load_page<A>(
     } else {
         "pl"
     };
+    let has_permission = |permission| async move {
+        match s.auth.check(context, permission).await {
+            Ok(()) => Ok(true),
+            Err(oteryn_admin::rbac::Error::Storage(_)) => Err(StatusCode::SERVICE_UNAVAILABLE),
+            Err(_) => Ok(false),
+        }
+    };
+    let current_legacy = !catalog && selected.is_some() && selected == legacy_active;
+    let current_catalog = catalog && selected.is_some() && selected == catalog_active;
+    let can_publish = import_ready
+        && !catalog
+        && !current_legacy
+        && has_permission(Permission::ActivateGameCatalogSnapshots).await?;
+    let can_change_visibility = import_ready
+        && (current_legacy || current_catalog)
+        && has_permission(Permission::ManageGameCatalogProfiles).await?;
+    let can_change_names = import_ready
+        && current_legacy
+        && has_permission(Permission::ManageGameCatalogTranslations).await?;
     macro_rules! labels { ($($key:ident),*) => { Labels { $($key: text(lang,stringify!($key))),* } }; }
     Ok(Page {
-        catalog,
         lang,
         labels: labels!(
             title,
@@ -346,13 +366,19 @@ async fn load_page<A>(
             back,
             activation
         ),
-        csrf: session
-            .csrf_token()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        csrf: if can_publish || can_change_visibility || can_change_names {
+            session
+                .csrf_token()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        } else {
+            String::new()
+        },
         versions,
         candidates,
-        import_ready,
+        can_publish,
+        can_change_visibility,
+        can_change_names,
         selected: selected.map(|v| v.to_string()).unwrap_or_default(),
         comparison: q.compare.map(|v| v.to_string()).unwrap_or_default(),
         number,
