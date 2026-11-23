@@ -13,21 +13,24 @@ fn goal(date: &str) -> NewGoal {
 #[test]
 fn validates_goal_kind_title_and_calendar_date() -> Result<(), Box<dyn std::error::Error>> {
     let today = Date::from_calendar_date(2026, time::Month::November, 25)?;
-    assert_eq!(
-        goal("2026-11-25").validate(today)?,
-        ("Gnomish mission", Some(today))
-    );
+    let validate = |input: &NewGoal| {
+        let (_, date) = input.fields()?;
+        validate_reminder(date, today)
+    };
+    let today_goal = goal("2026-11-25");
+    assert_eq!(today_goal.fields()?, ("Gnomish mission", Some(today)));
+    validate(&today_goal)?;
     for date in ["2026-11-24", "2026-11-31", "2026-1-01", "2027-11-26"] {
-        assert!(matches!(goal(date).validate(today), Err(Error::Invalid)));
+        assert!(matches!(validate(&goal(date)), Err(Error::Invalid)));
     }
     let mut input = goal("");
     input.title = "a".repeat(121);
-    assert!(matches!(input.validate(today), Err(Error::Invalid)));
+    assert!(matches!(validate(&input), Err(Error::Invalid)));
     input.title = "a\nb".into();
-    assert!(matches!(input.validate(today), Err(Error::Invalid)));
+    assert!(matches!(validate(&input), Err(Error::Invalid)));
     input.title = "Gnomish mission".into();
     input.kind = "unknown".into();
-    assert!(matches!(input.validate(today), Err(Error::Invalid)));
+    assert!(matches!(validate(&input), Err(Error::Invalid)));
     Ok(())
 }
 
@@ -61,6 +64,13 @@ async fn owner_gets_one_due_reminder_and_can_complete_it() -> Result<(), Box<dyn
         retry.request_id = id;
         create(&pool, owner, first).await?;
         create(&pool, owner, retry).await?;
+        let yesterday = (today - Duration::days(1)).to_string();
+        sqlx::query("UPDATE pd_journal_goals SET remind_on=$1::text::date WHERE account_id=$2 AND id=$3")
+            .bind(&yesterday).bind(owner).bind(id).execute(&pool).await?;
+        let mut late_retry = goal(&yesterday);
+        late_retry.request_id = id;
+        create(&pool, owner, late_retry).await?;
+        assert!(matches!(create(&pool, owner, goal(&yesterday)).await, Err(Error::Invalid)));
         let saved = list(&pool, owner).await?;
         assert_eq!(saved.len(), 1);
         assert!(saved[0].due);

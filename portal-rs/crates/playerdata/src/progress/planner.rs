@@ -47,7 +47,7 @@ pub(super) enum Action {
 }
 
 impl NewGoal {
-    fn validate(&self, today: Date) -> Result<(&str, Option<Date>), Error> {
+    fn fields(&self) -> Result<(&str, Option<Date>), Error> {
         let title = self.title.trim();
         if !super::id(&self.request_id.to_string())
             || !KINDS.contains(&self.kind.as_str())
@@ -62,12 +62,18 @@ impl NewGoal {
         let format = time::format_description::parse_borrowed::<2>("[year]-[month]-[day]")
             .map_err(|_| Error::Invalid)?;
         let date = Date::parse(&self.remind_on, &format).map_err(|_| Error::Invalid)?;
-        if date.to_string() != self.remind_on || date < today || date > today + Duration::days(365)
-        {
+        if date.to_string() != self.remind_on {
             return Err(Error::Invalid);
         }
         Ok((title, Some(date)))
     }
+}
+
+fn validate_reminder(date: Option<Date>, today: Date) -> Result<(), Error> {
+    if date.is_some_and(|date| date < today || date > today + Duration::days(365)) {
+        return Err(Error::Invalid);
+    }
+    Ok(())
 }
 
 async fn lock_owner(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), Error> {
@@ -103,10 +109,7 @@ pub(super) async fn list(pool: &PgPool, account: Uuid) -> Result<Vec<Goal>, Erro
 pub(super) async fn create(pool: &PgPool, account: Uuid, form: NewGoal) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     lock_owner(&mut tx, account).await?;
-    let today = sqlx::query_scalar("SELECT (now() AT TIME ZONE 'UTC')::date")
-        .fetch_one(&mut *tx)
-        .await?;
-    let (title, date) = form.validate(today)?;
+    let (title, date) = form.fields()?;
     let replay: Option<bool> = sqlx::query_scalar(
         "SELECT kind=$3 AND title=$4 AND remind_on IS NOT DISTINCT FROM $5
          FROM pd_journal_goals WHERE id=$1 AND account_id=$2",
@@ -121,6 +124,10 @@ pub(super) async fn create(pool: &PgPool, account: Uuid, form: NewGoal) -> Resul
     if let Some(matches) = replay {
         return if matches { Ok(()) } else { Err(Error::Invalid) };
     }
+    let today = sqlx::query_scalar("SELECT (now() AT TIME ZONE 'UTC')::date")
+        .fetch_one(&mut *tx)
+        .await?;
+    validate_reminder(date, today)?;
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM pd_journal_goals WHERE account_id=$1")
             .bind(account)
