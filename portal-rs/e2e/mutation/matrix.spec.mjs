@@ -5838,9 +5838,11 @@ test('staff Bazaar forms commit review, restriction and compensated invalidation
         [id, lot.id, reporter.id, 'fraud', reason]);
       const report = () => query('SELECT state,reviewed_by FROM bazaar_reports WHERE id=$1', [id]);
       const selector = `main form:has([name=action][value=review]):has([name=id][value="${id}"])`;
-      const review = await validate(requester.screen, selector, { accepted: String(accepted) }, report, identifiers('id'));
+      const review = await validate(requester.screen, selector, { accepted: String(accepted), reason }, report, [
+        ...identifiers('id'), ['missing review reason', { reason: '' }],
+      ]);
       await requester.screen.locator(`${selector} select[name=accepted]`).selectOption(String(accepted));
-      await submitStaffMutation(requester.screen, selector, {}, review.url);
+      await submitStaffMutation(requester.screen, selector, { reason }, review.url);
       await expect(requester.screen.locator(selector)).toHaveCount(0);
       const saved = [{ state: accepted ? 'accepted' : 'dismissed', reviewed_by: requester.account.id }];
       expect(await report()).toEqual(saved);
@@ -5857,16 +5859,22 @@ test('staff Bazaar forms commit review, restriction and compensated invalidation
     expect((await sendForm(requester.screen, proposed.url, proposed.fields)).status()).toBe(503);
     expect(await recover()).toEqual([pending]);
     const approve = form('approve');
-    const verdict = await validate(reviewer.screen, approve, { id: pending.id }, recover, identifiers('id'));
-    const self = await prepare(requester.screen, approve, { id: pending.id });
+    const approval = { id: pending.id, reason };
+    const verdict = await validate(reviewer.screen, approve, approval, recover, [
+      ...identifiers('id'), ['missing approval reason', { reason: '' }],
+    ]);
+    const self = await prepare(requester.screen, approve, approval);
     expect((await sendForm(requester.screen, self.url, self.fields)).status()).toBe(403);
     expect(await recover()).toEqual([pending]);
-    await submitStaffMutation(reviewer.screen, approve, { id: pending.id }, verdict.url);
+    await submitStaffMutation(reviewer.screen, approve, approval, verdict.url);
     await expect(reviewer.screen).toHaveURL(new URL(panel, verdict.url).href);
-    await expect(reviewer.screen.locator('main')).not.toContainText(pending.id);
+    const displayed = reviewer.screen.locator(`[data-invalidation="${pending.id}"]`);
+    await expect(displayed).toHaveAttribute('data-request-state', 'approved');
     const expected = { ...pending, state: 'cancelled', hold_revision: null, approval: 'approved',
       approved_by: reviewer.account.id, reconciliations: 1, returns: 1 };
     await expect.poll(recover, { timeout: 90_000, intervals: [1000] }).toEqual([expected]);
+    expect((await reviewer.screen.reload()).status()).toBe(200);
+    await expect(displayed).toHaveAttribute('data-listing-state', 'cancelled');
     expect((await sendForm(reviewer.screen, verdict.url, verdict.fields)).status()).toBe(409);
     expect(await recover()).toEqual([expected]);
     const game = await page.request.get(`/__bazaar_game/state?asset=${lot.asset}`);
