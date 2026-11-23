@@ -4,8 +4,9 @@ use crate::{
 };
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, Request, State},
     http::StatusCode,
+    middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::post,
 };
@@ -13,19 +14,37 @@ use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{self, MutationAuthorization, Permission},
 };
-use oteryn_ui::Chrome;
+use oteryn_ui::{Chrome, Registry};
 use serde_json::{Value, json};
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
 
-pub fn routes(state: Web) -> Result<Router, Box<dyn std::error::Error>> {
+pub fn routes(state: Web, navigation: Registry) -> Result<Router, Box<dyn std::error::Error>> {
     oteryn_admin::web::configured_guard(
         player::read_routes("/admin/forum")
             .route("/admin/forum/actions/{action}", post(action))
-            .with_state(state.clone()),
+            .with_state(state.clone())
+            .layer(middleware::from_fn_with_state(navigation, localized_chrome)),
         state.pool,
         Permission::ForumModerator,
     )
+}
+
+async fn localized_chrome(
+    State(navigation): State<Registry>,
+    Extension(chrome): Extension<Chrome>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    let lang = Query::<model::Paging>::try_from_uri(request.uri())
+        .ok()
+        .and_then(|Query(paging)| paging.lang)
+        .unwrap_or(chrome.lang);
+    let path = request.uri().path();
+    let mut localized = navigation.chrome(&lang, path, chrome.account);
+    localized.alternate_url = format!("{path}?lang={}", localized.alternate_lang);
+    request.extensions_mut().insert(localized);
+    next.run(request).await
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -170,20 +189,22 @@ async fn action(
             )
             .await?;
             let change = apply(&mut tx, &state, &reader, action, &input, context.account).await?;
-            audit::append(
-                &mut tx,
-                Entry {
-                    context: AuditContext {
-                        actor: Some(context.account),
-                        request_id: Uuid::now_v7(),
+            if action != Action::Subscribe || change.before != change.after {
+                audit::append(
+                    &mut tx,
+                    Entry {
+                        context: AuditContext {
+                            actor: Some(context.account),
+                            request_id: Uuid::now_v7(),
+                        },
+                        action: action.permission().as_str(),
+                        target: &change.target.to_string(),
+                        before: change.before,
+                        after: change.after,
                     },
-                    action: action.permission().as_str(),
-                    target: &change.target.to_string(),
-                    before: change.before,
-                    after: change.after,
-                },
-            )
-            .await?;
+                )
+                .await?;
+            }
             tx.commit().await?;
             Ok(Redirect::to(&change.location).into_response())
         }
@@ -330,17 +351,15 @@ async fn apply(
                 })
             } else {
                 let enabled = input.enabled()?;
+                let page = input.page()?;
                 let changed =
                     player::subscription(tx, &state.mail, &board.visibility, account, id, enabled)
                         .await?;
-                if !changed {
-                    return Err(Error::Conflict);
-                }
                 Ok(Change {
                     target: id,
-                    before: json!({"subscribed":!enabled}),
+                    before: json!({"subscribed":enabled ^ changed}),
                     after: json!({"subscribed":enabled}),
-                    location: reader.location(&format!("/threads/{id}"), &[], None),
+                    location: reader.location(&format!("/threads/{id}"), &[("page", &page)], None),
                 })
             }
         }

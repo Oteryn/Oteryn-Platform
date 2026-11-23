@@ -218,14 +218,7 @@ async fn list<A: AccountStateReader, B: Backend>(
     } else {
         false
     };
-    let mut body = String::new();
-    if area == Area::Reports {
-        body.push_str(&format!(
-            "<p><a href=\"/admin/forum?lang={lang}\">{}</a></p>",
-            text(lang, "forum")
-        ));
-    }
-    body.push_str("<ul>");
+    let mut body = String::from("<ul>");
     if area == Area::Enforcement {
         body.push_str(&format!(
             "<li><a href=\"/admin/moderation/enforcement/create\">{}</a></li>",
@@ -255,6 +248,7 @@ async fn show<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
     Extension(area): Extension<Area>,
     Extension(session): Extension<BrowserSession>,
+    Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     Query(paging): Query<MessagePaging>,
     headers: HeaderMap,
@@ -262,12 +256,20 @@ async fn show<A: AccountStateReader, B: Backend>(
     if id.is_nil() {
         return status(Error::Invalid);
     }
-    let record = match s.backend.load(area, id, paging.after).await {
+    let mut record = match s.backend.load(area, id, paging.after).await {
         Ok(v) => v,
         Err(e) => return status(e),
     };
     if record.id != id || !valid_record(area, &record) {
         return status(Error::Unavailable);
+    }
+    if record.forum_post.is_some()
+        && s.auth
+            .check(context, Permission::ForumModerator)
+            .await
+            .is_err()
+    {
+        record.forum_post = None;
     }
     render_record(area, record, session, headers, false).await
 }

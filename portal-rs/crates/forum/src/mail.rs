@@ -61,7 +61,7 @@ impl Origins {
             if visibility == "staff" {
                 (
                     format!("{origin}/admin/forum/threads/{thread}?lang={lang}"),
-                    format!("{origin}/admin/forum?lang={lang}"),
+                    format!("{origin}/admin/forum/preferences?lang={lang}"),
                 )
             } else {
                 (

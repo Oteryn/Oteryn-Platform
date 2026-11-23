@@ -6,12 +6,14 @@ pub(super) async fn deliverable(pool: &PgPool, email: Uuid) -> Result<bool, outb
         "SELECT EXISTS(
              SELECT 1 FROM forum_mail_batches m
              JOIN forum_subscriptions s USING(thread_id,account_id)
+             JOIN account_notification_prefs n ON n.account_id=m.account_id
+                 AND n.category='forum' AND n.email_enabled
              JOIN accounts a ON a.id=m.account_id AND a.status='active' AND a.email_verified_at IS NOT NULL
              JOIN forum_threads t ON t.id=m.thread_id AND t.deleted_at IS NULL
              JOIN forum_boards b ON b.id=t.board_id AND b.visibility=m.visibility
              WHERE m.email_id=$1
                AND EXISTS (SELECT 1 FROM forum_posts p WHERE p.thread_id=t.id
-                 AND p.created_at>=greatest(m.window_starts,s.subscribed_at)
+                 AND p.created_at>=greatest(m.window_starts,s.subscribed_at,n.updated_at)
                  AND p.created_at<m.window_starts+interval '1 minute'
                  AND p.deleted_at IS NULL AND p.author_id<>m.account_id)
                AND (b.visibility<>'staff' OR (

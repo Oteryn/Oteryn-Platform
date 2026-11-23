@@ -115,6 +115,9 @@ test('players publish, quote, subscribe and report while staff manage discussion
     expect((await page.request.get(`${root}/boards/${signed}`)).status()).toBe(200);
     expect((await page.request.get(`${root}/boards/${restricted}`)).status()).toBe(404);
     await page.goto(boardUrl);
+    expect((await responseFor(page, form('new-thread'), {
+      _csrf: '', title: 'Unsigned form', body: 'A normal discussion',
+    })).status()).toBe(403);
     expect((await responseFor(page, form('new-thread'), {title: '  ', body: 'Field validation'})).status()).toBe(422);
     await submit(page, form('new-thread'), {
       title, body: '**Looking for a party**\n\n[Quest notes](https://example.invalid/guide)\n\n<i>Meet at the gate</i>',
@@ -134,6 +137,7 @@ test('players publish, quote, subscribe and report while staff manage discussion
     await submit(page, form('edit'), {body: '**Meet at noon**'});
     await expect(page.locator(`#post-${first} strong`)).toHaveText('Meet at noon');
     await expect(page.locator(`#post-${first} .op-badge`)).toContainText(lang === 'pl' ? 'Edytowano' : 'Edited');
+    expect((await responseFor(page, form('subscribe'), {page: '0'})).status()).toBe(422);
     await submit(page, form('subscribe'));
     await expect(page.locator(`${form('subscribe')} [name=enabled]`)).toHaveValue('false');
 
@@ -164,23 +168,46 @@ test('players publish, quote, subscribe and report while staff manage discussion
     ))[0].n).toBe(1);
     await mailLink(page, author.email, new RegExp(`https://localhost:18443/${lang}/forum/threads/${thread}`), 90000);
 
+    await replyPage.goto(threadUrl);
+    await submit(replyPage, form('reply'), {body: 'The camp is ready.'});
+    const queuedMail = await query(
+      `SELECT m.email_id FROM forum_mail_batches m JOIN outbox o ON o.idempotency_key=m.email_id::text
+       WHERE m.thread_id=$1 AND m.account_id=$2 AND o.state='pending'`,
+      [thread, author.id],
+    );
+    expect(queuedMail).toHaveLength(1);
     await page.goto(`${root}/preferences`);
     await submit(page, form('email'));
     await expect(page.locator(`${form('email')} [name=enabled]`)).toHaveValue('true');
+    await submit(page, form('email'));
+    await expect(page.locator(`${form('email')} [name=enabled]`)).toHaveValue('false');
+    await query('UPDATE outbox SET run_after=now() WHERE idempotency_key=$1', [queuedMail[0].email_id]);
+    await expect.poll(async () => (await query(
+      `SELECT o.state,e.delivered_at FROM outbox o JOIN email_outbox e ON e.id::text=o.idempotency_key
+       WHERE e.id=$1`, [queuedMail[0].email_id],
+    ))[0]).toEqual({state: 'done', delivered_at: null});
+    await submit(page, form('email'));
     await replyPage.goto(threadUrl);
     await submit(replyPage, form('reply'), {body: 'Update after opt-out.'});
     await expect(replyPage.locator('main')).toContainText('Update after opt-out.');
     expect((await query(
       'SELECT count(*)::int AS n FROM forum_mail_batches WHERE thread_id=$1 AND account_id=$2',
       [thread, author.id],
-    ))[0].n).toBe(1);
+    ))[0].n).toBe(2);
 
     await page.goto(threadUrl);
+    const reportForm = `#post-${reply} form[action$="/report"]`;
+    const reportFields = {category: 'other', reason: 'Please review this reply.'};
+    expect((await responseFor(page, reportForm, {...reportFields, reason: ' '})).status()).toBe(422);
     await page.locator(`#post-${reply} details:has(> form[action$="/report"]) > summary`).click();
-    await action(page, `#post-${reply} form[action$="/report"]`, {category: 'other', reason: 'Please review this reply.'});
+    await action(page, reportForm, reportFields);
     await expect(page.locator('main [role=status]')).toBeVisible();
     const report = new URL(page.url()).searchParams.get('report');
     expect(report).toMatch(/^[\da-f-]+$/);
+    expect((await responseFor(page, reportForm, {...reportFields, reason: 'Changed details.'})).status()).toBe(409);
+    const retry = await responseFor(page, reportForm, reportFields);
+    expect(retry.status()).toBe(303);
+    expect(new URL(retry.headers().location, page.url()).searchParams.get('report')).toBe(report);
     await team.page.goto('/admin/moderation/reports');
     await team.page.locator(`main a[href="/admin/moderation/reports/${report}"]`).click();
     await expect(team.page.locator('main')).toContainText('Please review this reply.');
@@ -217,7 +244,7 @@ test('players publish, quote, subscribe and report while staff manage discussion
     await query(
       `WITH existing_posts AS (
          INSERT INTO forum_posts(thread_id,author_id,position,body)
-         SELECT $1,$2,n,'Page boundary discussion '||n FROM generate_series(5,21) n
+         SELECT $1,$2,n,'Page boundary discussion '||n FROM generate_series(6,21) n
        )
        UPDATE forum_threads SET last_position=21 WHERE id=$1`,
       [thread, other.id],
@@ -242,9 +269,13 @@ test('players publish, quote, subscribe and report while staff manage discussion
 
 test('a moderator can open the forum with only their assigned actions', async ({page}, info) => {
   const lang = info.project.metadata.locale;
-  await seededStaff(page, lang, 'moderator');
+  const staff = await seededStaff(page, lang, 'moderator');
   expect((await page.goto('/admin/forum')).status()).toBe(200);
   await expect(page.locator(form('create-board'))).toHaveCount(0);
+  const alternate = lang === 'pl' ? 'en' : 'pl';
+  await page.goto(`/admin/forum?lang=${alternate}`);
+  await expect(page.locator('html')).toHaveAttribute('lang', alternate);
+  await expect(page.locator(`footer a[hreflang="${lang}"]`)).toHaveAttribute('href', `/admin/forum?lang=${lang}`);
   await page.goto('/admin/forum/preferences');
   const token = await page.locator(`${form('name')} [name=_csrf]`).inputValue();
   const refused = await page.request.post('/admin/forum/actions/create-board', {
@@ -252,6 +283,29 @@ test('a moderator can open the forum with only their assigned actions', async ({
     headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
   });
   expect(refused.status()).toBe(403);
+
+  const [{id: thread}] = await query(
+    `WITH board AS (
+       INSERT INTO forum_boards(name_pl,name_en,position,visibility)
+       VALUES('Ogłoszenia','Announcements',200,'public') RETURNING id
+     )
+     INSERT INTO forum_threads(board_id,author_id,title)
+     SELECT id,$1,'Community announcements' FROM board RETURNING id`,
+    [staff],
+  );
+  await page.goto(`/admin/forum/threads/${thread}?lang=${lang}&page=2`);
+  const subscription = `/admin/forum/threads/${thread}?lang=${lang}&page=2`;
+  for (const attempt of [1, 2]) {
+    const response = await responseFor(page, form('subscribe'), {enabled: 'true'});
+    expect(response.status(), `attempt ${attempt}`).toBe(303);
+    expect(response.headers().location).toBe(subscription);
+    await page.goto(subscription);
+    await expect(page.locator(`${form('subscribe')} [name=enabled]`)).toHaveValue('false');
+  }
+  expect((await query(
+    "SELECT count(*)::int AS n FROM audit_log WHERE target=$1 AND action='forum.subscription.edit'",
+    [thread],
+  ))[0].n).toBe(1);
 });
 
 test('i18n-parity for the forum and its navigation', async ({page}, info) => {

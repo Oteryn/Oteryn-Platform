@@ -209,29 +209,59 @@ impl Reports {
         input: Submission,
         forum_post: Option<Uuid>,
     ) -> Result<Report, Error> {
+        let (column, key) = match forum_post {
+            Some(post) => ("forum_post_id", post),
+            None => ("request_key", input.request_key),
+        };
+        let existing = sqlx::query_as::<_, Report>(AssertSqlSafe(format!(
+            "SELECT {PROJECTION} FROM player_reports WHERE reporter_account_id=$1 AND {column}=$2"
+        )))
+        .bind(owner)
+        .bind(key)
+        .fetch_optional(&mut *db)
+        .await?;
+        let validated = input.validate().and_then(|()| {
+            if forum_post.is_some()
+                && input.evidence_summary.as_deref().is_none_or(|evidence| {
+                    evidence.trim().is_empty()
+                        || evidence
+                            .chars()
+                            .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                })
+            {
+                return Err(Error::Invalid);
+            }
+            Ok(())
+        });
+        let evidence = input
+            .evidence_summary
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let same_submission = |report: &Report| {
+            report.report_type == input.report_type
+                && report.category == input.category
+                && report.target_reference == input.target_reference.trim()
+                && report.evidence_summary.as_deref() == evidence
+        };
+        let existing = match existing {
+            Some(report)
+                if forum_post.is_some() && validated.is_ok() && same_submission(&report) =>
+            {
+                return Ok(report);
+            }
+            other => other,
+        };
         let allowed = sqlx::query_scalar::<_, i32>("INSERT INTO player_report_submission_limits (account_id, attempts) VALUES ($1,1) ON CONFLICT (account_id) DO UPDATE SET attempts=CASE WHEN player_report_submission_limits.window_started_at <= now()-interval '1 minute' THEN 1 ELSE player_report_submission_limits.attempts+1 END, window_started_at=CASE WHEN player_report_submission_limits.window_started_at <= now()-interval '1 minute' THEN now() ELSE player_report_submission_limits.window_started_at END, updated_at=now() WHERE player_report_submission_limits.window_started_at <= now()-interval '1 minute' OR player_report_submission_limits.attempts < 3 RETURNING attempts")
             .bind(owner).fetch_optional(&mut *db).await?;
         if allowed.is_none() {
             return Err(Error::RateLimited);
         }
-        input.validate()?;
-        let existing = sqlx::query_as::<_, Report>(AssertSqlSafe(format!("SELECT {PROJECTION} FROM player_reports WHERE reporter_account_id=$1 AND request_key=$2")))
-            .bind(owner).bind(input.request_key).fetch_optional(&mut *db).await?;
-        // Retries return the original report even when the account has reached its quota.
+        validated?;
         if let Some(report) = existing {
-            if report.report_type != input.report_type
-                || report.category != input.category
-                || report.target_reference != input.target_reference.trim()
-                || report.evidence_summary.as_deref()
-                    != input
-                        .evidence_summary
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-            {
-                return Err(Error::Conflict);
-            }
-            return Ok(report);
+            return same_submission(&report)
+                .then_some(report)
+                .ok_or(Error::Conflict);
         }
         let rejected: i64 = sqlx::query_scalar("SELECT count(*) FROM player_reports WHERE reporter_account_id=$1 AND rejected_at >= now()-interval '30 days'")
             .bind(owner).fetch_one(&mut *db).await?;
@@ -256,7 +286,7 @@ impl Reports {
             "INSERT INTO player_reports (id,reporter_account_id,request_key,report_type,category,target_reference,evidence_summary{column})
              VALUES ($1,$2,$3,$4,$5,$6,$7{value}) {conflict} RETURNING {PROJECTION}"
         ))).bind(oteryn_core::new_id()).bind(owner).bind(input.request_key).bind(input.report_type).bind(input.category)
-            .bind(input.target_reference.trim()).bind(input.evidence_summary.as_deref().map(str::trim).filter(|s| !s.is_empty()));
+            .bind(input.target_reference.trim()).bind(evidence);
         let query = if let Some(id) = forum_post {
             query.bind(id)
         } else {

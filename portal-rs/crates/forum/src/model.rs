@@ -157,11 +157,19 @@ fn first_page() -> u32 {
 
 impl Paging {
     pub fn offset(&self) -> Result<i64, Error> {
-        if (1..=MAX_PAGE).contains(&self.page) {
-            Ok(i64::from(self.page - 1) * PAGE_SIZE)
-        } else {
-            Err(Error::Invalid)
-        }
+        Ok(i64::from(page_number(self.page)? - 1) * PAGE_SIZE)
+    }
+
+    pub fn has_next(&self, rows: usize) -> bool {
+        self.page < MAX_PAGE && rows > PAGE_SIZE as usize
+    }
+}
+
+pub fn page_number(page: u32) -> Result<u32, Error> {
+    if (1..=MAX_PAGE).contains(&page) {
+        Ok(page)
+    } else {
+        Err(Error::Invalid)
     }
 }
 
@@ -207,6 +215,22 @@ pub async fn live_account(pool: &PgPool, account: Uuid, session: &[u8]) -> Resul
     .bind(session)
     .fetch_one(pool)
     .await?)
+}
+
+pub async fn charge_mutation(pool: &PgPool, account: Uuid) -> Result<(), Error> {
+    let attempt: Option<i32> = sqlx::query_scalar(
+        "INSERT INTO forum_mutation_limits(account_id, window_starts, attempts)
+         VALUES($1, clock_timestamp(), 1)
+         ON CONFLICT(account_id) DO UPDATE SET
+           attempts=CASE WHEN forum_mutation_limits.window_starts <= excluded.window_starts-interval '1 minute'
+                         THEN 1 ELSE forum_mutation_limits.attempts+1 END,
+           window_starts=CASE WHEN forum_mutation_limits.window_starts <= excluded.window_starts-interval '1 minute'
+                              THEN excluded.window_starts ELSE forum_mutation_limits.window_starts END
+         WHERE forum_mutation_limits.window_starts <= excluded.window_starts-interval '1 minute'
+            OR forum_mutation_limits.attempts < 30
+         RETURNING attempts",
+    ).bind(account).fetch_optional(pool).await?;
+    attempt.map(|_| ()).ok_or(Error::Limit)
 }
 
 /// Revalidate the currently authenticated session while holding the account lock.

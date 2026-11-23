@@ -35,5 +35,4 @@ warning = Warning
 restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
-forum = Community forum
 forum-post = View forum post

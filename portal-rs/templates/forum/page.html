@@ -1,8 +1,8 @@
 {% extends "layout.html" %}
 {% block title %}{{ title }}{% endblock %}
 {% block head %}
-<link rel="stylesheet" href="/static/css/forum.css">
-{% if signed_in && !staff %}<script defer src="/static/js/forum.js"></script>{% endif %}
+<link rel="stylesheet" href="/forum-assets/forum.css">
+{% if signed_in && !staff %}<script defer src="/forum-assets/forum.js"></script>{% endif %}
 {% endblock %}
 {% block main_class %}op-main op-stack forum{% endblock %}
 {% block content %}

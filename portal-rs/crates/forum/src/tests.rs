@@ -16,6 +16,15 @@ fn validates_forum_form_values() {
         model::text(" \n \t", 12, true),
         Err(Error::Invalid)
     ));
+    let last = Paging {
+        page: 10_000,
+        quote: None,
+        report: None,
+        lang: None,
+    };
+    assert!(last.offset().is_ok());
+    assert!(!last.has_next(21));
+    assert!(matches!(model::page_number(10_001), Err(Error::Invalid)));
     assert!(matches!(
         model::text("one\ntwo", 12, false),
         Err(Error::Invalid)
@@ -186,6 +195,21 @@ async fn exercise(pool: &PgPool) -> Result {
         Err(Error::Forbidden)
     ));
     tx.commit().await?;
+    for _ in 0..30 {
+        model::charge_mutation(pool, owner).await?;
+    }
+    assert!(matches!(
+        model::charge_mutation(pool, owner).await,
+        Err(Error::Limit)
+    ));
+    sqlx::query(
+        "UPDATE forum_mutation_limits SET window_starts=clock_timestamp()-interval '1 minute'
+         WHERE account_id=$1",
+    )
+    .bind(owner)
+    .execute(pool)
+    .await?;
+    model::charge_mutation(pool, owner).await?;
     Ok(())
 }
 

@@ -159,6 +159,12 @@ CREATE TABLE forum_posts (
 );
 CREATE INDEX forum_posts_author_rate ON forum_posts(author_id, created_at DESC);
 
+CREATE TABLE forum_mutation_limits (
+    account_id uuid PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    window_starts timestamptz NOT NULL,
+    attempts integer NOT NULL CHECK (attempts BETWEEN 1 AND 30)
+);
+
 CREATE TABLE forum_read_markers (
     account_id uuid NOT NULL REFERENCES accounts(id),
     thread_id uuid NOT NULL REFERENCES forum_threads(id),

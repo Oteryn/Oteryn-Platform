@@ -71,9 +71,30 @@ pub fn configured_router(
         ))
         .with_state(state.clone());
     Ok(public
-        .merge(staff::routes(state)?)
+        .merge(staff::routes(state, navigation.clone())?)
         .layer(DefaultBodyLimit::max(110 * 1024))
-        .layer(middleware::from_fn(private)))
+        .layer(middleware::from_fn(private))
+        .route(
+            "/forum-assets/forum.css",
+            get(|| async {
+                (
+                    [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                    include_str!("forum.css"),
+                )
+            }),
+        )
+        .route(
+            "/forum-assets/forum.js",
+            get(|| async {
+                (
+                    [(
+                        header::CONTENT_TYPE,
+                        "application/javascript; charset=utf-8",
+                    )],
+                    include_str!("forum.js"),
+                )
+            }),
+        ))
 }
 
 pub fn read_routes(base: &str) -> Router<Web> {
@@ -280,7 +301,7 @@ async fn board(
             let board = model::board(&mut tx, audience, id).await?;
             let mut topics = model::topics(&mut tx, audience, id, paging.offset()?).await?;
             tx.commit().await?;
-            page.next = topics.len() > PAGE_SIZE as usize;
+            page.next = paging.has_next(topics.len());
             topics.truncate(PAGE_SIZE as usize);
             page.topics = topics;
             page.page = paging.page;
@@ -311,7 +332,7 @@ async fn thread(
         let mut tx = state.pool.begin().await?;
         let (thread, board) = model::thread(&mut tx, audience, id, false).await?;
         let mut posts = model::posts(&mut tx, audience, id, paging.offset()?).await?;
-        page.next = posts.len() > PAGE_SIZE as usize;
+        page.next = paging.has_next(posts.len());
         posts.truncate(PAGE_SIZE as usize);
         if let Some(account) = audience.account() {
             page.subscribed = sqlx::query_scalar(
@@ -461,6 +482,9 @@ impl Input {
     pub fn enabled(&self) -> Result<bool, Error> {
         self.enabled.ok_or(Error::Invalid)
     }
+    pub fn page(&self) -> Result<String, Error> {
+        Ok(model::page_number(self.page.unwrap_or(1))?.to_string())
+    }
     pub fn body(&self) -> &str {
         self.body.as_deref().unwrap_or_default()
     }
@@ -500,6 +524,15 @@ async fn mutate(
     let account = session.account_id().await.ok_or(Error::SignIn)?;
     let hash = session.identity_hash().await.ok_or(Error::SignIn)?;
     let actor = Audience::Player(account);
+    if matches!(
+        action,
+        "name" | "email" | "new-thread" | "reply" | "edit" | "subscribe" | "report"
+    ) {
+        if !model::live_account(&state.pool, account, &hash).await? {
+            return Err(Error::SignIn);
+        }
+        model::charge_mutation(&state.pool, account).await?;
+    }
     let mut tx = state.pool.begin().await?;
     model::player_account(&mut tx, account, &hash, action == "edit").await?;
     let location = match action {
@@ -547,6 +580,7 @@ async fn mutate(
                 }
                 "subscribe" => {
                     let enabled = input.enabled()?;
+                    let page = input.page()?;
                     subscription(
                         &mut tx,
                         &state.mail,
@@ -556,15 +590,14 @@ async fn mutate(
                         enabled,
                     )
                     .await?;
-                    let page = input.page.unwrap_or(1).to_string();
                     reader.location(&path, &[("page", &page)], None)
                 }
                 "read" => {
+                    let page = input.page()?;
                     let position: i64 = sqlx::query_scalar(
                         "SELECT position FROM forum_posts WHERE id=$1 AND thread_id=$2 AND deleted_at IS NULL",
                     ).bind(input.post()?).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
                     model::mark_read(&mut tx, account, id, position).await?;
-                    let page = input.page.unwrap_or(1).to_string();
                     reader.location(&path, &[("page", &page)], None)
                 }
                 "report" => {
@@ -572,8 +605,6 @@ async fn mutate(
                     let page = model::permalink(&mut tx, actor, id, post)
                         .await?
                         .to_string();
-                    let evidence =
-                        model::text(input.reason.as_deref().unwrap_or_default(), 4000, true)?;
                     let result = state
                         .reports
                         .submit_forum_in(
@@ -581,7 +612,7 @@ async fn mutate(
                             account,
                             post,
                             input.category.unwrap_or_default(),
-                            evidence.to_owned(),
+                            input.reason.unwrap_or_default(),
                         )
                         .await;
                     let report = match result {
@@ -653,7 +684,8 @@ pub async fn save_email(db: &mut PgConnection, account: Uuid, enabled: bool) -> 
     sqlx::query(
         "INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled)
          VALUES($1,'forum',$2,false)
-         ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=$2,updated_at=clock_timestamp()",
+         ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=$2,updated_at=clock_timestamp()
+         WHERE account_notification_prefs.email_enabled IS DISTINCT FROM excluded.email_enabled",
     ).bind(account).bind(enabled).execute(db).await?;
     Ok(())
 }

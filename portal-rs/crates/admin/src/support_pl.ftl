@@ -35,5 +35,4 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
-forum = Forum społeczności
 forum-post = Zobacz wpis na forum
