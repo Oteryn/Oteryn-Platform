@@ -1,8 +1,9 @@
 //! PostgreSQL pool and migrations for the Oteryn portal.
 
 use sqlx::{
-    PgConnection,
+    PgConnection, Postgres,
     migrate::{Migrate, MigrateError, Migrator},
+    pool::PoolConnection,
     postgres::{PgPool, PgPoolOptions},
 };
 
@@ -16,11 +17,28 @@ pub fn lazy_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
         .connect_lazy(database_url)
 }
 
+struct MigrationConnection<'a> {
+    connection: &'a mut PoolConnection<Postgres>,
+    unlocked: bool,
+}
+
+impl Drop for MigrationConnection<'_> {
+    fn drop(&mut self) {
+        if !self.unlocked {
+            self.connection.close_on_drop();
+        }
+    }
+}
+
 /// Applies pending migrations.
 pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
     let mut connection = pool.acquire().await?;
-    // If a migration fails or is cancelled, closing the connection releases the lock.
-    connection.close_on_drop();
+    // Closing on failure or cancellation releases the session-level migration lock.
+    let mut guard = MigrationConnection {
+        connection: &mut connection,
+        unlocked: false,
+    };
+    let connection = &mut **guard.connection;
     // Match SQLx's PostgreSQL lock key. Polling releases the statement snapshot
     // between attempts so a competing concurrent index build can finish.
     let mut retry = tokio::time::interval(std::time::Duration::from_millis(25));
@@ -79,7 +97,7 @@ pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
                 // The build finished before its migration receipt was written.
                 // Record the original checksum without rebuilding the index.
                 migrator
-                    .run_direct(Some(version - 1), &mut *connection, false)
+                    .run_direct(Some(version - 1), connection, false)
                     .await?;
                 let migration = migrator
                     .iter()
@@ -90,8 +108,9 @@ pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
             None => {}
         }
     }
-    migrator.run_direct(None, &mut *connection, false).await?;
+    migrator.run_direct(None, connection, false).await?;
     connection.unlock().await?;
+    guard.unlocked = true;
     Ok(())
 }
 
