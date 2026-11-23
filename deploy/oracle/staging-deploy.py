@@ -579,18 +579,26 @@ def playwright_summary(result, sensitive):
     passed, failed, skipped = stats['expected'], stats['unexpected'] + stats['flaky'], stats['skipped']
     lines = [f'Playwright passed {passed}, failed {failed}, skipped {skipped}']
 
+    skipped_files = {}
+
     def visit(suites):
         for suite in suites:
             for spec in suite.get('specs', []):
+                where = spec.get('file', '?')
                 for test in spec['tests']:
                     if test['status'] in ('unexpected', 'flaky'):
                         attempt = test['results'][-1] if test['results'] else {}
                         error = (attempt.get('error') or {}).get('message') or 'no assertion recorded'
                         first = next((line.strip() for line in error.splitlines() if line.strip()), '')
-                        lines.append(safe_line(f"{spec['title']} [{test['projectName']}] — {first}", sensitive))
+                        lines.append(safe_line(
+                            f"{where}: {spec['title']} [{test['projectName']}] — {first}", sensitive))
+                    elif test['status'] == 'skipped':
+                        skipped_files[where] = skipped_files.get(where, 0) + 1
             visit(suite.get('suites', []))
 
     visit(report['suites'])
+    for where, count in sorted(skipped_files.items()):
+        lines.append(safe_line(f'skipped {count} in {where}', sensitive))
     for error in report.get('errors', []):
         first = next(iter(error.get('message', '').splitlines()), 'Playwright runner error')
         lines.append(safe_line(first, sensitive))

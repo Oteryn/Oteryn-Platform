@@ -355,14 +355,18 @@ class StagingDeploy(unittest.TestCase):
         failed = {'status': 'unexpected', 'projectName': 'en-390',
                   'results': [{'error': {'message': 'Expected redaction\nsecond line'}}]}
         report = {'stats': {'expected': 3, 'unexpected': 1, 'flaky': 0, 'skipped': 2},
-                  'suites': [{'suites': [{'specs': [{'title': 'can register', 'tests': [failed]}]}]}],
+                  'suites': [{'suites': [{'specs': [
+                      {'title': 'can register', 'file': 'specs/a.spec.mjs', 'tests': [failed]},
+                      {'title': 'later', 'file': 'specs/a.spec.mjs',
+                       'tests': [{'status': 'skipped', 'projectName': 'en-390', 'results': []}] * 2}]}]}],
                   'errors': []}
         result = subprocess.CompletedProcess([], 1, stdout=json.dumps(report).encode())
         with patch.object(staging, 'run', return_value=result) as command:
             ok, summary = staging.playwright(self.root, 'specs/a.spec.mjs', ['redaction'])
         self.assertFalse(ok)
         self.assertEqual(summary, ['Playwright passed 3, failed 1, skipped 2',
-                                   'can register [en-390] — Expected [redacted]'])
+                                   'specs/a.spec.mjs: can register [en-390] — Expected [redacted]',
+                                   'skipped 2 in specs/a.spec.mjs'])
         self.assertEqual(command.call_args.args[0][-2:], ['--', r'specs/a\.spec\.mjs'])
         self.assert_isolated([command.call_args.args[0]])
         report.update(suites=[], stats={'expected': 1, 'unexpected': 0, 'flaky': 0, 'skipped': 0})
