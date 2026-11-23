@@ -30,7 +30,6 @@ export function seedAdminMfa(account) {
 export function adminContext(browser, info) {
   return browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
     locale: info.project.metadata.locale,
     viewport: info.project.use.viewport,
   });

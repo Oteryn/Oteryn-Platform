@@ -35,7 +35,7 @@ export async function staffState(browser, info) {
   return state;
  }finally{await context.close();}
 }
-export async function staff(browser,info){const context=await browser.newContext({storageState:await staffState(browser,info),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
+export async function staff(browser,info){const context=await browser.newContext({storageState:await staffState(browser,info),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
 export async function player(page,lang){const account=await register(page,lang);await login(page,lang,account);return {...account,id:(await query('SELECT id FROM accounts WHERE email=$1',[account.email]))[0].id};}
 // roles.html has select controls and named submit buttons; submit() cannot fill selects.

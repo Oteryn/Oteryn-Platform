@@ -11,31 +11,67 @@ PORTAL = Path(__file__).resolve().parents[2]
 OUTPUT = Path(__file__).with_name("routes.json")
 METHODS = ("get", "head", "post", "put", "patch", "delete", "options", "trace", "connect")
 STRING = r'"(?:[^"\\]|\\.)*"'
-TOKEN = re.compile(r'r(?P<hash>\#*)".*?"(?P=hash)|' + STRING + r'|//[^\n]*|/\*.*?\*/|[()\[\]{},]', re.S)
+TOKEN_START = re.compile(r'r(?P<hashes>#{0,255})"|"|//|/\*|[()\[\]{},]')
+QUOTED_STRING = re.compile(STRING, re.S)
+
+
+def tokens(source, start=0):
+    missing_end = set()
+    while opening := TOKEN_START.search(source, start):
+        first, end = opening.span()
+        start = end
+        text = opening[0]
+        if text == '//':
+            line_end = source.find('\n', end)
+            end = len(source) if line_end == -1 else line_end
+        elif text == '/*' or opening['hashes'] is not None:
+            terminal = '*/' if text == '/*' else '"' + opening['hashes']
+            closing = -1 if terminal in missing_end else source.find(terminal, end)
+            if closing == -1:
+                missing_end.add(terminal)
+                if text != '/*':
+                    start = end - 1
+                continue
+            end = closing + len(terminal)
+        elif text == '"':
+            if 'quoted string' in missing_end:
+                continue
+            quoted = QUOTED_STRING.match(source, first)
+            if quoted is None:
+                missing_end.add('quoted string')
+                continue
+            end = quoted.end()
+        start = end
+        yield source[first:end], first, end
 
 
 def code_only(source):
     """Remove comments without shifting source locations."""
-    return TOKEN.sub(lambda m: re.sub(r'[^\n]', ' ', m[0])
-                     if m[0].startswith(("//", "/*")) else m[0], source)
+    parts = []
+    start = 0
+    for token, first, end in tokens(source):
+        if token.startswith(("//", "/*")):
+            parts.extend((source[start:first], re.sub(r'[^\n]', ' ', token)))
+            start = end
+    parts.append(source[start:])
+    return ''.join(parts)
 
 
 def arguments(source, opening):
     """Split a call's arguments at the top level of its delimiters."""
     stack = ["("]
     start = opening + 1
-    for match in TOKEN.finditer(source, start):
-        token = match[0]
+    for token, first, end in tokens(source, start):
         if token in ("(", "[", "{"):
             stack.append(token)
         elif token in (")", "]", "}"):
             stack.pop()
             if not stack:
-                yield source[start:match.start()].strip()
+                yield source[start:first].strip()
                 return
         elif token == "," and len(stack) == 1:
-            yield source[start:match.start()].strip()
-            start = match.end()
+            yield source[start:first].strip()
+            start = end
     raise ValueError("unterminated Rust call")
 
 
@@ -48,12 +84,12 @@ def sources():
         for test_module in reversed(list(re.finditer(r"#\[cfg\(test\)\]\s*mod \w+\s*\{", source))):
             opening = test_module.end() - 1
             depth = 1
-            for token in TOKEN.finditer(source, opening + 1):
-                depth += (token[0] == "{") - (token[0] == "}")
+            for token, _, end in tokens(source, opening + 1):
+                depth += (token == "{") - (token == "}")
                 if depth == 0:
                     source = source[:test_module.start()] + re.sub(
-                        r"[^\n]", " ", source[test_module.start():token.end()]
-                    ) + source[token.end():]
+                        r"[^\n]", " ", source[test_module.start():end]
+                    ) + source[end:]
                     break
         yield str(file.relative_to(PORTAL)), source
 
@@ -84,8 +120,8 @@ def role_catalog():
 
 def route_calls(files):
     for file, source in files.items():
-        quoted = [(m.start(), m.end()) for m in TOKEN.finditer(source)
-                  if m[0].startswith(('"', 'r'))]
+        quoted = [(first, end) for token, first, end in tokens(source)
+                  if token.startswith(('"', 'r'))]
         for match in re.finditer(r'\.(route|nest_service)\s*\(', source):
             if any(start <= match.start() < end for start, end in quoted):
                 continue
@@ -343,10 +379,16 @@ def guard_for(files, file, url, method, permission, permissions):
                 else:
                     permission = section(files[file], predicate)
             if not permission:
-                boundary = re.findall(
-                    r'\b(?:configured_guard(?:_from)?|guarded)\(.*?Permission::(\w+)',
-                    files[file], re.S,
-                )
+                boundary = []
+                pending_guard = False
+                for token in re.finditer(
+                    r'\b(?:configured_guard(?:_from)?|guarded)\(|Permission::(\w+)', files[file],
+                ):
+                    if token[1] is None:
+                        pending_guard = True
+                    elif pending_guard:
+                        boundary.append(token[1])
+                        pending_guard = False
                 if len(set(boundary)) == 1:
                     permission = boundary[0]
             required = list(dict.fromkeys(["Access", permission])) if permission else []
@@ -361,9 +403,10 @@ def guard_for(files, file, url, method, permission, permissions):
             if method == "post":
                 commands = files["crates/admin/src/commerce/mod.rs"]
                 clauses = section(commands, r'pub fn permission\(&self\).*?match self \{(.*?)\n        \}')
+                arms = re.split(r"=> rbac::Permission::(\w+),", clauses)
                 result["actions"] = {
                     variant.lower(): permissions[required]
-                    for matches, required in re.findall(r"([^=]+)=> rbac::Permission::(\w+),", clauses)
+                    for matches, required in zip(arms[::2], arms[1::2])
                     for variant in re.findall(r"Self::(\w+)", matches)
                 }
         if group == "admin/src/console/access.rs" and method == "get":

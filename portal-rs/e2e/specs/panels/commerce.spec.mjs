@@ -52,7 +52,7 @@ async function post(page, path, form, status) {
 test('store orders and delivery are scoped to the signed-in buyer', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
   const {id: buyer} = await actor(page.context(), lang);
-  const sellerContext = await browser.newContext({baseURL: origin, ignoreHTTPSErrors: true, locale: lang});
+  const sellerContext = await browser.newContext({baseURL: origin, locale: lang});
   const order = uuid7();
   const request = uuid7();
   const operation = uuid7();
@@ -109,7 +109,7 @@ test('store orders and delivery are scoped to the signed-in buyer', async ({page
 
 test('staff stage proposals and activate verified Game revisions with replay fencing', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
-  const opts = {baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport};
+  const opts = {baseURL: origin, locale: lang, viewport: info.project.use.viewport};
   const staffContext = await browser.newContext(opts);
   const importContext = await browser.newContext(opts);
   const offers = `/admin/store-catalog?lang=${lang}`;
@@ -202,7 +202,7 @@ test('staff stage proposals and activate verified Game revisions with replay fen
 test('payment review supports scoped search, reconciliation, and four-eyes refund', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;
   const {id: account, csrf: refusedCsrf} = await actor(page.context(), lang, 'security_admin');
-  const opts = {baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport};
+  const opts = {baseURL: origin, locale: lang, viewport: info.project.use.viewport};
   const staff = await browser.newContext(opts);
   const reviewer = await browser.newContext(opts);
   try {

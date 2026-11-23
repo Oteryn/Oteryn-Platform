@@ -96,7 +96,6 @@ export async function sessionHash(request) {
 export async function openActor(locale, definition, sanctionIssuer) {
   const request = await playwrightRequest.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
     extraHTTPHeaders: {
       'accept-language': locale,
       connection: 'close',

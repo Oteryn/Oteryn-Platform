@@ -85,7 +85,7 @@ function targetFor(route, locale) {
     .replaceAll('{slug}', route.startsWith('/admin/pages/') ? 'rules' : 'missing-e2e')
     .replace(/\{(?:floor|zoom|x|y)\}/gu, '0')
     .replace(/\{(?:name|slug|key|family|channel|filename|\*target)\}/gu, 'missing-e2e')
-    .replace(/\{[^}]+\}/gu, '019a541b-a000-7000-8000-000000000001');
+    .replace(/\{[^{}]+\}/gu, '019a541b-a000-7000-8000-000000000001');
 }
 
 async function assertLocale(page, locale, witness) {
@@ -130,7 +130,6 @@ test.beforeAll(async ({ browser }, info) => {
     locale,
     viewport: info.project.use.viewport,
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
   });
   const player = await playerContext.newPage();
   const playerAccount = await register(player, locale);
@@ -141,7 +140,6 @@ test.beforeAll(async ({ browser }, info) => {
     locale,
     viewport: info.project.use.viewport,
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
   });
   const staff = await staffContext.newPage();
   const account = await register(staff, locale);

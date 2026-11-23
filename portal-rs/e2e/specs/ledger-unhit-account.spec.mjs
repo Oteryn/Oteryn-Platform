@@ -121,7 +121,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
   expect((await page.reload()).status()).toBe(200);
   await expect(page.locator('[name=public_status_visible]')).toBeChecked();
 
-  const peer = await browser.newContext({baseURL: origin, ignoreHTTPSErrors: true, locale: lang});
+  const peer = await browser.newContext({baseURL: origin, locale: lang});
   try {
     const other = await peer.newPage();
     for (const target of ['/account/sessions', `/${lang}/account/sessions`]) {
@@ -216,7 +216,7 @@ for (const localized of [false, true]) {
     const form = {_csrf: csrf, current_password: account.password};
     const generated = await page.request.post(manage, {form, headers});
     expect(generated.status()).toBe(200);
-    const key = /<[^>]+class="op-code"[^>]*>([^<]+)<\//.exec(await generated.text())?.[1].trim();
+    const key = /<[a-z][^<>]*\bclass="op-code"[^<>]*>([^<]+)<\//i.exec(await generated.text())?.[1].trim();
     expect(Boolean(key)).toBe(true);
     const confirmed = await page.request.post(`${manage}/confirm`, {
       form: {...form, recovery_key: key}, headers,

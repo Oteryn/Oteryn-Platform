@@ -7,12 +7,16 @@ import path from 'node:path';
 import { installRecorder } from './ledger/record.mjs';
 if (process.env.TEST_WORKER_INDEX !== undefined) installRecorder();
 process.env.PORTAL_E2E_AUTH_DIRECTORY ||= fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-auth-'));
+const browserHome = process.env.PORTAL_E2E_CHROMIUM_HOME;
 export default defineConfig({
   testDir: '.', testMatch: ['specs/**/*.@(spec|test).?(c|m)[jt]s?(x)', 'bazaar/legacy.spec.mjs', 'security/auth*.spec.mjs'], timeout: 120_000, expect: { timeout: 10_000 },
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: process.env.PLAYWRIGHT_JSON_OUTPUT_FILE || 'test-results/results.json' }]],
-  use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true,
-    actionTimeout: 30_000, navigationTimeout: 30_000, browserName: 'chromium', launchOptions: { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] },
+  use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
+    actionTimeout: 30_000, navigationTimeout: 30_000, browserName: 'chromium', launchOptions: {
+      executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox'],
+      ...(browserHome && { env: { HOME: browserHome, PATH: process.env.PATH } }),
+    },
     trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: ['pl', 'en'].flatMap(locale => [1440, 390].map(width => ({ name: `${locale}-${width}`, use: { locale, viewport: { width, height: 900 } }, metadata: { locale } }))),
 });

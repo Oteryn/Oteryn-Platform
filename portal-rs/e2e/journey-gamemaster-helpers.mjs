@@ -115,7 +115,6 @@ export async function bootstrapAdmin(browser, info) {
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL:process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors:true,
     viewport:info.project.use.viewport,
     locale:lang,
   });

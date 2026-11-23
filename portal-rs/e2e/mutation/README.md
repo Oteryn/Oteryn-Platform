@@ -211,7 +211,7 @@ the following command from `portal-rs/e2e`.
 
 ```sh
 PORTAL_E2E_GAME_DATA_REPORT=/absolute/path/report.json \
-  node node_modules/@playwright/test/cli.js test \
+  node run.mjs /absolute/path/secrets/env.json test \
   --config mutation/publisher.config.mjs --workers=1 --retries=0
 ```
 

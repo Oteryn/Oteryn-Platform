@@ -59,7 +59,7 @@ test('login rate limit refuses the sixth wrong password and supplies Retry-After
 
 
 test('recovery key: one-time reset revokes sessions; regenerate and revoke',async({page,browser},info)=>{
- test.setTimeout(180_000); // Real password hashing and quota waits run in the instrumented portal.
+ test.setTimeout(300_000); // Real password hashing and quota waits run in the instrumented portal.
  const lang=info.project.metadata.locale, account=await register(page,lang);
  await login(page,lang,account);
  await page.goto(`/${lang}/account/recovery-key`);
@@ -70,7 +70,7 @@ test('recovery key: one-time reset revokes sessions; regenerate and revoke',asyn
  await page.goto(`/${lang}/account/recovery-key`);
  await expect(page.locator('.op-code')).toHaveCount(0);
  const db=pool();
- const otherContext=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
+ const otherContext=await browser.newContext({viewport:info.project.use.viewport,locale:lang,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  try {
   const state=async()=> (await db.query('SELECT r.confirmed_at,r.used_at,r.revoked_at,a.password_hash FROM account_recovery_keys r JOIN accounts a ON a.id=r.account_id WHERE a.email=$1',[account.email])).rows[0];
   const before=await state();expect(before.confirmed_at).toBeTruthy();

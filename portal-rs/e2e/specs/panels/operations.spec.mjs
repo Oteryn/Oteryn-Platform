@@ -81,7 +81,7 @@ test('platform operations are discoverable and enforce staff-only, read-only acc
   expect((await page.request.get(csv)).status()).toBe(403);
 
   const staff = await browser.newContext({
-    baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+    baseURL: origin, locale: lang, viewport: info.project.use.viewport,
   });
   try {
     await panelActor(staff, lang, 'platform_admin');
@@ -141,7 +141,7 @@ test('operations honor saved locale and analytics navigation honors the analyst 
   await expect(ingestion.getByRole('cell')).toHaveText('false');
 
   const analyst = await browser.newContext({
-    baseURL: origin, ignoreHTTPSErrors: true, locale: browserLocale, viewport: info.project.use.viewport,
+    baseURL: origin, locale: browserLocale, viewport: info.project.use.viewport,
   });
   try {
     await panelActor(analyst, browserLocale, 'game_analyst');

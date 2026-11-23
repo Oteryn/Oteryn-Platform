@@ -55,7 +55,7 @@ async function foreignActors(browser, project, lang, contexts, role) {
   const actors = [];
   for (const staffRole of [undefined, role]) {
     const context = await browser.newContext({
-      baseURL: project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: project.use.baseURL, locale: lang,
       viewport: project.use.viewport,
     });
     contexts.push(context);
@@ -74,7 +74,6 @@ for (const method of ['POST', 'PUT']) {
     const lang = info.project.metadata.locale;
     const anonymous = await browser.newContext({
       baseURL: info.project.use.baseURL,
-      ignoreHTTPSErrors: true,
       locale: lang,
       viewport: info.project.use.viewport,
     });
@@ -121,7 +120,7 @@ for (const method of ['POST', 'PUT']) {
 test('ticket creation and exact request-key replay', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
@@ -247,7 +246,7 @@ const storeError = {
 test('test-provider top-up creates one checkout intent per operation', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
@@ -436,7 +435,7 @@ for (const statusMethod of ['POST', 'PUT']) {
 test('character creation queues one operation and exposes the pending Game outcome', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
@@ -514,7 +513,7 @@ test('support ticket reply and resolution require the support permission', async
   const contexts = [];
   const actor = async role => {
     const context = await browser.newContext({
-      ...info.project.use, baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true,
+      ...info.project.use, baseURL: info.project.use.baseURL,
     });
     contexts.push(context);
     const page = await context.newPage();
@@ -689,7 +688,7 @@ test('player report persists one private report for the submitted request key', 
   test.setTimeout(600_000);
   const lang = info.project.metadata.locale;
   const reader = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [reader];
@@ -765,7 +764,7 @@ test('wallet transfer binds one debit and credit to the sending actor', async ({
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const recipientContext = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [recipientContext];
@@ -887,7 +886,7 @@ for (const prefix of ['locale', 'unprefixed']) {
     const contexts = [];
     const actorPage = async () => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -1004,7 +1003,7 @@ test('journal write boundary refuses notes without source authority and isolates
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [anonymous];
@@ -1076,7 +1075,7 @@ test('localized and unprefixed badge forms persist only the owner selection', as
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const other = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   try {
@@ -1123,7 +1122,7 @@ test('notification preferences and signed browser unsubscribe keep one owner pre
   test.setTimeout(360_000);
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   try {
@@ -1271,7 +1270,7 @@ test('atlas participation API persists owner choice while the source-dependent f
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   try {
@@ -1451,7 +1450,7 @@ test('consent forms record independent scoped grants and revocations', async ({ 
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   try {
@@ -1517,7 +1516,7 @@ test('OAuth consent form approves or denies the checked client and binds its cod
   test.setTimeout(360_000);
   const lang = info.project.metadata.locale;
   const context = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   });
   const contexts = [context];
@@ -1618,7 +1617,7 @@ test('localized and unprefixed login, MFA login and logout aliases rotate only t
     const existing = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -1708,7 +1707,7 @@ test('native account checkout applies the locked test-provider decision only onc
     const foreign = [];
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -1808,7 +1807,7 @@ test('native account checkout applies the locked test-provider decision only onc
       }
       if (paid) {
         const context = await browser.newContext({
-          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+          baseURL: info.project.use.baseURL, locale: lang,
           viewport: info.project.use.viewport,
         });
         contexts.push(context);
@@ -1855,7 +1854,7 @@ test('news aliases preserve bilingual publication, revision conflicts and scoped
     const editor = await seededPlayer(page, lang, 'content_editor');
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -1973,7 +1972,7 @@ test('editorial event forms enforce publishing authority through creation, edits
     const unauthorized = [];
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -2092,7 +2091,7 @@ test('Game player search refuses unqualified actors and exposes the unavailable 
     const outsiders = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -2144,7 +2143,7 @@ test('staff roles create, edit, grant and revoke only under admin.roles.manage',
   const contexts = [];
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -2253,7 +2252,7 @@ for (const [prefix, changeMethod] of [
     test.setTimeout(600_000);
     const lang = info.project.metadata.locale;
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     try {
@@ -2367,7 +2366,7 @@ test('WebAuthn browser ceremonies save, authenticate and remove only the owner c
     const foreign = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: origin, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: origin, locale: lang,
         viewport: info.project.use.viewport,
       });
       others.push(context);
@@ -2527,7 +2526,7 @@ test('account termination queues once and a fresh owner session cancels the pend
     const outsiders = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -2569,7 +2568,7 @@ test('account termination queues once and a fresh owner session cancels the pend
       { name: 'confirmation beyond the exact keyword boundary', patch: { confirmation: 'TERMINATE ' } },
     ] });
     const sampleContext = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(sampleContext);
@@ -2625,7 +2624,7 @@ test('other players and unrelated staff cannot name an owner in account settings
     const outsiders = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -2700,7 +2699,7 @@ for (const kind of ['coins', 'premium_days']) {
       const actorPages = [];
       for (const role of ['platform_admin', undefined, 'content_editor']) {
         const context = await browser.newContext({
-          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+          baseURL: info.project.use.baseURL, locale: lang,
           viewport: info.project.use.viewport,
         });
         contexts.push(context);
@@ -2842,7 +2841,7 @@ for (const prefix of ['locale', 'unprefixed']) {
     const contexts = [];
     const newActor = async role => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -2967,7 +2966,7 @@ test('wiki editorial forms persist bilingual revisions and each review action un
     const wrong = [];
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3098,7 +3097,7 @@ test('editorial media forms persist verified bytes and remove one asset through 
     const outsiders = [];
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3216,7 +3215,7 @@ for (const prefix of ['locale', 'unprefixed']) {
     const route = path => prefix === 'locale' ? `/${lang}${path}` : path;
     const open = async role => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3373,7 +3372,7 @@ for (const prefix of ['locale', 'unprefixed']) {
       const wrong = [];
       for (const role of [undefined, 'content_editor']) {
         const context = await browser.newContext({
-          baseURL: origin, ignoreHTTPSErrors: true, locale: lang,
+          baseURL: origin, locale: lang,
           viewport: info.project.use.viewport,
         });
         contexts.push(context);
@@ -3560,7 +3559,7 @@ test('world catalogue actions require a supported imported version and catalogue
     const outsiders = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3629,7 +3628,7 @@ test('admin control step-up consumes one TOTP and approval requires an accepted 
     const wrong = [];
     for (const role of [undefined, 'game_viewer']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3720,7 +3719,7 @@ test('staff refunds a real uncredited test payment through one independent appro
     const reviewers = [];
     for (let index = 0; index < 2; index += 1) {
       const context = await browser.newContext({
-        baseURL: origin, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: origin, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3861,7 +3860,7 @@ test('editorial page forms save, refresh and delete a bilingual publication with
     const wrong = [];
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -3963,7 +3962,7 @@ test('staff announcement forms keep drafts private and publish the reviewed bili
     const wrong = [];
     for (const role of [undefined, 'support']) {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -4077,7 +4076,7 @@ for (const prefix of ['locale', 'unprefixed']) {
       const outsiders = [];
       for (const role of [undefined, 'content_editor']) {
         const context = await browser.newContext({
-          baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+          baseURL: info.project.use.baseURL, locale: lang,
           viewport: info.project.use.viewport,
         });
         contexts.push(context);
@@ -4216,7 +4215,7 @@ for (const [prefix, revokeMethod] of [
     const contexts = [];
     const another = async role => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -4399,7 +4398,7 @@ test('legacy support queues preserve actor permissions, private notes and report
   const contexts = [];
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -4534,7 +4533,7 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
     const owner = await seededPlayer(page, lang);
     const staffPage = async role => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -4734,7 +4733,7 @@ test('enforcement forms bind sanctions and appeal decisions to staff authority a
   const contexts = [];
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -4884,7 +4883,7 @@ for (const kind of ['character', 'item']) {
     const contexts = [];
     const open = async role => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);
@@ -5006,7 +5005,7 @@ test('staff player forms record a note, revoke sessions and require independent 
   const contexts = [];
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -5140,7 +5139,7 @@ test('referral link and invitation forms bind eligible players and preserve one 
   const path = `/${lang}/account/referrals`;
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, locale: lang, ignoreHTTPSErrors: true,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -5329,7 +5328,7 @@ test('Bazaar coin bid and seller controls apply one hold, one resume and one Gam
   const contexts = [];
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -5484,7 +5483,7 @@ test('Bazaar report and promotion refuse unavailable authority even for a live G
   const contexts = [];
   const open = async role => {
     const context = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(context);
@@ -5733,7 +5732,7 @@ test('staff Bazaar forms commit review, restriction and compensated invalidation
     const [player, editor] = await foreignActors(browser, info.project, lang, contexts, 'content_editor');
     const authorize = async () => {
       const context = await browser.newContext({
-        baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+        baseURL: info.project.use.baseURL, locale: lang,
         viewport: info.project.use.viewport,
       });
       contexts.push(context);

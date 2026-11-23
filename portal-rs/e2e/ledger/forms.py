@@ -68,9 +68,8 @@ ACTIONS = {
     "templates/wiki/index.html": [(), ("/wiki", "/{lang}/wiki", "/wiki/search", "/{lang}/wiki/search")],
 }
 
-ASKAMA = re.compile(r"{{.*?}}|{%.*?%}|{#.*?#}", re.S)
+ASKAMA = re.compile(r"{{(?:(?!{{|}}).)*}}|{%(?:(?!{%|%}).)*%}|{#(?:(?!{#|#}).)*#}", re.S)
 PARAM = re.compile(r"{([^{}]+)}")
-CONDITIONAL = re.compile(r"{%\s*if\b.*?%}(.*?)(?:{%\s*else\s*%}(.*?))?{%\s*endif\s*%}")
 
 
 class Forms(HTMLParser):
@@ -114,12 +113,29 @@ class Forms(HTMLParser):
 
 
 def expand(action):
-    conditional = CONDITIONAL.search(action)
-    if conditional:
-        for value in (conditional[1], conditional[2] or ""):
-            yield from expand(action[:conditional.start()] + value + action[conditional.end():])
-        return
-    yield re.sub(r"{{\s*(.*?)\s*}}", lambda m: "{" + m[1].split(".")[-1] + "}", action)
+    opening = alternative = None
+    for token in ASKAMA.finditer(action):
+        if not token[0].startswith("{%"):
+            continue
+        directive = token[0][2:-2].strip()
+        if opening is None:
+            if re.match(r"if\b", directive):
+                opening = token
+        elif directive == "else" and alternative is None:
+            alternative = token
+        elif directive == "endif":
+            positive = action[opening.end():alternative.start() if alternative else token.start()]
+            negative = action[alternative.end():token.start()] if alternative else ""
+            for branch in (positive, negative):
+                yield from expand(action[:opening.start()] + branch + action[token.end():])
+            return
+
+    def parameter(token):
+        if token[0].startswith("{{"):
+            return "{" + token[0][2:-2].strip().split(".")[-1] + "}"
+        return token[0]
+
+    yield ASKAMA.sub(parameter, action)
 
 
 def segments(pattern):

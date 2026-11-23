@@ -9,7 +9,6 @@ import { fixtureDatabase, fixtureProcessEnv } from './staff-fixture-database.mjs
 export function actorContext(browser, info) {
   return browser.newContext({
     baseURL: info.project.use.baseURL,
-    ignoreHTTPSErrors: true,
     locale: info.project.metadata.locale,
     viewport: info.project.use.viewport,
   });

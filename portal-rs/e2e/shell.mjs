@@ -56,7 +56,6 @@ export async function assertShell(page, {accessibility=true,status=200,isolateLa
   // for later assertions and for concurrent pages sharing its context.
   const localeProbe = isolateLanguageProbes && links.some(link => link.language) ? await request.newContext({
     baseURL: new URL(page.url()).origin,
-    ignoreHTTPSErrors: true,
     storageState: await page.context().storageState(),
   }) : null;
   try {

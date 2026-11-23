@@ -29,7 +29,7 @@ test('Game confirms creation and only the character owner can mutate the profile
     const outsiders = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: game.origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+        baseURL: game.origin, locale: lang, viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();

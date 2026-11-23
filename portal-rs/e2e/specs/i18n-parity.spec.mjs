@@ -84,7 +84,7 @@ const markers = Object.fromEntries(['pl', 'en'].map((locale) => {
 function wrongLocale(value, locale, title = false) {
   const text = normalize(value);
   if (title) {
-    for (const part of text.split(/\s+[·|–—]\s+/u)) {
+    for (const part of text.split(/ [·|–—] /u)) {
       if (markers[locale].title.has(part)) return markers[locale].title.get(part);
     }
   }
@@ -109,7 +109,7 @@ function assertText(value, locale, scope, pathname, title = false) {
 async function assertDocument(page, locale, target, actor = 'anonymous') {
   expect.soft(await page.locator('html').getAttribute('lang'), `${target}: document language`).toBe(locale);
   const title = await page.title();
-  const titleLabel = normalize(title).replace(/\s*[·|–—]\s*Oteryn$/u, '').trim();
+  const titleLabel = normalize(title).replace(/ ?[·|–—] ?Oteryn$/u, '').trim();
   expect.soft(titleLabel.length, `${target}: localized document title`).toBeGreaterThan(0);
   const pathname = new URL(page.url()).pathname;
   assertText(titleLabel, locale, `${target}: title`, pathname, true);
@@ -470,7 +470,7 @@ function sample(route, locale) {
     .replaceAll('{slug}', route.startsWith('/admin/pages/') ? 'rules' : 'missing-e2e')
     .replace(/\{(?:floor|zoom|x|y)\}/gu, '0')
     .replace(/\{(?:name|key|family|channel|filename|\*target|\*rest)\}/gu, 'missing-e2e')
-    .replace(/\{[^}]+\}/gu, '019a541b-a000-7000-8000-000000000001');
+    .replace(/\{[^{}]+\}/gu, '019a541b-a000-7000-8000-000000000001');
 }
 
 // Inventory statuses describe the authenticated actors. Login redirects and

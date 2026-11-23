@@ -277,7 +277,7 @@ async function assertSupportUnsubscribe(page, support, messages) {
     await enableSupport(page, lang);
     const enabled = { support: true, news: true, portal: true, other_support: true };
     await expect.poll(preferences).toEqual(enabled);
-    const anonymous = await playwrightRequest.newContext({ ignoreHTTPSErrors: true });
+    const anonymous = await playwrightRequest.newContext();
     try {
       expect((await anonymous.storageState()).cookies).toEqual([]);
       const response = await anonymous.post(target.href, {
@@ -301,7 +301,7 @@ const supportTest = test.extend({
     const account = await player(page, lang);
     const context = await browser.newContext({
       baseURL: new URL(page.url()).origin,
-      ignoreHTTPSErrors: true, locale: other, viewport: info.project.use.viewport,
+      locale: other, viewport: info.project.use.viewport,
     });
     try {
       const staffPage = await context.newPage();

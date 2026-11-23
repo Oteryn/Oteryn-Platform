@@ -15,7 +15,6 @@ export async function actor(browser, info, role, use, { mfa = Boolean(role) } = 
   const locale = info.project.metadata.locale;
   const context = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
     viewport: info.project.use.viewport,
     locale,
   });

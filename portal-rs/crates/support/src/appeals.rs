@@ -391,8 +391,12 @@ struct Entry {
     can_submit: bool,
 }
 
-const ACTIVE: &str = "s.status = 'active' AND s.effective_at <= clock_timestamp()
-    AND (s.expires_at IS NULL OR s.expires_at > clock_timestamp())";
+macro_rules! active_sanction {
+    () => {
+        "s.status = 'active' AND s.effective_at <= clock_timestamp()
+            AND (s.expires_at IS NULL OR s.expires_at > clock_timestamp())"
+    };
+}
 
 async fn player_entries(
     pool: &sqlx::PgPool,
@@ -401,17 +405,21 @@ async fn player_entries(
     offset: i64,
 ) -> Result<Vec<Entry>, Error> {
     // A completed or pending appeal stays visible when the sanction ends.
-    let query = format!(
+    let query = concat!(
         "SELECT s.id, s.public_reason, coalesce(a.status, 'none') AS status,
                 a.message, a.outcome, coalesce(a.version, 1) AS version,
-                ({ACTIVE} AND coalesce(a.status, 'none') = ANY($4)) AS can_submit
+                (",
+        active_sanction!(),
+        " AND coalesce(a.status, 'none') = ANY($4)) AS can_submit
          FROM sanctions s
          LEFT JOIN support_appeal_workflows a ON a.sanction_id = s.id AND a.owner_id = s.account_id
          WHERE s.account_id = $1 AND ($2::uuid IS NULL OR s.id = $2)
-           AND (({ACTIVE}) OR a.status <> 'none')
+           AND ((",
+        active_sanction!(),
+        ") OR a.status <> 'none')
          ORDER BY s.created_at DESC, s.id DESC LIMIT 21 OFFSET $3"
     );
-    Ok(sqlx::query_as(sqlx::AssertSqlSafe(query))
+    Ok(sqlx::query_as(query)
         .bind(actor)
         .bind(id)
         .bind(offset)
@@ -477,14 +485,16 @@ async fn submit_player(
         return Err(Error::SessionRevoked);
     }
     oteryn_db::mutation_budget(&mut tx).await?;
-    let query = format!(
+    let query = concat!(
         "WITH locked AS MATERIALIZED (
             SELECT status, effective_at, expires_at FROM sanctions
             WHERE id = $1 AND account_id = $2 FOR UPDATE
          )
-         SELECT ({ACTIVE}) FROM locked s"
+         SELECT (",
+        active_sanction!(),
+        ") FROM locked s"
     );
-    let active: bool = sqlx::query_scalar(sqlx::AssertSqlSafe(query))
+    let active: bool = sqlx::query_scalar(query)
         .bind(id)
         .bind(actor)
         .fetch_optional(&mut *tx)

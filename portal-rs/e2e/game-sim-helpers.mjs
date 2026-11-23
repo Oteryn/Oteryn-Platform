@@ -7,7 +7,7 @@ import {staffState} from './staff-rbac-helpers.mjs';
 export {uuid7};
 export async function actor(browser,info,{staff=false,mfa=false,funded=false}={}) {
  const lang=info.project.metadata.locale;
- const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:lang,viewport:info.project.use.viewport,...(staff?{storageState:await staffState(browser,info)}:{})});
+ const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:lang,viewport:info.project.use.viewport,...(staff?{storageState:await staffState(browser,info)}:{})});
  const page=await context.newPage();
  try {
   if(staff)return {context,page};

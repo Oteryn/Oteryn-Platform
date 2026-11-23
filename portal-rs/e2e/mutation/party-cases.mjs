@@ -44,7 +44,7 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
     const outsiders = [];
     for (const role of [undefined, 'content_editor']) {
       const context = await browser.newContext({
-        baseURL: game.origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+        baseURL: game.origin, locale: lang, viewport: info.project.use.viewport,
       });
       contexts.push(context);
       const screen = await context.newPage();
@@ -84,7 +84,7 @@ test('Game-backed recruitment permits owner, reporter and staff actions under se
 
 
     const moderatorContext = await browser.newContext({
-      baseURL: game.origin, locale: lang, ignoreHTTPSErrors: true,
+      baseURL: game.origin, locale: lang,
       viewport: info.project.use.viewport,
     });
     contexts.push(moderatorContext);

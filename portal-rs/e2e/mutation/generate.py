@@ -16,13 +16,13 @@ LONE_BRACE = r"\{(?![{%])"
 DOUBLE_QUOTED = rf'(?:{TEMPLATE}|{LONE_BRACE}|[^"{{])*'
 SINGLE_QUOTED = rf"(?:{TEMPLATE}|{LONE_BRACE}|[^'{{])*"
 TAG = re.compile(
-    rf"""<(form|input|button|select|option|textarea)\b((?:{TEMPLATE}|{LONE_BRACE}|"{DOUBLE_QUOTED}"|'{SINGLE_QUOTED}'|[^>"'{{])*)>""",
+    rf"""<(form|input|button|select|option|textarea)\b((?:{TEMPLATE}|{LONE_BRACE}|"{DOUBLE_QUOTED}"|'{SINGLE_QUOTED}'|[^<>"'{{])*)>""",
     re.I,
 )
 ATTRIBUTE = re.compile(
     rf"""(?<![\w:-])([\w:-]+)\s*=\s*(?:"({DOUBLE_QUOTED})"|'({SINGLE_QUOTED})'|([^\s>"']+))""",
 )
-FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
+FORM_BOUNDARY = re.compile(r"(?P<open><form\b)|</form\s*>", re.I)
 ACTION_FIELDS = {
     "accepted", "action", "allowed", "currency", "decision", "kind", "op",
     "operation", "participating", "publication_state", "severity", "status",
@@ -173,13 +173,24 @@ def bindings(path, source, all_sources):
     return {}
 
 
+def form_blocks(source):
+    start = None
+    for boundary in FORM_BOUNDARY.finditer(source):
+        if boundary.lastgroup == "open":
+            if start is None:
+                start = boundary.start()
+        elif start is not None:
+            yield start, source[start:boundary.end()]
+            start = None
+
+
 def forms(path, source, all_sources):
     # Normalize escaped HTML attribute delimiters in Rust string literals.
     source = source.replace(r'\"', '"')
     dynamic = bindings(path, source, all_sources)
     same_line = {}
-    for form in FORM.finditer(source):
-        tags = list(TAG.finditer(form[0]))
+    for start, form in form_blocks(source):
+        tags = list(TAG.finditer(form))
         if not tags:
             continue
         attrs = attributes(tags[0][2])
@@ -193,7 +204,7 @@ def forms(path, source, all_sources):
             name = field.get("name")
             if tag[1].lower() == "select" and name == "{{ field.0 }}":
                 condition = re.search(
-                    r'{% (?:else )?if field\.0 == "(\w+)" %}\s*$', form[0][:tag.start()],
+                    r'{% (?:else )?if field\.0 == "(\w+)" %}\s*$', form[:tag.start()],
                 )
                 if condition:
                     name = condition[1]
@@ -207,7 +218,7 @@ def forms(path, source, all_sources):
                 value = field.get("value", "")
                 submits.extend({"name": name, "value": choice} for choice in dynamic.get(value, [value]))
             elif name in ACTION_FIELDS and tag[1].lower() == "select":
-                options = form[0][tag.end():].split("</select", 1)[0]
+                options = form[tag.end():].split("</select", 1)[0]
                 submits.extend({"name": name, "value": choice} for choice in option_values(options, dynamic))
             elif name == "{field}" and tag[1].lower() == "select" and path == "crates/admin/src/support_web.rs":
                 for choice in support_choices(source):
@@ -224,7 +235,7 @@ def forms(path, source, all_sources):
                 ]
         if "{{ action }}" in target:
             # Literal action loops in Askama templates emit one form per action.
-            loop = re.search(r'{% for action in (\[[^\]]+\]) %}(?:(?!{% endfor %}).)*$', source[:form.start()], re.S)
+            loop = re.search(r'{% for action in (\[[^\]]+\]) %}(?:(?!{% endfor %}).)*$', source[:start], re.S)
             if loop:
                 action_variants = [target.replace("{{ action }}", action) for action in json.loads(loop[1])]
         for placeholder, choices in dynamic.items():
@@ -232,7 +243,7 @@ def forms(path, source, all_sources):
                 action_variants.extend(choices)
             elif placeholder and placeholder in target:
                 action_variants = [target.replace(placeholder, choice) for choice in choices]
-        location_key = location(path, source, form.start())
+        location_key = location(path, source, start)
         same_line[location_key] = same_line.get(location_key, 0) + 1
         yield dict(source=location_key, ordinal=same_line[location_key], action=target,
                    actionVariants=action_variants, fields=list(dict.fromkeys(fields)), submits=submits)

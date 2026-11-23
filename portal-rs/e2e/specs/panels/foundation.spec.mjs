@@ -102,7 +102,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
   expect((await visit(page, '/console')).status()).toBe(403);
 
   const staffContext = await browser.newContext({
-    baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+    baseURL: origin, locale: lang, viewport: info.project.use.viewport,
   });
   try {
     const staff = await panelActor(staffContext, lang, true);

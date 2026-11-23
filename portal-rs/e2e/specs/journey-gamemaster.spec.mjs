@@ -20,7 +20,7 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
   test.setTimeout(600_000);
   const lang = info.project.metadata.locale;
   const admin = await bootstrapAdmin(browser, info);
-  const signedOut = await browser.newContext({ignoreHTTPSErrors:true});
+  const signedOut = await browser.newContext();
   const language = lang === 'pl' ? 0 : 1;
   const unavailable = ['Niedostępne','Unavailable'][language];
   const get = (path, options = {}) => page.request.get(path, {
@@ -106,7 +106,7 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
     await test.step('The commerce shell and its actions refuse the GM role', async () => {
       const shell = await get('/admin/commerce');
       expect(shell.status()).toBe(403);
-      expect(await shell.text()).not.toMatch(/<form[^>]*action="\/admin\/commerce\//);
+      expect(await shell.text()).not.toMatch(/<form\b[^<>]*\baction="\/admin\/commerce\//i);
       const form = {request_id:uuid7(), target:accountId, reason:'Journey permission check'};
       for (const [action, fields] of [
         ['grant', {days:'1'}], ['revoke', {}], ['adjust', {amount:'1'}],
