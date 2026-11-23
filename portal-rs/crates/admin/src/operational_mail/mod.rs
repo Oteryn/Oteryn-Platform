@@ -153,11 +153,11 @@ pub(super) async fn preview(
     .await?;
     let recipients = sqlx::query(
         "INSERT INTO operational_mail_recipients(campaign_id,account_id,locale,address_digest,verified_at,consent_at)
-         SELECT $1,a.id,a.locale,sha256(convert_to(a.email,'UTF8')),a.email_verified_at,p.updated_at
+         SELECT $1,a.id,coalesce(a.mail_locale,a.locale),sha256(convert_to(a.email,'UTF8')),a.email_verified_at,p.updated_at
          FROM account_notification_prefs p JOIN accounts a ON a.id=p.account_id
          WHERE p.category='operational' AND p.email_enabled AND a.status='active'
-           AND a.email_verified_at IS NOT NULL AND a.locale IN ('pl','en')
-           AND ($2='all' OR a.locale=$2)
+           AND a.email_verified_at IS NOT NULL AND coalesce(a.mail_locale,a.locale) IN ('pl','en')
+           AND ($2='all' OR coalesce(a.mail_locale,a.locale)=$2)
          ORDER BY a.id LIMIT $3",
     )
     .bind(id)
@@ -268,11 +268,11 @@ async fn queue(
     unsubscribe: &Unsubscribe,
 ) -> Result<usize, Error> {
     let recipients: Vec<(Uuid, String, bool)> = sqlx::query_as(
-        "SELECT a.id,a.email,a.locale='pl'
+        "SELECT a.id,a.email,r.locale='pl'
          FROM operational_mail_recipients r
          JOIN accounts a ON a.id=r.account_id
          JOIN account_notification_prefs p ON p.account_id=a.id AND p.category='operational'
-         WHERE r.campaign_id=$1 AND a.status='active' AND a.locale=r.locale
+         WHERE r.campaign_id=$1 AND a.status='active' AND coalesce(a.mail_locale,a.locale)=r.locale
            AND a.email_verified_at=r.verified_at AND sha256(convert_to(a.email,'UTF8'))=r.address_digest
            AND p.email_enabled AND p.updated_at=r.consent_at
          ORDER BY a.id",

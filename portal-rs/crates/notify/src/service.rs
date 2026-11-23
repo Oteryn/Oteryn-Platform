@@ -492,11 +492,10 @@ impl Notifications {
         if delivered.is_some() {
             return Ok(());
         }
-        let category_kind = Category::parse(&category)?;
-        if category_kind == Category::Forum && !crate::forum::deliverable(&self.pool, id).await? {
+        let category = Category::parse(&category)?;
+        if category == Category::Forum && !crate::forum::deliverable(&self.pool, id).await? {
             return Ok(());
         }
-        let category = Category::parse(&category)?;
         let email = Email {
             id,
             recipient,
@@ -510,14 +509,14 @@ impl Notifications {
         }
         let state = self
             .accounts
-            .recipient(account, category_kind)
+            .recipient(account, category)
             .await?
             .ok_or_else(invalid)?;
         if state.email != email.recipient {
             return Err(invalid());
         }
-        if category_kind != Category::Security {
-            let enabled: Option<bool> = outbox::query_scalar("SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category_kind.as_str()).fetch_optional(&self.pool).await?;
+        if category != Category::Security {
+            let enabled: Option<bool> = outbox::query_scalar("SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category.as_str()).fetch_optional(&self.pool).await?;
             if enabled != Some(true) {
                 return Ok(());
             }

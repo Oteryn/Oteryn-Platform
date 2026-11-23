@@ -125,7 +125,7 @@ pub(crate) async fn deliver(
     // The account and consent locks serialize dispatch with preference changes
     // and address/locale changes. SMTP is bounded while the locks are held.
     let account_matches: Option<bool> = outbox::query_scalar(
-        "SELECT a.status='active' AND a.email=$2 AND a.locale=r.locale
+        "SELECT a.status='active' AND a.email=$2 AND coalesce(a.mail_locale,a.locale)=r.locale
                 AND a.email_verified_at IS NOT DISTINCT FROM r.verified_at
          FROM accounts a JOIN operational_mail_recipients r ON r.account_id=a.id
          WHERE a.id=$1 AND r.mail_id=$3 FOR SHARE OF a",

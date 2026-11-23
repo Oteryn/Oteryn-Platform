@@ -150,7 +150,12 @@ async fn exercise_campaign(pool: &PgPool) {
         accounts: Arc::new(NotificationAccounts(pool.clone())),
         unsubscribe: unsubscribe.clone(),
     };
-    let ok = account(pool, "recipient@example.test", "en").await;
+    let ok = account(pool, "recipient@example.test", "pl").await;
+    sqlx::query("UPDATE accounts SET mail_locale='en' WHERE id=$1")
+        .bind(ok)
+        .execute(pool)
+        .await
+        .unwrap();
     let before = account(pool, "leave-before-review@example.test", "en").await;
     let after = account(pool, "leave-after-review@example.test", "en").await;
     let paused = account(pool, "paused-at-dispatch@example.test", "en").await;
