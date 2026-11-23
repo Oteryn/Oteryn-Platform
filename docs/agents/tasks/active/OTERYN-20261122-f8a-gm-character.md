@@ -72,7 +72,7 @@ checkpoint_version: 1
 updated_at: 2026-11-22T22:07:52Z
 head: bab011c1df563ec630fd1db95e09c38c2cf74657
 branch: codex/pkg-2
-pr: none
+pr: 2040
 status: ready
 context_routes:
   - admin console
