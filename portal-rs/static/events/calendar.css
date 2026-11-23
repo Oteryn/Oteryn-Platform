@@ -1,0 +1,53 @@
+.events-page {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.events-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: var(--op-space-3);
+}
+
+.events-controls form,
+.events-controls form div {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.events-controls select {
+  max-inline-size: 18rem;
+}
+
+.events-calendar {
+  inline-size: 100%;
+  max-inline-size: 44rem;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.events-calendar th,
+.events-calendar td {
+  block-size: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--op-border);
+}
+
+.events-calendar a {
+  display: grid;
+  min-block-size: 2.75rem;
+  place-items: center;
+  font-weight: bold;
+  text-decoration: underline;
+}
+
+.events-calendar a:focus-visible {
+  outline-offset: -3px;
+}
+
+.events-agenda {
+  scroll-margin-block-start: 5rem;
+}

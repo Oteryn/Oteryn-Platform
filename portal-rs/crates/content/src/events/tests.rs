@@ -3,7 +3,7 @@ use super::*;
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, header},
 };
 use oteryn_admin::{
     rbac::{AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, CheckContext},
@@ -740,4 +740,174 @@ async fn public_html(app: &Router, path: &str) -> String {
             .to_vec(),
     )
     .unwrap()
+}
+
+#[tokio::test]
+async fn postgres_calendar_visibility_preferences_and_exports() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("disposable PostgreSQL");
+    let (actor, auth, _) = db.author().await;
+    let events = Events::new(db.pool.clone());
+    let utc = |year, month, day, hour, minute| {
+        time::Date::from_calendar_date(year, month, day)
+            .unwrap()
+            .with_hms(hour, minute, 0)
+            .unwrap()
+            .assume_utc()
+    };
+    let mut content = draft("month-meeting");
+    content.starts_at = utc(2096, time::Month::March, 31, 22, 30);
+    content.ends_at = utc(2096, time::Month::April, 1, 1, 30);
+    content.en.title = "Meeting, west; east".to_owned();
+    content.en.summary = "First line\r\nSecond \\ line".to_owned();
+    let id = events
+        .save(&auth, context(actor), None, content)
+        .await
+        .unwrap();
+    let mut past = draft("past-meeting");
+    past.starts_at = utc(2020, time::Month::January, 1, 1, 0);
+    past.ends_at = utc(2020, time::Month::January, 1, 2, 0);
+    let past_id = events
+        .save(&auth, context(actor), None, past)
+        .await
+        .unwrap();
+    let app = web::public_router(db.pool.clone());
+    let month = "/en/events/calendar/month?month=2096-04";
+    let detail = "/en/events/month-meeting";
+    let single = "/en/events/month-meeting/event.ics";
+    let upcoming = "/en/events/upcoming.ics";
+    let uid = format!("UID:{id}@oteryn.com");
+    let html = public_html(&app, month).await;
+    assert!(!html.contains("month-meeting"));
+    assert_eq!(
+        request(app.clone(), single).await.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    for id in [id, past_id] {
+        events
+            .transition(
+                &auth,
+                context(actor),
+                id,
+                1,
+                "published",
+                "Publish meetings",
+            )
+            .await
+            .unwrap();
+    }
+    let html = public_html(&app, month).await;
+    assert!(html.contains("2096-03-31 22:30"));
+    assert!(
+        !public_html(&app, "/pl/events/calendar/month?month=2096-04")
+            .await
+            .contains("month-meeting")
+    );
+    for bad_month in ["2096-13", "2096-4", "2096-04-01", "0000-04", ""] {
+        assert_eq!(
+            request(
+                app.clone(),
+                &format!("/en/events/calendar/month?month={bad_month}")
+            )
+            .await
+            .status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+
+    let page = request(app.clone(), month).await;
+    let cookie = page.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html =
+        String::from_utf8(to_bytes(page.into_body(), 200_000).await.unwrap().to_vec()).unwrap();
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    for (token, zone, expected) in [
+        ("", "Europe%2FWarsaw", StatusCode::FORBIDDEN),
+        (csrf, "Mars%2FOlympus", StatusCode::UNPROCESSABLE_ENTITY),
+        (csrf, "Europe%2FWarsaw", StatusCode::SEE_OTHER),
+    ] {
+        let reply = app
+            .clone()
+            .oneshot(
+                Request::post(month)
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={token}&zone={zone}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), expected);
+        if reply.status() == StatusCode::SEE_OTHER {
+            assert_eq!(reply.headers()[header::LOCATION], month);
+            let prefs = reply.headers()[header::SET_COOKIE]
+                .to_str()
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap();
+            let shown = app
+                .clone()
+                .oneshot(
+                    Request::get(detail)
+                        .header(header::COOKIE, prefs)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let shown =
+                String::from_utf8(to_bytes(shown.into_body(), 200_000).await.unwrap().to_vec())
+                    .unwrap();
+            assert!(shown.contains("2096-04-01 00:30"));
+            assert!(shown.contains("datetime=\"2096-03-31T22:30:00Z\""));
+        } else {
+            assert!(!reply.headers().contains_key(header::SET_COOKIE));
+        }
+    }
+
+    let download = request(app.clone(), single).await;
+    assert_eq!(download.status(), StatusCode::OK);
+    assert_eq!(
+        download.headers()[header::CONTENT_TYPE],
+        "text/calendar; charset=utf-8"
+    );
+    let ics = String::from_utf8(
+        to_bytes(download.into_body(), 8_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(ics.contains(&uid));
+    assert!(ics.contains("DTSTART:20960331T223000Z\r\n"));
+    assert!(ics.contains("SUMMARY:Meeting\\, west\\; east\r\n"));
+    assert!(ics.contains("DESCRIPTION:First line\\nSecond \\\\ line\r\n"));
+    let feed = public_html(&app, upcoming).await;
+    assert!(feed.contains(&uid));
+    assert!(!feed.contains(&past_id.to_string()));
+
+    events
+        .transition(&auth, context(actor), id, 2, "archived", "Archive meeting")
+        .await
+        .unwrap();
+    assert_eq!(
+        request(app.clone(), single).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert!(!public_html(&app, upcoming).await.contains(&uid));
+    assert!(!public_html(&app, month).await.contains("month-meeting"));
+    db.close().await;
 }

@@ -1,1 +1,34 @@
-<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack op-panel"><h1>{{ title }}</h1>{% if events.is_empty() %}<p>{{ empty }}</p>{% endif %}{% for event in events %}<article class="op-stack op-card"><h2><a href="/{{ lang }}/events/{{ event.slug }}">{{ event.title }}</a></h2><p><time>{{ event.starts_at }}</time> – <time>{{ event.ends_at }}</time></p><p>{{ event.summary }}</p>{% if detail %}<p>{{ event.body }}</p>{% endif %}</article>{% endfor %}{% if !next_label.is_empty() %}<a href="?page={{ next }}">{{ next_label }}</a>{% endif %}</main></body></html>
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/events/calendar.css">
+</head>
+<body class="op-theme">
+  <main class="op-stack op-panel events-page">
+    <h1>{{ title }}</h1>
+    <div class="events-controls">
+      <a href="/{{ lang }}/events/calendar/month">{{ calendar_label }}</a>
+      <a href="/{{ lang }}/events/calendar/month#event-zone">{{ zone_label }}: {{ zone }}</a>
+      {% if !detail %}<a href="/{{ lang }}/events/upcoming.ics">{{ export_label }}</a>{% endif %}
+    </div>
+    {% if events.is_empty() %}<p>{{ empty }}</p>{% endif %}
+    {% for card in events %}
+    <article class="op-stack op-card">
+      {% if !detail %}<h2><a href="/{{ lang }}/events/{{ card.event.slug }}">{{ card.event.title }}</a></h2>{% endif %}
+      <p><time datetime="{{ card.start.datetime }}">{{ card.start.display }}</time> – <time datetime="{{ card.end.datetime }}">{{ card.end.display }}</time></p>
+      <p>{{ card.event.summary }}</p>
+      {% if detail %}
+      <p>{{ card.event.body }}</p>
+      <a href="/{{ lang }}/events/{{ card.event.slug }}/event.ics">{{ export_label }}</a>
+      {% endif %}
+    </article>
+    {% endfor %}
+    {% if !next_label.is_empty() %}<a href="?page={{ next }}">{{ next_label }}</a>{% endif %}
+  </main>
+</body>
+</html>

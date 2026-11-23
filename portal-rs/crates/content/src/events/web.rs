@@ -1,10 +1,13 @@
 //! SSR event routes and staff adapters; request fields never supply staff identity.
-use super::*;
+mod calendar;
+mod ical;
+
+use super::{repository::ZonedEvent, *};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Request, State},
-    http::{StatusCode, header},
+    extract::{Path, Query, Request, State},
+    http::{HeaderMap, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -13,10 +16,12 @@ use oteryn_admin::{
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
     web::{PanelConfig, PortalIdentity, StaffSession},
 };
-use oteryn_web::session::BrowserSession;
+use oteryn_web::session::{self, BrowserSession, SessionLayer};
 use sqlx::PgPool;
 use std::sync::Arc;
-use time::{PrimitiveDateTime, format_description};
+use time::{
+    Date, PrimitiveDateTime, UtcOffset, format_description, format_description::well_known::Rfc3339,
+};
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let routes = staff_routes(pool.clone(), PortalIdentity::configured(pool.clone()));
@@ -26,6 +31,17 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
 }
 
 pub fn public_router(pool: PgPool) -> Router {
+    let mut sessions = SessionLayer::new(pool.clone());
+    sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN").into_iter().collect();
+    let calendar = Router::new()
+        .route(
+            "/{locale}/events/calendar/month",
+            get(calendar::show).post(calendar::set_zone),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            sessions,
+            session::middleware,
+        ));
     Router::new()
         .route("/events", get(|| async { Redirect::to("/pl/events") }))
         .route(
@@ -40,6 +56,9 @@ pub fn public_router(pool: PgPool) -> Router {
         )
         .route("/{locale}/events", get(index))
         .route("/{locale}/events/{slug}", get(show))
+        .route("/{locale}/events/upcoming.ics", get(ical::upcoming))
+        .route("/{locale}/events/{slug}/event.ics", get(ical::single))
+        .merge(calendar)
         .with_state(Events::new(pool))
         .layer(middleware::from_fn(headers))
 }
@@ -107,25 +126,100 @@ fn response(error: Error) -> Response {
     }
     .into_response()
 }
+struct TimeLabel {
+    datetime: String,
+    display: String,
+}
+
+fn display_date(lang: &str, date: Date) -> String {
+    let (year, month, day) = date.to_calendar_date();
+    let month = u8::from(month);
+    if lang == "pl" {
+        format!("{day:02}.{month:02}.{year:04}")
+    } else {
+        format!("{year:04}-{month:02}-{day:02}")
+    }
+}
+
+impl TimeLabel {
+    fn new(lang: &str, utc: OffsetDateTime, local: PrimitiveDateTime) -> Self {
+        let date = display_date(lang, local.date());
+        let offset = (local.assume_utc() - utc).whole_seconds();
+        let offset_minutes = offset.unsigned_abs() / 60;
+        let sign = if offset < 0 { '-' } else { '+' };
+        let display = format!(
+            "{date} {:02}:{:02} (UTC{sign}{:02}:{:02})",
+            local.hour(),
+            local.minute(),
+            offset_minutes / 60,
+            offset_minutes % 60,
+        );
+        Self {
+            datetime: utc
+                .to_offset(UtcOffset::UTC)
+                .format(&Rfc3339)
+                .unwrap_or_default(),
+            display,
+        }
+    }
+}
+
+async fn viewer_zone(events: &Events, headers: &HeaderMap) -> Result<String, Error> {
+    match calendar::cookie_zone(headers) {
+        Some(name) => Ok(events
+            .time_zones(Some(name))
+            .await?
+            .pop()
+            .unwrap_or_else(|| "UTC".to_owned())),
+        None => Ok("UTC".to_owned()),
+    }
+}
+
+struct EventCard {
+    event: PublicEvent,
+    start: TimeLabel,
+    end: TimeLabel,
+}
+
+impl EventCard {
+    fn new(lang: &str, row: ZonedEvent) -> Self {
+        Self {
+            start: TimeLabel::new(lang, row.event.starts_at, row.local_start),
+            end: TimeLabel::new(lang, row.event.ends_at, row.local_end),
+            event: row.event,
+        }
+    }
+}
+
 #[derive(Template)]
 #[template(path = "events/public.html", config = "src/events/askama.toml")]
 struct PublicPage<'a> {
     lang: &'a str,
     title: String,
+    zone: String,
+    calendar_label: String,
+    zone_label: String,
+    export_label: String,
     empty: String,
-    events: Vec<PublicEvent>,
+    events: Vec<EventCard>,
     detail: bool,
     next: u64,
     next_label: String,
 }
+
 async fn index(
     State(events): State<Events>,
     Path(lang): Path<String>,
-    axum::extract::Query(q): axum::extract::Query<crate::Pagination>,
+    headers: HeaderMap,
+    Query(q): Query<crate::Pagination>,
 ) -> Response {
     if let Err(e) = locale(&lang) {
         return response(e);
     }
+    let zone = match viewer_zone(&events, &headers).await {
+        Ok(zone) => zone,
+        Err(e) => return response(e),
+    };
     const PAGE_SIZE: usize = 200;
     match events
         .public_page(
@@ -133,6 +227,7 @@ async fn index(
             None,
             q.offset(PAGE_SIZE as i64),
             PAGE_SIZE as i64 + 1,
+            &zone,
         )
         .await
     {
@@ -146,10 +241,17 @@ async fn index(
             oteryn_web::render(&PublicPage {
                 lang: &lang,
                 title: text(&lang, "events"),
+                calendar_label: text(&lang, "calendar"),
+                zone_label: text(&lang, "time-zone"),
+                export_label: text(&lang, "export-upcoming"),
+                zone,
                 empty: text(&lang, "empty"),
                 next: q.next(),
                 next_label,
-                events: rows,
+                events: rows
+                    .into_iter()
+                    .map(|row| EventCard::new(&lang, row))
+                    .collect(),
                 detail: false,
             })
         }
@@ -159,21 +261,32 @@ async fn index(
 async fn show(
     State(events): State<Events>,
     Path((lang, slug)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Response {
     if locale(&lang).is_err() || !valid_slug(&slug) {
         return StatusCode::NOT_FOUND.into_response();
     }
-    match events.public(&lang, Some(&slug)).await {
-        Ok(rows) if rows.len() == 1 => oteryn_web::render(&PublicPage {
-            lang: &lang,
-            title: rows[0].title.clone(),
-            empty: String::new(),
-            events: rows,
-            detail: true,
-            next_label: String::new(),
-            next: 0,
-        }),
-        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+    let zone = match viewer_zone(&events, &headers).await {
+        Ok(zone) => zone,
+        Err(e) => return response(e),
+    };
+    match events.public_page(&lang, Some(&slug), 0, 1, &zone).await {
+        Ok(mut rows) => match rows.pop() {
+            Some(row) => oteryn_web::render(&PublicPage {
+                lang: &lang,
+                title: row.event.title.clone(),
+                calendar_label: text(&lang, "calendar"),
+                zone_label: text(&lang, "time-zone"),
+                export_label: text(&lang, "export-event"),
+                zone,
+                empty: String::new(),
+                events: vec![EventCard::new(&lang, row)],
+                detail: true,
+                next_label: String::new(),
+                next: 0,
+            }),
+            None => StatusCode::NOT_FOUND.into_response(),
+        },
         Err(e) => response(e),
     }
 }
