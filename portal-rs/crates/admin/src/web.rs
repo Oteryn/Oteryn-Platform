@@ -816,6 +816,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     let projections_link = match s.auth.check(context, Permission::GameCatalogAccess).await {
         Ok(()) => Some(text(lang, "public-projections-title")),
         Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     let operations_link = match crate::world_operations::has_scope(&s.pool, context.account).await {
         Ok(true) => Some(text(lang, "ops-title")),
         Ok(false) => None,
