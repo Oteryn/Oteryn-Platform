@@ -152,6 +152,7 @@ fn localized_responsive_labelled_template() {
             editorial_links: vec![("/admin/news", text(lang, "cms-news"))],
             downloads_link: None,
             world_link: None,
+            audit_evidence_link: Some(text(lang, "audit-evidence-title")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -180,6 +181,7 @@ fn localized_responsive_labelled_template() {
         } else {
             "World catalog"
         }));
+        assert!(html.contains("href=\"/admin/audit-evidence\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));

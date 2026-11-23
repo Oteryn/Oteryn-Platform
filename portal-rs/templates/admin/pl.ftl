@@ -307,3 +307,15 @@ downloads-denied = Odmówiono publikacji. Sprawdź sesję i uprawnienia personel
 downloads-limited = Zbyt wiele prób publikacji. Poczekaj chwilę i spróbuj ponownie.
 downloads-unavailable = Publikacja niedostępna.
 downloads-script = Włącz JavaScript, aby wybrać i przesłać podpisane pliki.
+
+audit-evidence-title = Dowody audytowe
+audit-evidence-description = Zweryfikuj i pobierz dzienny łańcuch audytu Platformy. Dostępnych jest 90 ostatnich zakończonych dni UTC. Eksport zawiera wrażliwe dane o działaniach zespołu.
+audit-evidence-day = Data dowodów (UTC)
+audit-evidence-download = Zweryfikuj i pobierz JSON
+audit-evidence-invalid = Podaj prawidłową datę.
+audit-evidence-window = Ta data wykracza poza okres dostępności dowodów audytowych.
+audit-evidence-limit = Liczba wpisów z tego dnia przekracza limit eksportu w portalu.
+audit-evidence-limited = Zbyt wiele żądań eksportu. Spróbuj ponownie za chwilę.
+audit-evidence-integrity = Portal nie mógł zweryfikować dowodów z tego dnia.
+audit-evidence-denied = Nie masz uprawnień do eksportu dowodów audytowych.
+audit-evidence-unavailable = Dowody audytowe są tymczasowo niedostępne.

@@ -3,6 +3,7 @@
 pub mod audit;
 mod errors;
 pub mod downloads;
+mod audit_evidence;
 pub mod rbac;
 
 pub mod web;
