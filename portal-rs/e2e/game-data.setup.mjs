@@ -1,17 +1,47 @@
 import { spawn } from 'node:child_process';
-import { access, constants, mkdtemp, realpath, rm } from 'node:fs/promises';
+import { access, constants, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
+import { GamePublishers } from './game-publishers.mjs';
+import { trustHarnessCa } from './trust.mjs';
+
+async function trustGameData(reportFile) {
+  const { report: { caFile } } = new GamePublishers(reportFile);
+  const previous = process.env.NODE_EXTRA_CA_CERTS;
+  const roots = previous ? await readFile(previous, 'utf8') : '';
+  const gameCa = await readFile(caFile, 'utf8');
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'portal-e2e-game-ca-'));
+  const bundle = path.join(directory, 'ca.pem');
+  let releaseCa;
+  try {
+    await writeFile(bundle, `${roots}\n${gameCa}`, { mode: 0o600 });
+    releaseCa = trustHarnessCa(caFile);
+    // Playwright forks workers after setup. Their API clients need the same CA
+    // as Chromium for the authenticated browser form requests.
+    process.env.NODE_EXTRA_CA_CERTS = bundle;
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
+  return async () => {
+    if (previous === undefined) delete process.env.NODE_EXTRA_CA_CERTS;
+    else process.env.NODE_EXTRA_CA_CERTS = previous;
+    try {
+      releaseCa();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  };
+}
 
 export default async function setup(config) {
   const e2eDirectory = path.dirname(fileURLToPath(import.meta.url));
   // Nested stand-alone suites can inherit the browser config and use their own harness.
   if (config && await realpath(config.rootDir) !== e2eDirectory) return;
   if (process.env.PORTAL_E2E_GAME_DATA_REPORT) {
-    await access(process.env.PORTAL_E2E_GAME_DATA_REPORT);
-    return;
+    return trustGameData(process.env.PORTAL_E2E_GAME_DATA_REPORT);
   }
 
   const binaryPath = process.env.PORTAL_E2E_BINARY;
@@ -51,6 +81,7 @@ export default async function setup(config) {
 
   const lines = createInterface({ input: child.stdout });
   let readinessTimeout;
+  let releaseCa;
   try {
     await new Promise((resolve, reject) => {
       readinessTimeout = setTimeout(() => reject(new Error('Game-data harness readiness timed out')), 300_000);
@@ -67,7 +98,7 @@ export default async function setup(config) {
       lines.once('line', onLine);
       lines.once('close', () => reject(new Error('Game-data harness closed its readiness stream')));
     });
-    await access(reportFile);
+    releaseCa = await trustGameData(reportFile);
     process.env.PORTAL_E2E_GAME_DATA_REPORT = reportFile;
   } catch (error) {
     const { code, signal } = await stop();
@@ -80,11 +111,15 @@ export default async function setup(config) {
 
   return async () => {
     delete process.env.PORTAL_E2E_GAME_DATA_REPORT;
-    const { code, signal } = await stop();
-    if (code !== 0 || signal !== null) {
-      const status = signal ? `signal ${signal}` : `exit code ${code}`;
-      throw new Error(`Game-data harness shutdown failed (${status}). Harness logs are in ${path.join(output, 'logs')}`);
+    try {
+      const { code, signal } = await stop();
+      if (code !== 0 || signal !== null) {
+        const status = signal ? `signal ${signal}` : `exit code ${code}`;
+        throw new Error(`Game-data harness shutdown failed (${status}). Harness logs are in ${path.join(output, 'logs')}`);
+      }
+      await rm(scratch, { recursive: true, force: true });
+    } finally {
+      await releaseCa();
     }
-    await rm(scratch, { recursive: true, force: true });
   };
 }
