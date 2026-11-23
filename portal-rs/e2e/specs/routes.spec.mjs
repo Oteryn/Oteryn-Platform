@@ -1,6 +1,5 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
-import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
 import {isolatedStaff} from '../staff-rbac-helpers.mjs';
@@ -30,8 +29,8 @@ for(const row of rows)test(row.case??`route ${row.crate} ${row.route}`,async({pa
    gameMasterCookies??=await staffCookies(browser,info,row.actor);
    await context.addCookies(gameMasterCookies);
  }else if(row.actor==='staff') {
-   const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
-   await context.addCookies(staff.cookies);
+   platformAdminCookies??=await staffCookies(browser,info,'platform_admin');
+   await context.addCookies(platformAdminCookies);
  }else await context.addCookies(cookies);
  if(row.redirect) {
    const landing=await page.request.get(target,{maxRedirects:0});

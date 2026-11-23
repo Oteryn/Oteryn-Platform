@@ -1,27 +1,22 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool,csrfRejected} from '../helpers.mjs';
-import path from 'node:path';
 import * as OTPAuth from 'otpauth';
+import {isolatedAdmin} from '../staff-rbac-helpers.mjs';
 
 test('staff premium grant persists entitlement and audit; player cannot grant',async({page,browser},info)=>{
  test.setTimeout(300_000);
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);
  await login(page,lang,account);
- const db=pool();
- const staff=await browser.newContext({
-  baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
-  ignoreHTTPSErrors:true,
-  storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),
- });
+ const {context:staff,page:admin}=await isolatedAdmin(browser,info);
  const reviewer=await browser.newContext({
   baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
   ignoreHTTPSErrors:true,
   locale:info.project.metadata.locale,
  });
+ const db=pool();
  try {
   const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
-  const admin=await staff.newPage();
   expect((await admin.goto('/admin/commerce')).status(),'staff commerce page').toBe(200);
   // Selector and fields: crates/admin/src/commerce/page.html; route: commerce/http.rs.
   const selector='form[action="/admin/commerce/grant"]';

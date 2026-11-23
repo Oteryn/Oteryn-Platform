@@ -6,7 +6,6 @@ import {fileURLToPath} from 'node:url';
 import crypto from 'node:crypto';
 import {pool,csrfRejected,submit,register,login,password,waitForLoginBudget} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
-export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale,viewport:info.project.use.viewport});return {context,page:await context.newPage()};}
 export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
 export async function player(page,lang){const account=await register(page,lang);await login(page,lang,account);return {...account,id:(await query('SELECT id FROM accounts WHERE email=$1',[account.email]))[0].id};}
 

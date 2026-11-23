@@ -1,15 +1,17 @@
 import {test,expect} from '../fixtures.mjs';
 import crypto from 'node:crypto';
 import {register,login,pool,csrfRejected} from '../helpers.mjs';
-import {staffContext,token,uuid7} from '../staff-commerce-helpers.mjs';
+import {token,uuid7} from '../staff-commerce-helpers.mjs';
+import {isolatedAdmin} from '../staff-rbac-helpers.mjs';
 
 test('single-use gift code credits once and refuses both repeat and foreign redemption',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);await login(page,lang,account);
- const staff=await staffContext(browser,info),db=pool();
+ const {context:staff,page:admin}=await isolatedAdmin(browser,info);
+ const db=pool();
  const otherContext=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true});
  try {
-  const admin=await staff.newPage();await admin.goto('/admin/commerce');
+  expect((await admin.goto('/admin/commerce')).status()).toBe(200);
   const csrf=await admin.locator('[name="_csrf"]').first().inputValue();
   const action=`/${lang}/admin/store/codes`;
   const data={request_id:uuid7(),kind:'coins',amount:37,count:1,max_per_code:1,max_per_account:1,valid_from:Math.floor(Date.now()/1000)-60,valid_until:Math.floor(Date.now()/1000)+3600,note:`Browser ${crypto.randomUUID()}`};
