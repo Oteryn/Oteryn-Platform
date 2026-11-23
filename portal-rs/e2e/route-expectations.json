@@ -356,6 +356,14 @@
   },
   {
     "crate": "bazaar",
+    "route": "/{lang}/account/bazaar/activity",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "page, redirect alias or resource read"
+  },
+  {
+    "crate": "bazaar",
     "route": "/{lang}/bazaar/{listing}",
     "actor": "player",
     "method": "GET",

@@ -1202,6 +1202,8 @@ for (const { actor, group } of crawls) {
           url.searchParams.set('lang', locale);
         }
         await waitForWikiBudget(target, 2);
+        const accountOverview = group === 'account' && url.pathname === '/account';
+        if (accountOverview) await ensureFreshOwnership();
         const missingOwnedProfile = actor === 'player' && missingProfiles.includes(url.pathname);
         if (missingOwnedProfile) {
           if (!ownedProfileChecked) {
@@ -1281,6 +1283,13 @@ for (const { actor, group } of crawls) {
           await expect(search).toHaveText(searchCopy[documentLocale]);
         }
         if (announcements) await assertAnnouncements(page, locale, target);
+        if (accountOverview) {
+          const publicProfile = `/${locale}/characters/${encodeURIComponent(ownedCharacterName)}`;
+          await expect(page.locator('main').getByRole('link', { name: ownedCharacterName, exact: true }))
+            .toHaveAttribute('href', publicProfile);
+          // The fixture publishes ownership. The public projection remains unavailable.
+          targets.set(publicProfile, knownRoutes.get(sample('/{lang}/characters/{name}', locale)));
+        }
         if (navigation.ok()) {
           await addLinkedPages(page, targets, knownRoutes, locale, actor);
           await nativeValidation(page, documentLocale, checked, uncovered);

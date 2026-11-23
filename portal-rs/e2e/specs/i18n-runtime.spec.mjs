@@ -29,6 +29,8 @@ for (const [route, actor, status] of [
   ['/{lang}/shop/test-checkout/{intent}', 'player', 404],
   ['/{lang}/account/consents', 'player', 200],
   ['/{lang}/account/badges', 'player', 200],
+  // This sweep publishes the player's roster. The sampled character is outside it.
+  ['/{lang}/collection/{character}', 'player', 403],
 ]) {
   expectations.set(route, { actor, status });
 }

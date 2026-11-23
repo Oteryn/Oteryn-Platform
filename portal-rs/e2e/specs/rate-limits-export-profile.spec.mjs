@@ -114,11 +114,14 @@ test('personal export requires sudo and throttles repeat downloads', async ({pag
   const anonymous = await page.request.get(target, {maxRedirects: 0});
   expect(anonymous.status()).toBe(303);
   expect(anonymous.headers().location).toBe(`/${lang}/login`);
-  const malformed = await page.request.head(target, {
+  // The browser account gate treats a malformed session cookie as anonymous.
+  const invalidSession = await page.request.head(target, {
     headers: {cookie: '__Host-oteryn_session=malformed'},
     maxRedirects: 0,
   });
-  expect(malformed.status()).toBe(400);
+  expect(invalidSession.status()).toBe(303);
+  expect(invalidSession.headers().location).toBe(`/${lang}/login`);
+  expect(invalidSession.headers()['content-disposition']).toBeUndefined();
 
   const account = await loginSeededAccount(page, lang);
   const passwordChallenge = await page.request.get(target, {maxRedirects: 0});
