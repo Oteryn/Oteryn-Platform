@@ -176,9 +176,25 @@ async fn submit(
     if let Some(proof) = account {
         establish(&pool, language, &session, proof).await
     } else {
+        record_failure(&pool)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         refuse(language, &session).await
     }
 }
+
+/// Count credential refusals without storing any account or network identifiers.
+pub(crate) async fn record_failure(pool: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO dashboard_login_failures (day, failures)
+         VALUES ((clock_timestamp() AT TIME ZONE 'UTC')::date, 1)
+         ON CONFLICT (day) DO UPDATE SET failures=dashboard_login_failures.failures+1",
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// The proof remains immutable while credential mutations may commit before rotation.
 async fn establish(
     pool: &PgPool,

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("statistics") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/admin-charts.css">
+</head>
+<body class="op-theme">
+<main class="staff-charts op-stack">
+  <header class="op-stack">
+    <a href="/admin?lang={{ lang }}">{{ self.text("admin-home") }}</a>
+    <h1>{{ self.text("statistics") }}</h1>
+    <p>{{ self.text("intro") }}</p>
+  </header>
+
+  <form id="dashboard-filters" method="get" action="/admin/charts" class="op-panel op-stack">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <div class="staff-charts__filters">
+      <label>{{ self.text("date-range") }}
+        <select class="op-input" name="range" aria-describedby="range-hint">
+          <option value="7"{% if preset == "7" %} selected{% endif %}>{{ self.text("range-seven") }}</option>
+          <option value="30"{% if preset == "30" %} selected{% endif %}>{{ self.text("range-thirty") }}</option>
+          <option value="90"{% if preset == "90" %} selected{% endif %}>{{ self.text("range-ninety") }}</option>
+          <option value="custom"{% if preset == "custom" %} selected{% endif %}>{{ self.text("range-custom") }}</option>
+        </select>
+      </label>
+      <label>{{ self.text("date-from") }}
+        <input class="op-input" type="date" name="from" value="{{ from }}" aria-describedby="range-hint">
+      </label>
+      <label>{{ self.text("date-to") }}
+        <input class="op-input" type="date" name="to" value="{{ to }}" aria-describedby="range-hint">
+      </label>
+      {% if extended %}
+      <label>{{ self.text("world") }}
+        <select class="op-input" name="world">
+          <option value="">{{ self.text("all-worlds") }}</option>
+          {% for (id, name) in worlds %}<option value="{{ id }}"{% if world.as_ref() == Some(id) %} selected{% endif %}>{{ name }}</option>{% endfor %}
+        </select>
+      </label>
+      {% endif %}
+      <button class="op-button" type="submit">{{ self.text("apply") }}</button>
+    </div>
+    <p id="range-hint">{{ self.text("range-hint") }}</p>
+  </form>
+
+  <div class="staff-charts__periods">
+    <p><strong>{{ self.text("selected-period") }}</strong> <span>{{ from }} – {{ to }}</span></p>
+    <p><strong>{{ self.text("previous-period") }}</strong> <span>{{ previous_from }} – {{ previous_to }}</span></p>
+  </div>
+
+  <div class="staff-charts__grid">
+  {% for card in charts %}
+    <section class="op-panel op-stack staff-charts__card{% if card.chart.key() == "wallet" %} staff-charts__card--wide{% endif %}" data-chart="{{ card.chart.key() }}">
+      <header class="staff-charts__card-heading">
+        <h2 id="{{ card.chart.key() }}">{{ self.text(card.chart.key()) }}</h2>
+        {% if export %}<a download href="/admin/charts/{{ card.chart.key() }}.csv?{{ csv_query }}" aria-describedby="{{ card.chart.key() }}">{{ self.text("download") }}</a>{% endif %}
+      </header>
+      <p class="staff-charts__muted">{{ self.text(card.note(world.is_some())) }}</p>
+      {% if card.chart.key() == "logins-failed" %}
+        <p class="staff-charts__muted">{{ self.text("collection-start") }} <time>{{ first_failure_day }}</time></p>
+      {% endif %}
+      {% if card.chart.key() == "game-online" %}
+        <p class="staff-charts__muted">{{ self.text("last-update") }}
+        {% if let Some(update) = last_online_update %}{{ update }}{% else %}{{ self.text("no-update") }}{% endif %}</p>
+      {% endif %}
+      {% if !card.available %}<p data-state="unavailable">{{ self.text("unavailable") }}</p>{% endif %}
+      <div class="staff-charts__series-grid">
+      {% for series in card.series %}
+        <div class="op-stack staff-charts__series">
+          {% if !series.key.is_empty() %}<h3>{{ self.series_title(card, series) }}</h3>{% endif %}
+          <div>
+            <p class="staff-charts__value">{% if let Some(value) = series.value %}{{ value }}{% else %}—{% endif %}</p>
+            <p class="staff-charts__muted">{{ self.text("change") }}
+            {% if series.change.is_some() %}<strong>{{ series.signed_change() }}</strong>
+            {% else %}{{ self.text("unavailable") }}{% endif %}</p>
+          </div>
+          {% if !series.marks.is_empty() %}
+          <figure>
+            <svg viewBox="0 0 600 151" role="img" aria-labelledby="{{ card.chart.key() }}-title-{{ loop.index }}" aria-describedby="{{ card.chart.key() }}-desc-{{ loop.index }}">
+              <title id="{{ card.chart.key() }}-title-{{ loop.index }}">{{ self.series_title(card, series) }}</title>
+              <desc id="{{ card.chart.key() }}-desc-{{ loop.index }}">{{ self.text("chart-description") }} {{ self.text(card.note(world.is_some())) }}</desc>
+              <line x1="24" y1="133" x2="576" y2="133" class="staff-charts__axis"/>
+              <text x="24" y="19" class="staff-charts__scale">{{ series.chart_max }}</text>
+              {% for mark in series.marks %}
+                {% if mark.height == 0 %}
+                <circle cx="{{ mark.x }}" cy="133" r="2"/>
+                {% else %}
+                <rect x="{{ mark.x }}" y="{{ mark.y }}" width="{{ series.bar_width() }}" height="{{ mark.height }}" rx="2" transform="translate(-{{ series.bar_width() / 2 }},0)"/>
+                {% endif %}
+              {% endfor %}
+            </svg>
+            <figcaption><time>{{ series.first_day() }}</time>{% if series.last_day() != series.first_day() %}<time>{{ series.last_day() }}</time>{% endif %}</figcaption>
+          </figure>
+          {% endif %}
+          <details>
+            <summary>{{ self.text("daily-values") }}</summary>
+            <table>
+              <caption>{{ self.series_title(card, series) }}</caption>
+              <thead><tr><th scope="col">{{ self.text("day-utc") }}</th><th scope="col">{{ self.text("value") }}</th></tr></thead>
+              <tbody>{% for (day, value) in series.rows %}
+                <tr><th scope="row"><time>{{ day }}</time></th><td>{% if let Some(value) = value %}{{ value }}{% else %}—{% endif %}</td></tr>
+              {% endfor %}</tbody>
+            </table>
+          </details>
+        </div>
+      {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+  </div>
+</main>
+</body>
+</html>

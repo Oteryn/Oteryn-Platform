@@ -18,6 +18,8 @@ pub use control::control_http;
 
 pub mod analytics;
 
+mod charts;
+
 #[cfg(test)]
 mod begin_guard_tests;
 

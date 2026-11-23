@@ -253,6 +253,11 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::charts::routes(
+            state.pool.clone(),
+            std::env::var("OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED")
+                .is_ok_and(|value| value == "true"),
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -384,14 +389,23 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
-    for required in [Permission::Access, permission] {
+    let path = request.uri().path();
+    let panel_permissions: &[_] = match path {
+        "/admin/roles" => &[Permission::ManageRoles],
+        crate::charts::PAGE => &[Permission::AdminAnalyticsView],
+        path if path.starts_with("/admin/charts/") => &[
+            Permission::AdminAnalyticsView,
+            Permission::AdminAnalyticsExport,
+        ],
+        _ => &[],
+    };
+    let permissions = s.required.as_slice();
+    let permissions = if s.required.is_some() {
+        permissions
+    } else {
+        panel_permissions
+    };
+    for required in std::iter::once(Permission::Access).chain(permissions.iter().copied()) {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -401,6 +415,16 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             };
         }
+    }
+    if s.required.is_none() && path == crate::charts::PAGE {
+        let export = s
+            .auth
+            .check(context, Permission::AdminAnalyticsExport)
+            .await
+            .is_ok();
+        request
+            .extensions_mut()
+            .insert(crate::charts::CanExport(export));
     }
     request.extensions_mut().insert(context);
     request
@@ -427,7 +451,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(super) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -466,6 +490,8 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    charts_label: String,
+    can_view_charts: bool,
     account_label: String,
     role_label: String,
     grant: String,
@@ -539,6 +565,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        charts_label: crate::charts::nav_label(lang),
+        can_view_charts: s
+            .auth
+            .check(context, Permission::AdminAnalyticsView)
+            .await
+            .is_ok(),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

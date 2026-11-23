@@ -135,6 +135,8 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            charts_label: crate::charts::nav_label(lang),
+            can_view_charts: true,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -239,6 +241,84 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+    assert!(!body.contains("href=\"/admin/charts"));
+    let charts_actor = Uuid::now_v7();
+    let charts_identity = Some(StaffIdentity {
+        account: charts_actor,
+        mfa_satisfied: true,
+    });
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(charts_actor)
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let panel = app(pool.clone(), charts_identity, true);
+    assert_eq!(
+        request(panel.clone(), "/admin/charts", "wrong.test")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    for path in ["/admin/charts", "/admin/charts/tickets-opened.csv"] {
+        assert_eq!(
+            request(panel.clone(), path, "staff.test").await.status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let platform_role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(charts_actor)
+        .bind(platform_role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            panel.clone(),
+            "/admin/charts/tickets-opened.csv",
+            "staff.test"
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    sqlx::query(
+        "DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.analytics.export'",
+    )
+    .bind(platform_role)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        request(
+            panel.clone(),
+            "/admin/charts/tickets-opened.csv",
+            "staff.test"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        request(panel, "/admin/charts", "staff.test").await.status(),
+        StatusCode::OK
+    );
+    sqlx::query(
+        "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.analytics.export')",
+    )
+    .bind(platform_role)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(charts_actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     // Feature routes require their own permission on top of panel access.
     assert_eq!(
         request(

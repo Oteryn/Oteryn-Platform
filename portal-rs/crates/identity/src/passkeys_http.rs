@@ -302,7 +302,13 @@ async fn end_authenticate(
     if session.account_id().await.is_some() {
         return Err(Error::Refused);
     }
-    let proof = service.finish_authorized(binding, input).await?;
+    let proof = match service.finish_authorized(binding, input).await {
+        Err(Error::Refused) => {
+            crate::login_http::record_failure(&service.pool).await?;
+            return Err(Error::Refused);
+        }
+        result => result?,
+    };
     let account = proof.account;
     session
         .set(crate::mfa_http::PENDING, &String::new())
