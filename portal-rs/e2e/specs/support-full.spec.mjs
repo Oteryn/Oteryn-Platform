@@ -120,7 +120,10 @@ test('ticket creation, private and public replies, acknowledgment, close and reo
     const status = ticketForm(player, 'status');
     await submitForm(status, { status: 'open' }, { bad: { status: 'waiting_staff' } });
     await labels(player, [t.open]);
-    await submitForm(status, { status: 'closed' }, { method: 'PUT', bad: { status: 'invalid' } });
+    const closed = await submitForm(status, { status: 'closed' }, {
+      method: 'PUT', status: 303, bad: { status: 'invalid' },
+    });
+    expect(closed.headers().location).toBe(path);
     await player.reload();
     await labels(player, [t.closed]);
     await submitForm(status, { status: 'open' });
@@ -261,25 +264,31 @@ test('moderator creates sanctions, revokes them, and adjudicates requested appea
         await open(staff, enforcement);
         await staff.getByRole('link', { name: values.public_reason }).click();
         await expect(staff).toHaveURL(new RegExp(`${enforcement}/${id}$`));
-        await labels(staff, [a.appeal_status, a.appeal_outcome, a.appeal, a.internal, values.moderator_notes]);
-        for (const option of ['reviewing', 'accepted', 'rejected']) {
-          await expect(appeal.locator(`option[value=${option}]`)).toHaveText(a[option]);
-        }
+        await labels(staff, [a.internal, values.moderator_notes]);
+        await expect(appeal).toHaveCount(0);
         if (decision === 'revoked' || decision === 'expired') {
           const bad = decision === 'revoked' ? { status: 'expired', expected: 409 } : { target: randomUUID() };
           await submitForm(sanction, { ...values, status: decision }, { bad });
           await expect(staff.locator('main > p').first()).toHaveText(a[decision]);
         } else {
-          // No player-facing appeal router is composed. Seed only the request
-          // that would enter the staff workflow, then use its real SSR controls.
-          await query(
-            "UPDATE support_appeal_workflows SET status='requested',message=$2 WHERE sanction_id=$1",
-            [id, 'Review requested by account owner'],
-          );
+          const appealPath = `/${lang}/support/appeals/${id}`;
+          const message = 'Review requested by account owner';
+          await open(player, appealPath);
+          await submitForm(player.locator('main form'), { message }, { status: 303 });
+          await expect(player).toHaveURL(appealPath);
+          await labels(player, [message]);
           await staff.reload();
-          await labels(staff, [a.public, 'Review requested by account owner']);
-          await submitForm(appeal, { appeal_status: 'reviewing', appeal_outcome: 'Review started' });
-          await expect(staff.locator('main')).toContainText('Review started');
+          await labels(staff, [a.appeal_status, a.requested, a.appeal_outcome, a.appeal, a.public, message]);
+          await expect(appeal.locator('select[name=appeal_status] option')).toHaveText([
+            a.choose_decision, a.overturn, a.uphold,
+          ]);
+          // The endpoint still accepts the legacy review transition. The form only offers final decisions.
+          const { _csrf, ...fields } = await appeal.evaluate(form => Object.fromEntries(new FormData(form)));
+          const review = { ...fields, action: 'appeal', appeal_status: 'reviewing', appeal_outcome: 'Review started' };
+          await mutation(staff, detail(staff), review, 403);
+          await mutation(staff, detail(staff), { ...review, _csrf }, 303);
+          await staff.reload();
+          await labels(staff, [a.reviewing, 'Review started']);
           await submitForm(appeal, { appeal_status: decision, appeal_outcome: `Appeal ${decision}` }, {
             bad: { appeal_outcome: ' ' },
           });
@@ -540,7 +549,11 @@ test('report submission explains pending, unjustified and rate limits', async ({
     await labels(player, [r['unjustified-limit']]);
     const response = await submitForm(form, { target_reference: 'New report' }, { status: 429 });
     expect(response.headers()['retry-after']).toBe('60');
-    await expect(player.locator('body')).toHaveText(r['rate-limited']);
+    expect(response.headers()['content-type']).toContain('text/html');
+    expect(response.headers()['cache-control']).toContain('no-store');
+    const main = player.locator('main');
+    await expect(main.getByRole('heading', { level: 1 })).toHaveText(lang === 'pl' ? 'Zbyt wiele żądań' : 'Too many requests');
+    await expect(main.getByText(r['rate-limited'], { exact: true })).toBeVisible();
   });
 });
 

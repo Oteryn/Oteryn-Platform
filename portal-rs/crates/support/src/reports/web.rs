@@ -241,6 +241,7 @@ async fn store(
     State(service): State<Reports>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     input: Result<Form<Input>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, Response> {
     let locale = Locale::parse(&lang).map_err(IntoResponse::into_response)?;
@@ -270,12 +271,27 @@ async fn store(
                 locale.0, report.id
             )))
         }
-        Err(Error::RateLimited) => Err((
-            StatusCode::TOO_MANY_REQUESTS,
-            [(header::RETRY_AFTER, "60")],
-            locale.text("rate-limited"),
-        )
-            .into_response()),
+        Err(Error::RateLimited) => {
+            let chrome = chrome.map_or_else(
+                || {
+                    oteryn_ui::Registry::default().chrome(
+                        locale.0,
+                        &format!("/{}/support/reports", locale.0),
+                        oteryn_ui::Account::Anonymous,
+                    )
+                },
+                |Extension(chrome)| chrome,
+            );
+            let mut response = oteryn_ui::error_with_message(
+                &chrome,
+                StatusCode::TOO_MANY_REQUESTS,
+                &locale.text("rate-limited"),
+            );
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, header::HeaderValue::from_static("60"));
+            Err(response)
+        }
         Err(error @ (Error::Invalid | Error::PendingLimit | Error::UnjustifiedLimit)) => {
             let key = match error {
                 Error::PendingLimit => "pending-limit",
