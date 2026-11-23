@@ -15,14 +15,19 @@ async fn exchange_deadline<F: std::future::Future>(
     tokio::time::timeout(duration, exchange).await
 }
 impl Runtime {
-    pub async fn start_private_listener(&self) -> Result<tokio::task::JoinHandle<()>, Error> {
+    pub async fn start_private_listener(
+        &self,
+    ) -> Result<tokio::task::JoinHandle<()>, Box<dyn std::error::Error>> {
         self.config.current()?;
         let certs = CertificateDer::pem_file_iter(&self.config.certificate)
             .map_err(|_| Error::Unavailable)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(|_| Error::Unavailable)?;
-        let key = PrivateKeyDer::from_pem_file(&self.config.private_key)
-            .map_err(|_| Error::Unavailable)?;
+        let key = PrivateKeyDer::from_pem_reader(oteryn_core::secret_file::open(
+            "OTERYN_BAZAAR_TLS_KEY_FILE",
+            &self.config.private_key,
+        )?)
+        .map_err(|_| "invalid PEM in OTERYN_BAZAAR_TLS_KEY_FILE")?;
         let mut roots = rustls::RootCertStore::empty();
         for cert in
             CertificateDer::pem_file_iter(&self.config.client_ca).map_err(|_| Error::Unavailable)?

@@ -93,10 +93,16 @@ pub fn configured_payment_adapter(
     {
         return Ok(None);
     }
-    let Some(path) = std::env::var_os("OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE") else {
+    const KEY_FILE: &str = "OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE";
+    let Some(path) = std::env::var_os(KEY_FILE) else {
         return Ok(None);
     };
-    let key = zeroize::Zeroizing::new(std::fs::read(path)?);
+    let mut key = zeroize::Zeroizing::new(Vec::new());
+    std::io::Read::read_to_end(
+        &mut oteryn_core::secret_file::open(KEY_FILE, path)?,
+        &mut key,
+    )
+    .map_err(|_| "could not read OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE")?;
     let provider = oteryn_payments::TestProvider::new(&key)?;
     Ok(Some(TestPaymentAdapter::new(
         pool,

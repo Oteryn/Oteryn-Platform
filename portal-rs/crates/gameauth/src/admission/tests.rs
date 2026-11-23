@@ -5,7 +5,7 @@ use axum::{
 };
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row, postgres::PgPoolOptions};
-use std::sync::Arc;
+use std::{io::Write, os::unix::fs::OpenOptionsExt, sync::Arc};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -27,14 +27,23 @@ fn tokens() -> Result<ServiceTokens, Box<dyn std::error::Error>> {
     std::fs::create_dir(&dir)?;
     let current = dir.join("current");
     let previous = dir.join("previous");
-    std::fs::write(
-        &current,
-        format!("{:x}\n", Sha256::digest(CURRENT.as_bytes())),
-    )?;
-    std::fs::write(
-        &previous,
-        format!("{:X}", Sha256::digest(PREVIOUS.as_bytes())),
-    )?;
+    for (path, hash) in [
+        (
+            &current,
+            format!("{:x}\n", Sha256::digest(CURRENT.as_bytes())),
+        ),
+        (
+            &previous,
+            format!("{:X}", Sha256::digest(PREVIOUS.as_bytes())),
+        ),
+    ] {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(path)?
+            .write_all(hash.as_bytes())?;
+    }
     let result = ServiceTokens::from_files(&current, Some(&previous));
     std::fs::remove_dir_all(dir)?;
     Ok(result?)
@@ -345,7 +354,12 @@ async fn default_off_and_missing_configuration_fail_closed() -> TestResult {
 #[test]
 fn invalid_hash_files_and_redacted_debug() -> TestResult {
     let path = std::env::temp_dir().join(format!("admission-hash-{}", Uuid::now_v7()));
-    std::fs::write(&path, "invalid")?;
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)?
+        .write_all(b"invalid")?;
     assert!(ServiceTokens::from_files(&path, None).is_err());
     std::fs::remove_file(path)?;
     assert_eq!(format!("{:?}", tokens()?), "ServiceTokens{redacted}");

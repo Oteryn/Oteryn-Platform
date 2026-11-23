@@ -14,8 +14,15 @@ use axum::{
 };
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
-use std::{path::Path, sync::Arc};
+use std::{
+    io::{self, Read},
+    path::Path,
+    sync::Arc,
+};
 use subtle::{Choice, ConstantTimeEq};
+
+const CURRENT_HASH_FILE: &str = "PORTAL_GATEWAY_TOKEN_SHA256_FILE";
+const PREVIOUS_HASH_FILE: &str = "PORTAL_GATEWAY_PREVIOUS_TOKEN_SHA256_FILE";
 
 #[derive(Clone)]
 pub struct ServiceTokens {
@@ -30,23 +37,31 @@ impl std::fmt::Debug for ServiceTokens {
 impl ServiceTokens {
     /// Files contain a hexadecimal SHA-256 digest, optionally with a final newline.
     /// No plaintext credential configuration is accepted.
-    pub fn from_files(current: &Path, previous: Option<&Path>) -> Result<Self, Error> {
-        fn read(path: &Path) -> Result<[u8; 32], Error> {
-            let data = std::fs::read(path).map_err(|_| Error::Unavailable)?;
+    pub fn from_files(current: &Path, previous: Option<&Path>) -> io::Result<Self> {
+        fn read(key: &'static str, path: &Path) -> io::Result<[u8; 32]> {
+            let invalid = || io::Error::new(io::ErrorKind::InvalidData, key);
+            let mut data = Vec::new();
+            oteryn_core::secret_file::open(key, path)
+                .map_err(|error| io::Error::new(error.kind(), error))?
+                .take(66)
+                .read_to_end(&mut data)
+                .map_err(|error| io::Error::new(error.kind(), key))?;
             let raw = data.strip_suffix(b"\n").unwrap_or(&data);
             if raw.len() != 64 || !raw.iter().all(u8::is_ascii_hexdigit) {
-                return Err(Error::Unavailable);
+                return Err(invalid());
             }
             let mut hash = [0; 32];
             for (index, pair) in raw.as_chunks::<2>().0.iter().enumerate() {
-                let text = std::str::from_utf8(pair).map_err(|_| Error::Unavailable)?;
-                hash[index] = u8::from_str_radix(text, 16).map_err(|_| Error::Unavailable)?;
+                let text = std::str::from_utf8(pair).map_err(|_| invalid())?;
+                hash[index] = u8::from_str_radix(text, 16).map_err(|_| invalid())?;
             }
             Ok(hash)
         }
         Ok(Self {
-            current: read(current)?,
-            previous: previous.map(read).transpose()?,
+            current: read(CURRENT_HASH_FILE, current)?,
+            previous: previous
+                .map(|path| read(PREVIOUS_HASH_FILE, path))
+                .transpose()?,
         })
     }
     fn authenticates(&self, hash: &[u8; 32]) -> bool {
@@ -369,14 +384,19 @@ pub fn configured_router(
     signer: Option<Arc<dyn GrantSigner>>,
     protocol3: Option<Protocol3>,
     recovery: Option<RecoveryIssuer>,
-) -> Router {
+) -> io::Result<Router> {
     let enabled = std::env::var("PORTAL_NATIVE_ADMISSIONS_ENABLED").is_ok_and(|v| v == "true");
-    let current = std::env::var_os("PORTAL_GATEWAY_TOKEN_SHA256_FILE");
-    let previous = std::env::var_os("PORTAL_GATEWAY_PREVIOUS_TOKEN_SHA256_FILE");
-    let tokens = current.and_then(|path| {
-        ServiceTokens::from_files(Path::new(&path), previous.as_deref().map(Path::new)).ok()
-    });
-    router(
+    let current = std::env::var_os(CURRENT_HASH_FILE);
+    let previous = std::env::var_os(PREVIOUS_HASH_FILE);
+    let tokens = match (
+        current.as_deref().map(Path::new),
+        previous.as_deref().map(Path::new),
+    ) {
+        (Some(current), previous) => Some(ServiceTokens::from_files(current, previous)?),
+        (None, Some(_)) => return Err(io::Error::new(io::ErrorKind::NotFound, CURRENT_HASH_FILE)),
+        (None, None) => None,
+    };
+    Ok(router(
         db,
         AdmissionConfig {
             enabled,
@@ -390,7 +410,7 @@ pub fn configured_router(
         accounts,
         authority,
     )
-    .route("/health", get(|| async { "ok" }))
+    .route("/health", get(|| async { "ok" })))
 }
 
 pub async fn start_private_listener(

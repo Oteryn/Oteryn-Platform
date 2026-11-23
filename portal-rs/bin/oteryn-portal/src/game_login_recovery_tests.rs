@@ -135,7 +135,7 @@ impl Database {
                 (admission::RECOVERY_KEY_CUSTODY_FILE, &fresh),
                 (admission::RECOVERY_KEY_WRAPPING_FILE, &wrapping),
             ]),
-        )
+        )?
         .ok_or("issuer")?;
         assert!(same.signer.is_none());
         let lookup = grants.lookup(&[
@@ -154,7 +154,7 @@ impl Database {
                 Some(&off),
                 &Self::projection_settings(),
                 &lookup,
-            )
+            )?
             .is_none()
         );
         let issuer = recovery_issuer(
@@ -163,7 +163,7 @@ impl Database {
             Some(protocol3),
             &Self::projection_settings(),
             lookup,
-        )
+        )?
         .ok_or("issuer")?;
         assert!(issuer.signer.is_some(), "recovery custody must open");
         Ok((dir, issuer))

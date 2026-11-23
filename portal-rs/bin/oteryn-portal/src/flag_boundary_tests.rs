@@ -626,7 +626,13 @@ mod flag_boundary {
             let cert = params.signed_by(&key, &ca, &ca_key)?;
             fs::write(path.join(format!("{name}.pem")), cert.pem())?;
             fs::write(path.join(format!("{name}.der")), cert.der())?;
-            fs::write(path.join(format!("{name}.key")), key.serialize_pem())?;
+            use std::{io::Write, os::unix::fs::OpenOptionsExt};
+            fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .open(path.join(format!("{name}.key")))?
+                .write_all(key.serialize_pem().as_bytes())?;
         }
         Ok(())
     }

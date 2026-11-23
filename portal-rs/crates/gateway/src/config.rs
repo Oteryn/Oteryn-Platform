@@ -1,6 +1,7 @@
 //! Gateway configuration is independent of portal and database configuration.
 use std::{fmt, net::IpAddr, path::PathBuf, time::Duration};
 
+const SERVICE_TOKEN_FILE: &str = "OTERYN_PLATFORM_SERVICE_TOKEN_FILE";
 pub(crate) const ISSUER_CA_FILE: &str = "OTERYN_PLATFORM_ISSUER_CA_FILE";
 #[derive(Clone)]
 pub struct Config {
@@ -45,7 +46,7 @@ impl Config {
             return Err(format!("{ISSUER_CA_FILE} is empty"));
         }
         validate_issuer_url(&base_url, issuer_ca_file.is_some())?;
-        let token_file = value("OTERYN_PLATFORM_SERVICE_TOKEN_FILE", "");
+        let token_file = value(SERVICE_TOKEN_FILE, "");
         if token_file.is_empty() {
             return Err("OTERYN_PLATFORM_SERVICE_TOKEN_FILE is required".into());
         }
@@ -87,17 +88,20 @@ impl Config {
     pub fn read_token(&self) -> Result<String, std::io::Error> {
         use std::io::Read;
         let mut b = String::new();
-        std::fs::File::open(&self.token_file)?
-            .take(8193)
-            .read_to_string(&mut b)?;
+        oteryn_core::secret_file::open(SERVICE_TOKEN_FILE, &self.token_file)
+            .map_err(|error| std::io::Error::new(error.kind(), error))?
+            .take(8195)
+            .read_to_string(&mut b)
+            .map_err(|error| std::io::Error::new(error.kind(), SERVICE_TOKEN_FILE))?;
         let token = b.trim_end_matches(['\r', '\n']);
-        if token.is_empty()
+        if b.len() == 8195
+            || token.is_empty()
             || token.len() > 8192
             || !token.bytes().all(|b| (0x21..=0x7e).contains(&b))
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                "invalid service token file",
+                "invalid OTERYN_PLATFORM_SERVICE_TOKEN_FILE",
             ));
         }
         Ok(token.to_owned())
@@ -160,4 +164,33 @@ fn duration(raw: &str, max: u64) -> Result<Duration, String> {
         return Err("gateway timeout out of range".into());
     }
     Duration::try_from_secs_f64(seconds).map_err(|_| "invalid gateway timeout".into())
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    #[test]
+    fn service_token_file_admission() -> Result<(), Box<dyn std::error::Error>> {
+        let file = tempfile::NamedTempFile::new()?;
+        fs::write(file.path(), b"synthetic\n")?;
+        let config = Config::from_lookup(|key| match key {
+            "OTERYN_PLATFORM_BASE_URL" => Some("http://127.0.0.1:8000".into()),
+            "OTERYN_PLATFORM_SERVICE_TOKEN_FILE" => Some(file.path().display().to_string()),
+            _ => None,
+        })?;
+        fs::set_permissions(file.path(), fs::Permissions::from_mode(0o644))?;
+        let error = config.read_token().err().ok_or("mode was admitted")?;
+        assert!(
+            error
+                .to_string()
+                .contains("OTERYN_PLATFORM_SERVICE_TOKEN_FILE")
+        );
+        fs::set_permissions(file.path(), fs::Permissions::from_mode(0o600))?;
+        assert_eq!(config.read_token()?, "synthetic");
+        fs::write(file.path(), b"two words")?;
+        assert!(config.read_token().is_err());
+        Ok(())
+    }
 }

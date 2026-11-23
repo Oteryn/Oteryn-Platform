@@ -678,12 +678,11 @@ Dane na żywo (online, rankingi, status światów) to projekcje z §5.3, nie cz�
 
 ### 7.1 Security proposals salvaged from #1643
 
-These are non-binding design notes for later implementation tasks, not evidence of delivered controls or authorization to change existing contracts. In the citations below, `draft` means `docs/architecture/OTERYN_PLATFORM_2_DESIGN_DRAFT.md` on the source branch; the draft is not copied here.
+Items marked decided record owner decisions. The remaining notes are proposals for later implementation. In the citations below, `draft` means `docs/architecture/OTERYN_PLATFORM_2_DESIGN_DRAFT.md` on the source branch; the draft is not copied here.
 
 - **Audit integrity:** append-only daily hash chains, with each chain head exported to logs. Retain actor, peer, action, target, before/after digests, request ID and IP alongside the existing audit fields. Source: #1643 draft:249-266 @ 1c9c638f.
-- **Supply chain:** produce an SBOM and apply keyless sigstore signing to each image. Source: #1643 draft:249-266 @ 1c9c638f.
 - **Single-approver fallback:** where only one eligible approver exists, allow self-approval only after a 15-minute cooldown and email the owner. This proposed exception needs explicit acceptance before it can alter the four-eyes controls in §5.4 or other accepted contracts. Source: #1643 draft:37 @ 1c9c638f.
-- **OPEN OWNER DECISION — secret-file permissions:** should the loader require secret files in `/run/secrets` with mode `0400` and reject group- or world-readable files? The draft's file-only policy conflicts with §7's “environment variables or files”; §7 remains unchanged pending the owner's decision. Source: #1643 draft:249-266 @ 1c9c638f.
+- **DECIDED 2026-11-23** — [GAP-68 secret-file permissions and release image evidence](../product/GAP68_SECRET_AND_IMAGE_POLICY.md). §7 continues to allow secrets from environment variables or files.
 
 ## 8. Wygląd i jakość
 

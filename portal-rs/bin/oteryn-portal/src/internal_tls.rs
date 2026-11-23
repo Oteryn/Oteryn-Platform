@@ -90,7 +90,11 @@ impl Config {
             roots.add(certificate)?;
         }
         let chain = certificates(&self.cert_file)?;
-        let key = PrivateKeyDer::from_pem_file(&self.key_file)?;
+        let key = PrivateKeyDer::from_pem_reader(oteryn_core::secret_file::open(
+            KEYS[2],
+            &self.key_file,
+        )?)
+        .map_err(|_| "invalid PEM in OTERYN_INTERNAL_TLS_KEY_FILE")?;
         server_config(roots, chain, key)
     }
 }

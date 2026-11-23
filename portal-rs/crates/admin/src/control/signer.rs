@@ -22,8 +22,10 @@ pub enum Error {
     Envelope,
     #[error("canonical JSON: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("key file could not be read")]
-    KeyFile,
+    #[error("key file could not be read: {0}")]
+    KeyFile(&'static str),
+    #[error(transparent)]
+    FilePolicy(#[from] oteryn_core::secret_file::SecretFileError),
 }
 
 // Requiring a deserializer prevents serde from silently defaulting absent
@@ -233,12 +235,25 @@ impl AdminKey {
     }
     /// Load a raw 32-byte Ed25519 seed from a path in the named environment variable.
     /// The variable contains only a path; the file is never logged.
-    pub fn from_env(variable: &str, id: String, validity: Validity) -> Result<Self, Error> {
-        let path = std::env::var_os(variable).ok_or(Error::KeyFile)?;
-        Self::from_file(Path::new(&path), id, validity)
+    pub fn from_env(variable: &'static str, id: String, validity: Validity) -> Result<Self, Error> {
+        let path = std::env::var_os(variable).ok_or(Error::KeyFile(variable))?;
+        Self::load_file(variable, Path::new(&path), id, validity)
     }
     pub fn from_file(path: &Path, id: String, validity: Validity) -> Result<Self, Error> {
-        let bytes = zeroize::Zeroizing::new(std::fs::read(path).map_err(|_| Error::KeyFile)?);
+        Self::load_file("PORTAL_ADMIN_CONTROL_SIGNER_KEY_FILE", path, id, validity)
+    }
+    fn load_file(
+        variable: &'static str,
+        path: &Path,
+        id: String,
+        validity: Validity,
+    ) -> Result<Self, Error> {
+        use std::io::Read;
+        let mut bytes = zeroize::Zeroizing::new(Vec::new());
+        oteryn_core::secret_file::open(variable, path)?
+            .take(33)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Error::KeyFile(variable))?;
         let seed: [u8; 32] = bytes
             .as_slice()
             .try_into()

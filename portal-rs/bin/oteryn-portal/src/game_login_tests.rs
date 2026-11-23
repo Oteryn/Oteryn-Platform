@@ -688,7 +688,7 @@ impl Database {
                 ROUTE_HOST,
             )?,
         };
-        let mut issuance = issuance(self.pool.clone(), grants.lookup(&[]));
+        let mut issuance = issuance(self.pool.clone(), grants.lookup(&[]))?;
         assert!(issuance.permitted());
         assert!(issuance.signer.is_some(), "custody must open");
         issuance.runtime = runtime_settings()?;
@@ -934,7 +934,7 @@ async fn pg_issuance_refusals_fail_closed_without_consuming_the_ticket() -> Test
         &[("OTERYN_ENV", "")],
         &[(admission::GRANT_TTL_SECONDS, "31")],
     ] {
-        let mut issuance = issuance(db.pool.clone(), grants.lookup(overrides));
+        let mut issuance = issuance(db.pool.clone(), grants.lookup(overrides))?;
         assert!(issuance.signer.is_none(), "{overrides:?}");
         issuance.runtime = runtime_settings()?;
         unavailable(db.admission_with(issuance)?, login).await?;
@@ -954,7 +954,7 @@ async fn pg_issuance_refusals_fail_closed_without_consuming_the_ticket() -> Test
     let missing = issuance(
         db.pool.clone(),
         grants.lookup(&[(admission::KEY_CUSTODY_FILE, "/nonexistent/custody")]),
-    );
+    )?;
     assert!(missing.signer.is_none());
 
     // §7.4 / mode 34a: no enabled, intact route record means no route.
@@ -1084,7 +1084,7 @@ async fn pg_signer_self_check_failures_refuse_issuance_without_consuming_the_tic
     // Each case composes a new signer, so no earlier self-check is cached.
     let fresh =
         |overrides: &[(&str, &str)]| -> Result<admission::Issuance, Box<dyn std::error::Error>> {
-            let mut issuance = issuance(db.pool.clone(), grants.lookup(overrides));
+            let mut issuance = issuance(db.pool.clone(), grants.lookup(overrides))?;
             issuance.runtime = runtime_settings()?;
             Ok(issuance)
         };
@@ -1232,7 +1232,7 @@ async fn pg_grant_ttl_bounds_hold_end_to_end() -> TestResult {
         let mut issuance = issuance(
             db.pool.clone(),
             grants.lookup(&[(admission::GRANT_TTL_SECONDS, &text)]),
-        );
+        )?;
         assert!(issuance.permitted() && issuance.signer.is_some(), "{ttl}");
         issuance.runtime = runtime_settings()?;
         let native = db.native_ticket(account).await?;
@@ -1258,7 +1258,7 @@ async fn pg_grant_ttl_bounds_hold_end_to_end() -> TestResult {
         let mut issuance = issuance(
             db.pool.clone(),
             grants.lookup(&[(admission::GRANT_TTL_SECONDS, ttl)]),
-        );
+        )?;
         assert!(!issuance.permitted() && issuance.signer.is_none(), "{ttl}");
         issuance.runtime = runtime_settings()?;
         unavailable(db.admission_with(issuance)?, |attempt| {

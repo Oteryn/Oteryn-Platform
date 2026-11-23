@@ -272,11 +272,20 @@ fn rfc8785_appendix_b_number_vectors() {
         assert!(canonical::encode(&f64::from_bits(bits)).is_err());
     }
 }
+#[cfg(unix)]
 #[test]
 fn key_file_loading() {
     let path = std::env::temp_dir().join(format!("admin-key-test-{}", uuid::Uuid::now_v7()));
     let generated = SigningKey::generate(&mut OsRng);
-    std::fs::write(&path, generated.to_bytes()).unwrap();
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&path)
+        .unwrap()
+        .write_all(&generated.to_bytes())
+        .unwrap();
     let loaded = AdminKey::from_file(&path, "platform-admin-signer-1".into(), window()).unwrap();
     assert_eq!(loaded.verifying_key(), generated.verifying_key());
     assert!(!format!("{loaded:?}").contains(&format!("{:?}", generated.to_bytes())));

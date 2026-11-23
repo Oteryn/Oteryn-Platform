@@ -104,7 +104,9 @@ async fn ingest(State(s): State<Surface>, request: Request) -> Response {
 }
 /// None means the single feature flag is off or deployment trust is incomplete;
 /// pages remain mounted/refusing when enabled, never switched to fake authority.
-pub async fn start_private_listener(pool: PgPool) -> Result<Option<JoinHandle<()>>> {
+pub async fn start_private_listener(
+    pool: PgPool,
+) -> std::result::Result<Option<JoinHandle<()>>, Box<dyn std::error::Error>> {
     if !config::enabled() {
         return Ok(None);
     }
@@ -128,9 +130,18 @@ pub fn private_router(pool: PgPool, config: Config) -> Router {
         .method_not_allowed_fallback(|| async { response(StatusCode::BAD_REQUEST) })
         .with_state(surface)
 }
-async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
+async fn start(
+    pool: PgPool,
+    c: Config,
+) -> std::result::Result<JoinHandle<()>, Box<dyn std::error::Error>> {
     let connection_limit = c.connections()?;
     let load = |p: &std::path::Path| std::fs::read(p).map_err(|_| Error::Unavailable);
+    let mut key = Vec::new();
+    std::io::Read::read_to_end(
+        &mut oteryn_core::secret_file::open("OTERYN_LEAGUE_PRIVATE_KEY_DER", &c.private_key)?,
+        &mut key,
+    )
+    .map_err(|_| "could not read OTERYN_LEAGUE_PRIVATE_KEY_DER")?;
     let mut roots = rustls::RootCertStore::empty();
     roots
         .add(CertificateDer::from(load(&c.ca)?))
@@ -148,7 +159,7 @@ async fn start(pool: PgPool, c: Config) -> Result<JoinHandle<()>> {
         .with_client_cert_verifier(verifier)
         .with_single_cert(
             vec![CertificateDer::from(load(&c.certificate)?)],
-            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(load(&c.private_key)?)),
+            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key)),
         )
         .map_err(|_| Error::Invalid)?;
     tls.alpn_protocols = vec![b"http/1.1".to_vec()];
