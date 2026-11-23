@@ -1,12 +1,11 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
-import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {query} from '../staff-rbac-helpers.mjs';
+import {query, seededAccount, seededStaff} from '../staff-rbac-helpers.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
-let cookies,account;
+let cookies,account,staffCookies;
 test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
@@ -14,21 +13,25 @@ test.beforeAll(async({browser},info)=>{
 for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context},info)=>{
  const lang=info.project.metadata.locale;
  if(row.actor==='staff') {
-   const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
-   await context.addCookies(staff.cookies);
+   if (!staffCookies) {
+     await seededStaff(page, lang, 'platform_admin');
+     staffCookies = await context.cookies();
+   } else {
+     await context.addCookies(staffCookies);
+   }
  }else await context.addCookies(cookies);
  const target=sample(row.route,lang);
  if (row.route.endsWith('/account/characters/{name}/profile')) {
-   // Publish a current portfolio for this player so the missing name is checked against a healthy feed.
+   // Keep the ownership feed current with a portfolio on a separate fixture account.
+   const owner = await seededAccount(lang);
    const [portfolio] = await query(
-     "SELECT a.id AS account_id, uuidv7() AS character_id, w.id AS world_id FROM accounts a CROSS JOIN world_status w WHERE a.email=$1 AND w.name='Local Bazaar World'",
-     [account.email],
+     "SELECT uuidv7() AS character_id, id AS world_id FROM world_status WHERE name='Local Bazaar World'",
    );
-   expect(portfolio, 'route player and fixture world are present').toBeDefined();
+   expect(portfolio, 'the fixture world is present').toBeDefined();
    const publication = await fetch(`${process.env.PORTAL_E2E_GAME_CLOSURE_CONTROL_URL}/portfolio`, {
      method: 'POST',
      headers: {'content-type': 'application/json'},
-     body: JSON.stringify(portfolio),
+     body: JSON.stringify({account_id: owner.id, ...portfolio}),
    });
    expect(publication.status, 'ownership fixture is published').toBe(200);
  }
