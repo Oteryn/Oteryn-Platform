@@ -104,6 +104,14 @@ struct Text<'a> {
     body: &'a str,
 }
 impl EmailTemplate {
+    fn kind(&self) -> &'static str {
+        match self {
+            Self::NewDevice { .. } => "new-device",
+            Self::PasswordChanged => "password-changed",
+            Self::News { .. } => "news",
+            Self::Support { .. } => "support",
+        }
+    }
     pub fn category(&self) -> Category {
         match self {
             Self::NewDevice { .. } | Self::PasswordChanged => Category::Security,
@@ -336,7 +344,7 @@ impl Notifications {
                     .token(account, category, now.unix_timestamp() + 30 * 86400)?
             ))
         };
-        let id: Uuid = outbox::query_scalar("INSERT INTO email_outbox(account_id,category,recipient,subject,text_body,html_body,unsubscribe_url) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id").bind(account).bind(category.as_str()).bind(state.email).bind(rendered.subject).bind(rendered.text).bind(rendered.html).bind(unsubscribe).fetch_one(&mut **tx).await?;
+        let id: Uuid = outbox::query_scalar("INSERT INTO email_outbox(account_id,category,recipient,subject,text_body,html_body,unsubscribe_url,template_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id").bind(account).bind(category.as_str()).bind(state.email).bind(rendered.subject).bind(rendered.text).bind(rendered.html).bind(unsubscribe).bind(template.kind()).fetch_one(&mut **tx).await?;
         outbox::enqueue(
             tx,
             EMAIL_JOB,

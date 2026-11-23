@@ -13,7 +13,7 @@ use axum::{
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
 };
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
@@ -135,13 +135,13 @@ impl PanelConfig {
     }
 }
 
-struct Panel<I, A> {
+pub(crate) struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
     required: Option<Permission>,
     identity: I,
-    auth: Arc<Authorizer<A>>,
-    pool: PgPool,
+    pub(crate) auth: Arc<Authorizer<A>>,
+    pub(crate) pool: PgPool,
 }
 
 pub(crate) fn config_from_env() -> Result<PanelConfig, Box<dyn std::error::Error>> {
@@ -268,6 +268,19 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
+        .route(
+            "/admin/mail-outbox/retry",
+            post(crate::mail_ops::retry::<I, A>),
+        )
+        .route(
+            "/admin/mail-outbox/retry-kind",
+            post(crate::mail_ops::retry_kind::<I, A>),
+        )
+        .route(
+            "/admin/mail-outbox/cancel",
+            post(crate::mail_ops::cancel::<I, A>),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -399,13 +412,14 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
+    let permission = s.required.unwrap_or_else(|| match request.uri().path() {
+        "/admin/roles" => Permission::ManageRoles,
+        "/admin/mail-outbox" => Permission::MailView,
+        "/admin/mail-outbox/retry" => Permission::MailRetry,
+        "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
+        "/admin/mail-outbox/cancel" => Permission::MailCancel,
+        _ => Permission::Access,
+    });
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
@@ -442,7 +456,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -453,22 +467,30 @@ fn language(headers: &axum::http::HeaderMap) -> &'static str {
         "pl"
     }
 }
-fn text(lang: &str, key: &str) -> String {
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
-    let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
+pub(crate) fn messages(
+    lang: &str,
+) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
+    let mut bundle = fluent_bundle::FluentBundle::new(vec![lang.parse().ok()?]);
     let source = if lang == "en" {
         include_str!("../../../templates/admin/en.ftl")
     } else {
         include_str!("../../../templates/admin/pl.ftl")
     };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
+    let resource = fluent_bundle::FluentResource::try_new(source.to_owned()).ok()?;
+    bundle.add_resource(resource).ok()?;
+    Some(bundle)
+}
+
+pub(crate) fn text(lang: &str, key: &str) -> String {
+    messages(lang)
+        .map(|bundle| message(&bundle, key))
+        .unwrap_or_default()
+}
+
+pub(crate) fn message(
+    bundle: &fluent_bundle::FluentBundle<fluent_bundle::FluentResource>,
+    key: &str,
+) -> String {
     bundle
         .get_message(key)
         .and_then(|m| m.value())
@@ -483,6 +505,7 @@ struct Page {
     roles_label: String,
     reports_label: String,
     moderate_reports: bool,
+    mail_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -566,12 +589,18 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         String::new()
     };
     let lang = language(&headers);
+    let mail_link = match s.auth.check(context, Permission::MailView).await {
+        Ok(()) => Some(text(lang, "mail-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         reports_label: text(lang, "reports"),
         moderate_reports,
+        mail_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

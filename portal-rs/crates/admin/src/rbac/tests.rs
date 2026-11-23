@@ -42,11 +42,15 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 69);
+    assert_eq!(Permission::ALL.len(), 74);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
             Permission::AdminAnalyticsExport,
+            Permission::MailView,
+            Permission::MailRetry,
+            Permission::MailRetryBatch,
+            Permission::MailCancel,
         ] {
             assert_eq!(
                 role.permissions().contains(&permission),
@@ -61,10 +65,11 @@ fn permission_catalog_is_stable_unique_and_covered() {
             permission.as_str().parse::<Permission>().unwrap(),
             *permission
         );
-        assert!(
+        assert_eq!(
             BuiltInRole::ALL
                 .iter()
-                .any(|role| role.permissions().contains(permission))
+                .any(|role| role.permissions().contains(permission)),
+            *permission != Permission::MailRecipient
         );
     }
     for invalid in [

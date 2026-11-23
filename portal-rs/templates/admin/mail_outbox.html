@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.tr("mail-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <header class="op-stack">
+    <nav aria-label="{{ self.tr("title") }}"><a href="/admin">{{ self.tr("title") }}</a></nav>
+    <h1>{{ self.tr("mail-title") }}</h1>
+  </header>
+  {% if let Some(changed) = changed %}
+  <p class="op-alert op-alert--success" role="status">{{ self.tr("mail-changed") }} · {{ changed }}</p>
+  {% endif %}
+  <section class="op-panel op-stack" aria-labelledby="overview">
+    <h2 id="overview">{{ self.tr("mail-overview") }}</h2>
+    <p class="op-muted">{{ self.tr("mail-overview-note") }}</p>
+    <ul class="mail-counts op-paths" role="list">
+      {% for count in counts %}
+      <li class="op-card op-stack">
+        <h3>{{ self.state_label(count.state) }}</h3>
+        <dl>
+          <dt>{{ self.tr("mail-24h") }}</dt><dd data-count="{{ count.state }}-24h">{{ count.day }}</dd>
+          <dt>{{ self.tr("mail-7d") }}</dt><dd data-count="{{ count.state }}-7d">{{ count.week }}</dd>
+        </dl>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="jobs">
+    <h2 id="jobs">{{ self.tr("mail-jobs") }}</h2>
+    <form class="op-stack" method="get" action="/admin/mail-outbox">
+      <div class="op-paths">
+        <div class="op-field">
+          <label for="filter-state">{{ self.tr("mail-state") }}</label>
+          <select class="op-input" id="filter-state" name="state">
+            <option value="">{{ self.tr("mail-all") }}</option>
+            {% for state in self.states() %}
+            <option value="{{ state }}"{% if filters.state.as_str() == *state %} selected{% endif %}>{{ self.state_label(state) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="op-field">
+          <label for="filter-kind">{{ self.tr("mail-kind") }}</label>
+          <select class="op-input" id="filter-kind" name="kind">
+            <option value="">{{ self.tr("mail-all") }}</option>
+            {% for kind in self.kinds() %}
+            <option value="{{ kind }}"{% if filters.kind.as_str() == *kind %} selected{% endif %}>{{ self.kind_label(kind) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="op-field">
+          <label for="filter-from">{{ self.tr("mail-from") }}</label>
+          <input class="op-input" id="filter-from" name="from" type="date" value="{{ filters.from }}">
+        </div>
+        <div class="op-field">
+          <label for="filter-to">{{ self.tr("mail-to") }}</label>
+          <input class="op-input" id="filter-to" name="to" type="date" value="{{ filters.to }}">
+        </div>
+        {% if reveal %}
+        <div class="op-field">
+          <label for="filter-recipient">{{ self.tr("mail-recipient-search") }}</label>
+          <input class="op-input" id="filter-recipient" name="recipient" type="email" maxlength="254" autocomplete="off" value="{{ filters.recipient }}">
+        </div>
+        {% endif %}
+      </div>
+      <div class="op-row">
+        <button class="op-button" type="submit">{{ self.tr("mail-filter") }}</button>
+        <a href="/admin/mail-outbox">{{ self.tr("mail-clear") }}</a>
+      </div>
+    </form>
+    {% if retry_batch %}
+    <details class="op-disclosure" open>
+      <summary>{{ self.tr("mail-batch") }}</summary>
+      <form class="op-panel op-stack" method="post" action="/admin/mail-outbox/retry-kind">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="request_id" value="{{ batch_request }}">
+        <input type="hidden" name="filters" value="{{ return_query }}">
+        <p class="op-muted">{{ self.tr("mail-batch-note") }} · {{ self.batch_limit() }}</p>
+        <div class="op-field">
+          <label for="batch-kind">{{ self.tr("mail-kind") }}</label>
+          <select class="op-input" id="batch-kind" name="kind" required>
+            <option value=""></option>
+            {% for kind in self.kinds() %}
+            <option value="{{ kind }}"{% if filters.kind.as_str() == *kind %} selected{% endif %}>{{ self.kind_label(kind) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div><button class="op-button op-button--secondary" type="submit">{{ self.tr("mail-retry-kind") }}</button></div>
+      </form>
+    </details>
+    {% endif %}
+    <p class="op-muted">{{ self.tr("mail-completed-note") }}</p>
+    {% if jobs.is_empty() %}
+    <p>{{ self.tr("mail-empty") }}</p>
+    {% endif %}
+    {% for job in jobs %}
+    <article class="op-card op-stack mail-job" data-job-id="{{ job.id }}" data-state="{{ job.state }}">
+      <header class="op-row">
+        <h3>{{ self.kind_label(job.kind) }}</h3>
+        <span class="op-badge{% if job.state == "failed" %} op-badge--warning{% else if job.state == "dead" %} op-badge--danger{% else if job.state == "sent" %} op-badge--success{% endif %}">{{ self.state_label(job.state) }}</span>
+      </header>
+      <dl class="mail-job-meta">
+        <div><dt>{{ self.tr("mail-recipient") }}</dt><dd>{% if let Some(address) = job.recipient %}{{ address }}{% else if job.has_recipient %}{{ self.tr("mail-masked") }}{% else %}{{ self.tr("mail-unknown-recipient") }}{% endif %}</dd></div>
+        <div><dt>{{ self.tr("mail-created") }}</dt><dd>{{ job.queued_at }}</dd></div>
+        <div><dt>{{ self.tr("mail-attempts") }}</dt><dd>{{ job.attempts }}</dd></div>
+        <div><dt>{{ self.tr("mail-error") }}</dt><dd>{% if let Some(error) = job.last_error %}{{ self.error_label(error) }}{% else %}{{ self.tr("mail-no-error") }}{% endif %}</dd></div>
+        <div><dt>{{ self.tr("mail-id") }}</dt><dd><code>{{ job.id }}</code></dd></div>
+      </dl>
+      {% if (retry && job.state == "failed") || (cancel && job.state == "pending") %}
+      <form method="post" action="/admin/mail-outbox/{% if job.state == "failed" %}retry{% else %}cancel{% endif %}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="filters" value="{{ return_query }}">
+        <input type="hidden" name="id" value="{{ job.id }}">
+        <input type="hidden" name="attempts" value="{{ job.attempts }}">
+        <button class="op-button op-button--secondary" type="submit">{% if job.state == "failed" %}{{ self.tr("mail-retry") }}{% else %}{{ self.tr("mail-cancel") }}{% endif %}</button>
+      </form>
+      {% endif %}
+    </article>
+    {% endfor %}
+    {% if filters.after.is_some() || next.is_some() %}
+    <nav class="op-row" aria-label="{{ self.tr("mail-jobs") }}">
+      {% if filters.after.is_some() %}<a href="/admin/mail-outbox?{{ return_query }}">{{ self.tr("mail-first") }}</a>{% endif %}
+      {% if let Some(next) = next %}<a href="{{ next }}" rel="next">{{ self.tr("mail-next") }}</a>{% endif %}
+    </nav>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>
