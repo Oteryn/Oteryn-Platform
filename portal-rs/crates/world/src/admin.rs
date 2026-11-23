@@ -439,7 +439,7 @@ async fn load_page<A: AccountStateReader>(
             native_publication,
             native_shop_records,
             native_quest_records,
-            native_pending_contract,
+            native_pending_contract
         ),
         csrf: if can_publish || can_change_visibility || can_change_names {
             session
