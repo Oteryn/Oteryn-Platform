@@ -16,3 +16,13 @@ sessions-other-event = Wylogowano pozostałe sesje
 sessions-all-event = Wylogowano wszystkie sesje
 sessions-unknown = Nieznane urządzenie
 sessions-note = Do 50 ostatnich sesji i 50 zdarzeń bezpieczeństwa. Nazwy urządzeń pochodzą z informacji przeglądarki i mogą być niedokładne.
+
+revocation-title = Unieważnienia sesji gry
+revocation-game-status = Stan zakończenia sesji gry
+revocation-unavailable = Te informacje są obecnie niedostępne.
+revocation-history = Ostatnie unieważnienia zapisane przez portal
+revocation-empty = Dla tego konta nie zapisano żadnych unieważnień.
+revocation-credential = Zmieniono dane logowania
+revocation-account-state = Zmieniono stan konta lub sposób odzyskiwania dostępu
+revocation-sanction = Ograniczenie konta weszło w życie
+revocation-staff-kick = Obsługa zleciła wylogowanie z gry

@@ -21,3 +21,7 @@ AUCTION = Aukcja
 OWNED = Zajęty
 MOVE_OUT_PENDING = Oczekuje na wyprowadzkę
 UNAVAILABLE = Informacja o zajęciu niedostępna
+world = Świat
+all-worlds = Wszystkie światy
+apply = Pokaż domy
+back = Wróć do listy domów

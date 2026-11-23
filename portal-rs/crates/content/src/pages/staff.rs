@@ -11,6 +11,7 @@ use oteryn_admin::{
     },
     web::{PanelConfig, PortalIdentity, StaffSession},
 };
+use oteryn_identity::consents::{ConsentConfig, SignupEditionIssue, SignupEditionStatus};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use serde_json::json;
@@ -154,6 +155,7 @@ async fn index(
     axum::extract::Query(query): axum::extract::Query<CreateQuery>,
     headers: axum::http::HeaderMap,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
+    consent: Option<Extension<ConsentConfig>>,
 ) -> Response {
     if let Some(slug) = query.slug {
         if !valid_slug(&slug) || !matches!(query.locale.as_deref(), Some("en" | "pl")) {
@@ -191,7 +193,7 @@ async fn index(
     let Ok(rows) = rows else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let more = rows.len() > 500;
+    let more = rows.len() > 500 && query.page < u32::MAX;
     let rows = rows
         .into_iter()
         .take(500)
@@ -216,7 +218,14 @@ async fn index(
             }
         })
         .collect();
+    let readiness = consent
+        .map(|Extension(config)| config)
+        .unwrap_or_default()
+        .live_readiness(&pool)
+        .await
+        .ok();
     oteryn_web::render(&Listing {
+        readiness,
         next: u64::from(query.page) + 1,
         more,
         lang: lang.to_owned(),
@@ -251,6 +260,7 @@ struct Listing {
     next_label: String,
     end_label: String,
     rows: Vec<PageQueueRow>,
+    readiness: Option<Vec<SignupEditionStatus>>,
 }
 
 struct PageQueueRow {
@@ -259,6 +269,38 @@ struct PageQueueRow {
     status: String,
     start: String,
     end: String,
+}
+
+impl Listing {
+    fn text(&self, key: &str) -> String {
+        text(&self.lang, key)
+    }
+
+    fn readiness_summary(&self) -> String {
+        self.text(match &self.readiness {
+            Some(editions) if editions.iter().all(|edition| edition.issue.is_none()) => {
+                "signup-ready"
+            }
+            Some(_) => "signup-blocked",
+            None => "signup-status-unavailable",
+        })
+    }
+
+    fn edition_status(&self, issue: &Option<SignupEditionIssue>) -> String {
+        use SignupEditionIssue::*;
+        self.text(match issue {
+            None => "signup-edition-ready",
+            Some(InvalidConfiguration) => "signup-invalid-config",
+            Some(Unpublished) => "signup-unpublished",
+            Some(StaleTranslation) => "signup-stale",
+            Some(EmptyBody) => "signup-empty",
+            Some(Placeholder) => "signup-placeholder",
+            Some(InvalidNip) => "signup-invalid-nip",
+            Some(VersionMismatch) => "signup-version-mismatch",
+            Some(MissingSnapshot) => "signup-missing-snapshot",
+            Some(Unapproved) => "signup-unapproved",
+        })
+    }
 }
 async fn edit(
     State(pool): State<PgPool>,

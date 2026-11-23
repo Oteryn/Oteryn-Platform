@@ -200,7 +200,7 @@ pub struct Validity {
     pub not_after: i64,
 }
 impl Validity {
-    fn contains(self, now: i64) -> bool {
+    pub(crate) fn contains(self, now: i64) -> bool {
         self.not_before <= now && now < self.not_after
     }
 }

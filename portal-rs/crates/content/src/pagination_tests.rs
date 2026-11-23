@@ -63,6 +63,10 @@ async fn postgres_a3_staff_libraries_reach_records_beyond_each_cap()
         .connect(&url)
         .await?;
     oteryn_db::migrate(&pool).await?;
+    // The generated editions determine the exact page-count boundary below.
+    sqlx::query("DELETE FROM editorial_pages")
+        .execute(&pool)
+        .await?;
     let actor = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'library-password','active','en',now())").bind(actor).bind(format!("{actor}@example.invalid")).execute(&pool).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&pool).await?;

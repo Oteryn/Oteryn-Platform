@@ -170,6 +170,17 @@ impl Sessions {
         tx.commit().await?;
         Ok((sessions, history))
     }
+    pub async fn game_revocations(
+        &self,
+        actor: &Actor,
+    ) -> Result<Vec<crate::security_revocations::RecentRevocation>> {
+        let mut tx = self.pool.begin().await?;
+        self.authorize(&mut tx, actor).await?;
+        let records =
+            crate::security_revocations::recent_for_account(&mut tx, actor.account).await?;
+        tx.commit().await?;
+        Ok(records)
+    }
     pub async fn revoke(&self, actor: &Actor, selection: Revocation) -> Result<Outcome> {
         let mut tx = self.pool.begin().await?;
         let current = self.authorize(&mut tx, actor).await?;

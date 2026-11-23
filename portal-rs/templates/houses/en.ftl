@@ -21,3 +21,7 @@ AUCTION = Auction
 OWNED = Owned
 MOVE_OUT_PENDING = Move out pending
 UNAVAILABLE = Occupancy unavailable
+world = World
+all-worlds = All worlds
+apply = Show houses
+back = Back to houses

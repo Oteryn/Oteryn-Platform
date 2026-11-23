@@ -732,6 +732,7 @@ mod flag_boundary {
         tx.commit().await?;
         let platform_pages = [
             "/admin/roles",
+            "/admin/account-closure",
             "/admin/console/access",
             "/admin/news",
             "/admin/pages",
@@ -770,6 +771,17 @@ mod flag_boundary {
                     Some(expected),
                     "{role} GET {path}"
                 );
+            }
+            if role == "platform_admin" {
+                let response = exchange(
+                    address,
+                    None,
+                    "GET",
+                    "/admin/account-closure?lang=en",
+                )
+                .await?;
+                assert_eq!(response.split_whitespace().nth(1), Some("200"));
+                assert!(response.contains("<h1>Account closure status</h1>"));
             }
             if role.starts_with("game_") {
                 for (method, path, expected) in [

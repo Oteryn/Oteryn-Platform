@@ -70,6 +70,16 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
     .unwrap()
 }
 #[tokio::test]
+async fn native_login_status_requires_staff_sign_in() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://localhost:1/unreachable")
+        .unwrap();
+    let response = request(app(pool, None, true), "/admin/native-login", "staff.test").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/login");
+}
+#[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
@@ -102,7 +112,12 @@ async fn host_flag_session_and_mfa_boundaries() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
+    let response = request(
+        app(pool.clone(), None, true).layer(Extension(AccountReadStatus { configured: true })),
+        "/admin",
+        "staff.test",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(response.headers()[header::LOCATION], "/login");
     let response = request(
@@ -141,7 +156,7 @@ async fn client_build_qualification_uses_the_staff_session() {
 #[test]
 fn localized_responsive_labelled_template() {
     for lang in ["pl", "en"] {
-        let html = Page {
+        let mut page = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
@@ -157,6 +172,13 @@ fn localized_responsive_labelled_template() {
             character_cases_link: Some(text(lang, "character-case-title")),
             projections_link: None,
             operations_link: Some(text(lang, "ops-title")),
+            native_login_link: None,
+            pages_link: Some(text(lang, "pages-link")),
+            account_reads: Some(AccountReadStatus {
+                configured: lang == "en",
+            }),
+            optional_consents: lang == "pl",
+            closure_link: Some(text(lang, "account-closure-status")),
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -181,9 +203,8 @@ fn localized_responsive_labelled_template() {
             manage: true,
             next: None,
             invitations_label: None,
-        }
-        .render()
-        .unwrap();
+        };
+        let html = page.render().unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
         assert!(html.contains("href=\"/admin/moderation/reports\""));
@@ -209,6 +230,36 @@ fn localized_responsive_labelled_template() {
             "World catalog"
         }));
         assert!(html.contains("href=\"/admin/audit-evidence\""));
+        assert!(html.contains(if lang == "pl" {
+            "href=\"/admin/pages\">Strony"
+        } else {
+            "href=\"/admin/pages\">Pages"
+        }));
+        for key in [
+            "account-read-status-heading",
+            "account-read-journal-pending",
+            "account-read-coins-off",
+            if lang == "en" {
+                "account-read-configured"
+            } else {
+                "account-read-unconfigured"
+            },
+            if lang == "pl" {
+                "account-read-consents-enabled"
+            } else {
+                "account-read-consents-disabled"
+            },
+        ] {
+            let value = text(lang, key);
+            assert!(!value.is_empty());
+            assert!(html.contains(&value));
+        }
+        assert!(html.contains("href=\"/admin/account-closure\""));
+        assert!(html.contains(if lang == "pl" {
+            "Stan zamknięcia konta"
+        } else {
+            "Account closure status"
+        }));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));
@@ -218,6 +269,8 @@ fn localized_responsive_labelled_template() {
         )));
         assert!(!html.contains("<unsafe>"));
         assert!(html.contains("href=\"/admin/news\""));
+        page.pages_link = None;
+        let html = page.render().unwrap();
         assert!(!html.contains("href=\"/admin/pages\""));
         std::fs::write(format!("/tmp/t10b-{lang}.html"), &html).unwrap();
         assert!(!text(lang, "mfa").is_empty());
@@ -375,6 +428,30 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .unwrap();
     assert!(!body.contains("href=\"/admin/roles\""));
     assert!(!body.contains("href=\"/admin/client-build\""));
+    assert!(!body.contains("href=\"/admin/account-closure\""));
+    let status_path = "/admin/native-login";
+    assert!(!body.contains(status_path));
+    assert_eq!(
+        request(app(pool.clone(), identity, true), status_path, "staff.test")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'audit.view')")
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let response = request(app(pool.clone(), identity, true), "/admin", "staff.test").await;
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains(status_path));
+    let response = request(app(pool.clone(), identity, true), status_path, "staff.test").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert!(body.contains("data-state=\"blocked\""));
+    assert!(body.contains("data-state=\"unavailable\""));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),
@@ -392,7 +469,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(count, 2);
     let review = guarded_with_permissions(
         Router::new().route("/admin/feature", get(|| async { "feature" })),
         pool.clone(),

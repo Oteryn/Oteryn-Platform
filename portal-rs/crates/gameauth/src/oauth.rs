@@ -35,6 +35,14 @@ impl Config {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default()
     }
+    /// Whether the configuration can issue an OAuth grant to a registered client.
+    pub fn has_registered_client(&self) -> bool {
+        self.clients.iter().any(|client| {
+            self.client(&client.client_id)
+                && client.redirect_uris.iter().any(|uri| safe_redirect(uri))
+        })
+    }
+
     fn client(&self, id: &str) -> bool {
         self.enabled
             && !id.is_empty()
@@ -100,11 +108,14 @@ pub struct Authorization {
 pub const TICKET_SCOPE: &str = "game:ticket";
 /// Native account services (coin purchases). Its tokens never mint game tickets.
 pub const ACCOUNT_SERVICES_SCOPE: &str = "game:account-services";
+/// Read the owner's Platform account summary and portal notifications.
+pub const ACCOUNT_READ_SCOPE: &str = "account:read";
 /// Each grant carries exactly one scope; codes, families and tokens keep it.
 fn known_scope(scope: &str) -> Option<&'static str> {
     match scope {
         TICKET_SCOPE => Some(TICKET_SCOPE),
         ACCOUNT_SERVICES_SCOPE => Some(ACCOUNT_SERVICES_SCOPE),
+        ACCOUNT_READ_SCOPE => Some(ACCOUNT_READ_SCOPE),
         _ => None,
     }
 }
@@ -515,6 +526,15 @@ pub async fn verify_account_services(
 ) -> Result<Uuid, Error> {
     verify_scoped(pool, config, token, ACCOUNT_SERVICES_SCOPE).await
 }
+/// Verify an access token issued for the Platform account-read endpoints.
+pub async fn verify_account_read(
+    pool: &PgPool,
+    config: &Config,
+    token: &str,
+) -> Result<Uuid, Error> {
+    verify_scoped(pool, config, token, ACCOUNT_READ_SCOPE).await
+}
+
 async fn verify_scoped(
     pool: &PgPool,
     config: &Config,

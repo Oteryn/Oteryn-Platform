@@ -9,6 +9,7 @@ pub mod players;
 
 mod locale;
 mod projection;
+mod sanctions;
 mod stored;
 pub use stored::StoredChannel;
 mod alerts;
@@ -313,6 +314,7 @@ pub struct AgentView {
 /// The store returns status only after checking actor, target and request ownership.
 #[derive(Debug, Clone, Copy)]
 pub enum QueryStatus {
+    Unavailable,
     Pending,
     InProgress,
     Succeeded,
@@ -327,7 +329,7 @@ impl QueryStatus {
         match self {
             Self::Pending => "pending",
             Self::InProgress => "in-progress",
-            Self::Succeeded => "unavailable",
+            Self::Unavailable | Self::Succeeded => "unavailable",
             Self::Failed => "failed",
             Self::Rejected => "rejected",
             Self::ReadError(error) => error.key(),
@@ -677,6 +679,12 @@ async fn render<P: Permissions, C: Channel>(
                 format!("/console/{}?lang={language}", op.page()),
                 text(language, op.title()),
             ));
+            if matches!(op, Operation::Worlds) {
+                nav.push((
+                    format!("/admin/{language}/world-directories"),
+                    text(language, "world-directories"),
+                ));
+            }
         }
     }
     let op = operations[0];

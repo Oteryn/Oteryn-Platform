@@ -90,6 +90,15 @@ fn code_request() -> TokenRequest {
         ..Default::default()
     }
 }
+#[test]
+fn account_read_is_a_distinct_authorization_scope() {
+    let mut request = authorization();
+    request.scope = "account:read".into();
+    assert!(request.valid(&config()));
+    request.scope.push_str(" game:ticket");
+    assert!(!request.valid(&config()));
+}
+
 async fn code(db: &Database, account: Uuid) -> Result<TokenRequest, Error> {
     Ok(TokenRequest {
         code: authorize(&db.pool, &config(), account, &authorization()).await?,
@@ -1170,7 +1179,7 @@ async fn regression_consent_scopes() -> TestResult {
         return Ok(());
     };
     for language in ["en", "pl"] {
-        for scope in [ACCOUNT_SERVICES_SCOPE, TICKET_SCOPE] {
+        for scope in [ACCOUNT_SERVICES_SCOPE, TICKET_SCOPE, ACCOUNT_READ_SCOPE] {
             let r = consent_response(&db, language, scope).await?;
             let html = String::from_utf8(to_bytes(r.into_body(), 16384).await?.to_vec())?;
             let (_, description) = html.split_once("<p>").ok_or("missing consent paragraph")?;

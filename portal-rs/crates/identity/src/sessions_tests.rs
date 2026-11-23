@@ -250,3 +250,43 @@ async fn lk_configured_notification_accounts_use_one_connection() -> TestResult 
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_recent_game_revocations_are_owner_scoped_and_bounded() -> TestResult {
+    let Some(db) = database::Database::open()
+        .await
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(());
+    };
+    let service = Sessions {
+        pool: db.pool.clone(),
+    };
+    let owner = account(&db.pool).await;
+    let other = account(&db.pool).await;
+    assert_eq!(owner.get_version_num(), 7);
+    let current = browser(&db.pool, owner, "Owner").await;
+    let foreign = browser(&db.pool, other, "Other").await;
+    assert!(service.game_revocations(&current).await?.is_empty());
+    for _ in 0..11 {
+        sqlx::query("UPDATE accounts SET native_security_generation = native_security_generation + 1 WHERE id = $1")
+            .bind(owner).execute(&db.pool).await?;
+    }
+    let records = service.game_revocations(&current).await?;
+    assert_eq!(
+        records
+            .iter()
+            .map(|row| row.native_security_generation)
+            .collect::<Vec<_>>(),
+        (3..=12).rev().collect::<Vec<_>>()
+    );
+    assert_eq!(records[0].cause_label(), "revocation-account-state");
+    assert!(service.game_revocations(&foreign).await?.is_empty());
+    let mismatched = Actor {
+        account: owner,
+        hash: foreign.hash,
+    };
+    assert!(service.game_revocations(&mismatched).await.is_err());
+    db.close().await.map_err(|e| e.to_string())?;
+    Ok(())
+}

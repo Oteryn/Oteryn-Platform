@@ -422,3 +422,25 @@ shell-stats-readiness = Statistics availability
 shell-stats-watch-access = Watch API access
 
 shell-account-display = Account display settings
+register-paused-title = Registration is temporarily unavailable.
+register-paused-description = Try again later. You can still read the terms and privacy policy.
+
+world-uptime-title = Uptime and incidents
+world-uptime-runtime = Game measurements
+world-uptime-measured = Measured uptime
+world-uptime-incidents = Incident history
+world-uptime-incident-source = The portal team publishes these incident notices. Game measurements are shown separately.
+world-uptime-no-incidents = No incident notices on this page.
+world-uptime-opened = Published
+world-uptime-resolved = Resolved
+world-uptime-open = Open
+world-uptime-resolve = Resolve incident
+world-uptime-publish = Publish incident notice
+world-uptime-summary-pl = Summary in Polish
+world-uptime-summary-en = Summary in English
+world-uptime-older = Older incident notices
+world-uptime-operator = Manage world incidents
+world-uptime-public-view = View public status
+world-uptime-qualification = Public Game health, population and uptime are awaiting qualification.
+shell-account-dashboard = Account dashboard
+account-dashboard-unavailable = Journal data is unavailable.

@@ -295,11 +295,17 @@ async fn dashboard_http_success_disabled_anonymous_staff_and_bad_language() -> R
         .oneshot(Request::get("/xx/account/dashboard").body(Body::empty())?)
         .await?;
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    let response = dashboard::configured_router()
-        .oneshot(Request::get("/en/account/dashboard").body(Body::empty())?)
-        .await?;
+    let response = dashboard::router(
+        Flags::default(),
+        std::sync::Arc::new(dashboard::Unavailable),
+    )
+    .layer(Extension(actor(owner)))
+    .oneshot(Request::get("/en/account/dashboard").body(Body::empty())?)
+    .await?;
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(to_bytes(response.into_body(), 65536).await?.len(), 0);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains("Journal data is unavailable"));
+    assert!(!html.contains(&owner.to_string()));
     Ok(())
 }
 

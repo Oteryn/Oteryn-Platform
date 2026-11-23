@@ -1,10 +1,16 @@
 <!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{% if unsubscribe %}<meta name="referrer" content="origin">{% endif %}<title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>
 {% if delete %}
-{% if let Some(path) = self.sudo_path() %}<p><a href="{{ path }}">{{ self.shell_text("shell-account-sudo") }}</a></p>{% endif %}
+  {% include "account/lifecycle/status.html" %}
+  {% if request_enabled %}<p>{{ self.text("explanation") }}</p>
+  {% else if !pending %}<p role="status">{{ self.text("closure-request-unavailable") }}</p>{% endif %}
+  {% if pending && action.is_empty() %}<p>{{ self.text("closure-cancel-unavailable") }}</p>{% endif %}
+  {% if !action.is_empty() %}
+    {% if let Some(path) = self.sudo_path() %}<p><a href="{{ path }}">{{ self.shell_text("shell-account-sudo") }}</a></p>{% endif %}
+  {% endif %}
 {% endif %}
+{% if !delete || !action.is_empty() %}
 <form method="post" action="{{ action }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}">
 {% if delete %}
-<p role="status">{% if restoration_pending %}{{ self.text("restoration-pending") }}{% else if pending %}{{ self.text("pending") }}{% else %}{{ self.text("explanation") }}{% endif %}</p>
 <label>{{ self.text("password") }}<input class="op-input" type="password" name="current_password" autocomplete="current-password" maxlength="1024" required></label>
 {% if !pending %}<label>{{ self.text("confirmation") }}<input class="op-input" name="confirmation" pattern="TERMINATE" maxlength="9" required></label>{% endif %}
 <button class="op-button" type="submit">{% if pending %}{{ self.text("cancel") }}{% else %}{{ self.text("delete") }}{% endif %}</button>
@@ -22,5 +28,6 @@
 <fieldset><legend>{{ self.text("forum-digest") }}</legend><label><input type="checkbox" name="forum_digest_email" value="true"{% if choices.forum_digest %} checked{% endif %}>{{ self.text("email") }}</label></fieldset>
 <button class="op-button" type="submit">{{ self.text("save") }}</button>
 {% endif %}</form>
+{% endif %}
 {% if !unsubscribe && self.overview_enabled() %}<p><a href="/account">{{ self.shell_text("shell-account-overview-back") }}</a></p>{% endif %}
 </main></body></html>

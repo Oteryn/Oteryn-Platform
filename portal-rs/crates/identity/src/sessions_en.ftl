@@ -16,3 +16,13 @@ sessions-other-event = Other sessions signed out
 sessions-all-event = All sessions signed out
 sessions-unknown = Unknown device
 sessions-note = Up to 50 recent sessions and 50 security events. Device names come from browser information and may be inaccurate.
+
+revocation-title = Game session revocations
+revocation-game-status = Game termination status
+revocation-unavailable = This information is currently unavailable.
+revocation-history = Recent revocations recorded by the portal
+revocation-empty = No revocations have been recorded for this account.
+revocation-credential = Sign-in credentials changed
+revocation-account-state = Account status or recovery changed
+revocation-sanction = Account restriction took effect
+revocation-staff-kick = Staff requested Game sign-out

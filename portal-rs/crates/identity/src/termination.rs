@@ -5,6 +5,7 @@
 //! Blocker checks must serialize with email changes, bazaar activity and wallet reserves.
 //! Unknown state must return a refusal. No production adapter is assumed here.
 pub mod game_closure;
+pub mod status;
 
 use crate::{AccountId, accounts::Account, password};
 use sqlx::{PgPool, Postgres, Transaction, types::time::OffsetDateTime};

@@ -167,6 +167,43 @@ impl Page {
     }
 }
 
+/// A minimal Platform publication record for an authenticated account view.
+#[derive(Debug, sqlx::FromRow)]
+pub struct RecentRevocation {
+    cause: i16,
+    pub published_at: String,
+    pub native_security_generation: i64,
+}
+
+impl RecentRevocation {
+    pub fn cause_label(&self) -> &'static str {
+        match self.cause {
+            1 => "revocation-credential",
+            2 => "revocation-account-state",
+            3 => "revocation-sanction",
+            4 => "revocation-staff-kick",
+            _ => "revocation-unavailable",
+        }
+    }
+}
+
+/// Read the ten latest committed publications for an already authorized account.
+pub async fn recent_for_account(
+    conn: &mut PgConnection,
+    account: Uuid,
+) -> Result<Vec<RecentRevocation>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT cause, native_security_generation,
+                to_char(to_timestamp(effective_at_ms / 1000.0) AT TIME ZONE 'UTC',
+                        'YYYY-MM-DD HH24:MI:SS') AS published_at
+         FROM identity_security_revocations WHERE account_id = $1
+         ORDER BY position DESC LIMIT 10",
+    )
+    .bind(account)
+    .fetch_all(conn)
+    .await
+}
+
 /// Staff kick seam. The caller authorizes staff (dedicated permission, confirmed
 /// MFA) and writes its audit row in this same transaction. Only the native
 /// security generation advances; the accounts trigger publishes cause 4 and the

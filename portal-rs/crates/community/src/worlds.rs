@@ -16,6 +16,10 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+mod uptime;
+pub(crate) use uptime::world_id;
+
 #[derive(Clone, Debug)]
 pub struct Config {
     pub enabled: bool,
@@ -32,29 +36,52 @@ impl Default for Config {
 #[derive(Clone, Debug)]
 struct Worlds {
     db: PgPool,
+    staff_host: Option<String>,
+    show_online_link: bool,
 }
-pub fn configured_router(db: PgPool) -> Router {
+pub fn configured_router(db: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let threshold = std::env::var("PORTAL_WORLDS_FRESHNESS_SECONDS")
         .map_or(Some(120), |s| s.parse::<u64>().ok().filter(|n| *n > 0));
-    router(
-        db,
-        Config {
-            enabled: std::env::var("PORTAL_WORLDS_ENABLED").as_deref() == Ok("true")
-                && threshold.is_some(),
-            freshness_seconds: threshold.unwrap_or(120),
-        },
-    )
+    if std::env::var("PORTAL_WORLDS_ENABLED").as_deref() != Ok("true") || threshold.is_none() {
+        return Ok(Router::new());
+    }
+    let staff_host = (std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true"))
+        .then(|| std::env::var("OTERYN_ADMIN_HOST").ok())
+        .flatten();
+    let show_online_link = std::env::var("PORTAL_ONLINE_ENABLED").as_deref() == Ok("true");
+    let mut router = public_router(Worlds {
+        db: db.clone(),
+        staff_host: staff_host.clone(),
+        show_online_link,
+    });
+    if staff_host.is_some() {
+        router = router.merge(oteryn_admin::web::configured_guard(
+            uptime::staff_routes(db.clone()),
+            db,
+            uptime::NOTICE_PERMISSION,
+        )?);
+    }
+    Ok(router)
 }
 pub fn router(db: PgPool, config: Config) -> Router {
     if !config.enabled || config.freshness_seconds == 0 {
         return Router::new();
     }
+    public_router(Worlds {
+        db,
+        staff_host: None,
+        show_online_link: false,
+    })
+}
+
+fn public_router(worlds: Worlds) -> Router {
     Router::new()
         .route("/worlds", get(page))
         .route("/pl/worlds", get(page))
         .route("/en/worlds", get(page))
         .route("/api/v1/worlds", get(api))
-        .with_state(Worlds { db })
+        .route("/{lang}/worlds/{world}/uptime", get(uptime::public))
+        .with_state(worlds)
         .layer(middleware::from_fn(response_policy))
 }
 async fn response_policy(request: Request, next: Next) -> Response {
@@ -202,11 +229,17 @@ async fn page(State(state): State<Worlds>, request: Request) -> Response {
     let Ok(worlds) = read(&state).await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let mut response = oteryn_web::render(&Page {
-        lang: language.code(),
+    localized(
+        oteryn_web::render(&Page {
+            lang: language.code(),
+            language,
+            worlds,
+        }),
         language,
-        worlds,
-    });
+    )
+}
+
+fn localized(mut response: Response, language: Language) -> Response {
     response.headers_mut().insert(
         header::CONTENT_LANGUAGE,
         HeaderValue::from_static(language.code()),
@@ -226,7 +259,11 @@ pub async fn home_status(db: &PgPool) -> Option<oteryn_ui::HomeStatus> {
     if std::env::var("PORTAL_WORLDS_ENABLED").as_deref() != Ok("true") {
         return None;
     }
-    let state = Worlds { db: db.clone() };
+    let state = Worlds {
+        db: db.clone(),
+        staff_host: None,
+        show_online_link: false,
+    };
     home_status_for(&state).await
 }
 async fn home_status_for(state: &Worlds) -> Option<oteryn_ui::HomeStatus> {

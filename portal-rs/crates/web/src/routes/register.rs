@@ -44,14 +44,35 @@ impl RegisterPage {
         self.errors.get(field).map_or("", String::as_str)
     }
 }
-pub(crate) fn config(value: Option<Extension<ConsentConfig>>) -> Result<ConsentConfig, StatusCode> {
-    let config = value.map(|v| v.0).unwrap_or_default();
-    if !config.validate() {
-        tracing::error!("sign-up blocked: invalid OTERYN_TERMS_VERSION or OTERYN_PRIVACY_VERSION");
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
-    Ok(config)
+#[derive(Template)]
+#[template(path = "account/register_paused.html")]
+struct PausedPage {
+    lang: &'static str,
+    language: Language,
 }
+impl PausedPage {
+    fn text(&self, key: &str) -> String {
+        self.language.text(key)
+    }
+}
+
+/// Marks the localized pause page for the shared error renderer.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PausedRegistration;
+
+fn paused(language: Language) -> Response {
+    let page = PausedPage {
+        lang: language.code(),
+        language,
+    };
+    let mut response = crate::render(&page);
+    if response.status() == StatusCode::OK {
+        *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
+        response.extensions_mut().insert(PausedRegistration);
+    }
+    response
+}
+
 async fn show(
     State(state): State<AppState>,
     Extension(language): Extension<Language>,
@@ -61,11 +82,14 @@ async fn show(
     if session.account_id().await.is_some() {
         return Ok(Redirect::to("/account").into_response());
     }
-    let config = config(value)?;
-    config
+    let config = value.map(|Extension(config)| config).unwrap_or_default();
+    if config
         .check_publication(&state.db, language.code())
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        .is_err()
+    {
+        return Ok(paused(language));
+    }
     let page = RegisterPage {
         lang: language.code(),
         language,
@@ -113,11 +137,14 @@ async fn submit(
     {
         return Ok(error.response(language, false));
     }
-    let config = config(value)?;
-    config
+    let config = value.map(|Extension(config)| config).unwrap_or_default();
+    if config
         .check_publication(&state.db, language.code())
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        .is_err()
+    {
+        return Ok(paused(language));
+    }
     let input = form.map(|Form(input)| input).unwrap_or_default();
     let errors = register::validate(&input, &config);
     if !errors.is_empty() {
@@ -139,14 +166,14 @@ async fn submit(
         *response.status_mut() = StatusCode::UNPROCESSABLE_ENTITY;
         return Ok(response);
     }
-    register::register(&state.db, input, &config, language.code(), Some(source))
-        .await
-        .map_err(|error| match error {
-            register::Error::Closed | register::Error::LegalUnavailable => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
-            register::Error::Backend(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+    if let Err(error) =
+        register::register(&state.db, input, &config, language.code(), Some(source)).await
+    {
+        return match error {
+            register::Error::Closed | register::Error::LegalUnavailable => Ok(paused(language)),
+            register::Error::Backend(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        };
+    }
     session::rotate(&session, PrivilegeChange::Reissue)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -186,12 +213,10 @@ pub async fn check_live_signup(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
             "live signup check requires a non-disposable profile".into(),
         ));
     }
-    let consents = configured_consent(false);
-    let mut tx = pool.begin().await?;
-    for locale in ["en", "pl"] {
-        consents.check_publication(&mut *tx, locale).await?;
-    }
-    tx.commit().await
+    configured_consent(false)
+        .check_publication(pool, "en")
+        .await
+        .map(|_| ())
 }
 
 /// Registers legal-document versions and T02's trusted browser origin at process startup.

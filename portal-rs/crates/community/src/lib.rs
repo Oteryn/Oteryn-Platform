@@ -8,6 +8,9 @@ pub mod online;
 pub mod rankings;
 pub mod worlds;
 
+mod world_directories;
+pub use world_directories::directory_status;
+
 pub mod deaths;
 pub mod families;
 pub mod guilds;

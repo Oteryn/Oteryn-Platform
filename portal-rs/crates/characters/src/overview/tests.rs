@@ -162,6 +162,8 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let html = String::from_utf8(body.to_vec())?;
     assert!(html.contains("Account overview"));
     assert!(html.contains("href=\"/en/account/display\""));
+    assert!(html.contains("href=\"#native-login\""));
+    assert!(html.contains("data-state=\"unavailable\""));
     assert_eq!(
         html.contains("href=\"/en/shop/history\""),
         std::env::var("OTERYN_SHOP_ENABLED").as_deref() == Ok("true")

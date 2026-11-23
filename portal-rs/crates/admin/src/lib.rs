@@ -14,6 +14,7 @@ mod client_build;
 pub mod commerce;
 mod mail_ops;
 mod world_operations;
+mod native_login;
 pub use control::controls;
 pub mod players;
 pub mod status;

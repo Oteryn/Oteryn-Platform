@@ -45,7 +45,7 @@ impl PublicVisibility for FailClosed {
 #[derive(Clone, Debug)]
 pub struct Config {
     pub enabled: bool,
-    /// Age at which to label an individual snapshot while the family watermark is fresh.
+    /// Maximum age of an individual snapshot while the family watermark is fresh.
     pub stale_after: Duration,
 }
 impl Default for Config {
@@ -131,6 +131,7 @@ struct Page {
     labels: Vec<String>,
     unavailable: bool,
     stale: bool,
+    missing: bool,
     ids: Vec<String>,
     filter: String,
     by_level: bool,
@@ -187,7 +188,18 @@ fn watermark_is_fresh(complete_through: u64, now: u64) -> bool {
         .contains(&complete_through)
 }
 
-async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, Unavailable> {
+enum Roster {
+    Current(Catalogue),
+    Stale,
+    Missing,
+}
+
+fn snapshot_is_stale(observed: u64, serving: u64, max_age: Duration) -> bool {
+    observed > serving.saturating_add(CLOCK_UNCERTAINTY_SECONDS)
+        || serving.saturating_sub(observed) > max_age.as_secs()
+}
+
+async fn load_inner(state: &Online, query: &Query) -> Result<Roster, Unavailable> {
     let privacy_cut = crate::privacy::Cut::read(&state.db)
         .await
         .map_err(|_| Unavailable)?;
@@ -220,10 +232,8 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     .map(u64::try_from)
     .transpose()
     .map_err(|_| Unavailable)?;
-    let fresh_cut = match complete_through {
-        Some(cut) if watermark_is_fresh(cut, now()?) => Some(cut),
-        _ => None,
-    };
+    let observed_now = now()?;
+    let fresh_cut = complete_through.filter(|cut| watermark_is_fresh(*cut, observed_now));
     let mut visible_refs = Vec::new();
     let rows = if fresh_cut.is_none() {
         Vec::new()
@@ -246,6 +256,18 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
             continue;
         }
         let watermark: i64 = row.try_get("watermark").map_err(|_| Unavailable)?;
+        let observed = u64::try_from(watermark).map_err(|_| Unavailable)?;
+        let mut world = World {
+            observed,
+            id: id.clone(),
+            as_of: row.try_get("as_of").map_err(|_| Unavailable)?,
+            stale: snapshot_is_stale(observed, observed_now, state.config.stale_after),
+            characters: Vec::new(),
+        };
+        if world.stale {
+            worlds.push(world);
+            continue;
+        }
         let payload: serde_json::Value = row.try_get("payload").map_err(|_| Unavailable)?;
         let entries = payload["characters"].as_array().ok_or(Unavailable)?;
         let refs = entries
@@ -291,13 +313,8 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
         if !current {
             return Err(Unavailable);
         }
-        worlds.push(World {
-            observed: u64::try_from(watermark).map_err(|_| Unavailable)?,
-            id,
-            as_of: row.try_get("as_of").map_err(|_| Unavailable)?,
-            stale: false,
-            characters,
-        });
+        world.characters = characters;
+        worlds.push(world);
     }
     state.visibility.hidden_batch(&[]).await?;
     let final_hidden = state.visibility.hidden_batch(&visible_refs).await?;
@@ -313,16 +330,22 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     }
     fence.commit().await.map_err(|_| Unavailable)?;
     let serving = now()?;
-    let Some(complete_through) = fresh_cut else {
-        return Ok(None);
+    let Some(cut) = complete_through else {
+        return Ok(Roster::Missing);
     };
-    if !watermark_is_fresh(complete_through, serving) {
-        return Ok(None);
+    if fresh_cut.is_none() || !watermark_is_fresh(cut, serving) {
+        return Ok(Roster::Stale);
+    }
+    if worlds.is_empty() {
+        return Ok(Roster::Missing);
     }
     for world in &mut worlds {
-        world.stale = serving.saturating_sub(world.observed) > state.config.stale_after.as_secs();
+        if snapshot_is_stale(world.observed, serving, state.config.stale_after) {
+            world.stale = true;
+            world.characters.clear();
+        }
     }
-    Ok(Some(Catalogue { ids, worlds }))
+    Ok(Roster::Current(Catalogue { ids, worlds }))
 }
 async fn page(
     State(state): State<Online>,
@@ -339,30 +362,40 @@ async fn page(
         .sort
         .as_deref()
         .is_some_and(|s| !["name", "level"].contains(&s))
-        || query.world.as_ref().is_some_and(|w| {
-            !w.is_empty()
-                && (w.len() != 36
-                    || !w.bytes().enumerate().all(|(i, b)| {
-                        if [8, 13, 18, 23].contains(&i) {
-                            b == b'-'
-                        } else {
-                            b.is_ascii_hexdigit()
-                        }
-                    }))
-        })
     {
         return StatusCode::BAD_REQUEST.into_response();
+    }
+    if let Some(world) = query.world.as_deref().filter(|world| !world.is_empty()) {
+        let id = match crate::worlds::world_id(world) {
+            Ok(id) => id,
+            Err(status) => return status.into_response(),
+        };
+        let known =
+            sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM world_status WHERE id=$1)")
+                .bind(id)
+                .fetch_one(&state.db);
+        let Ok(Ok(known)) = tokio::time::timeout(Duration::from_secs(3), known).await else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        if !known {
+            return StatusCode::NOT_FOUND.into_response();
+        }
     }
     let en = uri.path().starts_with("/en/");
     let result = load(&state, &query).await;
     let unavailable = result.is_err();
-    let stale = matches!(result, Ok(None));
-    let Catalogue { ids, worlds } = result.ok().flatten().unwrap_or_default();
+    let stale = matches!(result, Ok(Roster::Stale));
+    let missing = matches!(result, Ok(Roster::Missing));
+    let Catalogue { ids, worlds } = match result {
+        Ok(Roster::Current(catalogue)) => catalogue,
+        _ => Catalogue::default(),
+    };
     let page = Page {
         lang: if en { "en" } else { "pl" },
         labels: labels(en),
         unavailable,
         stale,
+        missing,
         ids,
         worlds,
         filter: query.world.unwrap_or_default(),
@@ -417,7 +450,7 @@ async fn response_policy(
     response
 }
 
-async fn load(state: &Online, query: &Query) -> Result<Option<Catalogue>, Unavailable> {
+async fn load(state: &Online, query: &Query) -> Result<Roster, Unavailable> {
     tokio::time::timeout(Duration::from_secs(3), load_inner(state, query))
         .await
         .map_err(|_| Unavailable)?

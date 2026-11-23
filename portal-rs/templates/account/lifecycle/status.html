@@ -1,0 +1,17 @@
+{% if let Some(state) = closure %}
+<section class="op-stack" role="status" data-closure-status="{{ state.platform.message() }}">
+  <p>{{ self.text(state.platform.message()) }}</p>
+  {% if let Some(key) = state.game_message() %}
+  <p data-closure-game="{{ key }}">{{ self.text(key) }}</p>
+  {% endif %}
+  <dl>
+    <dt>{{ self.text("closure-reference") }}</dt>
+    <dd><code>{{ state.id }}</code></dd>
+    {% if state.platform.message() == "closure-scheduled" || state.platform.message() == "closure-pending" %}
+    <dt>{{ self.text("closure-deadline") }}</dt>
+    <dd>{{ state.deadline_utc() }}</dd>
+    {% endif %}
+  </dl>
+  <p>{{ self.text("closure-retention") }}</p>
+</section>
+{% endif %}

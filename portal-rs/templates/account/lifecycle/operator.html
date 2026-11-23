@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="{{ lang.code() }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("closure-operator-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.text("closure-operator-title") }}</h1>
+  <form method="get" action="/admin/account-closure" class="op-stack">
+    <input type="hidden" name="lang" value="{{ lang.code() }}">
+    <label for="closure-reference">{{ self.text("closure-reference") }}</label>
+    <input class="op-input" id="closure-reference" name="reference" value="{{ reference }}" maxlength="36" required>
+    <button class="op-button" type="submit">{{ self.text("closure-lookup") }}</button>
+  </form>
+  {% include "account/lifecycle/status.html" %}
+  {% if !reference.is_empty() && closure.is_none() %}<p role="status">{{ self.text("closure-not-found") }}</p>{% endif %}
+  <p><a href="/admin">{{ self.text("closure-back-to-admin") }}</a></p>
+</main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+  <main class="op-panel op-stack" id="main">
+    <a href="/admin">{{ self.text("admin") }}</a>
+    <h1>{{ self.text("title") }}</h1>
+    <dl>
+      <dt>{{ self.text("contract") }}</dt>
+      <dd>{% if contract_accepted %}{{ self.text("accepted") }}{% else %}{{ self.text("candidate") }}{% endif %}</dd>
+      <dt>{{ self.text("guilds-serving") }}</dt><dd>{{ self.setting(guilds_enabled) }}</dd>
+      <dt>{{ self.text("houses-serving") }}</dt><dd>{{ self.setting(houses_enabled) }}</dd>
+    </dl>
+    <h2>{{ self.text("coverage") }}</h2>
+    {% if feeds.is_empty() %}
+      <p role="status">{{ self.text("unavailable") }}</p>
+    {% else %}
+      <dl>
+        {% for (family, status) in feeds %}
+          <dt>{{ self.text(family) }}</dt><dd>{{ self.text(status) }}</dd>
+        {% endfor %}
+      </dl>
+    {% endif %}
+  </main>
+</body>
+</html>

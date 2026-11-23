@@ -38,6 +38,7 @@
         <dt>{{ language.text("worlds-as-of") }}</dt>
         <dd>{% if let Some(as_of) = world.as_of %}{{ as_of }}{% else %}{{ language.text("worlds-unknown") }}{% endif %}</dd>
       </dl>
+      <a href="/{{ lang }}/worlds/{{ world.id }}/uptime">{{ language.text("world-uptime-title") }} · {{ world.name }}</a>
     </article>
     {% endfor %}
   {% endif %}

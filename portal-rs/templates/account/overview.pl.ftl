@@ -59,3 +59,6 @@ vocation-2 = Rycerz
 vocation-3 = Mnich
 vocation-4 = Paladyn
 vocation-5 = Czarodziej
+
+native-login = Logowanie do gry
+native-login-help = Logowanie do gry na produkcji czeka na zatwierdzenie. Po jego uruchomieniu otwórz oficjalnego klienta, zaloguj się w przeglądarce i wybierz postać w kliencie.

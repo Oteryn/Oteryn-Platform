@@ -2,8 +2,26 @@
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main class="op-panel op-stack"><h1>{{ title }}</h1>
 {% if let Some(id) = kick_target %}
-<section class="op-stack"><h2>{{ id }}</h2><form method="post" action="/admin/players/{{ id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="kick-reason">{{ reason }}</label><textarea class="op-input" id="kick-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="kick">{{ kick }}</button></form></section>
+<section id="game-revocations" class="op-stack" aria-labelledby="game-revocations-title">
+  <h2 id="game-revocations-title">{{ self.t("revocation-title") }}</h2>
+  <p>{{ id }}</p>
+  <h3>{{ self.t("revocation-game-status") }}</h3><p>{{ unavailable }}</p>
+  {% if can_kick %}
+  <p>{{ self.t("revocation-kick-help") }}</p>
+  <form method="post" action="/admin/players/{{ id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="kick-reason">{{ reason }}</label><textarea class="op-input" id="kick-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="kick">{{ self.t("kick") }}</button></form>
+  {% endif %}
+</section>
 {% else %}
+{% if let Some(enabled) = revocation_export %}
+<section id="revocation-export" class="op-stack" aria-labelledby="revocation-export-title">
+  <h2 id="revocation-export-title">{{ self.t("revocation-title") }}</h2>
+  <dl>
+    <dt>{{ self.t("revocation-export-flag") }}</dt>
+    <dd>{% if enabled %}{{ self.t("revocation-enabled") }}{% else %}{{ self.t("revocation-disabled") }}{% endif %}</dd>
+    <dt>{{ self.t("revocation-consumer-status") }}</dt><dd>{{ unavailable }}</dd>
+  </dl>
+</section>
+{% endif %}
 <form method="get" action="/admin/players" class="op-stack" role="search">
   <div class="op-field">
     <label for="field">{{ self.t("search-field") }}</label>
@@ -69,7 +87,18 @@
 <section class="op-stack"><h2>{{ notes_label }}</h2><ul>{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ul>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="note">{{ notes_label }}</label><textarea class="op-input" id="note" name="body" maxlength="4000" required></textarea></div><button class="op-button" name="action" value="note">{{ add_note }}</button></form></section>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="logout-reason">{{ reason }}</label><textarea class="op-input" id="logout-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="logout">{{ logout }}</button></form>
-<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="kick-reason">{{ reason }}</label><textarea class="op-input" id="kick-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="kick">{{ kick }}</button></form>
+<section id="game-revocations" class="op-stack" aria-labelledby="game-revocations-title">
+  <h2 id="game-revocations-title">{{ self.t("revocation-title") }}</h2>
+  <h3>{{ self.t("revocation-game-status") }}</h3><p>{{ unavailable }}</p>
+  <h3>{{ self.t("revocation-history") }}</h3>
+  {% if let Some(records) = game_revocations %}
+  <ul>{% for record in records %}<li>{{ self.t(record.cause_label()) }} · {{ record.published_at }} UTC · {{ self.t("revocation-generation") }} {{ record.native_security_generation }}</li>{% else %}<li>{{ self.t("revocation-empty") }}</li>{% endfor %}</ul>
+  {% else %}<p>{{ unavailable }}</p>{% endif %}
+  {% if can_kick %}
+  <p>{{ self.t("revocation-kick-help") }}</p>
+  <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="kick-reason">{{ reason }}</label><textarea class="op-input" id="kick-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="kick">{{ self.t("kick") }}</button></form>
+  {% endif %}
+</section>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><label for="verification-ticket">{% if lang == "pl" %}Zweryfikowano tożsamość właściciela zgłoszenia konta{% else %}Identity verified for the account ticket owner{% endif %}</label><input class="op-input" id="verification-ticket" name="ticket" required><button class="op-button" name="action" value="verify-identity">{% if lang == "pl" %}Potwierdź weryfikację{% else %}Attest verification{% endif %}</button></form>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="evidence">{{ evidence }}</label><input class="op-input" id="evidence" name="evidence" value="{{ issued_evidence }}" required></div><div class="op-field"><label for="reset-reason">{{ reason }}</label><textarea class="op-input" id="reset-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="request-reset">{{ reset }}</button></form>
 {% if let Some(hold) = coin_hold %}<section class="op-stack"><h2>{{ coin_hold_label }}</h2>{% if !hold.status.is_empty() %}<p role="status">{{ hold.status }}</p>{% endif %}<p>{{ coin_debt_label }}: {{ hold.debt }}</p>{% if !hold.order.is_empty() %}<p>{{ hold.order }}</p><form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><input type="hidden" name="hold" value="{{ hold.id }}"><label for="coin-hold-reason">{{ reason }}</label><textarea class="op-input" id="coin-hold-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="release-coin-hold">{{ release_coin_hold }}</button></form>{% endif %}</section>{% endif %}

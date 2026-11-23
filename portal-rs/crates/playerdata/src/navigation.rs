@@ -61,4 +61,12 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        true,
+        "account-dashboard",
+        "shell-account-dashboard",
+        "account/dashboard",
+        Group::Account,
+        false,
+    );
 }

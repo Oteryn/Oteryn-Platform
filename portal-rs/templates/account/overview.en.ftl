@@ -59,3 +59,6 @@ vocation-2 = Knight
 vocation-3 = Monk
 vocation-4 = Paladin
 vocation-5 = Sorcerer
+
+native-login = Game sign-in
+native-login-help = Production game sign-in is awaiting release approval. Once it opens, start the official client, sign in through your browser and select a character in the client.

@@ -40,7 +40,7 @@ pub fn register(registry: &mut Registry) {
     );
     let staging = oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     registry.section(
-        on("PORTAL_GUILDS_ENABLED") && staging,
+        crate::world_directories::guilds_enabled(|key| std::env::var(key).ok()),
         "guilds",
         "shell-guilds",
         "guilds",
@@ -48,7 +48,7 @@ pub fn register(registry: &mut Registry) {
         false,
     );
     registry.section(
-        on("PORTAL_HOUSES_SERVING_ENABLED") && on("PORTAL_PUBLIC_PROJECTIONS_ENABLED") && staging,
+        crate::world_directories::houses_enabled(|key| std::env::var(key).ok()),
         "houses",
         "shell-houses",
         "houses",

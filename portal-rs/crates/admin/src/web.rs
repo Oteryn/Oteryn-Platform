@@ -222,12 +222,20 @@ fn configured_guard_with_permissions(
     permissions: &[Permission],
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded_with_permissions(
+    let identity = PortalIdentity::configured_from(pool.clone(), lookup);
+    let auth = Authorizer::new(pool.clone(), identity.clone()).with_game_flags(
+        crate::rbac::GamePermissionFlags {
+            enabled: permissions == [Permission::GameWorldRead]
+                && lookup("OTERYN_ADMIN_CONSOLE").as_deref() == Some("true"),
+            deploy: false,
+        },
+    );
+    Ok(guarded_with_authorizer(
         routes,
-        pool.clone(),
+        pool,
         config_from(lookup)?,
-        PortalIdentity::configured_from(pool.clone(), lookup),
-        PortalIdentity::configured_from(pool, lookup),
+        identity,
+        auth,
         permissions,
     ))
 }
@@ -264,6 +272,18 @@ fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permissions: &[Permission],
 ) -> Router {
+    let auth = Authorizer::new(pool.clone(), accounts);
+    guarded_with_authorizer(routes, pool, config, identity, auth, permissions)
+}
+
+fn guarded_with_authorizer<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    auth: Authorizer<A>,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
@@ -272,7 +292,7 @@ fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
         required: permissions.to_vec(),
         players_enabled: false,
         identity,
-        auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
+        auth: Arc::new(auth),
         pool,
     });
     routes
@@ -325,6 +345,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
         .merge(crate::character_cases::web::routes::<I, A>())
         .merge(crate::world_operations::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
+        .route("/admin/native-login", get(crate::native_login::page))
         .route(
             "/admin/mail-outbox/retry",
             post(crate::mail_ops::retry::<I, A>),
@@ -500,6 +521,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         (crate::client_build::PATH, _) => &[Permission::ManageDownloads],
         ("/admin/character-cases", _) => &[Permission::ManageSupportTickets],
         ("/admin/public-projections", _) => &[Permission::GameCatalogAccess],
+        ("/admin/native-login", _) => &[Permission::ViewAudit],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -588,6 +610,10 @@ fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'s
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     oteryn_web::Language::negotiate(headers).code()
 }
+
+pub(super) fn panel_language(headers: &axum::http::HeaderMap) -> &'static str {
+    language(headers)
+}
 pub(crate) fn messages(
     lang: &str,
 ) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
@@ -621,6 +647,12 @@ pub(crate) fn locale_source(lang: &str) -> &'static str {
     }
 }
 
+/// Account-read composition status supplied by portal startup.
+#[derive(Debug, Clone, Copy)]
+pub struct AccountReadStatus {
+    pub configured: bool,
+}
+
 #[derive(Template)]
 #[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
@@ -635,6 +667,11 @@ struct Page {
     world_daily_link: Option<String>,
     character_cases_link: Option<String>,
     projections_link: Option<String>,
+    native_login_link: Option<String>,
+    pages_link: Option<String>,
+    account_reads: Option<AccountReadStatus>,
+    optional_consents: bool,
+    closure_link: Option<String>,
     players_label: String,
     operations_link: Option<String>,
     players: bool,
@@ -662,6 +699,10 @@ struct Page {
     next: Option<Uuid>,
 }
 impl Page {
+    fn text(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
     }
@@ -698,8 +739,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     navigation: Option<Extension<PortalNavigation>>,
-    headers: axum::http::HeaderMap,
+    account_reads: Option<Extension<AccountReadStatus>>,
     Query(query): Query<RolePageQuery>,
+    request: Request,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {
         Ok(()) => true,
@@ -744,7 +786,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language_for(query.lang.as_deref(), &headers);
+    let lang = language_for(query.lang.as_deref(), request.headers());
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
@@ -776,7 +818,6 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     let mut editorial_links = Vec::new();
     for (permission, href, label) in [
         (Permission::ManageNews, "/admin/news", "cms-news"),
-        (Permission::ManagePages, "/admin/pages", "cms-pages"),
         (Permission::ManageEvents, "/admin/events", "cms-events"),
         (
             Permission::ManagePortalAnnouncements,
@@ -864,7 +905,23 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let native_login_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "native-login-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let pages_link = match s.auth.check(context, Permission::ManagePages).await {
+        Ok(()) => Some(text(lang, "pages-link")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let closure_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "account-closure-status")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
+        pages_link,
         lang,
         editorial_links,
         registration_policy_label,
@@ -879,6 +936,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         character_cases_link: support.then(|| text(lang, "character-case-title")),
         projections_link,
         operations_link,
+        native_login_link,
+        account_reads: account_reads
+            .filter(|_| request.uri().path() == "/admin")
+            .map(|Extension(status)| status),
+        optional_consents: oteryn_identity::consents::OptionalConfig::configured().enabled,
+        closure_link,
         players_label: text(lang, "players"),
         players: s.players_enabled && support,
         errors_label: s
