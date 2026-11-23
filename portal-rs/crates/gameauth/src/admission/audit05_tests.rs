@@ -879,6 +879,7 @@ async fn wave2_02_incomplete_bodies_have_absolute_deadline() -> TestResult {
 struct StalledStorage {
     memory: Memory,
     stall: Arc<std::sync::atomic::AtomicBool>,
+    entered: tokio::sync::mpsc::Sender<std::time::Instant>,
 }
 impl keys::KeyStorage for StalledStorage {
     fn load(&self) -> Result<Option<Zeroizing<Vec<u8>>>, keys::KeyError> {
@@ -886,6 +887,7 @@ impl keys::KeyStorage for StalledStorage {
     }
     fn save(&self, bytes: &[u8]) -> Result<(), keys::KeyError> {
         if self.stall.load(std::sync::atomic::Ordering::SeqCst) {
+            let _ = self.entered.try_send(std::time::Instant::now());
             std::thread::sleep(Duration::from_secs(6));
         }
         self.memory.save(bytes)
@@ -897,6 +899,7 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
     let started = std::time::Instant::now();
     let mut f = Fixture::new().await?;
     let stall = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (entered, mut storage_start) = tokio::sync::mpsc::channel(1);
     let settings = keys::Settings {
         enabled: true,
         key_purpose: "fresh_entry".into(),
@@ -909,6 +912,7 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
         StalledStorage {
             memory: Memory::default(),
             stall: stall.clone(),
+            entered,
         },
     )?;
     let key = ring.generate_next("stalled-custody")?;
@@ -926,7 +930,10 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
     let clock = std::time::Instant::now();
     let concurrent = f.signer.clone();
     let timer = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let entered = tokio::time::timeout(Duration::from_secs(5), storage_start.recv())
+            .await
+            .expect("admission did not enter custody storage")
+            .expect("custody storage dropped before the write");
         // Another request prepares while the first holds the custody mutex.
         concurrent.prepare().await?;
         assert!(
@@ -938,7 +945,7 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
             .is_err(),
             "concurrent signing must await the custody permit"
         );
-        Ok::<_, Error>(clock.elapsed())
+        Ok::<_, Error>(entered.elapsed())
     });
     let result = store::admit(
         &f.db.pool,
