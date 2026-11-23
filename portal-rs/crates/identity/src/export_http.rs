@@ -1,6 +1,7 @@
 //! Browser adapter for personal-data exports.
 use crate::export::{
-    EXPORT_REAUTH_QUERY, ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until,
+    EXPORT_REAUTH_QUERY, ExportConfig, PRODUCER_DEADLINE, export_account, export_confirmation,
+    stream_download_until,
 };
 use askama::Template;
 use axum::{
@@ -61,9 +62,11 @@ async fn confirmation(
 ) -> Response {
     let session = session_cookie(&headers).unwrap_or_default();
     let result = async {
-        if let Err(status) = export_account(&state.pool, &state.config, session).await {
-            if status == StatusCode::FORBIDDEN
-                && method == Method::GET
+        if export_confirmation(&state.pool, &state.config, session)
+            .await?
+            .is_none()
+        {
+            if method == Method::GET
                 && headers
                     .get(header::ACCEPT)
                     .and_then(|accept| accept.to_str().ok())
@@ -77,7 +80,7 @@ async fn confirmation(
                 ))
                 .into_response());
             }
-            return Err(status);
+            return Err(StatusCode::FORBIDDEN);
         }
         let csrf = browser
             .csrf_token()

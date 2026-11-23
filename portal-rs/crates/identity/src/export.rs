@@ -187,9 +187,29 @@ async fn authorized_account<'e>(
     executor: impl PgExecutor<'e>,
     session: &str,
 ) -> Result<Uuid, StatusCode> {
-    let id: Option<Uuid> = sqlx::query_scalar("SELECT a.id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
+    eligible_account(executor, session)
+        .await?
+        .ok_or(StatusCode::FORBIDDEN)
+}
+
+async fn eligible_account<'e>(
+    executor: impl PgExecutor<'e>,
+    session: &str,
+) -> Result<Option<Uuid>, StatusCode> {
+    let account: Option<(Uuid, bool)> = sqlx::query_as("SELECT a.id, COALESCE(s.sudo_until>now(), false) FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
         .bind(Sha256::digest(session.as_bytes()).to_vec()).fetch_optional(executor).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    id.ok_or(StatusCode::FORBIDDEN)
+    let (id, confirmed) = account.ok_or(StatusCode::FORBIDDEN)?;
+    Ok(confirmed.then_some(id))
+}
+
+/// A live, eligible session without recent confirmation returns `Ok(None)`.
+pub async fn export_confirmation(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<Option<Uuid>, StatusCode> {
+    validate_request(config, session)?;
+    eligible_account(pool, session).await
 }
 
 /// Resolve the same sudo-authorized account used by the streaming snapshot.

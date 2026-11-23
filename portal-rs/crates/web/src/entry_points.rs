@@ -129,10 +129,13 @@ async fn downloads(
     let Ok(rows) = rows else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let releases = rows
+    let Some(releases) = rows
         .into_iter()
-        .filter_map(|(channel, version, artifacts)| release(channel, version, &artifacts.0))
-        .collect::<Vec<_>>();
+        .map(|(channel, version, artifacts)| release(channel, version, &artifacts.0))
+        .collect::<Option<Vec<_>>>()
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
     let detail = channel.is_some();
     if detail && releases.is_empty() {
         return StatusCode::NOT_FOUND.into_response();
@@ -150,12 +153,15 @@ fn release(channel: String, version: String, artifacts: &Value) -> Option<Releas
         "beta" => "download-beta",
         _ => return None,
     };
+    let artifacts = artifacts.as_object()?;
+    if !(1..=32).contains(&artifacts.len()) {
+        return None;
+    }
     let packages = artifacts
-        .as_object()?
         .iter()
         .map(|(path, descriptor)| package(&channel, path, descriptor))
         .collect::<Option<Vec<_>>>()?;
-    (!packages.is_empty()).then_some(Release {
+    Some(Release {
         channel,
         label,
         version,

@@ -1,7 +1,8 @@
 import {spawnSync} from 'node:child_process';
+import {readFile} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {test, expect} from '../fixtures.mjs';
-import {submit} from '../helpers.mjs';
+import {csrfRejected, submit} from '../helpers.mjs';
 import {run as withPortal} from '../api/harness.mjs';
 import {query, seededAccount, seededLogin, seededStaff} from '../staff-rbac-helpers.mjs';
 
@@ -98,13 +99,20 @@ test('guest, player and staff can follow the localized portal navigation', async
   await menu.locator('summary').click();
   await menu.locator(`a[href="${route('account/privacy/export')}"]`).click();
   await expect(page).toHaveURL(`${route('account/sudo')}?continue=account-export`);
+  await csrfRejected(page, page.url(), {current_password: player.password});
+  await submit(page, 'main form', {current_password: 'incorrect test password'});
+  await expect(page).toHaveURL(`${route('account/sudo')}?continue=account-export`);
+  await expect(page.locator('main [role="alert"]')).toBeVisible();
   await submit(page, 'main form', {current_password: player.password});
   await expect(page).toHaveURL(route('account/privacy/export'));
+  await csrfRejected(page, page.url());
   const exportReady = page.waitForEvent('download');
   await page.locator('main form button').click();
   const exported = await exportReady;
   expect(exported.suggestedFilename()).toBe('account-data.json');
   expect(await exported.failure()).toBeNull();
+  const exportData = JSON.parse(await readFile(await exported.path(), 'utf8'));
+  expect(exportData.account.email).toBe(player.email);
   expect((await page.request.get('/admin/roles', {maxRedirects: 0})).status()).toBe(403);
 
   const staff = await browser.newContext({
@@ -195,7 +203,6 @@ test('i18n-parity preserves the destination and localizes the download entry', a
   await expect(page.locator('main h1')).toHaveText(labels[other]);
 });
 
-
 test('the guide opens a signed stable client release', async ({page}, info) => {
   test.setTimeout(180_000);
   const lang = info.project.metadata.locale;
@@ -221,9 +228,41 @@ test('the guide opens a signed stable client release', async ({page}, info) => {
       'href',
       'https://downloads.oteryn.com/updates/stable/targets/channels/stable/releases/rel-a/windows/x86_64/bc4a71180870f7945155fbb02f4b0a2e3faa2a62d6d31b7039013055ed19869a.client.zip',
     );
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const legacy = await page.request.get(`${portal.origin}/download/stable`);
     expect(legacy.status()).toBe(200);
     expect(new URL(legacy.url()).pathname).toBe('/pl/download/stable');
     expect((await page.request.get(`${portal.origin}/${lang}/download/beta`)).status()).toBe(404);
+
+    await seedReleaseState(portal, 2, false);
+    for (const suffix of ['download', 'download/stable']) {
+      const response = await page.request.get(`${portal.origin}/${lang}/${suffix}`, {headers: {accept: 'text/html'}});
+      expect(response.status()).toBe(503);
+      expect(response.headers()['cache-control']).toBe('no-store');
+    }
+
+    await seedReleaseState(portal, 3, true);
+    expect((await page.request.get(`${portal.origin}/${lang}/download/stable`)).status()).toBe(404);
   });
 });
+
+async function seedReleaseState(portal, revision, expired) {
+  const [channel] = await query(`
+    WITH fixture AS (
+      INSERT INTO client_releases (
+        id, channel_id, policy_revision, release_id, release_sequence, version_display,
+        policy, policy_file, metadata, versions, artifacts, expires_at, published_by
+      )
+      SELECT gen_random_uuid(), r.channel_id, $1, r.release_id, r.release_sequence,
+        r.version_display, r.policy, r.policy_file, r.metadata, r.versions,
+        CASE WHEN $2 THEN r.artifacts ELSE '{}'::jsonb END,
+        CASE WHEN $2 THEN now() ELSE r.expires_at END, r.published_by
+      FROM client_releases r JOIN client_channels c ON c.id = r.channel_id
+      WHERE c.name = 'stable' AND r.policy_revision = 1
+      RETURNING id, channel_id
+    )
+    UPDATE client_channels c SET active_publication_id = fixture.id
+    FROM fixture WHERE c.id = fixture.channel_id RETURNING c.name
+  `, [revision, expired], portal.databaseURL);
+  expect(channel?.name).toBe('stable');
+}
