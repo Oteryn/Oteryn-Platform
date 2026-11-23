@@ -1,0 +1,182 @@
+{% extends "bazaar/layout.html" %}
+{% block title %}{% if own %}{{ self.text("own-title") }}{% else %}{{ self.text("history-title") }}{% endif %}{% endblock %}
+{% block content %}
+<h1>{% if own %}{{ self.text("own-title") }}{% else %}{{ self.text("history-title") }}{% endif %}</h1>
+<nav aria-label="{{ self.text("navigation") }}">
+  <a class="op-link" href="/{{ lang }}/bazaar">{{ self.text("bazaar") }}</a>
+  {% if own %}
+    <a class="op-link" href="/{{ lang }}/bazaar/history">{{ self.text("history-title") }}</a>
+    <a class="op-link" href="/{{ lang }}/account/bazaar">{{ self.text("listings") }}</a>
+  {% else %}
+    <a class="op-link" href="/{{ lang }}/account/bazaar/history">{{ self.text("own-title") }}</a>
+  {% endif %}
+</nav>
+{% if !message.is_empty() %}
+<p role="alert">{{ self.text(message) }}</p>
+{% else %}
+{% if !own %}<p>{{ self.text("publication") }}</p>{% endif %}
+{% if search.sale.is_none() && search.left.is_none() %}
+<form class="op-card op-stack" method="get" action="{{ self.path() }}" data-filter>
+  <label>{{ self.text("min-price") }}<input class="op-input" type="number" min="0" max="999999999999" name="min_price" value="{{ search.filters.min_price }}"></label>
+  <label>{{ self.text("max-price") }}<input class="op-input" type="number" min="0" max="999999999999" name="max_price" value="{{ search.filters.max_price }}"></label>
+  <label>{{ self.text("from") }}<input class="op-input" type="date" name="from" value="{{ search.filters.from }}"></label>
+  <label>{{ self.text("to") }}<input class="op-input" type="date" name="to" value="{{ search.filters.to }}"></label>
+  <label>{{ self.text("currency") }}
+    <select class="op-input" name="currency">
+      <option value="">{{ self.text("all") }}</option>
+      {% for value in ["coins", "gold"] %}
+      <option value="{{ value }}"{% if search.filters.currency == *value %} selected{% endif %}>{{ self.text(value) }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label>{{ self.text("form") }}
+    <select class="op-input" name="form">
+      <option value="">{{ self.text("all") }}</option>
+      {% for value in ["auction", "fixed_price", "want_to_buy"] %}
+      <option value="{{ value }}"{% if search.filters.form == *value %} selected{% endif %}>{{ self.text(value) }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button class="op-button" type="submit">{{ self.text("filter") }}</button>
+</form>
+{% if !own && !csrf.is_empty() %}
+<form class="op-card op-stack" method="post" action="/{{ lang }}/account/bazaar/history" data-action="save">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <input type="hidden" name="action" value="save">
+  <input type="hidden" name="min_price" value="{{ search.filters.min_price }}">
+  <input type="hidden" name="max_price" value="{{ search.filters.max_price }}">
+  <input type="hidden" name="from" value="{{ search.filters.from }}">
+  <input type="hidden" name="to" value="{{ search.filters.to }}">
+  <input type="hidden" name="currency" value="{{ search.filters.currency }}">
+  <input type="hidden" name="form" value="{{ search.filters.form }}">
+  <label>{{ self.text("search-name") }}<input class="op-input" name="name" maxlength="80" required></label>
+  <button class="op-button" type="submit">{{ self.text("save") }}</button>
+</form>
+{% endif %}
+{% else %}
+<a class="op-link" href="{{ self.path() }}">{{ self.text("back") }}</a>
+{% endif %}
+
+<section class="op-stack" aria-labelledby="sales-heading">
+  <h2 id="sales-heading">{{ self.text("sales") }}</h2>
+  {% for sale in sales %}
+  <article class="op-card op-stack" data-sale="{{ sale.id }}">
+    <h3><a class="op-link" href="{{ self.path() }}?sale={{ sale.id }}">{{ self.text(sale.kind) }} · {{ sale.amount }} {{ self.text(sale.currency) }} · {{ sale.day }}</a></h3>
+    <p>{{ self.text(sale.form) }} · {{ self.text(sale.role) }}</p>
+    {% if !own && !csrf.is_empty() %}
+    {% if self.watched(sale.id) %}{% call change("unwatch", sale.id) %}{% endcall %}{% else %}{% call change("watch", sale.id) %}{% endcall %}{% endif %}
+    {% endif %}
+    {% if own && (sale.shareable || sale.consent) %}
+    <p>{{ self.text("publication") }}</p>
+    {% if sale.consent %}{% call change("unshare", sale.id) %}{% endcall %}{% else %}{% call change("share", sale.id) %}{% endcall %}{% endif %}
+    {% endif %}
+    {% if own && sale.kind == "character" %}
+    <p>{{ self.text("game-unavailable") }}</p>
+    {% endif %}
+  </article>
+  {% else %}
+  <p>{{ self.text("empty-sales") }}</p>
+  {% endfor %}
+  {% if let Some(url) = previous %}<a class="op-link" rel="prev" href="{{ url }}">{{ self.text("previous") }}</a>{% endif %}
+  {% if let Some(url) = next %}<a class="op-link" rel="next" href="{{ url }}">{{ self.text("next") }}</a>{% endif %}
+</section>
+
+{% if search.left.is_some() %}
+<section class="op-card op-stack" aria-labelledby="comparison-result">
+  <h2 id="comparison-result">{{ self.text("compare") }}</h2>
+  {% if self.comparable() %}
+  <p>{{ self.text("difference") }} {{ self.difference() }} {{ self.text(sales[0].currency) }}</p>
+  {% else %}
+  <p>{{ self.text("different-currency") }}</p>
+  {% endif %}
+</section>
+{% elif search.sale.is_none() && sales.len() > 1 %}
+<form class="op-card op-stack" method="get" action="{{ self.path() }}">
+  <h2>{{ self.text("compare") }}</h2>
+  {% for side in ["left", "right"] %}
+  <label>{{ self.text(side) }}
+    <select class="op-input" name="{{ side }}" required>
+      <option value="">{{ self.text("select-sale") }}</option>
+      {% for sale in sales %}
+      <option value="{{ sale.id }}">{{ loop.index }}. {{ self.text(sale.kind) }} · {{ sale.amount }} {{ self.text(sale.currency) }} · {{ sale.day }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+  <button class="op-button" type="submit">{{ self.text("compare") }}</button>
+</form>
+{% endif %}
+
+{% if own %}
+<section class="op-stack" aria-labelledby="settings-heading">
+  <h2 id="settings-heading">{{ self.text("alerts") }}</h2>
+  {% if account.alerts_enabled %}{% call preference("disable-alerts") %}{% endcall %}{% else %}{% call preference("enable-alerts") %}{% endcall %}{% endif %}
+  {% for sale in account.alerts %}
+  <article class="op-card op-stack" data-alert>
+    <a class="op-link" href="/{{ lang }}/bazaar/history?sale={{ sale.id }}">{{ self.text("match") }} · {{ sale.amount }} {{ self.text(sale.currency) }} · {{ sale.day }}</a>
+    {% call change("dismiss", sale.id) %}{% endcall %}
+  </article>
+  {% else %}
+  <p>{{ self.text("empty-alerts") }}</p>
+  {% endfor %}
+</section>
+<section class="op-stack" aria-labelledby="saved-heading">
+  <h2 id="saved-heading">{{ self.text("saved") }}</h2>
+  {% for saved in account.saved %}
+  <form class="op-card op-stack" method="post" action="/{{ lang }}/account/bazaar/history" data-action="delete">
+    <a class="op-link" href="/{{ lang }}/bazaar/history?{{ saved.url_query() }}">{{ saved.name }}</a>
+    <input type="hidden" name="name" value="{{ saved.name }}">
+    <input type="hidden" name="action" value="delete">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button class="op-button" type="submit">{{ self.text("delete") }}</button>
+  </form>
+  {% else %}
+  <p>{{ self.text("empty-saved") }}</p>
+  {% endfor %}
+</section>
+<section class="op-stack" aria-labelledby="watches-heading">
+  <h2 id="watches-heading">{{ self.text("watches") }}</h2>
+  {% for sale in account.watched %}
+  <article class="op-card op-stack" data-watched>
+    <a class="op-link" href="/{{ lang }}/bazaar/history?sale={{ sale.id }}">{{ self.text(sale.kind) }} · {{ sale.amount }} {{ self.text(sale.currency) }} · {{ sale.day }}</a>
+    {% call change("unwatch", sale.id) %}{% endcall %}
+  </article>
+  {% else %}
+  <p>{{ self.text("empty-watches") }}</p>
+  {% endfor %}
+</section>
+{% else %}
+<section class="op-stack" aria-labelledby="prices-heading">
+  <h2 id="prices-heading">{{ self.text("prices") }}</h2>
+  <p>{{ self.text("prices-description") }}</p>
+  {% for price in prices %}
+  <article class="op-card">
+    <h3>{{ self.text(price.form) }} · {{ self.text(price.currency) }} · {% if let Some(month) = price.month %}{{ month }}{% else %}{{ self.text("valuation") }}{% endif %}</h3>
+    <p>{{ self.text("median") }} {{ price.median }} · {{ self.text("samples") }} {{ price.samples }}</p>
+  </article>
+  {% else %}
+  <p>{{ self.text("too-few-sales") }}</p>
+  {% endfor %}
+  <h3>{{ self.text("game-stats") }}</h3>
+  <p>{{ self.text("game-unavailable") }}</p>
+</section>
+{% endif %}
+{% endif %}
+{% endblock %}
+
+{% macro change(action, sale) %}
+<form method="post" action="/{{ lang }}/account/bazaar/history" data-action="{{ action }}">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <input type="hidden" name="action" value="{{ action }}">
+  <input type="hidden" name="sale" value="{{ sale }}">
+  <button class="op-button" type="submit">{{ self.text(action) }}</button>
+</form>
+{% endmacro %}
+
+{% macro preference(pref) %}
+  <form method="post" action="/{{ lang }}/account/bazaar/history" data-action="{{ pref }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="action" value="{{ pref }}">
+    <button class="op-button" type="submit">{{ self.text(pref) }}</button>
+  </form>
+{% endmacro %}
