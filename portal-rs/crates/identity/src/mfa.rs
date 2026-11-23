@@ -254,6 +254,19 @@ impl Mfa {
         id: impl Into<crate::mutation_actor::MutationActor>,
         password: &str,
     ) -> Result<Option<Enrollment>, sqlx::Error> {
+        let mut secret = [0; 20];
+        getrandom::fill(&mut secret).map_err(|_| error())?;
+        self.enroll_with_secret(id, password, secret).await
+    }
+
+    /// Starts enrollment with a fixture-provided secret for the testing seed CLI.
+    /// Applies the same active account and current-password checks as enrollment.
+    pub async fn enroll_with_secret(
+        &self,
+        id: impl Into<crate::mutation_actor::MutationActor>,
+        password: &str,
+        secret: [u8; 20],
+    ) -> Result<Option<Enrollment>, sqlx::Error> {
         let actor = id.into();
         let id = actor.account;
         let mut tx = self.pool.begin().await?;
@@ -270,9 +283,7 @@ impl Mfa {
             Self::refuse(tx, Some(id)).await?;
             return Ok(None);
         }
-        let mut secret = vec![0; 20];
-        getrandom::fill(&mut secret).map_err(|_| error())?;
-        let encoded = totp_rs::Secret::Raw(secret.clone())
+        let encoded = totp_rs::Secret::Raw(secret.to_vec())
             .to_encoded()
             .to_string();
         let encrypted = self.encrypt(id, &secret)?;

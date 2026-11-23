@@ -285,7 +285,7 @@ fn configured(db: PgPool, part: Part) -> Router {
             enabled: serving_requested(),
             source_authority: authority,
         },
-        ACTIVATION_QUALIFIED,
+        ACTIVATION_QUALIFIED || crate::sample_public_feed(|key| std::env::var(key).ok()),
     ))
 }
 #[cfg(test)]

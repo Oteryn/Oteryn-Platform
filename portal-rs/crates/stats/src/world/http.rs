@@ -22,7 +22,7 @@ pub trait Policy: Visibility + Send + Sync {
 }
 impl Policy for crate::privacy::Authority {
     fn available(&self) -> bool {
-        self.enabled() && crate::privacy::GAME_STATISTICS_ACCEPTED
+        self.enabled() && (crate::privacy::GAME_STATISTICS_ACCEPTED || crate::staging::enabled())
     }
 }
 #[derive(Clone)]
@@ -109,6 +109,8 @@ struct Page {
     start: String,
     end: String,
     today: String,
+    kill_totals: Vec<(String, u64, u64)>,
+    sample_totals: bool,
 }
 fn labels(en: bool) -> Vec<String> {
     let source = if en {
@@ -175,6 +177,10 @@ fn date(value: &str) -> Result<Date, Error> {
     let day = parts[2].parse().map_err(|_| Error::BadInput)?;
     Date::from_calendar_date(year, month, day).map_err(|_| Error::BadInput)
 }
+fn sample_totals_enabled() -> bool {
+    crate::staging::enabled()
+        && std::env::var("PORTAL_STATS_WORLD_TOTALS_ENABLED").as_deref() == Ok("true")
+}
 async fn page(
     State(state): State<World>,
     OriginalUri(uri): OriginalUri,
@@ -186,6 +192,12 @@ async fn page(
         }
         let now = OffsetDateTime::now_utc();
         let today = now.date();
+        let sample_totals = sample_totals_enabled();
+        let default_day = if sample_totals {
+            today.previous_day().unwrap_or(today)
+        } else {
+            today
+        };
         let requested = raw
             .as_deref()
             .filter(|raw| !raw.is_empty())
@@ -221,9 +233,11 @@ async fn page(
                 .into_iter()
                 .map(|(id, name)| (id, name, selection.is_some_and(|(world, _, _)| id == world)))
                 .collect(),
-            start: today.to_string(),
-            end: today.to_string(),
+            start: default_day.to_string(),
+            end: default_day.to_string(),
             today: today.to_string(),
+            kill_totals: Vec::new(),
+            sample_totals,
         };
         if let Some((world, start, end)) = selection {
             page.start = start.to_string();
@@ -242,6 +256,16 @@ async fn page(
                 {
                     page.observations_available = true;
                     page.days = report.days;
+                    if sample_totals {
+                        let totals = tokio::time::timeout(
+                            Duration::from_secs(2),
+                            super::kills::sample_totals(&state.db, world, start, end),
+                        )
+                        .await;
+                        if let Ok(Ok(totals)) = totals {
+                            page.kill_totals = totals;
+                        }
+                    }
                 }
                 if let Some(feed) = &state.kills {
                     page.kills = daily_kills(

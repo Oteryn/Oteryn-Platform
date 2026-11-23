@@ -47,6 +47,41 @@ struct Day {
     bosses_killed: String,
     complete: bool,
 }
+pub(super) async fn sample_totals(
+    db: &PgPool,
+    world: Uuid,
+    start: time::Date,
+    end: time::Date,
+) -> Result<Vec<(String, u64, u64)>, Error> {
+    let rows: Vec<(i64, sqlx::types::Json<Vec<Day>>)> = sqlx::query_as(
+        "SELECT day_start,payload FROM stats_world_kills_v2 s
+         JOIN public_projection_state f ON f.id=1 AND f.highest_epoch=s.epoch
+         WHERE source_authority='staging-sample' AND world_id=$1
+           AND day_start BETWEEN $2 AND $3 AND NOT retired AND payload IS NOT NULL
+         ORDER BY day_start LIMIT 31",
+    )
+    .bind(world)
+    .bind(start.midnight().assume_utc().unix_timestamp())
+    .bind(end.midnight().assume_utc().unix_timestamp())
+    .fetch_all(db)
+    .await
+    .map_err(|_| Error::Unavailable)?;
+    rows.into_iter()
+        .filter_map(|(start, sqlx::types::Json(days))| {
+            let day = days.into_iter().next().filter(|day| day.complete)?;
+            Some((|| {
+                let date = time::OffsetDateTime::from_unix_timestamp(start)
+                    .map_err(|_| Error::Unavailable)?
+                    .date();
+                Ok((
+                    date.to_string(),
+                    number(&day.monsters_killed, true)?,
+                    number(&day.bosses_killed, true)?,
+                ))
+            })())
+        })
+        .collect()
+}
 fn number(value: &str, zero: bool) -> Result<u64, Error> {
     if value.is_empty()
         || value.len() > 20

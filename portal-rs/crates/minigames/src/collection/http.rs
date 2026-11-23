@@ -241,6 +241,7 @@ struct EvidencePage {
     operator: Option<OperatorStatus>,
     verified_progress: bool,
     cleanup: Option<(Uuid, String)>,
+    sample_cards: Vec<String>,
 }
 
 struct OperatorStatus {
@@ -348,6 +349,23 @@ async fn index(
         )),
         None => None,
     };
+    let sample_cards = if crate::staging_samples() {
+        s.service
+            .sample_cards(account)
+            .await
+            .map_err(status)?
+            .into_iter()
+            .map(|card| {
+                if lang == "pl" {
+                    card.name.pl
+                } else {
+                    card.name.en
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     EvidencePage {
         lang: lang.clone(),
         characters,
@@ -357,6 +375,7 @@ async fn index(
             .map_err(status)?,
         verified_progress: false,
         cleanup,
+        sample_cards,
     }
     .html()
 }
@@ -429,6 +448,7 @@ async fn page(
         operator: None,
         verified_progress: false,
         cleanup: None,
+        sample_cards: Vec::new(),
     };
     let cards = match s
         .service

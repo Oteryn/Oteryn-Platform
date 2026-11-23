@@ -15,3 +15,8 @@ mod browser;
 pub fn with_browser_deadlines(app: axum::Router) -> axum::Router {
     app.layer(axum::middleware::from_fn(browser::operation_deadline))
 }
+
+fn staging_samples() -> bool {
+    std::env::var("OTERYN_ENV").as_deref() == Ok("testing")
+        && std::env::var("PORTAL_STAGING_SAMPLE_DATA").as_deref() == Ok("true")
+}

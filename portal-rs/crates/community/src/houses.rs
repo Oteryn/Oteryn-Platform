@@ -155,7 +155,8 @@ fn configured<S: Clone + Send + Sync + 'static>(db: PgPool, part: Part) -> Route
             }),
         },
         part,
-        crate::world_directories::CONTRACT_ACCEPTED,
+        crate::world_directories::CONTRACT_ACCEPTED
+            || crate::sample_public_feed(|key| std::env::var(key).ok()),
     )
 }
 #[derive(serde::Deserialize, Default)]

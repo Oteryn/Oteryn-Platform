@@ -12,11 +12,19 @@ use serde::Deserialize;
 
 use oteryn_community::profiles::{self, Directory};
 
-struct ProfileSource(Option<Directory>);
+struct ProfileSource {
+    directory: Option<Directory>,
+    samples: Option<crate::staging::Samples>,
+}
 impl Current for ProfileSource {
     fn character(&self, id: Uuid) -> CurrentFuture<'_> {
+        if let Some(samples) = &self.samples
+            && crate::staging::Samples::includes(id)
+        {
+            return samples.character(id);
+        }
         Box::pin(async move {
-            let directory = self.0.as_ref().ok_or(Error::Unavailable)?;
+            let directory = self.directory.as_ref().ok_or(Error::Unavailable)?;
             let profile = directory
                 .identity_by_id(id)
                 .await
@@ -38,7 +46,7 @@ impl Current for ProfileSource {
 
     fn by_name<'a>(&'a self, name: &'a str) -> NamedFuture<'a> {
         Box::pin(async move {
-            let directory = self.0.as_ref().ok_or(Error::Unavailable)?;
+            let directory = self.directory.as_ref().ok_or(Error::Unavailable)?;
             let identity = directory
                 .identity_by_name(name)
                 .await
@@ -51,10 +59,11 @@ impl Current for ProfileSource {
 
 pub fn configured_router(db: PgPool) -> Router {
     let directory = profiles::enabled().then(|| Directory::configured(db.clone()));
+    let samples = crate::staging::enabled().then(|| crate::staging::Samples::new(db.clone()));
     router(Characters {
         db,
         enabled: std::env::var("PORTAL_CHARACTER_STATS_ENABLED").as_deref() == Ok("true"),
-        current: Arc::new(ProfileSource(directory)),
+        current: Arc::new(ProfileSource { directory, samples }),
     })
 }
 pub fn router(state: Characters) -> Router {

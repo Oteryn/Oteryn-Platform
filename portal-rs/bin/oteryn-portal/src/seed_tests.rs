@@ -481,6 +481,68 @@ async fn account_mfa_enrols_once_and_the_secret_logs_in() -> TestResult {
 }
 
 #[tokio::test]
+async fn staging_seed_provisions_staff_with_supplied_totp_and_an_unverified_player() -> TestResult {
+    use totp_rs::{Algorithm, Secret, TOTP};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let staff = db
+        .twice(
+            "account",
+            json!({
+                "email": "staff-support@staging.invalid", "password": PASSWORD, "role": "support"
+            }),
+        )
+        .await?;
+    let id: Uuid = staff["accountId"].as_str().unwrap().parse()?;
+    let roles: Vec<String> = sqlx::query_scalar(
+        "SELECT r.key FROM account_roles a JOIN roles r ON r.id=a.role_id WHERE a.account_id=$1",
+    )
+    .bind(id)
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(roles, ["support"]);
+    assert!(is_conflict(db.seed("account", json!({
+        "email": "staff-support@staging.invalid", "password": PASSWORD, "role": "platform_admin"
+    })).await));
+    assert!(is_conflict(
+        db.seed(
+            "account",
+            json!({
+                "email": "staff-support@staging.invalid", "password": PASSWORD, "verified": false
+            })
+        )
+        .await
+    ));
+
+    let raw = vec![0xaf; 20];
+    let encoded = Secret::Raw(raw.clone()).to_encoded().to_string();
+    let result = db
+        .seed(
+            "account-mfa",
+            json!({
+                "accountId": id, "password": PASSWORD, "totpSecret": encoded
+            }),
+        )
+        .await?;
+    assert_eq!(result, json!({"entity": "account-mfa", "accountId": id}));
+    let code = TOTP::new(Algorithm::SHA1, 6, 1, 30, raw)?.generate_current()?;
+    assert!(db.settings().mfa.unwrap().verify_totp(id, &code).await?);
+
+    db.twice(
+        "account",
+        json!({
+            "email": "player-new@staging.invalid", "password": PASSWORD, "verified": false
+        }),
+    )
+    .await?;
+    assert_eq!(db.count(
+        "SELECT count(*) FROM accounts WHERE email='player-new@staging.invalid' AND email_verified_at IS NULL"
+    ).await?, 1);
+    db.close().await
+}
+
+#[tokio::test]
 async fn every_seed_action_refuses_outside_testing() -> TestResult {
     let args = [
         "account-mfa".to_owned(),

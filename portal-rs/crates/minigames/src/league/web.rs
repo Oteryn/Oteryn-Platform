@@ -224,6 +224,7 @@ struct Surface<A> {
     league: League<A>,
     read_slots: Semaphore,
     clock: fn() -> i64,
+    sample: bool,
 }
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
     router_with_clock(league, || time::OffsetDateTime::now_utc().unix_timestamp())
@@ -232,6 +233,14 @@ pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
 pub(super) fn router_with_clock<A: Authority + 'static>(
     league: League<A>,
     clock: fn() -> i64,
+) -> Router {
+    public_router(league, clock, false)
+}
+
+fn public_router<A: Authority + 'static>(
+    league: League<A>,
+    clock: fn() -> i64,
+    sample: bool,
 ) -> Router {
     if !league.flags.enabled || !league.flags.public {
         return Router::new();
@@ -266,12 +275,17 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
             league,
             read_slots: Semaphore::new(MAX_CONCURRENT_READS),
             clock,
+            sample,
         }))
 }
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = super::config::owner_flags(super::config::enabled());
     let authority = super::runtime::GameAuthority::configured();
-    router(League::new(pool, flags, authority))
+    public_router(
+        League::new(pool, flags, authority),
+        || time::OffsetDateTime::now_utc().unix_timestamp(),
+        crate::staging_samples(),
+    )
 }
 
 async fn response_policy(request: Request, next: Next) -> Response {
@@ -320,19 +334,42 @@ async fn page<A: Authority>(
     if let Err(status) = limit(&limiter, source).await {
         return Page::new(&lang, None, None).response(status);
     }
-    if (state.clock)() < 0 {
+    let Ok(now) = u64::try_from((state.clock)()) else {
         return Page::new(&lang, None, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    }
+    };
     let Ok(_slot) = state.read_slots.try_acquire() else {
         return Page::new(&lang, None, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
     let session = signed_in.map(|Extension(value)| value);
-    match state
+    let mut overview = state
         .league
         .overview(session.as_ref().map(|s| s.account_id))
-        .await
+        .await;
+    if state.sample
+        && let Ok(samples) = read_samples(&state.league.pool, now).await
     {
-        Ok(overview) => Page::new(&lang, Some(overview), session).response(StatusCode::OK),
+        match &mut overview {
+            Ok(overview) => overview.decisions.extend(samples),
+            Err(_) => {
+                overview = Ok(Overview {
+                    decisions: samples,
+                    active: Vec::new(),
+                    choices: Default::default(),
+                    eligible: false,
+                    now,
+                    generation: 0,
+                });
+            }
+        }
+    }
+    match overview {
+        Ok(overview) => {
+            let mut page = Page::new(&lang, Some(overview), session);
+            if state.sample {
+                page.title = text(&lang, "title");
+            }
+            page.response(StatusCode::OK)
+        }
         Err(_) => Page::new(&lang, None, None).response(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
@@ -368,6 +405,30 @@ async fn submit<A: Authority>(
     page.retry = true;
     page.response(status)
 }
+// Sample results do not attest to a live Game feed. They cannot use its
+// recovery witness or verified audit path.
+async fn read_samples(pool: &PgPool, now: u64) -> Result<Vec<schema::Snapshot>> {
+    let rows: Vec<Vec<u8>> = tokio::time::timeout(
+        Duration::from_secs(2),
+        sqlx::query_scalar(
+            "SELECT wire FROM league_subjects WHERE authority='staging-sample'
+         AND family='guild_season' AND final_state AND NOT quarantined
+         ORDER BY world_id, subject_id LIMIT 16",
+        )
+        .fetch_all(pool),
+    )
+    .await
+    .map_err(|_| Error::Unavailable)??;
+    rows.into_iter()
+        .map(|wire| {
+            let season: schema::SeasonSnapshot =
+                serde_json::from_slice(&wire).map_err(|_| Error::Invalid)?;
+            let canonical = serde_json::to_vec(&season).map_err(|_| Error::Invalid)?;
+            schema::Snapshot::decode(&canonical, true, now)
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

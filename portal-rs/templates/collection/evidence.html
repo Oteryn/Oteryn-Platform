@@ -12,9 +12,9 @@
 <header class="site-header"><a href="#main">{{ self.label("skip") }}</a></header>
 <main id="main" tabindex="-1" class="op-stack">
 <h1>{{ self.label("title") }}</h1>
-{% if characters.is_empty() %}
+{% if characters.is_empty() && sample_cards.is_empty() %}
 <p>{{ self.label("unavailable") }}</p>
-{% else %}
+{% else if !characters.is_empty() %}
 <h2>{{ self.label("characters") }}</h2>
 <ul>
 {% for (id, name) in characters %}
@@ -42,6 +42,12 @@
 <dd>{% if let Some(published) = settings.published_cards %}{% if published %}{{ self.label("operator-published") }}{% else %}{{ self.label("empty") }}{% endif %}{% else %}{{ self.label("source-unavailable") }}{% endif %}</dd>
 </dl>
 </section>
+{% endif %}
+{% if !sample_cards.is_empty() %}
+  <section>
+    <h2>{{ self.label("cards") }}</h2>
+    <ul>{% for card in sample_cards %}<li>{{ card }}</li>{% endfor %}</ul>
+  </section>
 {% endif %}
 </main>
 </body>

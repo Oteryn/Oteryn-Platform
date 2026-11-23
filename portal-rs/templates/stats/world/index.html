@@ -13,7 +13,12 @@
 {% endif %}
 <section class="op-stack" aria-labelledby="daily-kills-title">
 <h2 id="daily-kills-title">{{ labels[9] }}</h2>
-{% if kills.is_empty() %}<p role="status">{{ labels[1] }}</p>{% endif %}
+{% if sample_totals && selected %}
+{% if kill_totals.is_empty() %}<p role="status">{{ labels[1] }}</p>{% else %}
+<table><thead><tr><th scope="col">{{ labels[7] }}</th><th scope="col">{{ labels[15] }}</th><th scope="col">{{ labels[16] }}</th></tr></thead>
+<tbody>{% for (day, monsters, bosses) in kill_totals %}<tr><td>{{ day }}</td><td>{{ monsters }}</td><td>{{ bosses }}</td></tr>{% endfor %}</tbody></table>
+{% endif %}
+{% else if kills.is_empty() %}<p role="status">{{ labels[1] }}</p>{% endif %}
 {% for day in kills %}
 <article class="op-card op-stack"><h3>{{ labels[7] }}: <time datetime="{{ day.date }}">{{ day.date }}</time></h3>
 {% match day.total %}{% when Some with (total) %}

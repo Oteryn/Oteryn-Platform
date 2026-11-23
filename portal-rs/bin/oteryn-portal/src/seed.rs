@@ -143,7 +143,19 @@ async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, See
     let entity = args
         .first()
         .ok_or_else(|| bad("usage: oteryn-portal seed <entity> '<json object>'"))?;
-    let input: Value = match args.get(1) {
+    let input: Value = match args.get(1).map(String::as_str) {
+        Some("-") => {
+            use std::io::Read;
+            let mut input = Vec::new();
+            std::io::stdin()
+                .take(65_537)
+                .read_to_end(&mut input)
+                .map_err(|_| bad("could not read seed input"))?;
+            if input.len() > 65_536 {
+                return Err(bad("seed input is too large"));
+            }
+            serde_json::from_slice(&input).map_err(|_| bad("arguments are not JSON"))?
+        }
         Some(raw) => serde_json::from_str(raw).map_err(|_| bad("arguments are not JSON"))?,
         None => json!({}),
     };
@@ -243,11 +255,19 @@ pub(crate) fn bounded(key: &str, value: &str, max: usize) -> Result<(), SeedErro
 }
 
 async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
-    args.only(&["email", "password", "accountId", "locale"])?;
+    args.only(&[
+        "email",
+        "password",
+        "accountId",
+        "locale",
+        "verified",
+        "role",
+    ])?;
     let email = args.required("email")?.to_ascii_lowercase();
     let local = email
         .strip_suffix("@example.invalid")
-        .ok_or_else(|| bad("email must end with @example.invalid"))?;
+        .or_else(|| email.strip_suffix("@staging.invalid"))
+        .ok_or_else(|| bad("email must end with @example.invalid or @staging.invalid"))?;
     if local.is_empty()
         || email.len() > 254
         || !local
@@ -264,19 +284,32 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
     if !matches!(locale, "en" | "pl") {
         return Err(bad("locale must be en or pl"));
     }
+    let verified = match args.0.get("verified") {
+        None => true,
+        Some(Value::Bool(value)) => *value,
+        _ => return Err(bad("verified must be a boolean")),
+    };
+    let role = args.text("role")?;
+    if role.is_some() && (!email.ends_with("@staging.invalid") || !verified) {
+        return Err(bad("roles require a verified @staging.invalid account"));
+    }
     let requested = args.uuid("accountId", true)?;
     let mut tx = pool.begin().await?;
     let existing =
-        sqlx::query("SELECT id, password_hash FROM accounts WHERE lower(email)=$1 FOR UPDATE")
+        sqlx::query("SELECT id, password_hash, email_verified_at IS NOT NULL AS verified FROM accounts WHERE lower(email)=$1 FOR UPDATE")
             .bind(&email)
             .fetch_optional(&mut *tx)
             .await?;
+    let already_exists = existing.is_some();
     let id: Uuid = if let Some(row) = existing {
         let id: Uuid = row.try_get("id")?;
         if requested.is_some_and(|wanted| wanted != id) {
             return Err(SeedError::Conflict(
                 "email belongs to another accountId".into(),
             ));
+        }
+        if args.0.contains_key("verified") && row.try_get::<bool, _>("verified")? != verified {
+            return Err(SeedError::Conflict("account verification differs".into()));
         }
         let hash: String = row.try_get("password_hash")?;
         if !oteryn_identity::password::verify(password, &hash) {
@@ -289,11 +322,12 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         let id = requested.unwrap_or_else(Uuid::now_v7);
         let hash = oteryn_identity::password::hash(password)
             .map_err(|_| SeedError::Unavailable("password hashing"))?;
-        let inserted = sqlx::query("INSERT INTO accounts (id, email, email_verified_at, password_hash, status, locale, native_security_generation) VALUES ($1, $2, now(), $3, 'active', $4, 1) ON CONFLICT (id) DO NOTHING")
+        let inserted = sqlx::query("INSERT INTO accounts (id, email, email_verified_at, password_hash, status, locale, native_security_generation) VALUES ($1, $2, CASE WHEN $5 THEN now() END, $3, 'active', $4, 1) ON CONFLICT (id) DO NOTHING")
             .bind(id)
             .bind(&email)
             .bind(hash)
             .bind(locale)
+            .bind(verified)
             .execute(&mut *tx)
             .await?;
         if inserted.rows_affected() != 1 {
@@ -303,6 +337,31 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         }
         id
     };
+    if let Some(role) = role {
+        let role_id: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key=$1 AND built_in")
+            .bind(role)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| bad("role must be built in"))?;
+        if already_exists {
+            let assigned: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+            )
+            .bind(id)
+            .bind(role_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !assigned {
+                return Err(SeedError::Conflict("account role differs".into()));
+            }
+        } else {
+            sqlx::query("INSERT INTO account_roles(account_id, role_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(role_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
     let row = sqlx::query("SELECT status, native_security_generation FROM accounts WHERE id=$1")
         .bind(id)
         .fetch_one(&mut *tx)
@@ -940,7 +999,7 @@ async fn publish_recovery(
 /// service, so tests can log in with a second factor. Testing only (see `run_in`).
 async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, SeedError> {
     use totp_rs::{Algorithm, Secret, TOTP};
-    args.only(&["accountId", "password"])?;
+    args.only(&["accountId", "password", "totpSecret"])?;
     let id = args
         .uuid("accountId", true)?
         .ok_or_else(|| bad("accountId is required"))?;
@@ -954,26 +1013,52 @@ async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, Seed
             "MFA is already enrolled; its secret is shown only at enrolment".into(),
         ));
     }
-    let enrollment = mfa
-        .enroll(id, password)
-        .await?
-        .ok_or_else(|| bad("accountId is not an active verified account with this password"))?;
+    let supplied = args.text("totpSecret")?;
+    let enrollment = if let Some(encoded) = supplied {
+        let raw = Secret::Encoded(encoded.to_owned())
+            .to_bytes()
+            .ok()
+            .filter(|raw| {
+                raw.len() == 20 && Secret::Raw(raw.clone()).to_encoded().to_string() == encoded
+            })
+            .ok_or_else(|| bad("totpSecret must be canonical Base32 encoding of 20 bytes"))?;
+        let secret = raw
+            .try_into()
+            .map_err(|_| bad("invalid totpSecret length"))?;
+        mfa.enroll_with_secret(id, password, secret).await?
+    } else {
+        mfa.enroll(id, password).await?
+    }
+    .ok_or_else(|| bad("accountId is not an active verified account with this password"))?;
     let secret = Secret::Encoded(enrollment.secret.clone())
         .to_bytes()
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
     let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| SeedError::Unavailable("clock"))?
-        .as_secs();
-    // Confirm with the previous step so the current step's code still logs in.
-    let recovery_codes = mfa
+    let clock = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .map_err(|_| SeedError::Unavailable("clock"))
+    };
+    // Confirm the previous step so the current code can still log in. A step
+    // boundary while acquiring the database lock can make that code too old.
+    let now = clock()?;
+    let mut recovery_codes = mfa
         .confirm(id, password, &totp.generate(now.saturating_sub(30)))
-        .await?
-        .ok_or(SeedError::Unavailable(
-            "MFA confirmation was refused; retry",
-        ))?;
+        .await?;
+    let after = clock()?;
+    if recovery_codes.is_none() && after / 30 > now / 30 {
+        recovery_codes = mfa
+            .confirm(id, password, &totp.generate(after.saturating_sub(30)))
+            .await?;
+    }
+    let recovery_codes = recovery_codes.ok_or(SeedError::Unavailable(
+        "MFA confirmation was refused; retry",
+    ))?;
+    if supplied.is_some() {
+        return Ok(json!({"entity": "account-mfa", "accountId": id.to_string()}));
+    }
     Ok(json!({
         "entity": "account-mfa",
         "accountId": id.to_string(),

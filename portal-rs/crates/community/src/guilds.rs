@@ -246,7 +246,7 @@ fn configured_with(db: PgPool, part: Part, get: impl Fn(&str) -> Option<String>)
             source_authority,
             enabled: crate::world_directories::guilds_enabled(&get),
         },
-        crate::world_directories::CONTRACT_ACCEPTED,
+        crate::world_directories::CONTRACT_ACCEPTED || crate::sample_public_feed(&get),
     )
     .merge(ingest)
 }

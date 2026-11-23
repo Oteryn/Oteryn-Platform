@@ -72,7 +72,7 @@ impl Visibility for GuildSource {
 }
 impl crate::guilds::Source for GuildSource {
     fn contract_accepted(&self) -> bool {
-        GAME_STATISTICS_ACCEPTED
+        GAME_STATISTICS_ACCEPTED || crate::staging::enabled()
     }
     fn current_guilds(&self) -> crate::guilds::GuildFuture<'_> {
         Box::pin(async move {
