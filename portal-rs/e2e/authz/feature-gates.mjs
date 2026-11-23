@@ -5,8 +5,8 @@ import { pool } from '../helpers.mjs';
 
 const fixture = '019a541b-a000-7000-8000-000000000001';
 const cases = [
-  { method: 'POST', path: '/{lang}/pass/{season}/buy', anonymous: 401, signed: 404,
-    source: 'crates/minigames/src/pass/web.rs:136', form: { operation: fixture } },
+  { method: 'POST', path: '/{lang}/pass/{season}/buy', anonymous: 401, signed: 403,
+    source: 'crates/minigames/src/pass/repository.rs:235', form: { operation: fixture } },
   { method: 'POST', path: '/{lang}/pass/{season}/claim', anonymous: 401, signed: 404,
     source: 'crates/minigames/src/pass/web.rs:136', form: { operation: fixture, reward: fixture } },
   { method: 'POST', path: '/{lang}/collection-pvp', anonymous: 403, signed: 503,
