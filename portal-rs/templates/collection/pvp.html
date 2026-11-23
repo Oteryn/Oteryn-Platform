@@ -116,6 +116,12 @@
     {% endif %}
   </article>
   {% endfor %}
+  {% if let Some(before) = next_battle %}
+  <a href="?battles_before={{ before }}#battles">{{ self.label("older-battles") }}</a>
+  {% endif %}
+  {% if battles_before %}
+  <a href="/{{ lang }}/collection-pvp#battles">{{ self.label("latest-battles") }}</a>
+  {% endif %}
 </section>
 <section class="op-stack" aria-labelledby="tournaments">
   <h2 id="tournaments">{{ self.label("tournaments") }}</h2>
@@ -152,6 +158,12 @@
     {% endif %}
   </article>
   {% endfor %}
+  {% if let Some(before) = next_tournament %}
+  <a href="?tournaments_before={{ before }}#tournaments">{{ self.label("older-tournaments") }}</a>
+  {% endif %}
+  {% if tournaments_before %}
+  <a href="/{{ lang }}/collection-pvp#tournaments">{{ self.label("latest-tournaments") }}</a>
+  {% endif %}
 </section>
 <section class="op-stack" aria-labelledby="rankings">
   <h2 id="rankings">{{ self.label("rankings") }}</h2>
@@ -190,9 +202,21 @@
     {% endif %}
   </article>
   {% endfor %}
-  <h2>{{ self.label("owned-sets") }}</h2>
+  {% if let Some(before) = next_offer %}
+  <a href="?offers_before={{ before }}#sets">{{ self.label("more-sets") }}</a>
+  {% endif %}
+  {% if offers_before %}
+  <a href="/{{ lang }}/collection-pvp#sets">{{ self.label("latest-sets") }}</a>
+  {% endif %}
+  <h2 id="receipts">{{ self.label("owned-sets") }}</h2>
   {% if receipts.is_empty() %}<p>{{ self.label("no-purchases") }}</p>{% endif %}
   <ul>{% for id in receipts %}<li><code>{{ id }}</code></li>{% endfor %}</ul>
+  {% if let Some(before) = next_receipt %}
+  <a href="?receipts_before={{ before }}#receipts">{{ self.label("older-purchases") }}</a>
+  {% endif %}
+  {% if receipts_before %}
+  <a href="/{{ lang }}/collection-pvp#receipts">{{ self.label("latest-purchases") }}</a>
+  {% endif %}
 </section>
 {% endif %}
 </main>

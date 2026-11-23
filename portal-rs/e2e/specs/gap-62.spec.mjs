@@ -61,6 +61,14 @@ test('players buy fixed cards and finish a collection tournament', async ({ page
         }],
       );
       await fixture.query(
+        `INSERT INTO collection_cards(id,definition,sprite)
+         SELECT extra.id,jsonb_set(c.definition,'{id}',to_jsonb(extra.id)),c.sprite
+         FROM collection_cards c
+         CROSS JOIN (SELECT uuidv7() AS id FROM generate_series(1,1000)) extra
+         WHERE c.id=$1`,
+        [card],
+      );
+      await fixture.query(
         'INSERT INTO collection_pvp_sets(id,version,price,cards,published) VALUES($1,1,100,$2,true)',
         [sku, { [card]: 2 }],
       );
@@ -76,8 +84,13 @@ test('players buy fixed cards and finish a collection tournament', async ({ page
       const account = await seedPlayer(lang);
       const { rows: [{ id }] } = await db.query('SELECT id FROM accounts WHERE email=$1', [account.email]);
       await login(actor, lang, account);
-      await expect(actor.locator(`#portal-navigation a[href="${path}"]`)).toHaveCount(1);
-      await actor.goto(path);
+      if (info.project.use.viewport.width === 390) {
+        await actor.locator('#portal-menu-toggle').click();
+      }
+      await actor.locator('#portal-world-button').click();
+      await actor.locator(`#portal-navigation a[href="${path}"]`).click();
+      await expect(actor).toHaveURL(new RegExp(`/${lang}/collection-pvp$`));
+      await expect(actor.locator(`#portal-navigation a[href="${path}"]`)).toHaveAttribute('aria-current', 'page');
       await expect(actor.locator('main')).toContainText(labels['journal-unavailable']);
       const offer = actor.locator(`[data-set="${sku}"]`);
       await expect(offer).toContainText(`${names[lang]} × 2`);
@@ -90,7 +103,12 @@ test('players buy fixed cards and finish a collection tournament', async ({ page
       const purchase = await fields(buy);
       expect((await post(actor, { ...purchase, id: 'invalid' })).status()).toBe(422);
       expect((await post(actor, { ...purchase, id: uuid7() })).status()).toBe(403);
-      await buy.getByRole('button', { name: labels.buy, exact: true }).click();
+      const [purchaseResponse] = await Promise.all([
+        actor.waitForResponse(response =>
+          response.request().method() === 'POST' && new URL(response.url()).pathname === path),
+        buy.getByRole('button', { name: labels.buy, exact: true }).click(),
+      ]);
+      expect(purchaseResponse.status()).toBe(303);
       await expect(offer).toContainText(labels.purchased);
       expect((await post(actor, purchase)).status()).toBe(303);
       expect((await post(actor, { ...purchase, request: uuid7() })).status()).toBe(403);
@@ -148,10 +166,44 @@ test('players buy fixed cards and finish a collection tournament', async ({ page
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       info.project.use.viewport.width,
     );
+
+    await db.query(
+      `INSERT INTO collection_pvp_tournaments(id,organizer,capacity)
+       SELECT id,$1,2 FROM unnest($2::uuid[]) AS id`,
+      [right.id, Array.from({ length: 51 }, uuid7)],
+    );
+    await db.query(
+      `INSERT INTO collection_pvp_battles(id,left_account,right_account,left_deck)
+       SELECT id,$1,$2,'{}'::jsonb FROM unnest($3::uuid[]) AS id`,
+      [right.id, left.id, Array.from({ length: 51 }, uuid7)],
+    );
+    await page.reload();
+    await expect(page.locator('section[aria-labelledby=rankings] li')).toHaveCount(2);
+    await expect(tournamentView).toHaveCount(0);
+    await expect(page.locator(`[data-battle="${battle}"]`)).toHaveCount(0);
+    await page.getByRole('link', { name: labels['older-tournaments'] }).click();
+    await expect(tournamentView).toContainText(labels.completed);
+    await page.getByRole('link', { name: labels['older-battles'] }).click();
+    await expect(page.locator(`[data-battle="${battle}"]`)).toBeVisible();
+    const additionalSets = Array.from({ length: 11 }, uuid7);
+    try {
+      await db.query(
+        `INSERT INTO collection_pvp_sets(id,version,price,cards,published)
+         SELECT id,1,100,$1,true FROM unnest($2::uuid[]) AS id`,
+        [{ [card]: 2 }, additionalSets],
+      );
+      await page.goto(path);
+      await expect(page.locator(`[data-set="${sku}"]`)).toHaveCount(0);
+      await page.getByRole('link', { name: labels['more-sets'] }).click();
+      await expect(page.locator(`[data-set="${sku}"]`)).toContainText(labels.purchased);
+    } finally {
+      await db.query('UPDATE collection_pvp_sets SET published=false WHERE id=ANY($1)', [additionalSets]);
+    }
   } finally {
     try {
       if (fixtureReady) {
         await db.query('UPDATE collection_pvp_sets SET published=false WHERE id=$1', [sku]);
+        await db.query("DELETE FROM collection_cards WHERE definition->>'key'=$1", [key]);
         await db.query("DELETE FROM world_visibility WHERE kind='Creature' AND key=$1", [key]);
         await db.query("DELETE FROM world_entities WHERE version_id=$1 AND kind='Creature' AND key=$2", [publishedWorld, key]);
         if (temporaryWorld) {
@@ -162,5 +214,21 @@ test('players buy fixed cards and finish a collection tournament', async ({ page
       await context.close();
       await db.end();
     }
+  }
+});
+
+test('i18n-parity for collection battles and fixed sets', () => {
+  const directory = 'crates/minigames/src/collection_pvp';
+  const en = messages(directory, 'en');
+  const pl = messages(directory, 'pl');
+  expect(Object.keys(pl).sort()).toEqual(Object.keys(en).sort());
+  for (const key of [
+    'title', 'unavailable', 'journal-unavailable', 'try-later', 'older-battles',
+    'latest-battles', 'older-tournaments', 'latest-tournaments', 'more-sets',
+    'latest-sets', 'older-purchases', 'latest-purchases', 'pending', 'registration',
+    'completed', 'won', 'lost', 'draw',
+  ]) {
+    expect(en[key]).toBeTruthy();
+    expect(pl[key]).toBeTruthy();
   }
 });

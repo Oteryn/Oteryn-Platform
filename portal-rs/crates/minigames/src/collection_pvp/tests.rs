@@ -433,6 +433,7 @@ async fn postgres_browser_success_refusal_csrf_and_bad_input()
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
         let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
         assert!(html.contains(title));
         assert!(html.contains(&csrf));
@@ -471,6 +472,51 @@ async fn postgres_browser_success_refusal_csrf_and_bad_input()
             .await?;
         assert_eq!(response.status(), status);
     }
+    let unsupported = app
+        .clone()
+        .oneshot(
+            Request::put("/en/collection-pvp")
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, "https://portal.example.invalid")
+                .header("x-csrf-token", &csrf)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(unsupported.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert!(
+        unsupported.headers()[header::ALLOW]
+            .to_str()?
+            .contains("POST")
+    );
+
+    use sha2::{Digest, Sha256};
+    sqlx::query(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT 'collection-pvp-action',$1,date_trunc('minute',statement_timestamp())+delta,60
+         FROM unnest(ARRAY[interval '0',interval '1 minute']) AS offsets(delta)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE SET count=60",
+    )
+    .bind(Sha256::digest(a.as_bytes()).to_vec())
+    .execute(&pool)
+    .await?;
+    let response = app
+        .oneshot(
+            Request::post("/en/collection-pvp")
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, "https://portal.example.invalid")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("op=create&capacity=2&_csrf={csrf}")))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let retry_after: u32 = response.headers()[header::RETRY_AFTER].to_str()?.parse()?;
+    assert!((1..=60).contains(&retry_after));
+    let tournaments: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM collection_pvp_tournaments WHERE organizer=$1")
+            .bind(a)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(tournaments, 1);
     let disabled = http::router(
         Service::new(pool.clone(), Flags::default(), Unavailable, Unavailable),
         CsrfConfig::default(),
@@ -888,6 +934,14 @@ async fn postgres_published_cards_fund_a_qualifying_tournament()
     assert_eq!(service.battle(left, id).await?.status, "completed");
     assert_eq!(service.tournaments(left).await?[0].status, "completed");
     assert_eq!(service.rankings(Some(tournament)).await?.len(), 2);
+    for _ in 0..9 {
+        service.create_tournament(left, 2).await?;
+    }
+    assert!(matches!(
+        service.create_tournament(left, 2).await,
+        Err(Error::Refused)
+    ));
+    service.save_deck(left, "Another deck", &[card]).await?;
     cleanup(pool).await?;
     Ok(())
 }

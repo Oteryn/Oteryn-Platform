@@ -22,6 +22,8 @@ pub enum Error {
     Refused,
     #[error("invalid input")]
     Invalid,
+    #[error("try again later")]
+    Limited(i64),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 }
@@ -209,9 +211,10 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         let participants: (Uuid, Uuid) = sqlx::query_as(
-            "SELECT left_account,right_account FROM collection_pvp_battles WHERE id=$1",
+            "SELECT left_account,right_account FROM collection_pvp_battles WHERE id=$1 AND right_account=$2",
         )
         .bind(id)
+        .bind(actor)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::Refused)?;
@@ -278,8 +281,8 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
         let participants: (Uuid, Uuid, Option<Uuid>) = sqlx::query_as(
-            "SELECT left_account,right_account,tournament_id FROM collection_pvp_battles WHERE id=$1",
-        ).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
+            "SELECT left_account,right_account,tournament_id FROM collection_pvp_battles WHERE id=$1 AND $2 IN(left_account,right_account)",
+        ).bind(id).bind(actor).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
         Self::prepare_accounts(&mut tx, &[actor, participants.0, participants.1]).await?;
         if let Some(tournament) = participants.2 {
             sqlx::query("SELECT id FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE")
@@ -339,11 +342,44 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         Ok(sqlx::query_as("SELECT account_id,sum(points)::bigint AS points,count(*)::bigint AS played FROM (SELECT left_account AS account_id,CASE WHEN winner=left_account THEN 3 WHEN winner IS NULL THEN 1 ELSE 0 END AS points FROM collection_pvp_battles WHERE status='completed' AND ($1::uuid IS NULL OR tournament_id=$1) UNION ALL SELECT right_account,CASE WHEN winner=right_account THEN 3 WHEN winner IS NULL THEN 1 ELSE 0 END FROM collection_pvp_battles WHERE status='completed' AND ($1::uuid IS NULL OR tournament_id=$1)) scores GROUP BY account_id ORDER BY points DESC,account_id LIMIT 100")
             .bind(tournament).fetch_all(&self.pool).await?)
     }
+
+    async fn visible_rankings(
+        &self,
+        actor: Uuid,
+        tournament: Option<Uuid>,
+    ) -> Result<Vec<Ranking>> {
+        if let Some(id) = tournament {
+            let visible: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM collection_pvp_tournaments t
+                 WHERE t.id=$1 AND (t.organizer=$2 OR EXISTS(
+                     SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$2
+                 )))",
+            )
+            .bind(id)
+            .bind(actor)
+            .fetch_one(&self.pool)
+            .await?;
+            if !visible {
+                return Err(Error::Refused);
+            }
+        }
+        self.rankings(tournament).await
+    }
+
     pub async fn tournaments(&self, actor: Uuid) -> Result<Vec<Tournament>> {
+        self.tournament_page(actor, None, 50).await
+    }
+
+    async fn tournament_page(
+        &self,
+        actor: Uuid,
+        before: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<Tournament>> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
-        let rows=sqlx::query_as("SELECT t.id,t.capacity,t.status,t.organizer,EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1) AS joined,(SELECT count(*) FROM collection_pvp_entries e WHERE e.tournament_id=t.id) AS entrants FROM collection_pvp_tournaments t WHERE t.status='registration' OR t.organizer=$1 OR EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1) ORDER BY t.created_at DESC LIMIT 50").bind(actor).fetch_all(&mut *tx).await?;
+        let rows=sqlx::query_as("SELECT t.id,t.capacity,t.status,t.organizer,EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1) AS joined,(SELECT count(*) FROM collection_pvp_entries e WHERE e.tournament_id=t.id) AS entrants FROM collection_pvp_tournaments t WHERE (t.status='registration' OR t.organizer=$1 OR EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1)) AND ($2::uuid IS NULL OR t.id<$2) ORDER BY t.id DESC LIMIT $3").bind(actor).bind(before).bind(limit).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(rows)
     }
@@ -401,6 +437,12 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     pub async fn start(&self, actor: Uuid, tournament: Uuid) -> Result<()> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
+        let owned: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM collection_pvp_tournaments WHERE id=$1 AND organizer=$2 AND status='registration')",
+        ).bind(tournament).bind(actor).fetch_one(&mut *tx).await?;
+        if !owned {
+            return Err(Error::Refused);
+        }
         let entrants: Vec<Uuid> = sqlx::query_scalar(
             "SELECT account_id FROM collection_pvp_entries WHERE tournament_id=$1 ORDER BY account_id",
         ).bind(tournament).fetch_all(&mut *tx).await?;
@@ -445,7 +487,10 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
-        Self::creation_budget(&mut tx, actor).await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,92))")
+            .bind(actor.to_string())
+            .execute(&mut *tx)
+            .await?;
         self.collection
             .save_deck(&mut tx, actor, name, cards)
             .await?;

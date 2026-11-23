@@ -48,11 +48,11 @@
                 {% endif %}
               </ul>
             </div>
-            {% if chrome.first_link("league,puzzles,collection,pass").is_some() %}
+            {% if chrome.first_link("league,puzzles,collection,collection-pvp,pass").is_some() %}
             <div class="om-column">
               <h2 class="om-heading">{{ chrome.text("thais-nav-activities") }}</h2>
               <ul>
-                {% for key in ["league", "puzzles", "collection", "pass"] %}
+                {% for key in ["league", "puzzles", "collection", "collection-pvp", "pass"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
               </ul>
