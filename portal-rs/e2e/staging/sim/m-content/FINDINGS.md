@@ -1,0 +1,25 @@
+# Staging findings
+
+## Product defects
+
+- **PRODUCT DEFECT** — A valid player signup returns HTTP 503. From the portal home, open account creation, enter a fresh test email and password, accept both consent checkboxes, and submit. The registration challenge returned 200. The normal successful handler redirects with 303 to the localized inbox screen. The submission instead displayed the localized registration-unavailable message with 503 on desktop and phone. The response identifies the registration guard's unavailable branch and leaves the precise dependency unresolved. Expected `portal-rs/crates/web/src/routes/register.rs:142–157`. Actual response path `portal-rs/crates/identity/src/abuse/http.rs:41–54,159–171`. Local screenshots `artifacts/registration-pl-1440.png`, `artifacts/registration-pl-390.png`, `artifacts/registration-en-1440.png` and `artifacts/registration-en-390.png`.
+- **PRODUCT DEFECT** — Completing a mailed password reset returns HTTP 503. Request a reset for the nominated staging content editor, open the received link and submit matching new passwords. The reset handler should redirect to sign-in on successful completion. The actual POST displayed “Temporarily unavailable” and the password reset did not complete. Source `portal-rs/crates/identity/src/reset_http.rs:330–339`. Local screenshot `artifacts/staff-recovery.png`.
+
+## Staging limitations
+
+- The CMS routes returned HTTP 404 on `staging.oteryn.com`, including the admin landing page and the news, pages, events, announcements, media and wiki route families. The configured admin host gate permits this response before authentication when the panel is disabled or the host does not match. Both conditions produce the same public response. The CMS host condition blocked actor permissions, mutation validation, duplicate-submit behavior and downstream persistence. The separate account recovery check delivered a reset message to the nominated content editor. The password reset defect blocked staff sign-in and MFA. Source `portal-rs/crates/admin/src/web.rs:294–319`.
+- The supplied Mailpit inbox route returned HTTP 404 at 11:37, 11:47 and 11:57 UTC. At 12:07 UTC, Cloudflare returned 502 for the inbox and `/readyz` and interrupted one registration rerun. Readiness and the inbox recovered to 200 at 12:09 UTC. The CMS routes still returned 404 and the registration defect reproduced. Player signup also met shared HTTP 429 responses from the registration form or its pre-submit challenge. The signup scenario retries after the response wait interval, then records a skip if the shared limit persists. Source `portal-rs/crates/web/src/routes/register.rs:142–157` and `portal-rs/crates/identity/src/login.rs:92`.
+- The news, events and wiki guide indexes showed their localized empty states. Staging had no public entries to use as samples for positive detail reads. The tests verified the missing-entry state. The CMS host boundary blocked creating entries for further verification.
+- Wiki entity routes and calculators returned their disabled 404 responses. Wiki places returned the localized unavailable view with 503 and rejected malformed filters with 400. Source `portal-rs/crates/wiki/src/entities.rs:390–399,625–646`, `portal-rs/crates/wiki/src/calculators/web.rs:206–213` and `portal-rs/crates/wiki/src/places/mod.rs:150–165`.
+
+## Test issues resolved
+
+- The first run expected 422 for an unsupported locale on `GET /xx/events`. The event locale validator maps an unknown locale to 404. The test now checks 404. Source `portal-rs/crates/content/src/events/web.rs:71–76,100–107`.
+- The first run encountered unrelated 429 responses during player signup on the shared egress. The retry now observes both the challenge and the form response. The browser uses a fresh form after each wait and still checks the signup response and inbox confirmation whenever the submission clears the shared limit.
+- Chromium in this environment rejected the execution proxy's CA. The test configuration uses the supplied HTTPS proxy and opts into ignoring certificate errors in Chromium when that proxy is configured. The Playwright API requests used the environment trust store.
+
+## Reproduction
+
+From `portal-rs/e2e`, run `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts` and `npx playwright test -c staging/sim/m-content/playwright.config.mjs` with the staging credentials in the environment. The suite uses `/usr/bin/chromium` with two workers and four projects. See [COVERAGE.md](COVERAGE.md) for the route and actor matrix.
+
+The post-recovery suite recorded 20 passing public and CMS availability checks and the registration 503 in all four projects. The focused content editor recovery test reproduced its own 503 in `en-1440`. The final combined run recorded 20 passes, three registration failures with the documented 503, and five skips. The `pl-390` signup retry hit the shared rate limit. Three projects skip the staff recovery scenario to avoid resetting the same shared account four times. The `en-1440` repeat of that scenario also skipped.
