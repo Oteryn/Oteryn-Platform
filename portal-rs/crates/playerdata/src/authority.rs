@@ -612,3 +612,5 @@ pub(crate) async fn session_fence(tx: &mut PgConnection, subject: Uuid) -> Resul
     shared_fences(tx).await?;
     restore_generation(tx).await
 }
+
+pub(crate) mod progress_read;

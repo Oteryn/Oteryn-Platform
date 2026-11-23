@@ -409,3 +409,5 @@ discovery-navigation = Editorial links
 rankings-computed-at = Ranking calculated at (UTC)
 shell-public-characters = Characters
 shell-account-native-devices = Native remembered devices
+
+shell-player-journal = Player journal

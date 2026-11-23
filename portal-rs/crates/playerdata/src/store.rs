@@ -373,7 +373,10 @@ async fn lock(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()>
 }
 // Ordinary operations share the authority fence: per-account locks serialize
 // their streams, while lifecycle and legacy expiration retain the exclusive fence.
-async fn shared_authority(tx: &mut Transaction<'_, Postgres>, authority: &str) -> Result<()> {
+pub(crate) async fn shared_authority(
+    tx: &mut Transaction<'_, Postgres>,
+    authority: &str,
+) -> Result<()> {
     sqlx::query("SELECT pg_advisory_xact_lock_shared(hashtextextended($1,72))")
         .bind(authority)
         .execute(&mut **tx)

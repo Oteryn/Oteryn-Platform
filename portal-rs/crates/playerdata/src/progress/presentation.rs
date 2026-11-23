@@ -1,6 +1,6 @@
 use super::*;
 use askama::Template;
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentResource, concurrent::FluentBundle};
 use unic_langid::langid;
 
 #[derive(Debug, Clone, Copy)]
@@ -15,20 +15,20 @@ impl ProgressLanguage {
             Self::English => "en",
         }
     }
-    fn bundle(self) -> Result<FluentBundle<FluentResource>> {
+    pub(super) fn bundle(self) -> Result<FluentBundle<FluentResource>> {
         let (locale, text) = match self {
             Self::Polish => (langid!("pl"), include_str!("pl.ftl")),
             Self::English => (langid!("en"), include_str!("en.ftl")),
         };
         let resource = FluentResource::try_new(text.into()).map_err(|_| Error::Unavailable)?;
-        let mut bundle = FluentBundle::new(vec![locale]);
+        let mut bundle = FluentBundle::new_concurrent(vec![locale]);
         bundle
             .add_resource(resource)
             .map_err(|_| Error::Unavailable)?;
         Ok(bundle)
     }
 }
-fn text(b: &FluentBundle<FluentResource>, key: &str) -> Result<String> {
+pub(super) fn text(b: &FluentBundle<FluentResource>, key: &str) -> Result<String> {
     let pattern = b
         .get_message(key)
         .and_then(|m| m.value())

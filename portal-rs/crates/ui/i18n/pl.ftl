@@ -409,3 +409,5 @@ discovery-navigation = Odnośniki redakcyjne
 rankings-computed-at = Ranking obliczono (UTC)
 shell-public-characters = Postacie
 shell-account-native-devices = Zapamiętane urządzenia klienta gry
+
+shell-player-journal = Dziennik gracza

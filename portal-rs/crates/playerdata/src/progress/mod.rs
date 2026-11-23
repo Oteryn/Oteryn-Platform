@@ -281,3 +281,6 @@ pub use presentation::*;
 pub trait PrivatePace {
     fn samples(&self, goal: &Goal) -> impl std::future::Future<Output = Result<Vec<Sample>>>;
 }
+
+mod planner;
+pub mod web;
