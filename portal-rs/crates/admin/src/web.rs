@@ -25,9 +25,9 @@ use uuid::Uuid;
 #[path = "staff_web.rs"]
 mod invitations;
 
+mod public_projections;
 #[path = "registration_policy.rs"]
 mod registration_policy;
-mod public_projections;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
