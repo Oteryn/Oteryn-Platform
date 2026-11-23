@@ -133,15 +133,23 @@ database, players, audit, access, approvals, alerts). It is unusable because the
   push coded errors/panics (E####, E4001) with build id; log shipping decision (backend open in the logging review).
 - G-PUB: production enablement of accepted public projections v1/v2 (highscores, profiles, deaths, skills, online).
 
-## Owner decisions needed
+## Owner decisions
 
-1. Accept ADM-01 (admin control plane) and ANL-03 (economy telemetry) so both sides may implement.
-2. Staff power rules: who may grant items/gold/premium/coins, edit characters, change world state; which need
+Decided 2026-11-23:
+
+- ADM-01 (admin control plane) and ANL-03 (economy telemetry) are accepted; both sides may implement.
+- The staff panel has its own host and its own login, never on the player portal's host
+  (`OTERYN_ADMIN_HOST`, host-only cookies). Staging: `https://staging-admin.oteryn.com` behind the same
+  Cloudflare Access policies as staging; set by `/opt/oteryn-staging/admin-origin`.
+
+Still open:
+
+1. Staff power rules: who may grant items/gold/premium/coins, edit characters, change world state; which need
    four-eyes; limits per action.
-3. Multi-account detection: may staff see IP/device links between accounts.
-4. Runtime feature-flag toggles from the panel vs env-only.
-5. Production: open the staff panel on a separate host (and bootstrap the first admin).
-6. Production: lift the testing/preprod-only gate for Game public data once Game publishes.
+2. Multi-account detection: may staff see IP/device links between accounts.
+3. Runtime feature-flag toggles from the panel vs env-only.
+4. Production: the staff host name and the bootstrap of the first admin.
+5. Production: lift the testing/preprod-only gate for Game public data once Game publishes.
 
 ## Integration
 
