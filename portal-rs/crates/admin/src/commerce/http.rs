@@ -219,7 +219,6 @@ struct Page {
     pending: Vec<Pending>,
     premium_lookup: bool,
     premium_status: Option<PremiumStatus>,
-    locale: Locale,
 }
 struct PremiumStatus {
     account: Uuid,
@@ -438,7 +437,6 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         pending,
         premium_lookup,
         premium_status,
-        locale,
     })
 }
 #[derive(Deserialize)]
