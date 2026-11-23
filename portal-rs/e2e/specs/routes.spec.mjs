@@ -45,6 +45,15 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
    errors.push(m.text());
  });
  if (row.method === 'GET') await waitForWikiBudget(target, 2);
+ if (row.route.endsWith('/verify-email')) {
+   // Reserve capacity for the request, browser navigation and language-link check.
+   await expect.poll(async () => {
+     const [budget] = await query(
+       "SELECT COALESCE(max(count),0) AS used FROM web_rate_limits WHERE limiter_name='identity-verification-source' AND window_start=date_trunc('minute',clock_timestamp())",
+     );
+     return Number(budget.used);
+   }, {timeout: 65_000, intervals: [1000]}).toBeLessThanOrEqual(7);
+ }
  const response=await page.request.fetch(target,{method:row.method,headers:{accept:'text/html',origin:'https://localhost:18443','accept-language':lang},...(row.method==='GET'?{}:{form:row.route==='/oauth/token'?{client_id:'e2e-local'}:{}})});
  expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
  if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
