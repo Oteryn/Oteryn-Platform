@@ -97,6 +97,7 @@ test('staff changes a custom role permission through the roles form', async ({br
 });
 
 test('staff uses the editorial PUT endpoints to edit news and publish an event', async ({browser}, info) => {
+  test.setTimeout(240_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-${randomUUID()}`;

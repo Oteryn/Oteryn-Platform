@@ -69,9 +69,9 @@ export async function exerciseSupport(request, locale, token, definition, routes
   const reply = anonymous ? requestKey
     : (await query('SELECT id FROM ticket_messages WHERE ticket_id=$1 ORDER BY id DESC LIMIT 1', [ticket]))[0].id;
   await checked('POST', `${detail}/read`, { reply }, 302, 403, 'crates/support/src/tickets/web.rs:465');
-  for (const [method, status] of [['POST', 'closed'], ['PUT', 'open']]) {
+  for (const [method, status, successStatus] of [['POST', 'closed', 302], ['PUT', 'open', 303]]) {
     await checked(method, `${detail}/status`, { status, lock_version: await revision() },
-      302, 403, 'crates/support/src/tickets/web.rs:664');
+      successStatus, 403, 'crates/support/src/tickets/web.rs:697');
     if (!anonymous) expect((await query('SELECT status FROM tickets WHERE id=$1', [ticket]))[0].status).toBe(status);
   }
 
@@ -87,12 +87,12 @@ export async function exerciseSupport(request, locale, token, definition, routes
 
   const staffPath = `/${locale}/admin/support/tickets/${ticket}`;
   const cases = [
-    ['GET', '', null],
-    ['POST', '/reply', { body: 'Local staff authorization reply.' }],
-    ['POST', '/status', { status: 'closed' }],
-    ['PUT', '/status', { status: 'open' }],
+    ['GET', '', null, 200],
+    ['POST', '/reply', { body: 'Local staff authorization reply.' }, 302],
+    ['POST', '/status', { status: 'closed' }, 302],
+    ['PUT', '/status', { status: 'open' }, 303],
   ];
-  for (const [method, suffix, fields] of cases) {
+  for (const [method, suffix, fields, successStatus] of cases) {
     const pattern = `/{lang}/admin/support/tickets/{id}${suffix}`;
     const route = routes.find(r => r.listener === 'public' && r.method === method && r.path === pattern);
     const { guard, source } = route.registrations[0];
@@ -104,7 +104,7 @@ export async function exerciseSupport(request, locale, token, definition, routes
         ...(fields && { form: { ...fields, lock_version: await revision() } }),
       });
       try {
-        expect(response.status(), source).toBe(allowed ? fields ? 302 : 200 : anonymous ? 303 : 403);
+        expect(response.status(), source).toBe(allowed ? successStatus : anonymous ? 303 : 403);
         if (method === 'GET') await mirrorHead(request, pattern, `${staffPath}${suffix}`, response);
         if (anonymous) expect(response.headers().location).toMatch(/^\/(?:pl\/|en\/)?login$/);
         if (before) await verifyRefusal(before, definition.role ? ['admin.access.denied'] : []);

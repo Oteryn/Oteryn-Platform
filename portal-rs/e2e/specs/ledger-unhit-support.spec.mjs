@@ -23,7 +23,7 @@ test('player closes a ticket and staff resolves another through the PUT endpoint
       const changed = await actor.request.put(`${path}/status`, {
         form: fields, headers: {origin: new URL(actor.url()).origin}, maxRedirects: 0,
       });
-      expect(changed.status()).toBe(302);
+      expect(changed.status()).toBe(303);
       expect(changed.headers().location).toBe(path);
       expect(await query('SELECT status FROM tickets WHERE id=$1', [id])).toEqual([{status}]);
       expect((await page.goto(`${tickets}/${id}`)).status()).toBe(200);
