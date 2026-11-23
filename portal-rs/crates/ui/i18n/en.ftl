@@ -409,3 +409,4 @@ discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
 
 shell-item-journal = Inventory and history
+shell-weekly-notes = Private weekly notes

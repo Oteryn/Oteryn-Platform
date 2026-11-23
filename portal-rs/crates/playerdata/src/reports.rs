@@ -12,6 +12,7 @@ use uuid::Uuid;
 
 pub mod http;
 mod render;
+mod weekly_notes;
 
 pub type Result<T> = std::result::Result<T, Error>;
 pub type SourceFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
@@ -49,13 +50,19 @@ pub struct Week {
 }
 impl Week {
     pub fn new(start: i64, now: i64) -> Result<Self> {
-        let end = start.checked_add(604800).ok_or(Error::Invalid)?;
-        if start < 0 || (start - 345600).rem_euclid(604800) != 0 || end > now {
-            return Err(Error::Invalid);
-        }
+        let week = Self::closed(start, now)?;
         // G-9's shorter proposed 90-day retention wins over the plan's 365 days.
         if start < now.saturating_sub(90 * 86400) {
             return Err(Error::Denied);
+        }
+        Ok(week)
+    }
+
+    // Private weekly notes do not depend on the Game journal retention window.
+    fn closed(start: i64, now: i64) -> Result<Self> {
+        let end = start.checked_add(604800).ok_or(Error::Invalid)?;
+        if start < 345600 || (start - 345600) % 604800 != 0 || end > now {
+            return Err(Error::Invalid);
         }
         Ok(Self { start, end })
     }
@@ -279,13 +286,7 @@ impl Reports {
     pub async fn save_note(&self, account: Uuid, target: Target, body: &str) -> Result<()> {
         self.enabled()?;
         target.validate()?;
-        if body.len() > 4000
-            || body
-                .chars()
-                .any(|c| c.is_control() && c != '\n' && c != '\t')
-        {
-            return Err(Error::Invalid);
-        }
+        validate_note_body(body)?;
         self.source.authorize(account, target).await?;
         if body.trim().is_empty() {
             sqlx::query("DELETE FROM pd_report_notes WHERE account_id=$1 AND target_kind=$2 AND target_id=$3")
@@ -422,6 +423,17 @@ impl Reports {
         Ok(true)
     }
 }
+fn validate_note_body(body: &str) -> Result<()> {
+    if body.len() > 4000
+        || body
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return Err(Error::Invalid);
+    }
+    Ok(())
+}
+
 #[derive(Debug, Serialize)]
 pub struct Note {
     pub target: Target,

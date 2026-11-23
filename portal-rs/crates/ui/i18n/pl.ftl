@@ -409,3 +409,4 @@ discovery-duplicate = Klucz lub pozycja w menu są już zajęte.
 discovery-navigation = Odnośniki redakcyjne
 
 shell-item-journal = Przedmioty i historia
+shell-weekly-notes = Prywatne notatki tygodniowe

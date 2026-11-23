@@ -136,7 +136,8 @@ impl Retention {
                 unix_ms: job.try_get::<i64, _>("now_ms")? as u64,
                 uncertainty_ms: 0,
             };
-            let limit = Some(512_i64);
+            let batch_size = 512_i64;
+            let limit = Some(batch_size);
             let requested_ms = job.try_get("job_ms")?;
             let closed_revision: Option<String> = job.try_get("closed_revision")?;
             let journal_done = if let Some(character) = character.as_deref() {
@@ -182,7 +183,26 @@ impl Retention {
             .await?;
             let removed = sqlx::query("DELETE FROM pd_game_logins WHERE ctid IN (SELECT ctid FROM pd_game_logins WHERE account_id=$1 AND ($2::uuid IS NULL OR character_id=$2) AND ($4::text IS NULL OR character_revision IS NULL OR character_revision <= $4::text::numeric) LIMIT $3 FOR UPDATE)")
                 .bind(account_id).bind(character_id).bind(limit).bind(closed_revision.as_deref()).execute(&mut *tx).await?.rows_affected();
-            if journal_done && items_done && deaths_done && limit.is_none_or(|n| removed < n as u64)
+            let notes_done = if character_id.is_none() {
+                sqlx::query(
+                    "DELETE FROM pd_weekly_notes WHERE id IN (
+                       SELECT id FROM pd_weekly_notes WHERE account_id=$1
+                       ORDER BY week_start LIMIT $2 FOR UPDATE)",
+                )
+                .bind(account_id)
+                .bind(batch_size)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected()
+                    < batch_size as u64
+            } else {
+                true
+            };
+            if journal_done
+                && items_done
+                && deaths_done
+                && notes_done
+                && removed < batch_size as u64
             {
                 sqlx::query("DELETE FROM pd_erasure_jobs WHERE id=$1")
                     .bind(id)
