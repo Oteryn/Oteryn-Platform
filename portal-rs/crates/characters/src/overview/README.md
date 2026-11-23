@@ -1,46 +1,24 @@
 # Account overview
 
-`/account` resolves its principal from the existing server-side browser session.
-`OTERYN_ACCOUNT_OVERVIEW_ENABLED=true` enables the page; it is off by default.
-Only an explicitly active account can read it. Responses are private, not cached
-and excluded from indexing. The page does not accept an account identifier.
+The overview at `/account` resolves its principal from the browser session.
+`OTERYN_ACCOUNT_OVERVIEW_ENABLED=true` enables it for active accounts. Private
+responses are excluded from caching and indexing.
 
-LCFA reads use the public T18 projection API. Enable them separately with
-`OTERYN_LCFA_ENABLED=true`, `OTERYN_LCFA_SOURCE_AUTHORITY` and a supported
-`OTERYN_ENV` (`testing` or `preprod`). Missing, stale, invalid and disabled feeds
-never render character rows. A current empty snapshot remains a current game
-connection. Names are escaped and encoded as single profile URL segments.
+The localized account display editor at `/{lang}/account/display` edits the
+existing account display name and preferred language. The server rechecks the
+verified account, current session and closure state in the save transaction.
+It uses the standard browser CSRF middleware and the existing Identity field
+validation and privacy event policy.
 
-`OTERYN_ACTIVE_CHARACTER_LIMIT` and `OTERYN_TOTAL_CHARACTER_LIMIT` must both be
-positive integers, with total at least active. These are informational limits;
-this page never grants character creation permission. Invalid configuration is
-unavailable, never an unlimited allowance.
+Website login recency comes from successful login events. The roster uses a
+fresh LCFA cut and shows the watermark in UTC. Game level and vocation are
+read through the existing public profile flag and matched to the private roster.
+The Game login history reader supplies the latest verified Game login if its
+read controls and source are configured. Missing evidence displays Unavailable.
 
-`OTERYN_ACCOUNT_BALANCE_ENABLED=true` separately enables the wallet's public
-locked balance read. The adapter refuses every transfer and adjustment. Missing
-wallet state does not become a zero balance.
+The wallet balance uses the existing independently flagged read.
+The overview shows configured character limits as informational values. The
+operator configuration and Game qualification requirements are listed in
+[the GAP-10 product note](../../../../../docs/product/GAP-10_ACCOUNT_OVERVIEW.md).
 
-## Producer boundaries still pending
-
-The base includes T18 but no T08 branch. Browser sessions exist, but neither a
-last successful website login reader nor the planned security-event reader is
-published. Session activity is not a login timestamp.
-
-LCFA publishes character identity, world identity, name and availability only.
-It does not publish level, vocation, house, guild, deletion state or game login
-time. Public profile rendering and an eligible profile read API are pending.
-The world UUID is shown without inventing a display name. Character profile
-links use the existing `/characters/{name}` route contract.
-
-The loyalty crate exposes an issuing snapshot operation that mutates authority;
-this GET deliberately does not call it. No public read-only loyalty/title API or
-account-termination reader is present. Those fields display localized
-unavailability until the owning crates expose their read APIs. This page never
-reads their private tables or invents an authoritative zero, title or date.
-
-Security and premium shortcuts follow the account-panel routes; balance opens the store wallet history, which also shows the current balances. Their
-destination features retain their independent flags and implementation status.
-
-The PostgreSQL test uses an isolated generated schema and covers active reads,
-current and stale LCFA, suspended/missing accounts and private response headers.
-When `PORTAL_TEST_DATABASE_URL` is unset it prints a skip notice.
+The focused library tests use `PORTAL_TEST_DATABASE_URL` and isolated schemas.

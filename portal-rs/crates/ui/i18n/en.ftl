@@ -412,3 +412,5 @@ shell-collection-pvp = Collection battles and sets
 
 shell-stats-readiness = Statistics availability
 shell-stats-watch-access = Watch API access
+
+shell-account-display = Account display settings

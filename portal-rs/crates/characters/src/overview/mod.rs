@@ -1,11 +1,14 @@
 //! Private account overview. Missing producer facts remain explicitly unavailable.
 use crate::lcfa::{AccountId, AccountState, AccountStateLookup, Projection, ReadState, Settings};
+mod display;
+mod game;
 mod wallet;
 use askama::Template;
 use axum::{
     http::{StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
+pub use display::{DisplaySession, display_routes};
 use fluent_bundle::{FluentBundle, FluentResource};
 use sqlx::PgPool;
 use std::{
@@ -46,11 +49,17 @@ struct Page {
     main_label: String,
     state: String,
     characters: Vec<Character>,
+    verified_through: Option<String>,
+    verified_label: String,
+    observed_label: String,
+    empty: Option<String>,
+    game_history: Option<String>,
+    game_login: String,
+    unavailable: String,
     world: String,
     availability: String,
     level: String,
     profession: String,
-    unavailable: String,
     shortcuts: String,
     security: String,
     security_shortcut: Option<String>,
@@ -64,6 +73,9 @@ struct Character {
     availability: String,
     main: bool,
     profile: Option<String>,
+    level: String,
+    vocation: String,
+    observed: Option<String>,
     links: Vec<Link>,
 }
 
@@ -112,7 +124,21 @@ pub async fn show(
     enabled: bool,
     settings: Settings,
 ) -> Response {
-    let mut response = load(pool, account, lang, enabled, settings).await;
+    let profile_authority = game::configured_profiles();
+    private(
+        load(
+            pool,
+            account,
+            lang,
+            enabled,
+            settings,
+            profile_authority.as_deref(),
+        )
+        .await,
+    )
+}
+
+fn private(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("private, no-store"),
@@ -129,6 +155,7 @@ async fn load(
     lang: &str,
     enabled: bool,
     settings: Settings,
+    profile_authority: Option<&str>,
 ) -> Response {
     if !enabled {
         return StatusCode::NOT_FOUND.into_response();
@@ -144,15 +171,15 @@ async fn load(
     let Ok(id) = AccountId::parse(&account.to_string()) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let record = sqlx::query_as::<_, (String, String, bool, bool)>(
+    let record = sqlx::query_as::<_, (String, String, bool, bool, String, String)>(
         "SELECT status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC',
-         email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+         email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true), display_name, locale
          FROM accounts WHERE id=$1",
     )
     .bind(account)
     .fetch_optional(pool)
     .await;
-    let (status, created, verified, mfa_required) = match record {
+    let (status, created, verified, mfa_required, display_name, display_locale) = match record {
         Ok(Some(row)) if row.0 == "active" => row,
         Ok(_) => return StatusCode::FORBIDDEN.into_response(),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -160,13 +187,17 @@ async fn load(
     let enabled = |key| std::env::var(key).as_deref() == Ok("true");
     let profiles_enabled = enabled("OTERYN_CHARACTER_PROFILES_ENABLED");
     let profiles = crate::profile::Service::new(pool.clone(), settings.clone(), profiles_enabled);
-    let projection = Projection::new(pool.clone(), settings, Arc::new(Accounts(pool.clone())));
+    let projection = Projection::new(
+        pool.clone(),
+        settings.clone(),
+        Arc::new(Accounts(pool.clone())),
+    );
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .ok()
         .and_then(|v| i64::try_from(v.as_secs()).ok());
     let view = match now {
-        Some(now) => projection.list_characters(id, now).await.ok(),
+        Some(now) => projection.overview(id, now).await.ok(),
         None => None,
     };
     if view.as_ref().is_some_and(|v| v.state == ReadState::Denied) {
@@ -175,7 +206,29 @@ async fn load(
     let read_state = view.as_ref().map(|view| view.state);
     let t = |key| text(lang, key);
     let mut facts = vec![(t("created"), created), (t("status"), t(&status))];
-    for key in ["web-login", "game-login", "loyalty", "title"] {
+    facts.push((
+        t("display-name"),
+        if display_name.is_empty() {
+            t("display-unset")
+        } else {
+            display_name
+        },
+    ));
+    facts.push((
+        t("display-locale"),
+        t(if display_locale == "pl" {
+            "display-pl"
+        } else {
+            "display-en"
+        }),
+    ));
+    facts.push((
+        t("web-login"),
+        last_website_login(pool, account)
+            .await
+            .unwrap_or_else(|| t("unavailable")),
+    ));
+    for key in ["loyalty", "title"] {
         facts.push((t(key), t("unavailable")));
     }
     let pending = oteryn_identity::termination::pending_closure(pool, account).await;
@@ -203,6 +256,18 @@ async fn load(
         Some(now) => profiles.main_character(account, now).await,
         None => None,
     };
+    let ready = view.filter(|v| v.state == ReadState::Ready);
+    let verified_through = ready
+        .as_ref()
+        .and_then(|view| view.verified_through_utc.clone());
+    let mut game_profiles = match (&ready, profile_authority) {
+        (Some(view), Some(authority)) if !view.characters.is_empty() => {
+            game::profiles(pool, account, &settings, authority)
+                .await
+                .unwrap_or_default()
+        }
+        _ => Default::default(),
+    };
     let mut characters = Vec::new();
     let services = crate::services::Services::new(pool.clone(), crate::services::configured());
     let public_profiles = enabled("PORTAL_PUBLIC_PROFILES_ENABLED");
@@ -210,7 +275,7 @@ async fn load(
         .is_ok_and(|source| !source.is_empty());
     let items = items_source && enabled("PLAYERDATA_G10_ITEMS_ENABLED");
     let history = items_source && enabled("PLAYERDATA_G10_HISTORY_ENABLED");
-    if let Some(view) = view.filter(|v| v.state == ReadState::Ready) {
+    if let Some(view) = ready {
         for c in view.characters {
             let name = segment(&c.name);
             let character = c.character_id.as_uuid();
@@ -243,6 +308,18 @@ async fn load(
                     });
                 }
             }
+            let profile = game_profiles
+                .remove(&character)
+                .filter(|p| p.world_id == c.world_id.as_uuid() && p.name == c.name);
+            let level = profile
+                .as_ref()
+                .and_then(|p| p.level.as_deref())
+                .and_then(|value| value.parse::<u64>().ok())
+                .filter(|&value| value > 0);
+            let vocation = profile
+                .as_ref()
+                .and_then(|p| p.vocation.as_deref())
+                .and_then(game::vocation_key);
             characters.push(Character {
                 name: c.name,
                 world,
@@ -254,6 +331,11 @@ async fn load(
                 main: main == Some(character),
                 profile: (public_profiles && available)
                     .then(|| format!("/{lang}/characters/{name}")),
+                    level: level.map_or_else(|| t("unavailable"), |n| n.to_string()),
+                    vocation: t(vocation.unwrap_or("unavailable")),
+                    observed: profile
+                        .filter(|_| level.is_some() || vocation.is_some())
+                        .map(|p| p.observed),
                 links,
             });
         }
@@ -265,6 +347,7 @@ async fn load(
             "premium",
         ),
         (enabled("OTERYN_SHOP_ENABLED"), "shop/history", "balance"),
+        (true, "account/display", "display-settings"),
     ]
     .into_iter()
     .filter(|(mounted, _, _)| *mounted)
@@ -273,6 +356,14 @@ async fn load(
         label: t(label),
     })
     .collect();
+    let empty =
+        (read_state == Some(ReadState::Ready) && characters.is_empty()).then(|| t("roster-empty"));
+    let game_history = (std::env::var("OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED").as_deref()
+        == Ok("true")
+        && std::env::var("OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED").as_deref() == Ok("true")
+        && std::env::var("PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY")
+            .is_ok_and(|value| !value.is_empty()))
+    .then(|| t("game-history"));
     let page = Page {
         lang,
         title: t("overview"),
@@ -287,11 +378,17 @@ async fn load(
             _ => "unavailable",
         }),
         characters,
+        verified_through,
+        verified_label: t("verified-through"),
+        observed_label: t("profile-observed"),
+        empty,
+        game_history,
+        game_login: t("game-login"),
+        unavailable: t("unavailable"),
         world: t("world"),
         availability: t("availability"),
         level: t("level"),
         profession: t("profession"),
-        unavailable: t("unavailable"),
         shortcuts: t("shortcuts"),
         security: t("security"),
         security_shortcut: oteryn_identity::navigation::sudo_enabled()
@@ -308,6 +405,20 @@ async fn load(
         Ok(html) => Html(html).into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+async fn last_website_login(pool: &PgPool, account: Uuid) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') || ' UTC'
+         FROM security_events WHERE account_id=$1 AND kind='login_succeeded'
+           AND created_at<=statement_timestamp()
+         ORDER BY created_at DESC, id DESC LIMIT 1",
+    )
+    .bind(account)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
 }
 
 #[cfg(test)]

@@ -40,12 +40,14 @@ pub enum ReadState {
 pub struct AccountView {
     pub state: ReadState,
     pub characters: Vec<CharacterSummary>,
+    pub verified_through_utc: Option<String>,
 }
 impl AccountView {
     fn empty(state: ReadState) -> Self {
         Self {
             state,
             characters: Vec::new(),
+            verified_through_utc: None,
         }
     }
 }
@@ -153,6 +155,24 @@ impl Projection {
         account: AccountId,
         now: i64,
     ) -> Result<AccountView, Error> {
+        self.read(account, now, false).await
+    }
+
+    /// The private overview requires unambiguous character claims for display.
+    pub(crate) async fn overview(
+        &self,
+        account: AccountId,
+        now: i64,
+    ) -> Result<AccountView, Error> {
+        self.read(account, now, true).await
+    }
+
+    async fn read(
+        &self,
+        account: AccountId,
+        now: i64,
+        require_unique: bool,
+    ) -> Result<AccountView, Error> {
         if !self.settings.available() || now < 0 {
             return Ok(AccountView::empty(ReadState::Unavailable));
         }
@@ -176,6 +196,22 @@ impl Projection {
         {
             return Ok(AccountView::empty(ReadState::Invalid));
         }
+        if require_unique {
+            let ambiguous: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                   SELECT FROM account_characters c
+                   JOIN account_characters other ON other.character_id=c.character_id AND other.account_id<>c.account_id
+                   JOIN accounts owner ON owner.id=other.account_id AND owner.status='active'
+                   WHERE c.account_id=$1
+                 )",
+            )
+            .bind(account.0)
+            .fetch_one(&mut *tx)
+            .await?;
+            if ambiguous {
+                return Ok(AccountView::empty(ReadState::Invalid));
+            }
+        }
         let rows = sqlx::query("SELECT character_id, world_id, name, availability FROM account_characters WHERE account_id = $1 ORDER BY character_id")
             .bind(account.0).fetch_all(&mut *tx).await?;
         let mut characters = Vec::with_capacity(rows.len());
@@ -188,6 +224,7 @@ impl Projection {
                     .map_err(|_| Error::Unavailable)?,
             });
         }
+        let verified_through_utc = feed.try_get("verified_through_utc")?;
         tx.commit().await?;
         // Recheck current state after potentially waiting on projection locks.
         if self.accounts.state(account).await != AccountState::Active {
@@ -196,6 +233,7 @@ impl Projection {
         Ok(AccountView {
             state: ReadState::Ready,
             characters,
+            verified_through_utc,
         })
     }
 
@@ -277,7 +315,10 @@ impl Projection {
 }
 async fn locked_feed(tx: &mut Transaction<'_, Postgres>) -> Result<Option<PgRow>, sqlx::Error> {
     sqlx::query(
-        "SELECT highest_epoch, watermark_epoch, source_authority, complete_through
+        "SELECT highest_epoch, watermark_epoch, source_authority, complete_through,
+                CASE WHEN complete_through BETWEEN 1 AND 253402300799 THEN
+                    to_char(to_timestamp(complete_through) AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') || ' UTC'
+                END AS verified_through_utc
          FROM account_character_feed WHERE id=1 FOR SHARE",
     )
     .fetch_optional(&mut **tx)

@@ -215,3 +215,5 @@ public P /{lang}/league/prediction
 public G /{lang}/stats
 public G /{lang}/account/stats-watches
 public P /{lang}/account/stats-watches
+public G /{lang}/account/display
+public P /{lang}/account/display
