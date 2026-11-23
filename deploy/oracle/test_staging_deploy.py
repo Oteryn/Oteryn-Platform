@@ -261,7 +261,9 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual(set(staging.STAFF.values()), set(staging.STAFF_ROLES))
         grant = [entry for entry in command.call_args_list if entry.args[0][10:13] == ['exec', '-T', 'postgres']]
         self.assertEqual(grant[0].kwargs['data'], staging.GRANT_STAFF)
-        self.assertEqual(staging.GRANT_STAFF.count('INSERT INTO account_roles'), len(staging.STAFF))
+        # subprocess input must be bytes (a str raised TypeError on the host).
+        self.assertIsInstance(staging.GRANT_STAFF, bytes)
+        self.assertEqual(staging.GRANT_STAFF.count(b'INSERT INTO account_roles'), len(staging.STAFF))
         self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress'])
         removals = [item for item in commands if item[:3] == ['docker', 'volume', 'rm']]
         self.assertEqual([item[-1] for item in removals], [

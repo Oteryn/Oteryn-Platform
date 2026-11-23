@@ -82,7 +82,7 @@ STAFF = {FOUNDER: 'platform_admin', **{f'staff-{role.replace("_", "-")}@example.
 GRANT_STAFF = ''.join(
     "INSERT INTO account_roles(account_id, role_id) SELECT a.id, r.id FROM accounts a "
     f"CROSS JOIN roles r WHERE a.email = '{email}' AND r.key = '{role}' ON CONFLICT DO NOTHING;\n"
-    for email, role in STAFF.items())
+    for email, role in STAFF.items()).encode()
 ACCOUNT_FLAGS = (
     'LOGIN', 'MFA', 'PASSKEYS', 'PASSWORD_RESET', 'SESSIONS', 'CREDENTIALS',
     'EMAIL_CHANGE', 'RECOVERY_KEYS', 'OVERVIEW_ENABLED', 'PRIVACY_ENABLED',
