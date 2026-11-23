@@ -67,6 +67,7 @@ export async function exerciseCalendar(request, token, definition, routes, snaps
 
   const futureDate = days => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 16);
   const event = {
+    reason: 'Create or edit the local authorization fixture.',
     starts_at: futureDate(1), ends_at: futureDate(2),
     en_slug: `local-event-${randomUUID()}`, en_title: 'Local event',
     en_summary: 'Authorization fixture.', en_body: 'Local event body.',
@@ -84,7 +85,9 @@ export async function exerciseCalendar(request, token, definition, routes, snaps
     await checked(method, '/admin/events/{id}', eventTarget, { ...event, lock_version: await version() });
   }
   for (const [method, status] of [['POST', 'published'], ['PUT', 'draft']]) {
-    await checked(method, '/admin/events/{id}/status', `${eventTarget}/status`, { status, lock_version: await version() });
+    await checked(method, '/admin/events/{id}/status', `${eventTarget}/status`, {
+      status, lock_version: await version(), reason: 'Change the local authorization fixture publication.',
+    });
     if (created) expect((await query('SELECT status FROM events WHERE id=$1', [eventId]))[0].status).toBe(status);
   }
 
