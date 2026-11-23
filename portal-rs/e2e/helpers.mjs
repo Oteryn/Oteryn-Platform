@@ -45,8 +45,14 @@ export async function csrfRejected(page, action, fields={}) {
     target.searchParams.delete('token');
     delete clean.token;
   }
-  const response=await page.request.post(target.href,{...payload,headers:{origin:new URL(page.url()).origin},maxRedirects:0});
-  expect(response.status(), `missing authorization token: ${target.pathname}`).toBe(signedMail?422:403);
+  const response=await page.request.post(target.href,{
+    ...payload,headers:{origin:new URL(page.url()).origin,connection:'close'},maxRedirects:0,
+  });
+  try {
+    expect(response.status(), `missing authorization token: ${target.pathname}`).toBe(signedMail?422:403);
+  } finally {
+    await response.dispose();
+  }
 }
 export async function submit(page, selector='main form', values={}) {
   const form=page.locator(selector).first();
