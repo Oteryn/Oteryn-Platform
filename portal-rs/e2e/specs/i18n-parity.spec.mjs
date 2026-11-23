@@ -154,6 +154,7 @@ const shellCopy = {
   "shell-appeals": ["Odwołania od sankcji", "Sanction appeals"],
   "home-link": ["Strona główna", "Home"],
   "navigation": ["Nawigacja główna", "Main navigation"],
+  "panel-admin": ["Panel administracyjny", "Staff dashboard"],
   "shell-abuse-reports": ["Zgłoszenia naruszeń", "Abuse reports"],
   "shell-account-bazaar": ["Moje aukcje", "My auctions"],
   "shell-account-notifications": ["Powiadomienia", "Notifications"],
@@ -236,6 +237,7 @@ const shellCopy = {
 const shellLinkKeys = new Map(inventory.sections.map(({ path, label }) => ['/' + path.replace(/^\//u, ''), label]));
 for (const [path, key] of Object.entries({
   '/account/game-logins': 'thais-account-game-logins',
+  '/admin': 'panel-admin',
   '/help': 'shell-support',
   '/password/change': 'thais-account-password',
   '/rankings/experience': 'thais-nav-experience',
@@ -1186,7 +1188,9 @@ for (const { actor, group } of crawls) {
         expect.soft(navigation.status(), target).toBe(probe.status());
         await assertRouteResponse(navigation, url.pathname, contract);
         const localizedPath = /^\/(pl|en)(?:\/|$)/u.exec(contract.pathname)?.[1];
-        const documentLocale = localizedPath ?? locale;
+        const editorialLocale = /^\/admin\/(?:pages\/[^/]+|wiki\/articles\/[^/]+\/preview)\/(pl|en)$/u
+          .exec(contract.pathname)?.[1];
+        const documentLocale = localizedPath ?? editorialLocale ?? locale;
         await assertDocument(page, documentLocale, target, actor);
         if (navigation.ok() && /^\/(?:(?:pl|en)\/)?(?:mfa\/)?login$/u.test(contract.pathname)) {
           await assertSignInControls(page, documentLocale);
