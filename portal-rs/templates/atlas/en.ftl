@@ -10,3 +10,4 @@ north = North
 south = South
 west = West
 east = East
+unavailable = World data is currently unavailable.

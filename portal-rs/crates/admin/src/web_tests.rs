@@ -136,6 +136,7 @@ fn localized_responsive_labelled_template() {
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
             reports_label: text(lang, "reports"),
+            world_catalog_link: Some(text(lang, "world-catalog")),
             moderate_reports: true,
             mail_link: None,
             players_label: text(lang, "players"),
@@ -160,6 +161,12 @@ fn localized_responsive_labelled_template() {
             "Report moderation"
         }));
         assert!(html.contains("href=\"/admin/players\""));
+        assert!(html.contains("href=\"/admin/world\""));
+        assert!(html.contains(if lang == "pl" {
+            "Katalog świata"
+        } else {
+            "World catalog"
+        }));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));

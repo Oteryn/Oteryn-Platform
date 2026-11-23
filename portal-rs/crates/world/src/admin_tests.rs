@@ -357,20 +357,43 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
     }
     // The real audited admin action works on the dedicated native catalogue pointer.
     let fixture = catalog_fixture::supported();
-    let candidate = crate::catalog::verify(
-        &fixture.bytes,
-        &fixture.sidecar,
-        &crate::catalog::Fence {
+    let mut source = crate::catalog::Source::local(
+        "unused".into(),
+        crate::catalog::Fence {
             source_revision: fixture.text("source_revision"),
             authority_epoch: fixture.text("authority_epoch"),
             ruleset_id: fixture.text("ruleset_id"),
             content_profile_id: fixture.text("content_profile_id"),
             snapshot_id: fixture.text("snapshot_id"),
         },
-    )
-    .unwrap();
+        fixture.sha256(),
+    );
+    let candidate =
+        crate::catalog::verify(&fixture.bytes, &fixture.sidecar, &source.fence).unwrap();
+    assert!(native_status(&pool, &source, true).await.unwrap().is_none());
     candidate.persist_inactive(&pool).await.unwrap();
+    assert!(
+        native_status(&pool, &source, true)
+            .await
+            .unwrap()
+            .unwrap()
+            .capabilities
+            .is_none()
+    );
     candidate.publish(&pool).await.unwrap();
+    let status = native_status(&pool, &source, true).await.unwrap().unwrap();
+    assert_eq!(status.capabilities.unwrap(), ["item"]);
+    assert_eq!(status.snapshot_id, candidate.snapshot_id());
+    assert!(
+        native_status(&pool, &source, false)
+            .await
+            .unwrap()
+            .unwrap()
+            .capabilities
+            .is_none()
+    );
+    source.fence.authority_epoch = "different-epoch".into();
+    assert!(native_status(&pool, &source, true).await.unwrap().is_none());
     let native: Uuid =
         sqlx::query_scalar("SELECT version_id FROM world_catalog_versions WHERE snapshot_id=$1")
             .bind(candidate.snapshot_id())

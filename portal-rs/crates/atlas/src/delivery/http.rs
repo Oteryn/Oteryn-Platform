@@ -13,12 +13,13 @@ use sqlx::PgPool;
 #[derive(Debug, Clone)]
 struct Service {
     store: WorldStore,
+    static_dir: std::path::PathBuf,
     options: Options,
     computation: std::sync::Arc<tokio::sync::Semaphore>,
 }
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = crate::config::Flags::configured();
-    router(
+    with_static(
         pool,
         Options {
             enabled: flags.delivery,
@@ -26,15 +27,25 @@ pub fn configured_router(pool: PgPool) -> Router {
         WorldOptions {
             enabled: flags.world,
         },
+        std::env::var_os("OTERYN_STATIC_DIR").map_or_else(|| "static".into(), Into::into),
     )
 }
 pub fn router(pool: PgPool, options: Options, world: WorldOptions) -> Router {
+    with_static(pool, options, world, "static".into())
+}
+fn with_static(
+    pool: PgPool,
+    options: Options,
+    world: WorldOptions,
+    static_dir: std::path::PathBuf,
+) -> Router {
     let mut app = Router::new().route("/{lang}/atlas/delivery", get(page));
     if options.enabled {
         app = app.route("/atlas/delivery.css", get(css));
     }
     app.with_state(Service {
         store: WorldStore::new(pool, world),
+        static_dir,
         options,
         computation: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
     })
@@ -42,7 +53,7 @@ pub fn router(pool: PgPool, options: Options, world: WorldOptions) -> Router {
 async fn css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        "body{font:1rem/1.6 system-ui;background:#101820;color:#f4f6f8;margin:0}main{max-width:65rem;margin:auto;padding:1rem;overflow-wrap:anywhere}a{color:#80d4ff}label{display:block}input,select,button{font:inherit;max-width:100%;box-sizing:border-box;padding:.6rem;margin:.25rem 0;min-height:44px}nav{display:flex;gap:1rem;flex-wrap:wrap}article{border:1px solid #91a0b0;padding:1rem;margin:1rem 0}a:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #ffd66b;outline-offset:3px}",
+        "body{font:1rem/1.6 system-ui;background:#101820;color:#f4f6f8;margin:0}img{max-width:100%;height:auto}main{max-width:65rem;margin:auto;padding:1rem;overflow-wrap:anywhere}a{color:#80d4ff}label{display:block}input,select,button{font:inherit;max-width:100%;box-sizing:border-box;padding:.6rem;margin:.25rem 0;min-height:44px}nav{display:flex;gap:1rem;flex-wrap:wrap}article{border:1px solid #91a0b0;padding:1rem;margin:1rem 0}a:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #ffd66b;outline-offset:3px}",
     )
 }
 fn escape(s: &str) -> String {
@@ -118,10 +129,17 @@ async fn page(
     let snapshot = match load(&service.store).await {
         Ok(s) => s,
         Err(_) => {
-            body += &t.text("unavailable");
+            body += &format!("<p>{}</p>", t.text("unavailable"));
             return finish(StatusCode::SERVICE_UNAVAILABLE, body);
         }
     };
+    if filters
+        .version
+        .is_some_and(|version| version != snapshot.version)
+    {
+        body += &format!("<p>{}</p>", t.text("version-missing"));
+        return finish(StatusCode::NOT_FOUND, body);
+    }
     body += &format!(
         "<p>{}: {}</p><p>{}</p><nav aria-label=\"{}\">",
         t.text("version"),
@@ -135,7 +153,8 @@ async fn page(
         ("quests", "quests"),
     ] {
         body += &format!(
-            "<a href=\"?tab={value}{}\">{}</a>",
+            "<a href=\"?tab={value}&amp;version={}{}\">{}</a>",
+            snapshot.version,
             filters
                 .item
                 .as_ref()
@@ -144,7 +163,10 @@ async fn page(
             t.text(key)
         );
     }
-    body += "</nav><form method=\"get\">";
+    body += &format!(
+        "</nav><form method=\"get\"><input type=\"hidden\" name=\"version\" value=\"{}\">",
+        snapshot.version
+    );
     body += &format!(
         "<label for=\"item\">{}</label><input id=\"item\" name=\"item\" list=\"items\" value=\"{}\"><datalist id=\"items\">",
         t.text("item"),
@@ -189,7 +211,7 @@ async fn page(
         (
             "count",
             "count",
-            filters.count.unwrap_or(1).to_string(),
+            filters.count.map(|v| v.to_string()).unwrap_or_default(),
             "number",
         ),
         (
@@ -231,11 +253,15 @@ async fn page(
             body += &escape(&r.quest);
             body += " / ";
             body += &escape(&r.step);
+            if r.reward {
+                body += &format!(" · {}", t.text("reward"));
+            }
             match &r.item {
                 Some(item) => {
                     body += &format!(
-                        " <a href=\"?item={}{}\">{}</a>",
+                        " <a href=\"?item={}&amp;version={}{}\">{}</a>",
                         encode(item),
+                        snapshot.version,
                         r.count
                             .map(|n| format!("&amp;count={n}"))
                             .unwrap_or_default(),
@@ -248,7 +274,19 @@ async fn page(
         }
         body += "</ul>";
     }
-    if filters.item.is_some() {
+    if let Some(item) = filters.item.as_deref() {
+        let sprite = if let Some(mapping) = snapshot
+            .get(sprite::KIND, item)
+            .and_then(|data| sprite::Mapping::deserialize(data).ok())
+            && snapshot.get("Item", item).is_some()
+            && let Ok(Some(report)) = service.store.import_report(snapshot.version).await
+        {
+            sprite::url(&service.static_dir, &report.source_commit, &mapping).await
+        } else {
+            None
+        };
+        let creature_only =
+            filters.tab.as_deref() == Some("creatures") || filters.creature.is_some();
         let options = service.options;
         let calculation = tokio::task::spawn_blocking(move || {
             let _permit = permit;
@@ -262,8 +300,42 @@ async fn page(
                 return finish(StatusCode::NOT_FOUND, body);
             }
         };
+        body += &format!("<h2>{}</h2>", escape(&data.item));
+        if let Some(url) = sprite {
+            body += &format!(
+                "<p><img src=\"{}\" alt=\"{}\"></p>",
+                escape(&url),
+                t.text("sprite")
+            );
+        } else {
+            body += &format!("<p>{}: {}</p>", t.text("sprite"), t.text("unavailable"));
+        }
+        if !creature_only {
+            body += &format!("<section><h2>{}</h2>", t.text("shops"));
+            if data.shops.is_empty() {
+                body += &format!("<p>{}</p>", t.text("unavailable"));
+            }
+            for offer in data.shops {
+                let direction = match offer.direction {
+                    shops::Direction::NpcSellOffer => "npc-sells",
+                    shops::Direction::NpcBuyOffer => "npc-buys",
+                };
+                body += &format!(
+                    "<article><h3>{}: {}</h3><p>{}: {} {}; {}: {}</p></article>",
+                    t.text(direction),
+                    escape(&offer.npc),
+                    t.text("unit-price"),
+                    offer.unit_price,
+                    escape(&offer.currency),
+                    t.text("subtype"),
+                    offer.item_subtype
+                );
+            }
+            body += "</section>";
+        }
+        body += &format!("<h2>{}</h2>", t.text("creatures"));
         if data.sources.is_empty() {
-            body += &format!("<p>{}</p>", t.text("empty"));
+            body += &format!("<p>{}</p>", t.text("unavailable"));
         }
         for s in data.sources {
             body += &format!(
@@ -298,10 +370,11 @@ async fn page(
             body += "<ul>";
             for p in s.spawns {
                 body += &format!(
-                    "<li><a href=\"/{lang}/atlas?x={}&amp;y={}&amp;z={}\">{} ({}, {}, {})</a></li>",
+                    "<li><a href=\"/{lang}/atlas?x={}&amp;y={}&amp;z={}&amp;version={}\">{} ({}, {}, {})</a></li>",
                     p.x,
                     p.y,
                     p.floor,
+                    data.version,
                     t.text("map"),
                     p.x,
                     p.y,
@@ -329,6 +402,7 @@ mod computation_tests {
             store: WorldStore::new(pool, WorldOptions { enabled: true }),
             options: Options { enabled: true },
             computation: computation.clone(),
+            static_dir: "static".into(),
         };
         let app = Router::new()
             .route("/{lang}/atlas/delivery", get(page))

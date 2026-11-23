@@ -130,6 +130,8 @@ struct Page {
     differences: Vec<Difference>,
     report: String,
     catalog: bool,
+    native: Option<NativeStatus>,
+    native_schema: &'static str,
 }
 struct Labels {
     title: String,
@@ -152,7 +154,64 @@ struct Labels {
     polish: String,
     english: String,
     page: String,
+    native_catalog: String,
+    native_unavailable: String,
+    native_digest: String,
+    native_revision: String,
+    native_scope: String,
+    native_publication: String,
+    native_shop_records: String,
+    native_quest_records: String,
+    native_pending_contract: String,
 }
+#[derive(sqlx::FromRow)]
+struct NativeStatus {
+    snapshot_id: String,
+    artifact_sha256: String,
+    source_revision: String,
+    authority_epoch: String,
+    ruleset_id: String,
+    content_profile_id: String,
+    capabilities: Option<Vec<String>>,
+    shop_records: i64,
+    quest_records: i64,
+}
+
+async fn native_status(
+    pool: &PgPool,
+    source: &crate::catalog::Source,
+    publication_enabled: bool,
+) -> Result<Option<NativeStatus>, sqlx::Error> {
+    let fence = &source.fence;
+    let mut status = sqlx::query_as::<_, NativeStatus>(
+        "SELECT c.snapshot_id,c.artifact_sha256,c.source_revision,c.authority_epoch,c.ruleset_id,c.content_profile_id,
+                v.capabilities,
+                (SELECT count(*) FROM world_catalog_records r WHERE r.snapshot_id=c.snapshot_id
+                     AND r.capability_id='npc_shop' AND r.record_class='relation') AS shop_records,
+                (SELECT count(*) FROM world_catalog_records r WHERE r.snapshot_id=c.snapshot_id
+                     AND r.capability_id='quest' AND r.record_class='entity') AS quest_records
+         FROM world_catalog_candidates c
+         LEFT JOIN world_catalog_publication p ON p.singleton AND p.snapshot_id=c.snapshot_id
+             AND COALESCE(p.configured_snapshot_id,p.snapshot_id)=c.snapshot_id
+             AND COALESCE(p.authority_epoch,c.authority_epoch)=c.authority_epoch
+         LEFT JOIN world_catalog_versions v ON v.snapshot_id=p.snapshot_id
+         WHERE c.snapshot_id=$1 AND c.artifact_sha256=$2 AND c.source_revision=$3
+             AND c.authority_epoch=$4 AND c.ruleset_id=$5 AND c.content_profile_id=$6",
+    )
+    .bind(&fence.snapshot_id)
+    .bind(&source.expected_sha256)
+    .bind(&fence.source_revision)
+    .bind(&fence.authority_epoch)
+    .bind(&fence.ruleset_id)
+    .bind(&fence.content_profile_id)
+    .fetch_optional(pool)
+    .await?;
+    if !publication_enabled && let Some(status) = &mut status {
+        status.capabilities = None;
+    }
+    Ok(status)
+}
+
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -259,10 +318,44 @@ async fn load_page<A>(
     macro_rules! labels { ($($key:ident),*) => { Labels { $($key: text(lang,stringify!($key))),* } }; }
     Ok(Page {
         catalog,
+        native: match crate::catalog::Source::configured().ok().flatten() {
+            Some(source) => native_status(&s.pool, &source, crate::catalog::publication_enabled())
+                .await
+                .map_err(unavailable)?,
+            None => None,
+        },
+        native_schema: crate::catalog::SCHEMA_VERSION,
         lang,
         labels: labels!(
-            title, version, compare, inspect, active, publish, entities, allowed, names, save,
-            validation, diff, before, after, limit, yes, no, polish, english, page
+            title,
+            version,
+            compare,
+            inspect,
+            active,
+            publish,
+            entities,
+            allowed,
+            names,
+            save,
+            validation,
+            diff,
+            before,
+            after,
+            limit,
+            yes,
+            no,
+            polish,
+            english,
+            page,
+            native_catalog,
+            native_unavailable,
+            native_digest,
+            native_revision,
+            native_scope,
+            native_publication,
+            native_shop_records,
+            native_quest_records,
+            native_pending_contract
         ),
         csrf: session
             .csrf_token()

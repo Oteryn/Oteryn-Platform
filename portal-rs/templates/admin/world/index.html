@@ -14,4 +14,22 @@
 <label class="op-stack">{{ labels.allowed }} <select class="op-input" name="allowed"><option value="false"{% if !row.allowed %} selected{% endif %}>{{ labels.no }}</option><option value="true"{% if row.allowed %} selected{% endif %}{% if !row.publishable %} disabled{% endif %}>{{ labels.yes }}</option></select></label><button class="op-button">{{ labels.save }}</button></form>
 {% if !catalog %}<form class="op-stack" method="post" action="/admin/world"><fieldset class="op-stack"><legend>{{ labels.names }}</legend><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="names"><input type="hidden" name="version" value="{{ selected }}"><input type="hidden" name="kind" value="{{ row.kind }}"><input type="hidden" name="key" value="{{ row.key }}">
 <label class="op-stack">{{ labels.polish }} <input class="op-input" lang="pl" name="pl" value="{{ row.pl }}" required maxlength="512" size="20"></label><label class="op-stack">{{ labels.english }} <input class="op-input" lang="en" name="en" value="{{ row.en }}" required maxlength="512" size="20"></label><button class="op-button">{{ labels.save }}</button></fieldset></form>{% endif %}</article>{% endfor %}
-<h2>{{ labels.diff }}</h2>{% for d in differences %}<article class="op-stack"><h3>{{ d.kind }} / {{ d.key }}</h3><h4>{{ labels.before }}</h4><div class="op-table-wrap" role="region" aria-label="{{ labels.before }}" tabindex="0"><pre>{{ d.before }}</pre></div><h4>{{ labels.after }}</h4><div class="op-table-wrap" role="region" aria-label="{{ labels.after }}" tabindex="0"><pre>{{ d.after }}</pre></div></article>{% endfor %}{% endif %}</main></body></html>
+<h2>{{ labels.diff }}</h2>{% for d in differences %}<article class="op-stack"><h3>{{ d.kind }} / {{ d.key }}</h3><h4>{{ labels.before }}</h4><div class="op-table-wrap" role="region" aria-label="{{ labels.before }}" tabindex="0"><pre>{{ d.before }}</pre></div><h4>{{ labels.after }}</h4><div class="op-table-wrap" role="region" aria-label="{{ labels.after }}" tabindex="0"><pre>{{ d.after }}</pre></div></article>{% endfor %}{% endif %}
+<section class="op-stack" aria-labelledby="native-catalog">
+<h2 id="native-catalog">{{ labels.native_catalog }}</h2>
+{% if let Some(status) = native %}
+<div class="op-table-wrap" tabindex="0" role="region" aria-label="{{ labels.native_catalog }}"><dl>
+<dt>{{ labels.version }}</dt><dd><code>{{ status.snapshot_id }}</code> · {{ native_schema }}</dd>
+<dt>{{ labels.native_digest }}</dt><dd><code>{{ status.artifact_sha256 }}</code></dd>
+<dt>{{ labels.native_revision }}</dt><dd><code>{{ status.source_revision }}</code></dd>
+<dt>{{ labels.native_scope }}</dt><dd><code>{{ status.authority_epoch }} / {{ status.ruleset_id }} / {{ status.content_profile_id }}</code></dd>
+<dt>{{ labels.native_publication }}</dt><dd>{% if let Some(capabilities) = status.capabilities %}{{ capabilities.join(", ") }}{% else %}{{ labels.native_unavailable }}{% endif %}</dd>
+<dt>{{ labels.native_shop_records }}</dt><dd>{{ status.shop_records }}</dd>
+<dt>{{ labels.native_quest_records }}</dt><dd>{{ status.quest_records }}</dd>
+</dl></div>
+{% else %}
+<p>{{ labels.native_unavailable }}</p>
+{% endif %}
+<p>{{ labels.native_pending_contract }}</p>
+</section>
+</main></body></html>
