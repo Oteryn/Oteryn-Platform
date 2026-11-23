@@ -1,0 +1,8 @@
+.sanction-history,
+.sanction-history :is(.op-stack, .op-field) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sanction-history :is(h2, p, dd) {
+  overflow-wrap: anywhere;
+}

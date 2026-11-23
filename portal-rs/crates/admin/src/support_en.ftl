@@ -35,3 +35,7 @@ warning = Warning
 restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
+appeal-requested = Appeal submitted
+appeal-reviewing = Appeal under review
+appeal-accepted = Appeal accepted
+appeal-rejected = Appeal rejected

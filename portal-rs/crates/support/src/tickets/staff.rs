@@ -217,27 +217,33 @@ impl Backend for StaffSupport {
         self.available(area)?;
         let query = match area {
             Area::Tickets => {
-                "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,subject,status,NULL::text FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,target_reference,status,NULL::text FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT s.id,s.lock_version+(COALESCE(a.version,1)-1),s.public_reason,s.status,NULLIF(a.status,'none')
+                 FROM sanctions s LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.status<>'pending'
+                 ORDER BY (COALESCE(a.status,'none') IN ('requested','reviewing')) DESC,s.created_at DESC,s.id DESC
+                 LIMIT 30 OFFSET $1"
             }
         };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|_| StaffError::Unavailable)?;
+        let rows: Vec<(Uuid, i64, String, String, Option<String>)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(query))
+                .bind(i64::from(page.saturating_sub(1)) * 30)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, version, title, status)| Record {
+            .map(|(id, version, title, status, appeal_status)| Record {
                 id,
                 version,
                 title,
                 status,
+                appeal_status,
                 messages: vec![],
                 next_message: None,
             })
@@ -265,6 +271,7 @@ impl Backend for StaffSupport {
                 version: t.lock_version,
                 title: t.subject,
                 status: t.status,
+                appeal_status: None,
                 messages: messages
                     .into_iter()
                     .map(|m| StaffMessage {
@@ -277,10 +284,14 @@ impl Backend for StaffSupport {
         }
         let query = match area {
             Area::Reports => {
-                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
+                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message,NULL::text AS appeal_status FROM player_reports WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT s.id,s.lock_version+(COALESCE(a.version,1)-1) AS lock_version,s.public_reason AS title,s.status,
+                       NULLIF(concat_ws(E'\n', a.message, a.outcome),'') AS public_message,s.moderator_notes AS private_message,
+                       NULLIF(a.status,'none') AS appeal_status
+                 FROM sanctions s LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.id=$1 AND s.status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -305,6 +316,7 @@ impl Backend for StaffSupport {
                 version: row.try_get("lock_version")?,
                 title: row.try_get("title")?,
                 status: row.try_get("status")?,
+                appeal_status: row.try_get("appeal_status")?,
                 messages,
                 next_message: None,
             })

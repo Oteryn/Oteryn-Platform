@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/support/sanctions.css">
+</head>
+<body class="op-theme">
+<main class="op-stack sanction-history">
+  <h1>{{ self.text("title") }}</h1>
+  {% if detail || error.is_some() %}
+  <p><a href="{{ locale.base() }}">{{ self.text("back") }}</a></p>
+  {% endif %}
+  {% if let Some(key) = error %}
+  <p class="op-alert op-alert--danger" role="alert">{{ self.text(key) }}</p>
+  {% else %}
+  {% if rows.is_empty() %}<p class="op-empty">{{ self.text("empty") }}</p>{% endif %}
+  {% for row in rows %}
+  {% let url = self.url(&row.id) %}
+  <article class="op-panel op-stack">
+    {% if detail %}
+    <h2>{{ row.public_reason }}</h2>
+    {% else %}
+    <h2><a href="{{ url }}">{{ row.public_reason }}</a></h2>
+    {% endif %}
+    <dl>
+      <dt>{{ self.text("category") }}</dt><dd>{{ self.text(&row.category) }}</dd>
+      <dt>{{ self.text("state") }}</dt><dd>{{ self.text(&row.state) }}</dd>
+      <dt>{{ self.text("starts") }}</dt>
+      <dd><time datetime="{{ self.datetime(&row.effective_at) }}">{{ self.date(&row.effective_at) }}</time></dd>
+      <dt>{{ self.text("ends") }}</dt>
+      <dd>{% if let Some(end) = row.expires_at %}<time datetime="{{ self.datetime(end) }}">{{ self.date(end) }}</time>{% else %}{{ self.text("no-end") }}{% endif %}</dd>
+      <dt>{{ self.text("acknowledgment") }}</dt>
+      <dd>{% if let Some(at) = row.acknowledged_at %}{{ self.text("acknowledged") }} · <time datetime="{{ self.datetime(at) }}">{{ self.date(at) }}</time>{% else %}{{ self.text("unacknowledged") }}{% endif %}</dd>
+      <dt>{{ self.text("appeal") }}</dt><dd>{{ self.text(&row.appeal_status) }}</dd>
+    </dl>
+    {% if detail %}
+      {% if row.acknowledged_at.is_none() %}
+      <form method="post" action="{{ url }}/acknowledge">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="version" value="{{ row.version }}">
+        <button class="op-button op-button--secondary" type="submit">{{ self.text("acknowledge") }}</button>
+      </form>
+      {% endif %}
+      {% if let Some(message) = row.message %}
+      <section class="op-stack"><h3>{{ self.text("your-appeal") }}</h3><p>{{ message }}</p></section>
+      {% endif %}
+      {% if let Some(outcome) = row.outcome %}
+      <section class="op-stack"><h3>{{ self.text("outcome") }}</h3><p>{{ outcome }}</p></section>
+      {% endif %}
+      {% if row.can_appeal() %}
+      <form class="op-stack" method="post" action="{{ url }}/appeal">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="version" value="{{ row.version }}">
+        <div class="op-field">
+          <label for="message">{{ self.text("message") }}</label>
+          <textarea class="op-input" id="message" name="message" rows="5" maxlength="4000" required></textarea>
+        </div>
+        <button class="op-button" type="submit">{{ self.text("submit") }}</button>
+      </form>
+      {% endif %}
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% if previous.is_some() || next.is_some() %}
+  <nav class="op-pagination" aria-label="{{ self.text("pages") }}">
+    {% if let Some(page) = previous %}<a href="?page={{ page }}">{{ self.text("previous") }}</a>{% endif %}
+    {% if let Some(page) = next %}<a href="?page={{ page }}">{{ self.text("next") }}</a>{% endif %}
+  </nav>
+  {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

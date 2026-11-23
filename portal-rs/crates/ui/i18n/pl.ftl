@@ -187,6 +187,7 @@ shell-items = Przedmioty
 shell-logins = Historia logowań
 shell-places = Miejsca
 shell-tickets = Zgłoszenia pomocy
+shell-sanctions = Historia kar
 
 shell-guilds = Gildie
 shell-houses = Domy

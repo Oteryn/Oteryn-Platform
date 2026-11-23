@@ -1,12 +1,16 @@
 //! Appeal workflow persistence; behavioural reference:
 //! app/Support/Actions/ManageEnforcementRecord.php.
 //!
-//! T34 is not available. Its adapter must lock and authorize the authoritative
+//! The adapter must lock and authorize the authoritative
 //! sanction in the same transaction, revoke Platform enforcement on acceptance,
 //! and write staff audit and notification outbox entries before committing.
 //! This module never issues game commands. See the enforcement command contract.
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
+
+mod player;
+mod web;
+pub use web::router;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Appeals {
@@ -55,6 +59,10 @@ impl Status {
             _ => Err(Error::Conflict),
         }
     }
+    fn can_submit(self) -> bool {
+        matches!(self, Self::None | Self::Rejected)
+    }
+
     fn wire(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -99,7 +107,7 @@ impl History {
             }
             Action::Submit(message) => {
                 let message = text(message, true)?;
-                if !matches!(self.status, Status::None | Status::Rejected) {
+                if !self.status.can_submit() {
                     return Err(Error::Conflict);
                 }
                 self.message = message;
@@ -244,7 +252,7 @@ pub trait Sanctions: Send + Sync {
     ) -> impl std::future::Future<Output = Result<(), Error>> + Send;
 }
 
-/// Safe composition seam while T34 is absent: all access is refused.
+/// Deny-all authority for callers without a sanction adapter.
 #[derive(Debug, Default)]
 pub struct UnavailableSanctions;
 impl Sanctions for UnavailableSanctions {

@@ -35,3 +35,7 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
+appeal-requested = Odwołanie złożone
+appeal-reviewing = Odwołanie w trakcie rozpatrywania
+appeal-accepted = Odwołanie uwzględnione
+appeal-rejected = Odwołanie odrzucone
