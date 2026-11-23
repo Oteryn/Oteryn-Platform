@@ -72,6 +72,29 @@ fn translations_and_profile_segments() {
     assert_eq!(parse_limits("x", "16"), None);
     assert_eq!(segment("A /?<&"), "A%20%2F%3F%3C%26");
 }
+
+#[test]
+fn postgres_overview_respects_shop_and_profile_flags() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("PORTAL_TEST_DATABASE_URL").is_none() {
+        return Ok(());
+    }
+    for enabled in ["false", "true"] {
+        let run = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "overview::tests::postgres_overview_success_and_denial",
+            ])
+            .env("OTERYN_SHOP_ENABLED", enabled)
+            .env("PORTAL_PUBLIC_PROFILES_ENABLED", enabled)
+            .output()?;
+        assert!(
+            run.status.success() && String::from_utf8_lossy(&run.stdout).contains("1 passed;"),
+            "overview test failed with shop and profile links enabled={enabled}"
+        );
+    }
+    Ok(())
+}
+
 #[tokio::test]
 async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error::Error>> {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
