@@ -137,10 +137,10 @@ test('private Game operations refuse the public HTTP and native TLS listeners', 
     for (const base of ['', nativeTls]) {
       const response = await request.post(base + '/internal/v1/game-auth/' + route, { headers, data: {} });
       if (route === 'native-recovery-locators') {
-        await empty(response, 503, 'no-store');
+        await empty(response, 503, 'no-store, private');
       } else {
         await json(response, 503, publicRefusal(locale, 503));
-        expect(response.headers()['cache-control']).toBe('no-store');
+        expect(response.headers()['cache-control']).toBe('no-store, private');
       }
     }
   }
