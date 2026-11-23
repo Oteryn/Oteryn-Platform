@@ -410,3 +410,5 @@ discovery-duplicate = Klucz lub pozycja w menu są już zajęte.
 discovery-navigation = Odnośniki redakcyjne
 
 shell-sandbox-coin-checkout = Testowy zakup coinów
+
+shell-referrals = Polecenia

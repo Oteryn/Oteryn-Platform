@@ -410,3 +410,5 @@ discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
 
 shell-sandbox-coin-checkout = Sandbox coin checkout
+
+shell-referrals = Referrals

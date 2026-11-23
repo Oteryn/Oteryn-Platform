@@ -714,6 +714,10 @@ impl Page {
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
     }
+
+    fn referral_operations(&self) -> String {
+        text(self.lang, "referral-operations")
+    }
 }
 const ROLE_PAGE_SIZE: i64 = 50;
 #[derive(Deserialize, Default)]

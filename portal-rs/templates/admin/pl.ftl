@@ -365,3 +365,5 @@ operational-mail-audience-limit = Grupa przekracza limit odbiorców. Wybierz mni
 operational-mail-rate-limit = Zbyt wiele żądań. Spróbuj ponownie za minutę.
 operational-mail-denied = Brak uprawnień do wykonania tej czynności.
 operational-mail-unavailable = Wiadomości organizacyjne są obecnie niedostępne.
+
+referral-operations = Stan kampanii poleceń

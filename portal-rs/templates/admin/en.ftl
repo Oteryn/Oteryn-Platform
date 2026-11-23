@@ -365,3 +365,5 @@ operational-mail-audience-limit = The audience exceeds the recipient limit. Choo
 operational-mail-rate-limit = Too many requests. Try again in a minute.
 operational-mail-denied = You do not have permission to perform this action.
 operational-mail-unavailable = Operational email is currently unavailable.
+
+referral-operations = Referral campaign status

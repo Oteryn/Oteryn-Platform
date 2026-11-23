@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-main" id="main" tabindex="-1">
+  <h1>{{ title }}</h1>
+  {% if !notice.is_empty() %}<p role="status">{{ notice }}</p>{% endif %}
+  {% if landing %}
+    {% if !csrf.is_empty() %}
+      <p>{{ accept_hint }}</p>
+      <form method="post" class="op-stack">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <button class="op-button" type="submit">{{ accept }}</button>
+      </form>
+    {% endif %}
+  {% else %}
+    <section class="op-card op-stack" aria-labelledby="share">
+      <h2 id="share">{{ share_title }}</h2>
+      {% if link.is_empty() %}
+        <form method="post">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button class="op-button" type="submit" name="kind" value="link">{{ create_link }}</button>
+        </form>
+      {% else %}
+        <label for="invite-link">{{ link_label }}</label>
+        <input class="op-input" id="invite-link" type="url" readonly value="{{ link }}">
+      {% endif %}
+      <p>{{ hint }}</p>
+      <p>{{ expiry_hint }}</p>
+      <form class="op-stack" method="post">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="kind" value="new">
+        <label for="new-email">{{ email }}</label>
+        <input class="op-input" id="new-email" name="email" type="email" maxlength="254" autocomplete="off" required>
+        <button class="op-button" type="submit">{{ send }}</button>
+      </form>
+      <form class="op-stack" method="post">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="kind" value="returning">
+        <label for="buddy-email">{{ email }}</label>
+        <input class="op-input" id="buddy-email" name="email" type="email" maxlength="254" autocomplete="off" required>
+        <button class="op-button" type="submit">{{ buddy }}</button>
+      </form>
+    </section>
+    <section class="op-card op-stack" aria-labelledby="invitations">
+      <h2 id="invitations">{{ status }}</h2>
+      {% if let Some(attribution) = attribution %}<p id="referral-attribution">{{ attribution }}</p>{% endif %}
+      <ul>{% for entry in invitations %}<li>{{ entry }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul>
+      {% if let Some(before) = invitation_cursor %}<a href="?invitations_before={{ before }}#invitations">{{ older }}</a>{% endif %}
+      {% if browsing_invitations %}<a href="?#invitations">{{ latest }}</a>{% endif %}
+    </section>
+    <section class="op-card op-stack" aria-labelledby="rewards">
+      <h2 id="rewards">{{ rewards_title }}</h2>
+      <p>{{ game_unavailable }}</p>
+      <p>{{ rewards_hint }}</p>
+      <p>{{ loyalty_label }}: {{ loyalty }}</p>
+      <ul>{% for entry in rewards %}<li data-reward-state="{{ entry.0 }}">{{ entry.1 }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul>
+      {% if let Some(before) = reward_cursor %}<a href="?rewards_before={{ before }}#rewards">{{ older }}</a>{% endif %}
+      {% if browsing_rewards %}<a href="?#rewards">{{ latest }}</a>{% endif %}
+    </section>
+  {% endif %}
+</main>
+</body>
+</html>
