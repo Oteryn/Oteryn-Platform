@@ -823,7 +823,7 @@ async fn postgres_public_events_only_link_to_nonempty_pages() {
 }
 
 #[tokio::test]
-async fn postgres_calendar_shares_the_public_read_budget() {
+async fn postgres_events_share_the_public_read_budget() {
     use axum::extract::ConnectInfo;
     use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
     use std::net::SocketAddr;
@@ -853,6 +853,8 @@ async fn postgres_calendar_shares_the_public_read_budget() {
 
     let app = web::public_router(db.pool.clone());
     for (method, path) in [
+        ("GET", "/en/events"),
+        ("GET", "/en/events/example"),
         ("GET", "/en/events/calendar/month"),
         ("POST", "/en/events/calendar/month"),
         ("GET", "/en/events/upcoming.ics"),

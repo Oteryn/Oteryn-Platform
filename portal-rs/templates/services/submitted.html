@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.t("request-recorded") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-panel">
+<h1>{{ self.t("request-recorded") }}</h1>
+<p>{{ operation }}</p>
+<a href="/{{ lang }}/account/characters/{{ character }}/services#history">{{ self.t("view-status") }}</a>
+<a href="/account">{{ self.t("back-account") }}</a>
+</main>
+</body>
+</html>

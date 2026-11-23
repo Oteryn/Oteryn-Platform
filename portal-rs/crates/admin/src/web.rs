@@ -169,9 +169,11 @@ pub(crate) fn config_from(
     })
 }
 
-/// Indicates that the portal composes the reports backend alongside the staff panel.
+/// Links to other staff routes composed by the portal.
 #[derive(Clone, Copy)]
-struct ReportsNavigation;
+struct PortalNavigation {
+    reports_enabled: bool,
+}
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let reports_enabled = std::env::var("OTERYN_REPORTS_ENABLED").as_deref() == Ok("true")
@@ -190,11 +192,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     let router = router.merge(invitations::acceptance_router(pool.clone()));
     let router = router.merge(crate::errors::configured_router(pool.clone())?);
     let router = router.merge(crate::newsletter::configured_router(pool)?);
-    Ok(if reports_enabled {
-        router.layer(Extension(ReportsNavigation))
-    } else {
-        router
-    })
+    Ok(router.layer(Extension(PortalNavigation { reports_enabled })))
 }
 
 /// [`guarded`] with the panel's environment configuration and the server-side
@@ -318,7 +316,12 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     });
     Router::new()
         .route("/admin", get(page::<I, A>))
+        .route(
+            crate::client_build::PATH,
+            get(crate::client_build::page::<I, A>),
+        )
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::character_cases::web::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
             "/admin/mail-outbox/retry",
@@ -487,6 +490,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         session_proof: proof,
     };
     let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
+        (crate::client_build::PATH, _) => &[Permission::ManageDownloads],
+        ("/admin/character-cases", _) => &[Permission::ManageSupportTickets],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -572,44 +577,7 @@ fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'s
 }
 
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    for cookie in headers.get_all(header::COOKIE) {
-        if let Ok(cookie) = cookie.to_str() {
-            for part in cookie.split(';') {
-                match part.trim().split_once('=') {
-                    Some(("portal_language", "en")) => return "en",
-                    Some(("portal_language", "pl")) => return "pl",
-                    _ => {}
-                }
-            }
-        }
-    }
-    let value = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let mut preferred = ("pl", 0.0);
-    for item in value.split(',') {
-        let mut parts = item.trim().split(';');
-        let tag = parts.next().unwrap_or_default().trim();
-        let primary = tag.split('-').next().unwrap_or_default();
-        let lang = if primary.eq_ignore_ascii_case("en") {
-            "en"
-        } else if primary.eq_ignore_ascii_case("pl") {
-            "pl"
-        } else {
-            continue;
-        };
-        let quality = parts.next().map_or(1.0, |part| {
-            part.trim()
-                .strip_prefix("q=")
-                .and_then(|value| value.parse::<f32>().ok())
-                .unwrap_or(0.0)
-        });
-        if quality > preferred.1 && quality <= 1.0 {
-            preferred = (lang, quality);
-        }
-    }
-    preferred.0
+    oteryn_web::Language::negotiate(headers).code()
 }
 pub(crate) fn messages(
     lang: &str,
@@ -653,6 +621,9 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    client_build_link: Option<String>,
+    world_daily_link: Option<String>,
+    character_cases_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -664,6 +635,8 @@ struct Page {
     newsletter_label: Option<String>,
     forum_label: Option<String>,
     editorial_links: Vec<(&'static str, String)>,
+    enforcement_link: Option<String>,
+    audit_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -710,7 +683,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
-    reports_navigation: Option<Extension<ReportsNavigation>>,
+    navigation: Option<Extension<PortalNavigation>>,
     headers: axum::http::HeaderMap,
     Query(query): Query<RolePageQuery>,
 ) -> Response {
@@ -719,7 +692,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let moderate_reports = if reports_navigation.is_some() {
+    let moderate_reports = if navigation.as_ref().is_some_and(|nav| nav.reports_enabled) {
         match s
             .auth
             .check(context, Permission::ManageSupportReports)
@@ -732,18 +705,14 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         false
     };
-    let players = if s.players_enabled {
-        match s
-            .auth
-            .check(context, Permission::ManageSupportTickets)
-            .await
-        {
-            Ok(()) => true,
-            Err(Error::Denied) => false,
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        }
-    } else {
-        false
+    let support = match s
+        .auth
+        .check(context, Permission::ManageSupportTickets)
+        .await
+    {
+        Ok(()) => true,
+        Err(Error::Denied) => false,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
@@ -807,6 +776,36 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let client_build_link = match s.auth.check(context, Permission::ManageDownloads).await {
+        Ok(()) => Some(text(lang, "build-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let world_daily_link = if navigation.is_some() {
+        match s.auth.check(context, Permission::GameWorldRead).await {
+            Ok(()) => Some(text(lang, "world-daily")),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        None
+    };
+    let enforcement_link = match s
+        .auth
+        .check(context, Permission::ManageSupportEnforcement)
+        .await
+    {
+        Ok(()) => Some(crate::support::web::text(lang, "enforcement")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let audit_link = if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true")
+        && s.auth.check_console_audit(context).await.is_ok()
+    {
+        Some(text(lang, "audit-link"))
+    } else {
+        None
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -816,8 +815,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        client_build_link,
+        world_daily_link,
+        character_cases_link: support.then(|| text(lang, "character-case-title")),
         players_label: text(lang, "players"),
-        players,
+        players: s.players_enabled && support,
         errors_label: s
             .auth
             .check(context, Permission::ViewPortalErrors)
@@ -849,6 +851,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .ok()
             .map(|()| text(lang, "forum")),
+        enforcement_link,
+        audit_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

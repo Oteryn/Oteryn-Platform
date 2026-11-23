@@ -565,3 +565,157 @@ async fn postgres_email_week_real_account_adapter_one_connection() -> TestResult
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn postgres_weekly_note_browser_round_trip() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let (mut service, _) = db.service();
+    service.flags = Flags::default();
+    service.source = Arc::new(DenySource);
+    let app = http::router(service);
+    let path = "/en/account/journal/reports/weekly-note";
+    let request = |method, uri: &str, actor: &str| {
+        Request::builder().method(method).uri(uri).header(
+            header::COOKIE,
+            format!("__Host-oteryn_session={}", actor.repeat(64)),
+        )
+    };
+    let page = app
+        .clone()
+        .oneshot(request("GET", path, "a").body(Body::empty())?)
+        .await?;
+    assert_eq!(page.status(), StatusCode::OK);
+    for (token, body, expected) in [
+        ("wrong".to_owned(), "test".to_owned(), StatusCode::FORBIDDEN),
+        (
+            "c".repeat(64),
+            "x".repeat(4001),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            "c".repeat(64),
+            "private+%3Cnote%3E".to_owned(),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                request("POST", path, "a")
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={token}&body={body}")))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let saved = app
+        .clone()
+        .oneshot(request("GET", path, "a").body(Body::empty())?)
+        .await?;
+    let saved = to_bytes(saved.into_body(), 65536).await?;
+    let saved = std::str::from_utf8(&saved)?;
+    assert!(saved.contains("private &lt;note&gt;") || saved.contains("private &#60;note&#62;"));
+    assert!(!saved.contains("private <note>"));
+    let invalid_week = app
+        .clone()
+        .oneshot(request("GET", &format!("{path}?week=1"), "a").body(Body::empty())?)
+        .await?;
+    assert_eq!(invalid_week.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let export = format!("{path}/export");
+    let response = app
+        .clone()
+        .oneshot(request("GET", &export, "a").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let notes: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+    assert_eq!(notes[0]["body"], "private <note>");
+    let note = notes[0]["id"].as_str().ok_or("missing note ID")?;
+    for (actor, query, expected) in [
+        ("a", format!("?id={note}&format=json"), StatusCode::OK),
+        ("b", format!("?id={note}"), StatusCode::NOT_FOUND),
+        ("a", "?format=csv".into(), StatusCode::UNPROCESSABLE_ENTITY),
+        ("a", "?id=invalid".into(), StatusCode::BAD_REQUEST),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request("GET", &format!("{export}{query}"), actor).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let full_note = format!("_csrf={}&body=x{}", "c".repeat(64), "%0D%0A".repeat(3999));
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", path, "a")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(full_note))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let stored: String = sqlx::query_scalar("SELECT body FROM pd_weekly_notes WHERE account_id=$1")
+        .bind(id(1))
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(stored, format!("x{}", "\n".repeat(3999)));
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", path, "a")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={}&body=", "c".repeat(64))))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let response = app
+        .clone()
+        .oneshot(request("GET", &format!("{export}?id={note}"), "a").body(Body::empty())?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let mut statuses = Vec::new();
+    for _ in 0..21 {
+        let response = app
+            .clone()
+            .oneshot(request("GET", &export, "a").body(Body::empty())?)
+            .await?;
+        statuses.push(response.status());
+    }
+    assert!(statuses.contains(&StatusCode::TOO_MANY_REQUESTS));
+    let other = app
+        .oneshot(request("GET", &export, "b").body(Body::empty())?)
+        .await?;
+    assert_eq!(other.status(), StatusCode::OK);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_weekly_notes_follow_account_lifecycle() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let (service, _) = db.service();
+    let week = Week::closed(START, NOW)?;
+    service.save_weekly_note(id(1), week, "First note").await?;
+    service.save_weekly_note(id(2), week, "Second note").await?;
+    sqlx::query("UPDATE accounts SET status='closed' WHERE id=$1")
+        .bind(id(1))
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+
+    assert!(service.weekly_note(id(1), week).await?.is_none());
+    let remaining = service
+        .weekly_note(id(2), week)
+        .await?
+        .ok_or("missing note")?;
+    assert_eq!(remaining.body, "Second note");
+    db.close().await
+}

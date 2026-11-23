@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.t("operator-title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-panel">
+<a href="/account">{{ self.t("back-account") }}</a>
+<h1>{{ self.t("operator-title") }}</h1>
+<dl>
+{% for (label, count) in counts %}
+<dt>{{ self.t(label) }}</dt><dd data-counter="{{ label }}">{{ count }}</dd>
+{% endfor %}
+</dl>
+<p>{{ self.t("operator-help") }}</p>
+</main>
+</body>
+</html>

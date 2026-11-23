@@ -925,9 +925,13 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
             .args(["--exact", TEST, "--nocapture"])
             .env("PORTAL_TEST_PAID_RENAME_CHILD", "1")
             .env("OTERYN_ENV", "testing")
+            .env("OTERYN_MFA_KEY", "c".repeat(64))
             .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
             .env("OTERYN_CHARACTER_SERVICES_ENABLED", "true")
             .env("OTERYN_CHARACTER_SERVICES_RENAME_ENABLED", "true")
+            .env("OTERYN_ACCOUNT_OVERVIEW_ENABLED", "true")
+            .env("OTERYN_LCFA_ENABLED", "true")
+            .env("OTERYN_LCFA_SOURCE_AUTHORITY", "lcfa")
             .env("OTERYN_CHARACTER_SERVICES_PROJECTION_ENABLED", "true")
             .env("OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED", "true")
             .env("OTERYN_WALLET_ENABLED", "true")
@@ -1095,6 +1099,41 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         },
         "static",
     );
+    let public_get = |uri: &str| {
+        HttpRequest::get(uri)
+            .header("accept-language", "en")
+            .header("cookie", format!("__Host-oteryn_session={token}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let service_path = format!("/en/account/characters/{c}/services");
+    let operator_path = "/en/admin/character-services";
+    let overview = public_app
+        .clone()
+        .oneshot(public_get("/account"))
+        .await
+        .unwrap();
+    assert_eq!(overview.status(), StatusCode::OK);
+    let html = to_bytes(overview.into_body(), 65536).await.unwrap();
+    assert!(String::from_utf8_lossy(&html).contains(&format!("href=\"{service_path}\"")));
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_get(operator_path))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_get("/en/account/characters/bad-id/services"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     let public_post = || {
         HttpRequest::post(format!("/en/account/characters/{c}/services"))
             .header("origin", "https://portal.example.test")
@@ -1150,7 +1189,12 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(
-        public_app.oneshot(public_post()).await.unwrap().status(),
+        public_app
+            .clone()
+            .oneshot(public_post())
+            .await
+            .unwrap()
+            .status(),
         StatusCode::ACCEPTED
     );
     assert_eq!(balance(&s, a).await, (30, 70));
@@ -1165,6 +1209,71 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         .unwrap();
     s.receive(receipt(&cmd, true, 3).as_bytes()).await.unwrap();
     assert_eq!(balance(&s, a).await, (30, 0));
+    let page = public_app
+        .clone()
+        .oneshot(public_get(&service_path))
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = to_bytes(page.into_body(), 65536).await.unwrap();
+    let html = String::from_utf8_lossy(&html);
+    assert!(html.contains("Awaiting updated game state"));
+    assert!(html.contains("Confirmed by the game · Aldric Vale"));
+    assert!(html.contains("Reserved coins charged · 70 coins"));
+    assert!(!html.contains("name=\"requested_name\""));
+
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_master_senior'")
+        .bind(a)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_get(operator_path))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let grant = "d".repeat(64);
+    let generation: Uuid = sqlx::query_scalar(
+        "INSERT INTO account_mfa_totp(account_id,secret,confirmed) VALUES($1,$2,true) RETURNING generation",
+    )
+    .bind(a)
+    .bind(vec![0u8; 32])
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO account_mfa_tokens(token_hash,account_id,generation,credential_hash,purpose,expires_at) VALUES($1,$2,$3,$4,'grant',now()+interval '1 hour')")
+        .bind(oteryn_identity::mfa::digest(&grant))
+        .bind(a)
+        .bind(generation)
+        .bind(oteryn_identity::mfa::digest("test"))
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE web_sessions SET data=jsonb_build_object('mfa_grant',$1::text) WHERE id_hash=$2",
+    )
+    .bind(grant)
+    .bind(Sha256::digest(token.as_bytes()).to_vec())
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    let operator = public_app.oneshot(public_get(operator_path)).await.unwrap();
+    assert_eq!(operator.status(), StatusCode::OK);
+    assert!(
+        operator.headers()["cache-control"]
+            .to_str()
+            .unwrap()
+            .contains("no-store")
+    );
+    let html = to_bytes(operator.into_body(), 65536).await.unwrap();
+    let html = String::from_utf8_lossy(&html);
+    assert!(html.contains("Character service operations"));
+    assert!(html.contains("data-counter=\"operator-pending\">0</dd>"));
+    assert!(!html.contains("Aldric"));
     db.close().await;
 }
 #[tokio::test]

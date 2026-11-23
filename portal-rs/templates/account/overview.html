@@ -41,8 +41,19 @@
 </li>
 {% endfor %}
 </ul>
+{% if let Some(label) = create_character %}
+<p><a class="op-button op-button--secondary" href="/{{ lang }}/account/characters/new">{{ label }}</a></p>
+{% endif %}
+{% if !recent_requests.is_empty() %}
+<h3>{{ recent_requests_label }}</h3>
+<ul>
+{% for request in recent_requests %}
+<li><a href="/{{ lang }}/account/characters/requests/{{ request.0 }}">{{ request.1 }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
 </section>
-{% if security_shortcut.is_some() || !links.is_empty() %}
+{% if security_shortcut.is_some() || !links.is_empty() || operator_status %}
 <nav aria-label="{{ shortcuts }}"><ul class="op-row">
 {% if let Some(path) = security_shortcut %}
 <li><a class="op-button op-button--secondary" href="{{ path }}">{{ security_shortcut_label }}</a></li>
@@ -50,6 +61,7 @@
 {% for link in links %}
 <li><a class="op-button op-button--secondary" href="{{ link.url }}">{{ link.label }}</a></li>
 {% endfor %}
+{% if operator_status %}<li><a class="op-button op-button--secondary" href="/{{ lang }}/admin/character-services">{{ operator_label }}</a></li>{% endif %}
 </ul></nav>
 {% endif %}
 </main>

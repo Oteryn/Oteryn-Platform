@@ -1,12 +1,9 @@
 # World daily consumer
 
-T88 implements a consumer of the **PROPOSED**, unaccepted G-12 revision 2 wire profile.
-Game has no accepted `world_daily` producer. The existing gate stays closed;
-this consumer and its tests do not establish producer availability or production authority.
-See [`OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md`](../../../../../docs/contracts/OTERYN_V2_WORLD_DAILY_FAMILY_CONTRACT_PROPOSAL.md#L1). It adds no Game client,
-mutation, scoring or T94 outcome source. The content crate's existing Today page
-is extended through appended registration; disabled public serving preserves its
-response unchanged.
+T88 supplies the Platform consumer for the G-12 daily wire profile. Revision 3 is
+accepted. Producer and activation qualification remain pending. The editorial
+Today page remains readable when projection data is unavailable. See
+[the GAP-35 qualification record](../../../../../docs/product/GAP-35_WORLD_DAILY.md).
 
 Activation is limited to `APP_ENV=testing` or `preproduction`. All flags default
 to false. Ingest additionally requires `PORTAL_PUBLIC_PROJECTIONS_ENABLED=true`
@@ -34,7 +31,8 @@ boost widget. `/pl/today/widget` and `/en/today/widget` expose HTML fragments;
 `/pl/today/data` and `/en/today/data` expose only presentation fields. Root
 `/today` variants default to Polish and support `lang=en`. Every representation
 is no-store. The data endpoint returns 503 for unavailable evidence and 400 for
-invalid query input.
+invalid query input. A canonical UTC date filters history within the published
+coverage. The staff console exposes read-only readiness at `/admin/today`.
 
 Serving checks the global public recovery epoch, a complete configured-World
 baseline, the 30-second completeness window with one second of clock uncertainty,

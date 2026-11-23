@@ -1,6 +1,6 @@
 //! Read-only pending R4 review. No mutation endpoint is mounted until the
 //! authoritative approval service supplies step-up, distinct actor and digest checks.
-use super::access::{Backend, Console, Error, Locale, Page, language, tr};
+use super::access::{Backend, Console, Error, Locale, Page, tr};
 use crate::rbac::CheckContext;
 use axum::{
     Extension,
@@ -23,10 +23,11 @@ pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    headers: axum::http::HeaderMap,
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
-    let lang = language(input.lang.as_deref())?;
+    let lang = super::locale::select(input.lang.as_deref(), &headers).ok_or(Error::BadInput)?;
     let mut page = Page::new(lang, "approvals");
     let pending = state.backend.for_session(session).approvals(actor).await?;
     let lines = if let Some(rows) = pending {

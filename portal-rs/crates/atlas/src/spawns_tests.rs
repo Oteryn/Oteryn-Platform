@@ -20,7 +20,7 @@ async fn flags_deny_and_locales_are_complete() -> TestResult {
         let Json(text) = texts(Path(lang.into()))
             .await
             .map_err(|s| format!("translation status {s}"))?;
-        assert_eq!(text.len(), 18);
+        assert_eq!(text.len(), 20);
         assert!(text.values().all(|value| !value.is_empty()));
     }
     assert!(texts(Path("unknown".into())).await.is_err());

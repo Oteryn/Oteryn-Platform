@@ -21,6 +21,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+mod discussion;
 mod public;
 
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
@@ -34,27 +35,28 @@ fn escape(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 fn label(lang: &str, key: &str) -> String {
+    translation(lang, key, None).unwrap_or_default()
+}
+
+fn translation(
+    lang: &str,
+    key: &str,
+    args: Option<&fluent_bundle::FluentArgs<'_>>,
+) -> Option<String> {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "pl" {
         include_str!("../../../templates/content/pl.ftl")
     } else {
         include_str!("../../../templates/content/en.ftl")
     };
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    let Ok(resource) = FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
-    bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
-        .unwrap_or_default()
+    let mut bundle = FluentBundle::new(vec![lang.parse().ok()?]);
+    let resource = FluentResource::try_new(source.to_owned()).ok()?;
+    bundle.add_resource(resource).ok()?;
+    bundle.set_use_isolating(false);
+    let pattern = bundle.get_message(key)?.value()?;
+    let mut errors = Vec::new();
+    let value = bundle.format_pattern(pattern, args, &mut errors);
+    (errors.is_empty() && !value.trim().is_empty()).then(|| value.into_owned())
 }
 #[derive(askama::Template)]
 #[template(
@@ -86,6 +88,7 @@ const MAX_PAGE: i64 = 100000;
 struct Options {
     lang: Option<String>,
     page: Option<i64>,
+    status: Option<String>,
     #[serde(default)]
     year: String,
     #[serde(default)]
@@ -202,6 +205,7 @@ pub fn public_router(pool: PgPool) -> Router {
 }
 
 fn public_router_at(pool: PgPool, origin: &str) -> Router {
+    let discussion = discussion::public_routes(pool.clone(), origin);
     Router::new()
         .route("/news", get(public::index))
         .route("/{lang}/news", get(public::local_index))
@@ -223,10 +227,12 @@ fn public_router_at(pool: PgPool, origin: &str) -> Router {
         .layer(Extension(public::FeedOrigin(
             origin.trim_end_matches('/').to_owned(),
         )))
+        .merge(discussion)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
 pub fn admin_router(pool: PgPool) -> Router {
+    let discussions = discussion::staff_routes(pool.clone());
     Router::new()
         .route("/admin/news", get(admin_index).post(create))
         .route("/admin/news/create", get(new))
@@ -237,6 +243,7 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news/{id}", post(update).put(update).delete(delete))
         .route("/admin/news/{id}/delete", post(delete))
         .with_state(pool)
+        .merge(discussions)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
@@ -342,6 +349,14 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
     } else {
         "news"
     };
+    let discussion_link = if section == "news" {
+        format!(
+            "<p><a href=\"/{lang}/news/{slug}/discussion\">{}</a></p>",
+            label(lang, "discussion-title")
+        )
+    } else {
+        String::new()
+    };
     let image = row
         .get::<Option<Uuid>, _>("media_id")
         .map(|id| ArticleImage {
@@ -357,7 +372,7 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
         lang,
         row.get("title"),
         format!(
-            "<p><a href=\"/{lang}/{section}\">{}</a>{}",
+            "<p><a href=\"/{lang}/{section}\">{}</a></p>{}{discussion_link}",
             label(lang, section),
             article.render().map_err(unavailable)?
         ),
@@ -383,6 +398,7 @@ struct NewsQueue<'a> {
     lang: &'a str,
     title: String,
     create: String,
+    discussion_queue: String,
     next: Option<i64>,
     next_label: String,
     end_label: String,
@@ -526,6 +542,7 @@ async fn admin_listing(
         lang,
         title: label(lang, "news"),
         create: label(lang, "new"),
+        discussion_queue: label(lang, "discussion-queue"),
         next,
         next_label: label(lang, "next"),
         end_label: crate::pages::text(lang, "publication-end-label"),
@@ -568,8 +585,10 @@ async fn new(
 }
 async fn edit(
     State(pool): State<PgPool>,
-    Extension(context): Extension<CheckContext>,
-    Extension(auth): Extension<MutationAuthorization>,
+    (Extension(context), Extension(auth)): (
+        Extension<CheckContext>,
+        Extension<MutationAuthorization>,
+    ),
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,

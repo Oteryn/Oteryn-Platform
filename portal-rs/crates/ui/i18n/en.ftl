@@ -408,3 +408,6 @@ discovery-stale = The settings changed while you were editing. Reopen the editor
 discovery-unpublished = Publish both translations before adding the document to a menu.
 discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
+
+shell-item-journal = Inventory and history
+shell-weekly-notes = Private weekly notes

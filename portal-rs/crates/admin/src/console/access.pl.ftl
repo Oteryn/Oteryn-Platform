@@ -42,3 +42,11 @@ empty = Brak pasujących wpisów.
 game-read-invalid-target = Wybrany cel lub filtry są niezgodne z tym odczytem danych gry.
 game-read-character-online = Postać musi być offline. Wyloguj się z postaci i spróbuj ponownie.
 stash = Schowek
+language = Język
+skip = Przejdź do treści
+audit-count = { $count ->
+    [1] 1 wpis audytu
+    [few] { $count } wpisy audytu
+    [many] { $count } wpisów audytu
+   *[other] { $count } wpisu audytu
+    }

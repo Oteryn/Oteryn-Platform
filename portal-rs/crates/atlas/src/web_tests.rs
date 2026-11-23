@@ -151,6 +151,10 @@ async fn postgres_viewer_routes() -> TestResult {
         let body = String::from_utf8(to_bytes(r.into_body(), 1_000_000).await?.to_vec())?;
         assert!(body.contains(&format!("lang=\"{lang}\"")));
         assert!(body.contains("&#34;x&#34;:100"));
+        assert!(body.contains("aria-describedby=\"help status\""));
+        assert!(body.contains("id=\"status\" role=\"status\" aria-atomic=\"true\""));
+        assert!(body.contains(&translate(lang, "controls")));
+        assert!(body.contains(&translate(lang, "position")));
         assert!(body.contains("public-npc"));
         assert!(!body.contains("hidden-npc"));
     }

@@ -188,7 +188,7 @@ impl Default for Settings {
     }
 }
 impl Settings {
-    fn available(&self) -> bool {
+    pub(crate) fn available(&self) -> bool {
         self.enabled
             && wire::authority(&self.source_authority).is_ok()
             && (1..=300).contains(&self.ttl_seconds)

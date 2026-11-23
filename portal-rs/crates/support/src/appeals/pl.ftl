@@ -39,3 +39,5 @@ reopen = Otwórz tę karę
 rate-limited = Zbyt wiele żądań. Spróbuj ponownie za minutę.
 missing = Ta strona kary jest niedostępna.
 unavailable = Historia kar jest chwilowo niedostępna. Spróbuj ponownie później.
+account-navigation = Nawigacja konta
+account = Moje konto

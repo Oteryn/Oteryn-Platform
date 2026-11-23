@@ -2,17 +2,24 @@ use super::{model::*, store::*};
 use askama::Template;
 use axum::{
     Extension, Router,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
 };
-use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+use oteryn_web::{
+    Language,
+    ratelimit::{Denial, Keys, NamedPolicy, RateLimiter},
+    session::{BrowserSession, SessionLayer},
+};
 use serde::Deserialize;
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
@@ -26,21 +33,21 @@ impl Locale {
         }
     }
     fn text(self, key: &str) -> String {
-        let source = if self.0 == "pl" {
-            include_str!("pl.ftl")
+        static PL: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
+        static EN: OnceLock<Option<FluentBundle<FluentResource>>> = OnceLock::new();
+        let (bundle, source) = if self.0 == "pl" {
+            (&PL, include_str!("pl.ftl"))
         } else {
-            include_str!("en.ftl")
+            (&EN, include_str!("en.ftl"))
         };
-        let Ok(resource) = FluentResource::try_new(source.to_owned()) else {
+        let Some(bundle) = bundle.get_or_init(|| {
+            let resource = FluentResource::try_new(source.to_owned()).ok()?;
+            let mut bundle = FluentBundle::new_concurrent(vec![self.0.parse().ok()?]);
+            bundle.add_resource(resource).ok()?;
+            Some(bundle)
+        }) else {
             return String::new();
         };
-        let Ok(lang) = self.0.parse() else {
-            return String::new();
-        };
-        let mut bundle = FluentBundle::new(vec![lang]);
-        if bundle.add_resource(resource).is_err() {
-            return String::new();
-        }
         bundle
             .get_message(key)
             .and_then(|m| m.value())
@@ -59,10 +66,7 @@ struct ItemView {
     bazaar: bool,
 }
 #[derive(Template)]
-#[template(
-    source = r#"<!doctype html><html lang="{{ locale.0 }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack op-panel"><h1>{{ title }}</h1><p>{{ locale.text("items-warning") }}</p><p>{{ locale.text("items-house") }}</p><p>{{ locale.text("items-at") }}: {{ at }}</p><p>{{ locale.text("items-estimate") }}: {{ total }}</p><p>{{ locale.text("items-unpriced") }}: {{ unpriced }}</p><form method="get" class="op-stack"><label for="q">{{ locale.text("items-search") }}</label><input class="op-input" id="q" name="q" maxlength="128" value="{{ query }}"><button class="op-button" type="submit">{{ locale.text("items-submit") }}</button></form><p>{{ depots }}</p>{% if empty %}<p>{{ locale.text("items-empty") }}</p>{% endif %}{% if no_results %}<p>{{ locale.text("items-no-results") }}</p>{% endif %}<ul>{% for item in items %}<li><article class="op-panel op-stack"><h2>{{ item.definition }}</h2><dl><dt>{{ locale.text("items-quantity") }}</dt><dd>{{ item.quantity }}</dd><dt>{{ locale.text("items-location") }}</dt><dd>{{ item.location }}</dd><dt>{{ locale.text("items-estimate") }}</dt><dd>{{ item.estimate }}</dd><dt>{{ locale.text("items-source") }}</dt><dd>{{ item.source }}</dd></dl>{% if item.bazaar %}<a href="/{{ locale.0 }}/bazaar">{{ locale.text("items-bazaar") }}</a>{% endif %}</article></li>{% endfor %}</ul></main></body></html>"#,
-    ext = "html"
-)]
+#[template(path = "playerdata/items.html", config = "src/hunts.askama.toml")]
 struct ItemsPage {
     locale: Locale,
     title: String,
@@ -70,7 +74,14 @@ struct ItemsPage {
     total: String,
     unpriced: usize,
     query: String,
-    depots: String,
+    location: &'static str,
+    depots: Vec<u16>,
+    locations: Vec<LocationOption>,
+    world: Uuid,
+    character: Uuid,
+    history_enabled: bool,
+    previous: Option<usize>,
+    next: Option<usize>,
     empty: bool,
     no_results: bool,
     items: Vec<ItemView>,
@@ -84,8 +95,8 @@ struct EventView {
 }
 #[derive(Template)]
 #[template(
-    source = r#"<!doctype html><html lang="{{ locale.0 }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack op-panel"><h1>{{ title }}</h1><p>{{ locale.text("items-coverage") }}: {{ start }} – {{ through }}</p><p>{{ locale.text("items-history-note") }}</p><ul>{% for event in events %}<li><article class="op-panel op-stack"><h2>{{ event.kind }}</h2><p>{{ locale.text("items-time") }}: {{ event.at }}</p><dl>{% for (label, value) in event.details %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl></article></li>{% endfor %}</ul></main></body></html>"#,
-    ext = "html"
+    path = "playerdata/item_history.html",
+    config = "src/hunts.askama.toml"
 )]
 struct HistoryPage {
     locale: Locale,
@@ -93,15 +104,14 @@ struct HistoryPage {
     start: String,
     through: String,
     events: Vec<EventView>,
+    next_cursor: Option<String>,
+    items_link: Option<String>,
 }
 
 /// Browser adapters resolve the actor from the existing server-side session.
 /// All responses, including extraction failures and denials, are no-store.
 pub fn router(projection: Projection) -> Router {
-    if !projection.flags.items && !projection.flags.history {
-        return Router::new();
-    }
-    let mut router = Router::new();
+    let mut router = Router::new().route("/{lang}/account/journal/items", get(index));
     if projection.flags.items {
         router = router.route("/{lang}/panel/items/{world}/{character}", get(items));
     }
@@ -115,6 +125,10 @@ pub fn router(projection: Projection) -> Router {
     }
     router
         .route_layer(middleware::from_fn_with_state(
+            RateLimiter::new(projection.pool.clone()),
+            journal_quota,
+        ))
+        .route_layer(middleware::from_fn_with_state(
             SessionLayer::new(projection.pool.clone()),
             oteryn_web::session::middleware,
         ))
@@ -122,27 +136,68 @@ pub fn router(projection: Projection) -> Router {
         .with_state(projection)
 }
 
+async fn journal_quota(
+    State(limiter): State<RateLimiter>,
+    Extension(session): Extension<BrowserSession>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    if session.account_id().await.is_none() {
+        return next.run(request).await;
+    }
+    let lang = if request.uri().path().starts_with("/en/") {
+        Language::En
+    } else {
+        Language::Pl
+    };
+    let source = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .ok_or(Denial::Unavailable)
+        .and_then(|peer| limiter.trusted_proxies.client_ip(peer.0, request.headers()));
+    let result = match source {
+        Ok(ip) => {
+            limiter
+                .check(NamedPolicy::PublicGameData, &[Keys::source(ip)])
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.response(lang, false),
+    }
+}
+
 pub fn configured_router(pool: PgPool) -> Router {
     let enabled = |name: &str| std::env::var(name).as_deref() == Ok("true");
+    let flags = Flags {
+        items: enabled("PLAYERDATA_G10_ITEMS_ENABLED"),
+        history: enabled("PLAYERDATA_G10_HISTORY_ENABLED"),
+        bazaar_shortcut: enabled("OTERYN_BAZAAR_ENABLED"),
+        ..Flags::default()
+    };
+    let source = std::env::var(crate::journal::ITEMS_SOURCE)
+        .ok()
+        .filter(|value| !value.is_empty());
+    eprintln!(
+        "G-10 journal items_read={} history_read={} ingest_requested={} source_configured={} readiness=awaiting_qualified_game_evidence",
+        flags.items,
+        flags.history,
+        enabled(crate::journal::ITEMS_ENABLED),
+        source.is_some(),
+    );
+    let evidence: Arc<dyn Evidence> = match source {
+        Some(source) => Arc::new(crate::authority::JournalEvidence { source }),
+        None => Arc::new(UnavailableEvidence),
+    };
     router(Projection {
         pool,
-        flags: Flags {
-            items: enabled("PLAYERDATA_G10_ITEMS_ENABLED"),
-            history: enabled("PLAYERDATA_G10_HISTORY_ENABLED"),
-            // Commands have no accepted Game implementation. Do not activate a shortcut.
-            ingest: false,
-            bazaar_shortcut: false,
-        },
-        // T72's ownership evidence, only for a configured G-10 source. Without a
-        // verified G-10 baseline it proves the owner and still answers 503.
-        evidence: match std::env::var(crate::journal::ITEMS_SOURCE) {
-            Ok(source) if !source.is_empty() => {
-                Arc::new(crate::authority::JournalEvidence { source })
-            }
-            _ => Arc::new(UnavailableEvidence),
-        },
+        flags,
+        evidence,
     })
 }
+
 async fn private(request: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
@@ -166,12 +221,93 @@ fn status(e: Error) -> StatusCode {
         Error::Unavailable | Error::Storage(_) => StatusCode::SERVICE_UNAVAILABLE,
     }
 }
+#[derive(Template)]
+#[template(path = "playerdata/items_index.html", config = "src/hunts.askama.toml")]
+struct IndexPage {
+    locale: Locale,
+    flags: Flags,
+    characters: Vec<(Uuid, String, Uuid)>,
+    worlds: Vec<(Uuid, String)>,
+}
+
+async fn index(
+    State(p): State<Projection>,
+    Extension(session): Extension<BrowserSession>,
+    Path(lang): Path<String>,
+) -> Response {
+    let Some(actor) = session.account_id().await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let locale = match Locale::parse(&lang) {
+        Ok(l) => l,
+        Err(s) => return s.into_response(),
+    };
+    let characters = if p.flags.items || p.flags.history {
+        match p.pool.begin().await {
+            Ok(tx) => crate::authority::CollectionEvidence::owned_characters(tx, actor)
+                .await
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    } else {
+        Vec::new()
+    };
+    let worlds = if p.flags.history {
+        match sqlx::query_as("SELECT id,name FROM world_status ORDER BY name,id LIMIT 256")
+            .fetch_all(&p.pool)
+            .await
+        {
+            Ok(worlds) => worlds,
+            Err(error) => return read_error(locale, locale.text("items-journal"), error.into()),
+        }
+    } else {
+        Vec::new()
+    };
+    oteryn_web::render(&IndexPage {
+        locale,
+        flags: p.flags,
+        characters,
+        worlds,
+    })
+}
+
+#[derive(Template)]
+#[template(
+    path = "playerdata/items_unavailable.html",
+    config = "src/hunts.askama.toml"
+)]
+struct UnavailablePage {
+    locale: Locale,
+    title: String,
+}
+
+fn read_error(locale: Locale, title: String, error: Error) -> Response {
+    let code = status(error);
+    if code == StatusCode::SERVICE_UNAVAILABLE {
+        (code, oteryn_web::render(&UnavailablePage { locale, title })).into_response()
+    } else {
+        code.into_response()
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Search {
     #[serde(default)]
     q: String,
+    #[serde(default)]
+    location: Location,
+    page: Option<usize>,
 }
+
+struct LocationOption {
+    value: &'static str,
+    label: &'static str,
+    selected: bool,
+}
+
+const ITEMS_PER_PAGE: usize = 50;
+
 async fn items(
     State(p): State<Projection>,
     Extension(session): Extension<BrowserSession>,
@@ -185,49 +321,97 @@ async fn items(
         Ok(l) => l,
         Err(s) => return s.into_response(),
     };
-    match p.inventory(actor, world, character, &search.q).await {
-        Ok(inventory) => oteryn_web::render(&items_page(locale, inventory, search.q)),
-        Err(e) => status(e).into_response(),
+    let page = search.page.unwrap_or(1);
+    let Some(skip) = page
+        .checked_sub(1)
+        .and_then(|n| n.checked_mul(ITEMS_PER_PAGE))
+    else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let locations = [
+        (Location::All, "all", "items-all"),
+        (Location::Equipment, "equipment", "items-equipment"),
+        (Location::Depot, "depot", "items-depot"),
+        (Location::Inbox, "inbox", "items-inbox"),
+    ]
+    .into_iter()
+    .map(|(location, value, label)| LocationOption {
+        value,
+        label,
+        selected: search.location == location,
+    })
+    .collect::<Vec<_>>();
+    let title = locale.text("items-title");
+    let mut inventory = match p
+        .inventory_at(actor, world, character, &search.q, search.location)
+        .await
+    {
+        Ok(inventory) => inventory,
+        Err(error) => return read_error(locale, title, error),
+    };
+    if skip > 0 && skip >= inventory.items.len() {
+        return StatusCode::BAD_REQUEST.into_response();
     }
-}
-fn items_page(locale: Locale, v: Inventory, query: String) -> ItemsPage {
-    let unknown = locale.text("items-unknown");
-    let count = v.items.len();
-    let depots = format!(
-        "{}: {}",
-        locale.text("items-depot"),
-        v.depots
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    let rows = v
+    let has_next = skip + ITEMS_PER_PAGE < inventory.items.len();
+    inventory.items = inventory
         .items
         .into_iter()
+        .skip(skip)
+        .take(ITEMS_PER_PAGE)
+        .collect();
+    let mut view = items_page(locale, inventory, search.q, world, character);
+    view.location = locations
+        .iter()
+        .find(|option| option.selected)
+        .map_or("all", |option| option.value);
+    view.locations = locations;
+    view.history_enabled = p.flags.history;
+    view.previous = (page > 1).then_some(page - 1);
+    view.next = has_next.then_some(page + 1);
+    oteryn_web::render(&view)
+}
+
+fn items_page(
+    locale: Locale,
+    v: Inventory,
+    query: String,
+    world: Uuid,
+    character: Uuid,
+) -> ItemsPage {
+    let unknown = locale.text("items-unknown");
+    let count = v.items.len();
+    let rows = v
+        .items
+        .iter()
         .map(|v| {
-            let root = match v.item.root {
-                Root::Equipment => "items-equipment",
-                Root::Depot => "items-depot",
-                Root::Inbox => "items-inbox",
-                Root::House => "items-unknown",
+            let item = &v.item;
+            let mut location = match item.root {
+                Root::Equipment => vec![locale.text("items-equipment")],
+                Root::Depot => vec![locale.text("items-depot")],
+                Root::Inbox => vec![locale.text("items-inbox")],
+                Root::House => vec![locale.text("items-house-location")],
             };
-            let location = format!(
-                "{} {} {} {}",
-                locale.text(root),
-                v.item.town_id.map(|v| v.to_string()).unwrap_or_default(),
-                v.item.depot_box.map(|v| v.to_string()).unwrap_or_default(),
-                v.item.parent_item_instance_id.unwrap_or_default()
-            );
+            for (label, value) in [
+                ("items-town", item.town_id.map(|n| n.to_string())),
+                ("items-box", item.depot_box.map(|n| n.to_string())),
+                ("items-slot", item.equipment_slot.map(|n| n.to_string())),
+            ] {
+                if let Some(value) = value {
+                    location.push(format!("{} {}", locale.text(label), value));
+                }
+            }
+            if let Some(container) = &v.container {
+                location.push(format!("{} {}", locale.text("items-container"), container));
+            }
             ItemView {
-                definition: v.item.definition_production_key,
-                quantity: v.item.quantity,
-                location,
+                definition: item.definition_production_key.clone(),
+                quantity: item.quantity,
+                location: location.join(" · "),
                 estimate: v
                     .estimate
                     .map(|n| n.to_string())
                     .unwrap_or_else(|| unknown.clone()),
-                source: v.price_source.unwrap_or_else(|| unknown.clone()),
+                source: v.price_source.clone().unwrap_or_else(|| unknown.clone()),
                 bazaar: v.bazaar_shortcut,
             }
         })
@@ -238,26 +422,42 @@ fn items_page(locale: Locale, v: Inventory, query: String) -> ItemsPage {
         at: utc(v.at_logout),
         total: v.estimated_total.map(|n| n.to_string()).unwrap_or(unknown),
         unpriced: v.unpriced,
-        query: query.clone(),
-        depots,
-        empty: v.estimated_total == Some(0) && count == 0 && query.is_empty(),
-        no_results: count == 0 && !query.is_empty(),
+        query,
+        location: "all",
+        depots: v.depots,
+        empty: v.snapshot_empty,
+        no_results: !v.snapshot_empty && count == 0,
         items: rows,
+        world,
+        character,
+        locations: Vec::new(),
+        history_enabled: false,
+        previous: None,
+        next: None,
     }
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryQuery {
+    cursor: Option<String>,
+}
+
 async fn bank_history(
     State(p): State<Projection>,
     Extension(session): Extension<BrowserSession>,
     Path((lang, world, family)): Path<(String, Uuid, String)>,
+    Query(query): Query<HistoryQuery>,
 ) -> Response {
-    history(p, session, lang, world, None, family).await
+    history(p, session, lang, world, None, family, query).await
 }
 async fn character_history(
     State(p): State<Projection>,
     Extension(session): Extension<BrowserSession>,
     Path((lang, world, family, character)): Path<(String, Uuid, String, Uuid)>,
+    Query(query): Query<HistoryQuery>,
 ) -> Response {
-    history(p, session, lang, world, Some(character), family).await
+    history(p, session, lang, world, Some(character), family, query).await
 }
 async fn history(
     p: Projection,
@@ -266,6 +466,7 @@ async fn history(
     world: Uuid,
     character: Option<Uuid>,
     family: String,
+    query: HistoryQuery,
 ) -> Response {
     let Some(actor) = session.account_id().await else {
         return StatusCode::UNAUTHORIZED.into_response();
@@ -274,13 +475,17 @@ async fn history(
         Ok(l) => l,
         Err(s) => return s.into_response(),
     };
-    let family = match family.as_str() {
-        "bank" => "BANK",
-        "market" => "MARKET",
-        "trades" => "PLAYER_TRADE",
+    let (family, label) = match family.as_str() {
+        "bank" => ("BANK", "items-bank"),
+        "market" => ("MARKET", "items-market"),
+        "trades" => ("PLAYER_TRADE", "items-trade"),
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
-    match p.history(actor, world, character, family).await {
+    let title = locale.text(label);
+    match p
+        .history_page(actor, world, character, family, query.cursor.as_deref())
+        .await
+    {
         Ok(h) => {
             let events = h
                 .records
@@ -289,13 +494,17 @@ async fn history(
                 .collect();
             oteryn_web::render(&HistoryPage {
                 locale,
-                title: locale.text("items-history"),
+                title,
                 start: utc(h.coverage_start),
                 through: utc(h.through),
                 events,
+                next_cursor: h.next_cursor,
+                items_link: character
+                    .filter(|_| p.flags.items)
+                    .map(|id| format!("/{lang}/panel/items/{world}/{id}")),
             })
         }
-        Err(e) => status(e).into_response(),
+        Err(e) => read_error(locale, title, e),
     }
 }
 
@@ -303,7 +512,11 @@ async fn history(
 pub(super) fn render_inventory(v: Inventory, lang: &str) -> String {
     Locale::parse(lang)
         .ok()
-        .and_then(|locale| items_page(locale, v, String::new()).render().ok())
+        .and_then(|locale| {
+            items_page(locale, v, String::new(), Uuid::nil(), Uuid::nil())
+                .render()
+                .ok()
+        })
         .unwrap_or_default()
 }
 

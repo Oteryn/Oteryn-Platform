@@ -53,9 +53,10 @@ pub enum Command {
         moderator_notes: String,
         #[serde(deserialize_with = "form_integer")]
         effective_at: i64,
-        #[serde(deserialize_with = "form_integer")]
-        expires_at: i64,
+        #[serde(deserialize_with = "form_optional_expiry")]
+        expires_at: Option<i64>,
     },
+    ApproveSanction,
     Appeal {
         appeal_status: String,
         appeal_outcome: String,
@@ -79,7 +80,9 @@ impl Command {
         match self {
             Self::Reply { .. } | Self::TicketStatus { .. } => Area::Tickets,
             Self::Moderate { .. } => Area::Reports,
-            Self::Sanction { .. } | Self::Appeal { .. } => Area::Enforcement,
+            Self::Sanction { .. } | Self::ApproveSanction | Self::Appeal { .. } => {
+                Area::Enforcement
+            }
         }
     }
     pub fn validate(&self) -> Result<(), Error> {
@@ -116,8 +119,9 @@ impl Command {
                     && text(public_reason, 4000, true)
                     && text(moderator_notes, 8000, false)
                     && *effective_at > 0
-                    && expires_at > effective_at
+                    && expires_at.is_none_or(|expiry| expiry > *effective_at)
             }
+            Self::ApproveSanction => true,
             Self::Appeal {
                 appeal_status,
                 appeal_outcome,
@@ -141,6 +145,7 @@ impl Command {
             }
             Self::Sanction { create: true, .. } => current == "absent",
             Self::Sanction { .. } => matches!(current, "active" | "expired" | "revoked"),
+            Self::ApproveSanction => current == "pending",
             Self::Appeal { .. } => matches!(current, "requested" | "reviewing"),
         };
         if valid { Ok(()) } else { Err(Error::Conflict) }
@@ -153,6 +158,7 @@ impl Command {
             Self::Moderate { .. } => "support.report_status_changed",
             Self::Sanction { create: true, .. } => "support.enforcement_created",
             Self::Sanction { .. } => "support.enforcement_updated",
+            Self::ApproveSanction => "support.enforcement_approved",
             Self::Appeal { .. } => "support.enforcement_appeal_updated",
         }
     }
@@ -187,6 +193,14 @@ pub struct Record {
     pub messages: Vec<Message>,
     pub next_message: Option<Uuid>,
     pub forum_post: Option<Uuid>,
+    pub enforcement: Option<EnforcementDetails>,
+}
+#[derive(Debug, Clone)]
+pub struct EnforcementDetails {
+    pub target: Uuid,
+    pub category: String,
+    pub effective_at: i64,
+    pub expires_at: Option<i64>,
 }
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -359,15 +373,29 @@ fn form_bool<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<bool, 
         },
     }
 }
-fn form_integer<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
-    #[derive(Deserialize)]
-    #[serde(untagged)]
-    enum Value {
-        Integer(i64),
-        Text(String),
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum FormInteger {
+    Integer(i64),
+    Text(String),
+}
+
+impl FormInteger {
+    fn parse<E: serde::de::Error>(self) -> Result<i64, E> {
+        match self {
+            Self::Integer(value) => Ok(value),
+            Self::Text(value) => value.parse().map_err(E::custom),
+        }
     }
-    match Value::deserialize(deserializer)? {
-        Value::Integer(value) => Ok(value),
-        Value::Text(value) => value.parse().map_err(serde::de::Error::custom),
+}
+
+fn form_integer<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    FormInteger::deserialize(d)?.parse()
+}
+
+fn form_optional_expiry<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<i64>, D::Error> {
+    match FormInteger::deserialize(d)? {
+        FormInteger::Text(value) if value.trim().is_empty() => Ok(None),
+        value => value.parse().map(Some),
     }
 }

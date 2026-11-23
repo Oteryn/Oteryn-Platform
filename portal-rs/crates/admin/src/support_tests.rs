@@ -48,7 +48,7 @@ fn transitions_success_refusal_and_bad_input() {
     assert_eq!(appeal.transition("none"), Err(Error::Conflict));
 }
 #[test]
-fn temporary_sanctions_only() {
+fn sanction_forms_bind_valid_times_and_pending_approval() {
     let command = Command::Sanction {
         create: false,
         status: "active".into(),
@@ -57,7 +57,7 @@ fn temporary_sanctions_only() {
         public_reason: "Reason".into(),
         moderator_notes: String::new(),
         effective_at: 100,
-        expires_at: 101,
+        expires_at: Some(101),
     };
     assert_eq!(command.validate(), Ok(()));
     assert_eq!(command.transition("unknown"), Err(Error::Conflict));
@@ -87,9 +87,19 @@ fn temporary_sanctions_only() {
         public_reason,
         moderator_notes,
         effective_at,
-        expires_at: 0,
+        expires_at: None,
     };
-    assert_eq!(permanent.validate(), Err(Error::Invalid));
+    assert_eq!(permanent.validate(), Ok(()));
+    let mut invalid = permanent;
+    if let Command::Sanction { expires_at, .. } = &mut invalid {
+        *expires_at = Some(99);
+    }
+    assert_eq!(invalid.validate(), Err(Error::Invalid));
+    assert_eq!(Command::ApproveSanction.transition("pending"), Ok(()));
+    assert_eq!(
+        Command::ApproveSanction.transition("active"),
+        Err(Error::Conflict)
+    );
 }
 #[tokio::test]
 async fn missing_backend_denies_reads() {

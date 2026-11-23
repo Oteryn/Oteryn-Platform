@@ -7,7 +7,11 @@
   if (!ctx) return;
   const floor = document.getElementById('floor'), status = document.getElementById('status');
   const tiles = document.getElementById('tiles'), markers = document.getElementById('markers');
+  const tileStatus = document.getElementById('tile-status');
+  const list = document.getElementById('entities');
+  const zoomIn = document.getElementById('in'), zoomOut = document.getElementById('out');
   const cache = new Map();
+  let markerFloor = null, markersShown = false;
   let x = data.x, y = data.y, z = data.floor, zoom = data.zoom;
   for (const m of data.manifests) {
     const option = document.createElement('option');
@@ -42,31 +46,47 @@
         }
       }
     }
-    const list = document.getElementById('entities'); list.replaceChildren();
+    const updateMarkerList = markerFloor !== z || markersShown !== markers.checked;
+    if (updateMarkerList) {
+      if (list.contains(document.activeElement)) markers.focus();
+      list.replaceChildren();
+      markerFloor = z;
+      markersShown = markers.checked;
+    }
     if (markers.checked) for (const marker of data.markers.filter(mk => mk.floor === z)) {
       ctx.fillStyle = '#ffdc78'; ctx.beginPath();
       ctx.arc((marker.x-m.bounds.min_x)/scale-left,(marker.y-m.bounds.min_y)/scale-top,6,0,2*Math.PI); ctx.fill();
-      const li = document.createElement('li'), link = document.createElement('a');
-      link.href = `/${document.documentElement.lang}/wiki/npcs/${encodeURIComponent(marker.entity_key)}`;
-      link.textContent = `${marker.entity_key} (${marker.x}, ${marker.y}, ${marker.floor})`;
-      li.append(link); list.append(li);
+      if (updateMarkerList) {
+        const li = document.createElement('li'), link = document.createElement('a');
+        link.href = `/${document.documentElement.lang}/wiki/npcs/${encodeURIComponent(marker.entity_key)}`;
+        link.textContent = `${marker.entity_key} (${marker.x}, ${marker.y}, ${marker.floor})`;
+        li.append(link); list.append(li);
+      }
     }
-    status.textContent = missing ? status.dataset.missing : `${x}, ${y}, ${z}`;
+    announce(status, status.dataset.position.replace(/%(x|y|floor|zoom)/g,
+      (_, key) => ({x, y, floor: z, zoom})[key]));
+    announce(tileStatus, missing ? tileStatus.dataset.missing : '');
     const url = new URL(location.href);
     for (const [key,value] of Object.entries({x,y,z,zoom})) url.searchParams.set(key,value);
-    history.replaceState(null,'',url);
+    if (url.href !== location.href) history.replaceState(null, '', url);
     overlay({x,y,z,zoom,scale,left,top,m,canvas,ctx});
-    document.getElementById('in').disabled = zoom === m.levels.at(-1).z;
-    document.getElementById('out').disabled = zoom === m.levels[0].z;
+    zoomIn.setAttribute('aria-disabled', zoom === m.levels.at(-1).z);
+    zoomOut.setAttribute('aria-disabled', zoom === m.levels[0].z);
   }
   function move(dx,dy) { const scale=2**(manifest().levels.at(-1).z-zoom); x+=dx*scale; y+=dy*scale; draw(); }
-  document.getElementById('in').onclick = () => { zoom++; draw(); };
-  document.getElementById('out').onclick = () => { zoom--; draw(); };
+  function zoomBy(button, step) {
+    if (button.getAttribute('aria-disabled') === 'true') return;
+    zoom += step;
+    draw();
+  }
+  zoomIn.onclick = () => zoomBy(zoomIn, 1);
+  zoomOut.onclick = () => zoomBy(zoomOut, -1);
   for (const [id,dx,dy] of [['north',0,-64],['south',0,64],['west',-64,0],['east',64,0]]) document.getElementById(id).onclick = () => move(dx,dy);
   floor.onchange = () => { z=Number(floor.value); draw(); };
   tiles.onchange = markers.onchange = draw;
   view.onkeydown = event => {
-    const actions = {ArrowLeft:()=>move(-64,0),ArrowRight:()=>move(64,0),ArrowUp:()=>move(0,-64),ArrowDown:()=>move(0,64),'+':()=>{zoom++;draw();},'-':()=>{zoom--;draw();}};
+    if (event.altKey || event.ctrlKey || event.metaKey) return;
+    const actions = {ArrowLeft:()=>move(-64,0),ArrowRight:()=>move(64,0),ArrowUp:()=>move(0,-64),ArrowDown:()=>move(0,64),'+':()=>zoomBy(zoomIn,1),'-':()=>zoomBy(zoomOut,-1)};
     if (actions[event.key]) { event.preventDefault(); actions[event.key](); }
   };
   let drag;
@@ -75,11 +95,15 @@
   view.onpointerup = view.onpointercancel = () => { drag=null; };
   new ResizeObserver(draw).observe(view);
   draw();
-  atlasSpawns(view, draw, fn => { overlay=fn; draw(); });
+  atlasSpawns(draw, fn => { overlay=fn; draw(); });
 })();
 
+function announce(node, value) {
+  if (node.textContent !== value) node.textContent = value;
+}
+
 // Uses the shared viewer coordinate frame and its keyboard navigation.
-async function atlasSpawns(view, redraw, install) {
+async function atlasSpawns(redraw, install) {
   const lang = document.documentElement.lang;
   let text;
   try {
@@ -96,19 +120,44 @@ async function atlasSpawns(view, redraw, install) {
     const node = element('button',text[key]); node.type='button'; node.onclick=action; return node;
   };
   const panel=element('section'), heading=element('h2',text.spawns);
-  panel.className='spawn-panel'; panel.append(heading); view.after(panel);
+  const viewer = document.getElementById('atlas-viewer');
+  heading.id = 'spawn-layer-title';
+  panel.setAttribute('aria-labelledby', heading.id);
+  panel.className='spawn-panel'; panel.append(heading); viewer.append(panel);
   const toggleLabel=element('label',text.spawns), toggle=element('input');
   toggle.type='checkbox'; toggle.checked=true; toggleLabel.prepend(toggle);
   const place=element('a',text.place);
-  const controls=element('nav'); controls.append(toggleLabel, place, button('fullscreen',async () => {
-    try { if(document.fullscreenElement) await document.exitFullscreen(); else await view.requestFullscreen(); } catch { notice.textContent=text.failed; }
-  }));
+  const controls=element('nav');
+  controls.setAttribute('aria-labelledby', heading.id);
+  if (document.fullscreenEnabled) {
+    const fullscreen = button('fullscreen', async () => {
+      try {
+        if (document.fullscreenElement === viewer) await document.exitFullscreen();
+        else await viewer.requestFullscreen();
+      } catch { announce(outcome, text.failed); }
+    });
+    document.addEventListener('fullscreenchange', () => {
+      fullscreen.textContent = document.fullscreenElement === viewer ? text['exit-fullscreen'] : text.fullscreen;
+      fullscreen.focus();
+    });
+    controls.append(fullscreen);
+  }
+  controls.append(toggleLabel, place);
   // Spawn loading owns `notice`; marker and report outcomes own `outcome`, so a late spawn load cannot erase them.
   const count=element('p'), notice=element('p'), outcome=element('p'), list=element('ul');
   notice.setAttribute('role','status'); count.setAttribute('role','status'); outcome.setAttribute('role','status');
   panel.append(controls,count,notice,outcome,list);
   let state, points=[], privateMarkers=[], csrf=null, timer, controller, requestKey='', loadedKey='';
-  toggle.onchange=redraw;
+  let listed = [], listedZoom;
+  toggle.onchange=() => {
+    if (!toggle.checked && loadedKey !== requestKey) {
+      clearTimeout(timer);
+      controller?.abort();
+      requestKey = '';
+      announce(notice, '');
+    }
+    redraw();
+  };
   function link(cell, label) {
     const a=element('a',label), url=new URL(location.href);
     for(const [key,value] of Object.entries({x:cell.x,y:cell.y,z:cell.floor,zoom:state.zoom})) url.searchParams.set(key,value);
@@ -137,22 +186,37 @@ async function atlasSpawns(view, redraw, install) {
     if(key===requestKey) return;
     requestKey=key; loadedKey=''; points=[];
     clearTimeout(timer); if(controller) controller.abort();
-    notice.textContent=text.loading;
+    announce(notice, text.loading);
     timer=setTimeout(async () => {
-      controller=new AbortController();
+      const request = new AbortController();
+      controller = request;
       try {
-        const response=await fetch(`/atlas/spawns?${key}`, {signal:controller.signal,cache:'no-store'});
+        const response=await fetch(`/atlas/spawns?${key}`, {signal:request.signal,cache:'no-store'});
         if(!response.ok) throw new Error('unavailable');
         const result=await response.json();
-        if(requestKey!==key) return;
-        points=result; loadedKey=key; notice.textContent=''; redraw();
-      } catch(error) { if(error.name!=='AbortError' && requestKey===key) { points=[]; notice.textContent=text.failed; redraw(); } }
+        if(request.signal.aborted) return;
+        points=result; loadedKey=key; announce(notice, ''); redraw();
+      } catch {
+        if (!request.signal.aborted) {
+          points=[]; announce(notice, text['spawns-unavailable']); redraw();
+        }
+      }
     },180);
   }
   install(current => {
-    state=current; place.href=location.href; requestSpawns(); list.replaceChildren();
+    state=current; place.href=location.href;
+    if (toggle.checked) requestSpawns();
     const shown=toggle.checked ? points.filter(p=>visible(p.cell)) : [];
-    count.textContent=loadedKey===requestKey ? `${text.monsters}: ${shown.length}; ${text.sites}: ${new Set(shown.map(p=>p.spawn)).size}` : text.loading;
+    announce(count, toggle.checked && loadedKey===requestKey
+      ? `${text.monsters}: ${shown.length}; ${text.sites}: ${new Set(shown.map(p=>p.spawn)).size}` : '');
+    const updateList = listedZoom !== state.zoom || shown.length !== listed.length
+      || shown.some((point, index) => point !== listed[index]);
+    if (updateList) {
+      if (list.contains(document.activeElement)) toggle.focus();
+      list.replaceChildren();
+      listed = shown;
+      listedZoom = state.zoom;
+    }
     const groups=new Map();
     for(const point of shown) {
       // Grid in screen pixels: zooming in separates groups into individual points.
@@ -162,6 +226,7 @@ async function atlasSpawns(view, redraw, install) {
     }
     for(const group of groups.values()) {
       const cell=group[0].cell; dot(cell,String(group.length),'#ffdc78');
+      if (!updateList) continue;
       const item=element('li');
       item.append(link(cell,`${text.monsters}: ${group.length}; ${text.sites}: ${new Set(group.map(p=>p.spawn)).size} (${cell.x}, ${cell.y}, ${cell.floor})`));
       const details=element('details'), summary=element('summary',text.spawns); details.append(summary);
@@ -178,41 +243,82 @@ async function atlasSpawns(view, redraw, install) {
     }
     for(const marker of privateMarkers.filter(visible)) dot(marker,'◆','#a7dcff');
   });
-  const privateTitle=element('h2',text.private), privateList=element('ul'); panel.append(privateTitle,privateList);
-  function renderPrivate() {
-    privateList.replaceChildren();
-    for(const marker of privateMarkers) {
-      const item=element('li'); item.append(link(marker,marker.label),button('remove',async()=>{
-        outcome.textContent='';
-        try { await mutate(`/atlas/private-markers/${marker.id}`,'DELETE'); await loadPrivate(); outcome.textContent=text.saved; } catch { outcome.textContent=text.failed; }
-      })); privateList.append(item);
-    }
-    redraw();
-  }
-  async function loadPrivate() {
-    const response=await fetch('/atlas/private-markers',{cache:'no-store'});
-    if(!response.ok) throw new Error('unavailable');
-    const data=await response.json(); csrf=data.csrf_token; privateMarkers=data.markers; renderPrivate();
+  const privateTitle=element('h2',text.private), privateList=element('ul');
+  privateTitle.id='private-markers-title';
+  privateTitle.tabIndex=-1;
+  privateList.setAttribute('aria-labelledby', privateTitle.id);
+
+  function appendPrivate(marker) {
+    const item=element('li'), waypoint=link(marker,marker.label);
+    waypoint.id=`private-marker-${marker.id}`;
+    const remove=button('remove',async()=>{
+      if (remove.getAttribute('aria-disabled') === 'true') return;
+      remove.setAttribute('aria-disabled', 'true');
+      announce(outcome, '');
+      try {
+        await mutate(`/atlas/private-markers/${marker.id}`,'DELETE');
+        if (item.contains(document.activeElement)) {
+          const neighbor=item.nextElementSibling || item.previousElementSibling;
+          (neighbor?.querySelector('button') || privateTitle).focus();
+        }
+        item.remove();
+        privateMarkers=privateMarkers.filter(entry=>entry.id!==marker.id);
+        redraw();
+        announce(outcome, text.saved);
+      } catch {
+        remove.removeAttribute('aria-disabled');
+        announce(outcome, text.failed);
+      }
+    });
+    remove.setAttribute('aria-describedby', waypoint.id);
+    item.append(waypoint,remove);
+    privateList.append(item);
   }
   async function mutate(url,method,body) {
     const response=await fetch(url,{method,headers:{'Content-Type':'application/json','x-csrf-token':csrf},body:body ? JSON.stringify(body) : undefined});
     if(!response.ok) throw new Error('unavailable');
+    return response;
   }
-  try { await loadPrivate(); } catch { panel.append(element('p',text['sign-in'])); return; }
-  function form(key, submit, min, max, url) {
+  try {
+    const response=await fetch('/atlas/private-markers',{cache:'no-store'});
+    if (response.status===401) {
+      panel.append(element('p',text['sign-in']));
+      return;
+    }
+    if (!response.ok) throw new Error('unavailable');
+    const data=await response.json();
+    csrf=data.csrf_token;
+    privateMarkers=data.markers;
+  } catch { announce(outcome, text.failed); return; }
+  panel.append(privateTitle,privateList);
+  privateMarkers.forEach(appendPrivate);
+  redraw();
+
+  function form(key, submit, min, max, url, onSaved) {
     const form=element('form'), label=element('label',text[key]), input=element('textarea');
     input.required=true; input.minLength=min; input.maxLength=max; label.append(input);
     const send=element('button',text[submit]); send.type='submit'; form.append(label,send);
     form.onsubmit=async event=>{
-      event.preventDefault(); send.disabled=true; outcome.textContent='';
+      event.preventDefault();
+      if (send.getAttribute('aria-disabled') === 'true') return;
+      send.setAttribute('aria-disabled','true');
+      announce(outcome, '');
       try {
-        await mutate(url,'POST',{x:state.x,y:state.y,floor:state.z,text:input.value});
-        input.value=''; outcome.textContent=text.saved; await loadPrivate();
-      } catch { outcome.textContent=text.failed; } finally { send.disabled=false; }
+        const response = await mutate(url,'POST',{x:state.x,y:state.y,floor:state.z,text:input.value});
+        if (onSaved) await onSaved(response);
+        input.value='';
+        announce(outcome, text.saved);
+      } catch { announce(outcome, text.failed); } finally { send.removeAttribute('aria-disabled'); }
     }; panel.append(form);
   }
-  form('label','save',1,80,'/atlas/private-markers');
-  panel.append(element('h2',text.report)); form('description','send',10,2000,'/atlas/map-reports');
+  form('label','save',1,80,'/atlas/private-markers',async response=>{
+    const marker=await response.json();
+    privateMarkers.push(marker);
+    appendPrivate(marker);
+    redraw();
+  });
+  panel.append(element('h2',text.report));
+  form('description','send',10,2000,'/atlas/map-reports');
 }
 // Owner-only hunting-place layer. Labels come from the server i18n layer.
 (() => {
@@ -242,38 +348,6 @@ async function atlasSpawns(view, redraw, install) {
       }
       const rows = page.querySelector('ul.places');
       if (rows) layer.append(document.importNode(rows, true));
-      atlas.before(layer);
-    }).catch(() => {});
-})();
-
-// Owner-only hunting-place layer. Labels come from the server i18n layer.
-(() => {
-  const atlas = document.getElementById('atlas');
-  const lang = document.documentElement.lang;
-  if (!atlas || !['pl', 'en'].includes(lang)) return;
-  fetch(`/${lang}/atlas/places`, { credentials: 'same-origin', cache: 'no-store' })
-    .then(response => response.ok ? response.text() : null)
-    .then(markup => {
-      if (!markup) return;
-      const page = new DOMParser().parseFromString(markup, 'text/html');
-      const heading = page.querySelector('h1');
-      if (!heading) return;
-      const link = document.createElement('a');
-      link.href = `/${lang}/atlas/places`;
-      link.textContent = heading.textContent;
-      const layer = document.createElement('details');
-      layer.className = 'hunting-places-layer';
-      const summary = document.createElement('summary');
-      summary.textContent = heading.textContent;
-      layer.append(summary, link);
-      const help = page.querySelector('main > p');
-      if (help) {
-        const description = document.createElement('p');
-        description.textContent = help.textContent;
-        layer.append(description);
-      }
-      const rows = page.querySelector('ul.places');
-      if (rows) layer.append(document.importNode(rows, true));
-      atlas.before(layer);
+      document.getElementById('atlas-viewer').append(layer);
     }).catch(() => {});
 })();

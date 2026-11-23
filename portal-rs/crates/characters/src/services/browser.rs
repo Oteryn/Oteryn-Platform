@@ -4,7 +4,7 @@ use axum::{
     http::{StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
 };
-use fluent_bundle::{FluentBundle, FluentResource};
+use fluent_bundle::{FluentArgs, FluentBundle, FluentResource};
 #[derive(Template)]
 #[template(path = "services/manage.html", config = "src/services/askama.toml")]
 struct Page {
@@ -20,16 +20,23 @@ struct Page {
     cancel: bool,
     rename: bool,
     deadline: String,
+    remaining: String,
+    lifecycle: &'static str,
+    sudo: bool,
     price: String,
     credit: bool,
-    operations: Vec<(String, String)>,
+    operations: Vec<Operation>,
 }
 impl Page {
     fn t(&self, key: &str) -> String {
         text(&self.lang, key)
     }
 }
-fn text(lang: &str, key: &str) -> String {
+pub(super) fn text(lang: &str, key: &str) -> String {
+    localized(lang, key, None)
+}
+
+fn localized(lang: &str, key: &str, args: Option<&FluentArgs<'_>>) -> String {
     let source = if lang == "en" {
         include_str!("../../../../templates/services/en.ftl")
     } else {
@@ -45,10 +52,10 @@ fn text(lang: &str, key: &str) -> String {
     bundle
         .get_message(key)
         .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
+        .map(|p| bundle.format_pattern(p, args, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
-fn private(mut response: Response) -> Response {
+pub(super) fn private(mut response: Response) -> Response {
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         header::HeaderValue::from_static("private, no-store"),
@@ -59,7 +66,7 @@ fn private(mut response: Response) -> Response {
     );
     response
 }
-fn error(lang: &str, e: Error) -> Response {
+pub(super) fn error(lang: &str, e: Error) -> Response {
     private(
         (
             super::transport::status(&e),
@@ -110,34 +117,66 @@ pub(super) async fn show_with(
     let Some(actor) = actor else {
         return private(Redirect::to(&format!("/{lang}/login")).into_response());
     };
-    let result=async {
-        let character=wire::identifier(character)?;
-        let mut tx=pool.begin().await?;
-        if Authority.state(&mut tx,actor).await!=oteryn_wallet::AccountState::Active {return Err(Error::Denied);}
-        let state=services.owner_state(&mut tx,actor,character).await?;
-        let current=now(&mut tx).await?;
-        let credit:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_service_orders WHERE account_id=$1 AND character_id=$2 AND financial_state='RECOVERY_REQUIRED' AND credit_used_by IS NULL)").bind(actor).bind(character).fetch_one(&mut *tx).await?;
-        let cancel_action=Action::Cancel{deletion_operation_id:state.deletion.map(|d|d.0).unwrap_or_default()};
-        let operations = sqlx::query("SELECT c.id,c.state,c.receipt_json,o.financial_state FROM character_service_orders o JOIN character_commands c ON c.id=o.operation_id WHERE o.account_id=$1 AND o.character_id=$2 ORDER BY o.created_at DESC LIMIT 20").bind(actor).bind(character).fetch_all(&mut *tx).await?.into_iter().map(|r| -> Result<_, Error> {
-            let key = if r.try_get::<String,_>("state")? == "PENDING" { "pending-state" } else if r.try_get::<String,_>("financial_state")? == "RECOVERY_REQUIRED" { "free-restore" } else {
-                let raw: String = r.try_get("receipt_json")?;
-                let v = wire::decode_value(raw.as_bytes(),1024)?;
-                if wire::string(&v,"outcome")? == "COMMITTED" { "committed" } else { "rejected" }
-            };
-            Ok((r.try_get::<Uuid,_>("id")?.to_string(), text(lang,key)))
-        }).collect::<Result<Vec<_>,_>>()?;
-        let page=Page { operations,
-            lang:lang.into(),character:character.to_string(),name:state.name.clone(),csrf,
-            schedule_id:Uuid::now_v7().to_string(),cancel_id:Uuid::now_v7().to_string(),rename_id:Uuid::now_v7().to_string(),
-            deletion_id:state.deletion.map(|d|d.0.to_string()).unwrap_or_default(),
-            schedule:services.settings.permits(&Action::Schedule)&&state.permits(&Action::Schedule,current).is_ok(),
-            cancel:services.settings.permits(&cancel_action)&&state.permits(&cancel_action,current).is_ok(),
-            rename:services.settings.permits(&Action::Rename{requested_name:String::new()})&&state.lifecycle=="ACTIVE"&&(credit||services.settings.rename_price.as_ref().is_some_and(Price::valid)),
-            deadline:state.deletion.map(|d|deadline(d.2)).transpose()?.unwrap_or_default(),
-            price:services.settings.rename_price.as_ref().filter(|p|p.valid()).map(|p|p.coins.to_string()).unwrap_or_default(),credit,
+    let result = async {
+        let character = wire::identifier(character)?;
+        let mut tx = pool.begin().await?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await?;
+        if Authority.state(&mut tx, actor).await != oteryn_wallet::AccountState::Active {
+            return Err(Error::Denied);
+        }
+        let state = services.owner_state(&mut tx, actor, character).await?;
+        let current = services.latest_game_time(&mut tx).await?;
+        let waiting = awaiting_projection(&mut tx, character, state.character_revision).await?;
+        let blocked = waiting || has_conflicting_operation(&mut tx, character).await?;
+        let credit: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM character_service_orders WHERE account_id=$1 AND character_id=$2
+                   AND financial_state='RECOVERY_REQUIRED' AND credit_used_by IS NULL)",
+        )
+        .bind(actor)
+        .bind(character)
+        .fetch_one(&mut *tx)
+        .await?;
+        let operations = history(&mut tx, actor, character).await?;
+        let (deletion_id, effective) = state.deletion
+            .map(|(id, _, effective)| (id, Some(effective)))
+            .unwrap_or_default();
+        let cancel_action = Action::Cancel { deletion_operation_id: deletion_id };
+        let rename_action = Action::Rename { requested_name: String::new() };
+        let permits = |action: &Action| {
+            !blocked && services.settings.permits(action) && state.permits(action, current).is_ok()
         };
-        page.render().map_err(|_|Error::Unavailable)
-    }.await;
+        let price = services.settings.rename_price.as_ref().filter(|p| p.valid());
+        let page = Page {
+            operations,
+            lang: lang.into(),
+            character: character.to_string(),
+            name: state.name.clone(),
+            csrf,
+            schedule_id: Uuid::now_v7().to_string(),
+            cancel_id: Uuid::now_v7().to_string(),
+            rename_id: Uuid::now_v7().to_string(),
+            deletion_id: deletion_id.to_string(),
+            schedule: permits(&Action::Schedule),
+            cancel: permits(&cancel_action),
+            rename: permits(&rename_action) && (credit || price.is_some()),
+            deadline: effective.filter(|_| !waiting).map(deadline).transpose()?.unwrap_or_default(),
+            remaining: effective.filter(|_| !waiting).map(|date| remaining(lang, current, date)).unwrap_or_default(),
+            lifecycle: if waiting {
+                "awaiting-projection"
+            } else if let Some(date) = effective {
+                if current < date { "deletion-pending" } else { "deletion-deadline-reached" }
+            } else {
+                "active"
+            },
+            price: price.map(|p| p.coins.to_string()).unwrap_or_default(),
+            credit,
+            sudo: oteryn_identity::navigation::sudo_enabled(),
+        };
+        page.render().map_err(|_| Error::Unavailable)
+    }
+    .await;
     match result {
         Ok(html) => private(Html(html).into_response()),
         Err(e) => error(lang, e),
@@ -187,14 +226,139 @@ pub(super) async fn submit_with(
         let command = services
             .request_in_session(actor, request, Some(&proof))
             .await?;
-        Ok(command.operation_id)
+        Ok(Submitted {
+            lang,
+            character,
+            operation: command.operation_id,
+        })
     }
     .await;
     match result {
-        Ok(_) => private((StatusCode::ACCEPTED, text(lang, "pending")).into_response()),
+        Ok(page) => match page.render() {
+            Ok(html) => private((StatusCode::ACCEPTED, Html(html)).into_response()),
+            Err(_) => error(lang, Error::Unavailable),
+        },
         Err(e) => error(lang, e),
     }
 }
+#[derive(Template)]
+#[template(path = "services/submitted.html", config = "src/services/askama.toml")]
+struct Submitted<'a> {
+    lang: &'a str,
+    character: &'a str,
+    operation: Uuid,
+}
+
+impl Submitted<'_> {
+    fn t(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+}
+
+struct Operation {
+    id: Uuid,
+    action: &'static str,
+    outcome: &'static str,
+    detail: Option<String>,
+    financial: Option<&'static str>,
+    amount: Option<i64>,
+}
+
+async fn history(
+    tx: &mut Transaction<'_, Postgres>,
+    account: Uuid,
+    character: Uuid,
+) -> Result<Vec<Operation>, Error> {
+    sqlx::query(
+        "SELECT c.id,c.command,c.state,c.receipt_json,o.financial_state,o.amount,
+                o.credit_from IS NOT NULL AS replacement,o.credit_used_by IS NOT NULL AS claimed,
+                (c.state='PENDING' AND c.updated_at <= now()-interval '300 seconds')
+                OR EXISTS (SELECT 1 FROM character_restore_reopens r
+                           WHERE r.operation_id=c.id AND r.new_receipt_id IS NULL)
+                OR EXISTS (SELECT 1 FROM character_restore_queue q
+                           WHERE q.operation_id=c.id AND q.resolved_at IS NULL) AS review
+         FROM character_service_orders o JOIN character_commands c ON c.id=o.operation_id
+         WHERE o.account_id=$1 AND o.character_id=$2
+         ORDER BY o.created_at DESC,o.operation_id DESC LIMIT 20",
+    )
+    .bind(account)
+    .bind(character)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| {
+        let command: String = row.try_get("command")?;
+        let action = match command.as_str() {
+            wire::RENAME => "rename",
+            wire::SCHEDULE => "schedule",
+            wire::CANCEL => "cancel",
+            _ => return Err(Error::Unavailable),
+        };
+        let (outcome, detail) = if row.try_get("review")? {
+            ("reconciling", None)
+        } else if row.try_get::<String, _>("state")? == "PENDING" {
+            ("pending-state", None)
+        } else {
+            let raw: String = row.try_get("receipt_json")?;
+            let receipt = wire::receipt(raw.as_bytes())?;
+            if wire::string(&receipt, "outcome")? == "COMMITTED" {
+                let detail = match command.as_str() {
+                    wire::RENAME => Some(wire::string(&receipt, "name")?.to_owned()),
+                    wire::SCHEDULE => Some(deadline(wire::number(
+                        wire::string(&receipt, "deletion_effective_at")?,
+                        false,
+                    )?)?),
+                    _ => None,
+                };
+                ("committed", detail)
+            } else {
+                ("rejected", None)
+            }
+        };
+        let financial = match row.try_get::<String, _>("financial_state")?.as_str() {
+            "RESERVED" => Some("coins-reserved"),
+            "SETTLED" => Some("coins-settled"),
+            "RELEASED" => Some("coins-released"),
+            "RECOVERY_REQUIRED" if row.try_get("claimed")? => Some("credit-claimed"),
+            "RECOVERY_REQUIRED" => Some("free-restore"),
+            "FREE" if row.try_get("replacement")? => Some("replacement"),
+            "FREE" => None,
+            _ => return Err(Error::Unavailable),
+        };
+        Ok(Operation {
+            id: row.try_get("id")?,
+            action,
+            outcome,
+            detail,
+            financial,
+            amount: if matches!(
+                financial,
+                Some("coins-reserved" | "coins-settled" | "coins-released")
+            ) {
+                row.try_get("amount")?
+            } else {
+                None
+            },
+        })
+    })
+    .collect()
+}
+
+fn remaining(lang: &str, current: u64, effective: u64) -> String {
+    let remaining = effective.saturating_sub(current);
+    if remaining == 0 {
+        return String::new();
+    }
+    if remaining < 60 {
+        return text(lang, "grace-final-minute");
+    }
+    let mut args = FluentArgs::new();
+    args.set("days", remaining / 86400);
+    args.set("hours", (remaining / 3600) % 24);
+    args.set("minutes", (remaining / 60) % 60);
+    localized(lang, "grace-remaining", Some(&args))
+}
+
 fn parse_form(character: &str, fields: Vec<(String, String)>) -> Result<Request, Error> {
     let mut map = std::collections::BTreeMap::new();
     for (k, v) in fields {
@@ -310,6 +474,10 @@ pub async fn recent(
         account: actor,
     })
 }
+pub(crate) fn browser_enabled() -> bool {
+    std::env::var("OTERYN_CHARACTER_SERVICES_ENABLED").as_deref() == Ok("true")
+}
+
 pub fn configured() -> Settings {
     let yes = |key| std::env::var(key).as_deref() == Ok("true");
     // Freshness is explicitly qualified only for testing/preproduction here.
@@ -318,7 +486,7 @@ pub fn configured() -> Settings {
         Ok("testing" | "preprod")
     );
     Settings {
-        enabled: yes("OTERYN_CHARACTER_SERVICES_ENABLED"),
+        enabled: browser_enabled(),
         schedule_deletion: yes("OTERYN_CHARACTER_SERVICES_SCHEDULE_ENABLED"),
         cancel_deletion: yes("OTERYN_CHARACTER_SERVICES_CANCEL_ENABLED"),
         rename: yes("OTERYN_CHARACTER_SERVICES_RENAME_ENABLED"),
@@ -413,6 +581,9 @@ mod tests {
                 cancel: false,
                 rename: true,
                 deadline: String::new(),
+                remaining: String::new(),
+                lifecycle: "active",
+                sudo: true,
                 price: "100".into(),
                 credit: false,
                 operations: vec![],
@@ -427,7 +598,9 @@ mod tests {
             let html = page.render().unwrap();
             assert!(html.contains("name=\"_csrf\""));
             assert!(html.contains("name=\"confirm\""));
-            assert!(html.contains("disabled"));
+            assert!(html.contains(&page.t("channel-transfer")));
+            assert!(html.contains("id=\"cancellation\""));
+            assert!(html.contains("href=\"/account\""));
             assert!(!page.t("unavailable").is_empty());
         }
     }

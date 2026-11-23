@@ -8,6 +8,7 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,6 +65,18 @@ pub struct LedgerRow {
     pub status: String,
     pub observed_at: String,
 }
+pub(crate) struct Rows {
+    pub heading: String,
+    pub count: String,
+    pub entries: Vec<Entry>,
+}
+
+pub(crate) struct Entry {
+    pub details: String,
+    pub timestamp: String,
+    pub datetime: String,
+}
+
 pub(crate) async fn page<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
@@ -77,22 +90,30 @@ pub(crate) async fn page<B: Backend>(
         return Err(Error::Denied);
     }
     filter.validate()?;
-    let lang = language(filter.lang.as_deref())?;
+    let lang = super::locale::select(filter.lang.as_deref(), &headers).ok_or(Error::BadInput)?;
     let mut page = Page::new(lang, "audit");
-    page.filters = true;
     if platform {
-        let rows: Vec<(Uuid,String,String,String,String)> = sqlx::query_as("SELECT request_id, COALESCE(actor::text,actor_source,''), COALESCE(operation,action), COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target), created_at::text FROM audit_log WHERE ($1::uuid IS NULL OR request_id=$1) AND ($2::uuid IS NULL OR actor=$2) AND ($3::text IS NULL OR COALESCE(operation,action)=$3) AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4) ORDER BY created_at DESC, id DESC LIMIT 100")
+        let rows: Vec<(Uuid,String,String,String,OffsetDateTime)> = sqlx::query_as("SELECT request_id, COALESCE(actor::text,actor_source,''), COALESCE(operation,action), COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target), created_at FROM audit_log WHERE ($1::uuid IS NULL OR request_id=$1) AND ($2::uuid IS NULL OR actor=$2) AND ($3::text IS NULL OR COALESCE(operation,action)=$3) AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4) ORDER BY created_at DESC, id DESC LIMIT 100")
             .bind(filter.request_id).bind(filter.admin).bind(&filter.operation).bind(&filter.target).fetch_all(&state.pool).await?;
-        page.section(
-            "platform-source",
-            Some(
-                rows.into_iter()
-                    .map(|(request, admin, operation, target, time)| {
-                        format!("{request} · {admin} · {operation} · {target} · {time}")
-                    })
-                    .collect(),
-            ),
-        );
+        let mut args = fluent_bundle::FluentArgs::new();
+        args.set("count", rows.len());
+        let count = super::locale::message(lang, "audit-count", Some(&args), true)
+            .ok_or(Error::Unavailable)?;
+        page.audit_rows = Some(Rows {
+            heading: tr(lang, "platform-source"),
+            count,
+            entries: rows
+                .into_iter()
+                .map(|(request, admin, operation, target, timestamp)| Entry {
+                    details: format!("{request} · {} · {operation} · {target}", admin),
+                    timestamp: super::locale::date(lang, timestamp),
+                    datetime: timestamp
+                        .to_offset(UtcOffset::UTC)
+                        .format(&Rfc3339)
+                        .unwrap_or_default(),
+                })
+                .collect(),
+        });
     }
     let ledger = if game && state.backend.advertised("admin.ledger.query").await {
         state
@@ -155,5 +176,6 @@ pub(crate) async fn page<B: Backend>(
             "game-source"
         },
     );
+    page.audit_filter = Some(filter);
     page.response()
 }

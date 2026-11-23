@@ -408,3 +408,6 @@ discovery-stale = Ustawienia zmieniły się podczas edycji. Otwórz ponownie edy
 discovery-unpublished = Opublikuj obie wersje językowe przed dodaniem dokumentu do menu.
 discovery-duplicate = Klucz lub pozycja w menu są już zajęte.
 discovery-navigation = Odnośniki redakcyjne
+
+shell-item-journal = Przedmioty i historia
+shell-weekly-notes = Prywatne notatki tygodniowe

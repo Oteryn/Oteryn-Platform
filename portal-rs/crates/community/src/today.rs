@@ -1,7 +1,10 @@
 //! G-12 public daily projection. Rendering reads only local, fenced evidence.
 //! Activation is restricted to testing/preproduction. No prediction outcome exists.
 mod http;
+mod operator;
+mod presentation;
 mod schema;
+mod selection;
 mod store;
 mod view;
 

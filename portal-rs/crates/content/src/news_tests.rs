@@ -2,7 +2,7 @@
 use super::*;
 use axum::{
     body::{Body, to_bytes},
-    http::Request,
+    http::{Request, header},
 };
 use tower::ServiceExt;
 #[test]
@@ -516,7 +516,10 @@ async fn postgres_news_lifecycle() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    let _ = to_bytes(response.into_body(), 1024).await.unwrap();
+    assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(r#"role="alert">Choose a valid result page.</p>"#));
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(context.account)
@@ -885,11 +888,22 @@ async fn postgres_pagination_language_and_caps() {
             page: Some(number),
             ..Options::default()
         };
-        let listing = public::listing(&pool, "en", &q).await.unwrap().0;
-        assert!(!listing.contains(r#"rel="next""#));
-        let previous = format!(r#"href="?page={}&amp;lang=en" rel="prev""#, number - 1);
-        assert!(listing.replace("&#38;", "&amp;").contains(&previous));
-        assert_eq!(listing.matches("?page=").count(), 1);
+        let peer = ([127, 0, 0, 2], 12345).into();
+        let archive = public_router(pool.clone()).layer(Extension(axum::extract::ConnectInfo::<
+            std::net::SocketAddr,
+        >(peer)));
+        for path in [
+            format!("/en/news?page={number}"),
+            format!("/news?page={number}&lang=en"),
+        ] {
+            let (status, page) = get_public(&archive, &path).await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(!page.contains(r#"rel="next""#));
+            assert!(!page.contains(&format!("?page={}", number + 1)));
+            let previous = format!(r#"href="?page={}&amp;lang=en" rel="prev""#, number - 1);
+            assert!(page.replace("&#38;", "&amp;").contains(&previous));
+            assert_eq!(page.matches("?page=").count(), 1);
+        }
         let response = admin_listing(&pool, q, "en", false).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let html = to_bytes(response.into_body(), 100000).await.unwrap();
@@ -984,4 +998,22 @@ async fn browser_news_submit(
     let version = version.replace('+', "%2B").replace(' ', "%20");
     app.oneshot(Request::post(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
         .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&slug=browser-news&title={title}&body=Reviewed+body&published_at="))).unwrap()).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn article_discussion_post_requires_browser_csrf() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgresql://localhost/unused")
+        .unwrap();
+    let response = configured_router(pool)
+        .unwrap()
+        .oneshot(
+            Request::post("/en/news/published/discussion")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("body=Reply"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

@@ -43,9 +43,14 @@ struct Page {
     title: String,
     facts: Vec<(String, String)>,
     characters_label: String,
+    create_character: Option<String>,
+    recent_requests_label: String,
+    recent_requests: Vec<(Uuid, String)>,
     main_label: String,
     state: String,
     characters: Vec<Character>,
+    operator_status: bool,
+    operator_label: String,
     world: String,
     availability: String,
     level: String,
@@ -203,7 +208,14 @@ async fn load(
         Some(now) => profiles.main_character(account, now).await,
         None => None,
     };
+    let operator_status = match pool.acquire().await {
+        Ok(mut db) => crate::services::operator::allowed(&mut db, account)
+            .await
+            .unwrap_or(false),
+        Err(_) => false,
+    };
     let mut characters = Vec::new();
+    let services_mounted = crate::services::browser_enabled();
     let services = crate::services::Services::new(pool.clone(), crate::services::configured());
     let public_profiles = enabled("PORTAL_PUBLIC_PROFILES_ENABLED");
     let items_source = std::env::var("PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY")
@@ -223,7 +235,7 @@ async fn load(
                     label: t("profile-preferences"),
                 });
             }
-            if services.has_owner_view(account, character).await {
+            if services_mounted && services.has_owner_view(account, character).await {
                 links.push(Link {
                     url: format!("/{lang}/account/characters/{character}/services"),
                     label: t("character-services"),
@@ -273,11 +285,22 @@ async fn load(
         label: t(label),
     })
     .collect();
+    let creation_mounted = crate::create_web::Settings::configured().mounted();
+    let recent_requests = if creation_mounted {
+        crate::create_web::recent_requests(pool, account)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let page = Page {
         lang,
         title: t("overview"),
         facts,
         characters_label: t("characters"),
+        create_character: creation_mounted.then(|| t("create-character")),
+        recent_requests_label: t("recent-character-requests"),
+        recent_requests,
         main_label: t("main-character"),
         state: t(match read_state {
             Some(ReadState::Ready) => "linked",
@@ -287,6 +310,8 @@ async fn load(
             _ => "unavailable",
         }),
         characters,
+        operator_status,
+        operator_label: t("character-service-operations"),
         world: t("world"),
         availability: t("availability"),
         level: t("level"),

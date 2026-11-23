@@ -39,3 +39,5 @@ reopen = Open this sanction
 rate-limited = Too many requests. Try again in a minute.
 missing = This sanction page is unavailable.
 unavailable = Sanction history is temporarily unavailable. Try again later.
+account-navigation = Account navigation
+account = My account

@@ -16,3 +16,6 @@ saved = Saved
 failed = Unavailable or invalid input. Please try again.
 sign-in = Sign in to save private markers and report errors.
 loading = Loading spawns…
+
+exit-fullscreen = Exit full screen
+spawns-unavailable = Spawn data is unavailable.

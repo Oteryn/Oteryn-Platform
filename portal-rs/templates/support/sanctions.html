@@ -10,6 +10,9 @@
 <body class="op-theme">
 <main class="op-stack">
   <h1>{{ self.text("title") }}</h1>
+  <nav aria-label="{{ self.text("account-navigation") }}">
+    <a href="/{{ locale.0 }}/account">{{ self.text("account") }}</a>
+  </nav>
   {% if detail || error.is_some() %}
   <p><a href="{{ locale.base() }}">{{ self.text("back") }}</a></p>
   {% endif %}
@@ -41,8 +44,9 @@
     </dl>
     {% if detail %}
       {% if row.acknowledged_at.is_none() %}
-      <form method="post" action="{{ url }}/acknowledge">
+      <form method="post" action="{{ url }}">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="acknowledge">
         <input type="hidden" name="version" value="{{ row.version }}">
         <button class="op-button op-button--secondary" type="submit">{{ self.text("acknowledge") }}</button>
       </form>
@@ -54,8 +58,9 @@
       <section><h2>{{ self.text("outcome") }}</h2><p>{{ outcome }}</p></section>
       {% endif %}
       {% if row.can_appeal() %}
-      <form class="op-stack" method="post" action="{{ url }}/appeal">
+      <form class="op-stack" method="post" action="{{ url }}">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="action" value="submit">
         <input type="hidden" name="version" value="{{ row.version }}">
         <div class="op-field">
           <label for="message">{{ self.text("message") }}</label>

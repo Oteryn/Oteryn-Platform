@@ -41,3 +41,9 @@ axe_level = Axe fighting
 distance_level = Distance fighting
 shielding_level = Shielding
 fishing_level = Fishing
+
+chart-title = Daily observations chart
+data-table = Statistics data
+view-data = Read the chart data as a table
+table-scroll = Use the arrow keys to scroll the table when needed.
+detail = Detail

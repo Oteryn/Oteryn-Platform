@@ -1,10 +1,51 @@
 <section class="op-theme op-card op-stack" aria-labelledby="world-daily-title">
-<h2 id="world-daily-title">{{ title }}</h2>
-{% if available %}
-<h3>{{ world }}</h3><p>{{ current }}</p>
-<h3>{{ history_label }}</h3><p>{{ coverage }}</p>
-{% if history.is_empty() %}<p>{{ empty }}</p>{% else %}<ul>{% for entry in history %}<li>{{ entry }}</li>{% endfor %}</ul>{% endif %}
-<h3>{{ raids_label }}</h3><p>{{ raid_note }}</p>
-{% if raids.is_empty() %}<p>{{ empty }}</p>{% else %}<ul>{% for raid in raids %}<li>{{ raid }}</li>{% endfor %}</ul>{% endif %}
-{% else %}<p role="status">{{ unavailable }}</p>{% endif %}
+  <h2 id="world-daily-title">{{ self.text("title") }}</h2>
+  {% if invalid %}<p role="alert">{{ self.text("invalid-selection") }}</p>{% endif %}
+  <form action="/{{ lang }}/today" method="get" class="op-stack">
+    {% if !worlds.is_empty() %}
+    <div class="op-field">
+      <label for="daily-world">{{ self.text("world") }}</label>
+      <select class="op-input" id="daily-world" name="world" required>
+        <option value="">{{ self.text("choose-world") }}</option>
+        {% for choice in worlds %}
+        <option value="{{ choice.id }}"{% if choice.selected %} selected{% endif %}>{{ choice.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+    <div class="op-field">
+      <label for="daily-date">{{ self.text("date") }}</label>
+      <input class="op-input" type="date" id="daily-date" name="date" value="{{ date }}" max="{{ today }}" required>
+    </div>
+    <div class="op-row">
+      <button class="op-button" type="submit">{{ self.text("apply") }}</button>
+      {% if filtered %}<a href="{{ current_url }}">{{ self.text("current-view") }}</a>{% endif %}
+    </div>
+  </form>
+  {% if filtered %}<p>{{ self.text("date") }} · <time datetime="{{ date }}">{{ date }}</time></p>{% endif %}
+  {% if available %}
+  <h3>{{ world }}</h3>
+  <p>{{ current }}</p>
+  <h3>{{ self.text("history") }}</h3>
+  <p>{{ coverage }}</p>
+  {% if history.is_empty() %}<p>{{ self.text("empty") }}</p>{% else %}<ul>{% for entry in history %}<li>{{ entry }}</li>{% endfor %}</ul>{% endif %}
+
+  <h3>{{ self.text("raids") }}</h3>
+  <p>{{ self.text("raid-coverage") }}</p>
+  {% if raids_available %}
+    {% if raids.is_empty() %}<p>{{ self.text("empty") }}</p>{% else %}
+    <ul>
+      {% for raid in raids %}
+      <li>
+        <strong>{{ raid.name }}</strong> · {{ raid.state }}
+        <div>{{ self.text("started-at") }} · <time datetime="{{ raid.started }}">{{ raid.started }}</time></div>
+        <div>{{ self.text("scheduled-at") }} · {% if let Some(slot) = raid.slot %}<time datetime="{{ slot }}">{{ slot }}</time>{% else %}{{ self.text("unknown-time") }}{% endif %}</div>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  {% else %}<p>{{ self.text("unavailable") }}</p>{% endif %}
+  {% else %}<p role="status">{{ self.text("unavailable") }}</p>{% endif %}
+  <h3>{{ self.text("upcoming-raids") }}</h3>
+  <p>{{ self.text("unavailable") }}</p>
 </section>

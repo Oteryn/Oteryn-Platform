@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/atlas/places.css">
+</head>
+<body>
+<main class="op-stack journal-places">
+  <a href="/{{ lang }}/atlas">{{ back }}</a>
+  <h1>{{ title }}</h1>
+  <p>{{ help }}</p>
+  <p>{{ privacy }}</p>
+  <form method="post" action="/{{ lang }}/atlas/places/participation">
+    <fieldset>
+      <legend>{{ participation }}</legend>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label><input type="radio" name="participating" value="true" {% if participating %}checked{% endif %}>{{ enabled }}</label>
+      <label><input type="radio" name="participating" value="false" {% if !participating %}checked{% endif %}>{{ excluded }}</label>
+      <button type="submit">{{ save }}</button>
+    </fieldset>
+  </form>
+  {% if !available %}
+  <p role="status">{{ unavailable }}</p>
+  {% else if rows.is_empty() %}
+  <p role="status">{{ empty }}</p>
+  {% endif %}
+  <ul class="places">
+    {% for row in rows %}
+    <li>
+      <h2>{{ row.place_key }}</h2>
+      <dl>
+        <dt>{{ day }}</dt><dd>{{ row.utc_day }}</dd>
+        <dt>{{ world }}</dt><dd>{{ row.world_id }}</dd>
+        <dt>{{ level }}</dt><dd>{{ row.level_min }}–{{ row.level_max }}</dd>
+        <dt>{{ vocation }}</dt><dd>{{ row.vocation_key }}</dd>
+        <dt>{{ experience }}</dt><dd>{{ row.experience_per_hour }}</dd>
+        <dt>{{ profit }}</dt><dd>{{ row.profit_per_hour }}</dd>
+        <dt>{{ count }}</dt><dd>{{ row.sessions }}</dd>
+        <dt>{{ provenance }}</dt><dd>{{ row.catalog_revision }} / {{ row.price_revision }}</dd>
+      </dl>
+    </li>
+    {% endfor %}
+  </ul>
+</main>
+</body>
+</html>

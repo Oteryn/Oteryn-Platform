@@ -1,0 +1,51 @@
+{% extends "content/discussion_base.html" %}
+{% block title %}{{ self.text("discussion-review") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("discussion-review") }}</h1>
+<p><a href="/admin/news/discussions?lang={{ lang }}">{{ self.text("discussion-queue") }}</a></p>
+{% if reply.open %}
+  {% if let Some(slug) = reply.slug %}
+  {% if let Some(title) = reply.article %}
+  <p><a href="/en/news/{{ slug }}/discussion">{{ title }}</a></p>
+  {% endif %}
+  {% endif %}
+{% else %}
+<p>{{ self.text("discussion-article-unavailable") }}</p>
+{% endif %}
+<p>{{ self.status(reply.status) }}</p>
+<p class="discussion-text">{{ reply.body }}</p>
+{% if reply.own %}
+<p>{{ self.text("discussion-self-review") }}</p>
+{% endif %}
+{% if !decisions.is_empty() %}
+<form method="post" action="/admin/news/discussions/{{ id }}?lang={{ lang }}" class="op-stack">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <input type="hidden" name="revision" value="{{ reply.revision }}">
+  <label for="discussion-decision">{{ self.text("discussion-decision") }}</label>
+  <select class="op-input" name="decision" id="discussion-decision" required>
+    <option value="">{{ self.text("discussion-select-decision") }}</option>
+    {% for value in decisions %}<option value="{{ value }}">{{ self.decision(value) }}</option>{% endfor %}
+  </select>
+  <label for="discussion-reason">{{ self.text("discussion-reason") }}</label>
+  <input class="op-input" name="reason" id="discussion-reason" maxlength="500" required>
+  <div><button type="submit" class="op-button">{{ self.text("discussion-save-decision") }}</button></div>
+</form>
+{% endif %}
+<h2 id="history">{{ self.text("discussion-history") }}</h2>
+{% for decision in history %}
+<article class="op-panel op-stack">
+  <h3>{{ self.status(decision.status) }}</h3>
+  <p>{{ decision.time }} UTC · {{ self.text("discussion-revision") }} {{ decision.revision }}</p>
+  <p>{{ self.text("discussion-moderator") }} {{ decision.actor }}</p>
+  <p class="discussion-text">{{ decision.reason }}</p>
+</article>
+{% else %}
+<p>{{ self.text("discussion-history-empty") }}</p>
+{% endfor %}
+{% if pages.previous.is_some() || pages.next.is_some() %}
+<nav aria-label="{{ self.text("pagination") }}" class="op-row">
+  {% if let Some(previous) = pages.previous %}<a rel="prev" href="?lang={{ lang }}&amp;page={{ previous }}#history">{{ self.text("previous") }}</a>{% endif %}
+  {% if let Some(next) = pages.next %}<a rel="next" href="?lang={{ lang }}&amp;page={{ next }}#history">{{ self.text("next") }}</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

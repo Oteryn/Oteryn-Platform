@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="{{ lang }}" class="op-theme"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/surface.css"></head>
+<body class="op-theme"><header><a href="#main">{{ skip }}</a><nav aria-label="{{ navigation }}"><a href="/account">{{ account }}</a><a href="/{{ lang }}/account/characters/new">{{ title }}</a></nav></header>
+<main id="main" tabindex="-1" class="op-stack"><h1>{{ title }}</h1>
+{% if !message.is_empty() %}<p class="op-alert" role="status">{{ message }}</p>{% endif %}
+{% if form %}<p id="rules">{{ rules }}</p><details class="op-disclosure"><summary>{{ reserved_label }}</summary><p>{{ reserved_words }}</p></details><p>{{ supported }}</p>
+{% if show_filters %}<form method="get" action="/{{ lang }}/account/characters/new" class="op-stack">
+<div class="op-field"><label for="pvp">{{ pvp_label }}</label><select class="op-input" id="pvp" name="pvp"><option value="">{{ any }}</option>{% for value in pvp_values %}<option{% if filters.pvp == value.as_str() %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+<div class="op-field"><label for="location">{{ location_label }}</label><select class="op-input" id="location" name="location"><option value="">{{ any }}</option>{% for value in locations %}<option{% if filters.location == value.as_str() %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></div>
+<button class="op-button op-button--secondary" type="submit">{{ apply }}</button></form>{% endif %}
+<form method="post" action="/{{ lang }}/account/characters/new" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="submission" value="{{ submission }}">
+<div class="op-field"><label for="name">{{ name_label }}</label><input class="op-input" id="name" name="name" value="{{ name }}" required maxlength="255" autocomplete="off" aria-describedby="rules"></div>
+<div><a class="op-button op-button--secondary" href="/{{ lang }}/account/characters/suggest">{{ suggest }}</a><p class="op-hint">{{ suggestion_note }}</p></div>
+<div class="op-field"><label for="world">{{ world_label }}</label><select class="op-input" id="world" name="world" required><option value="">{{ choose }}</option>{% for world in worlds %}<option value="{{ world.id }}"{% if selected_world == world.id.to_string() %} selected{% endif %}>{{ world.name }}{% if !world.pvp.is_empty() %} · {{ world.pvp }}{% endif %}{% if !world.location.is_empty() %} · {{ world.location }}{% endif %}</option>{% endfor %}</select></div>
+<fieldset class="op-field"><legend>{{ sex_label }}</legend><div class="op-row">{% for choice in sexes %}<label><input type="radio" name="sex" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %} required> {{ choice.label }}</label>{% endfor %}</div></fieldset>
+<fieldset class="op-field"><legend>{{ vocation_label }}</legend><div class="op-row">{% for choice in vocations %}<label><input type="radio" name="vocation" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %} required> {{ choice.label }}</label>{% endfor %}</div></fieldset>
+<button class="op-button" type="submit"{% if worlds.is_empty() %} disabled{% endif %}>{{ submit }}</button></form>
+{% else %}
+{% if !roster_state.is_empty() %}<p>{{ roster_state }}</p>{% endif %}
+<div class="op-row">
+<a class="op-button op-button--secondary" href="">{{ refresh }}</a>
+{% if !roster.is_empty() %}<a class="op-button op-button--secondary" href="/account#characters">{{ roster }}</a>{% endif %}
+</div>
+{% endif %}
+</main></body></html>

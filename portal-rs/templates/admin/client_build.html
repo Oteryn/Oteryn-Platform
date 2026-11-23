@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.tr("build-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <header class="op-stack">
+    <nav aria-label="{{ self.tr("title") }}"><a href="/admin">{{ self.tr("title") }}</a></nav>
+    <h1>{{ self.tr("build-title") }}</h1>
+  </header>
+
+  <section class="op-panel op-stack" aria-labelledby="rollout-heading">
+    <h2 id="rollout-heading">{{ self.tr("build-rollout") }}</h2>
+    <dl>
+      <dt>{{ self.tr("build-policy") }}</dt>
+      <dd data-rollout-policy>{{ self.tr("build-pending") }}</dd>
+      <dt>{{ self.tr("build-game-readiness") }}</dt>
+      <dd data-game-readiness>{{ self.tr("build-unavailable") }}</dd>
+    </dl>
+  </section>
+
+  <section class="op-panel op-stack" aria-labelledby="releases-heading">
+    <h2 id="releases-heading">{{ self.tr("build-releases") }}</h2>
+    {% if let Some(error) = error %}
+    <p class="op-alert op-alert--warning" role="alert">{{ self.tr(error) }}</p>
+    {% endif %}
+    <div class="op-paths">
+      {% for publication in publications %}
+      <section class="op-card op-stack" data-update-channel="{{ publication.channel.as_str() }}">
+        <h3>{{ publication.channel.as_str() }}</h3>
+        {% if let Some(head) = publication.head %}
+        <p>{{ self.tr(head.state()) }}</p>
+        <dl>
+          <dt>{{ self.tr("build-policy-revision") }}</dt>
+          <dd>{{ head.policy.policy_revision }}</dd>
+          <dt>{{ self.tr("build-published-min") }}</dt>
+          <dd>{{ head.policy.minimum_supported_release_sequence }}</dd>
+          {% if let Some(current) = head.current() %}
+          <dt>{{ self.tr("build-release-id") }}</dt>
+          <dd><code>{{ head.policy.current_release_id }}</code></dd>
+          <dt>{{ self.tr("build-current") }}</dt>
+          <dd>{{ current }}</dd>
+          {% endif %}
+        </dl>
+        {% else %}
+        <p>{{ self.tr("build-no-publication") }}</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="op-panel op-stack" aria-labelledby="preview-heading">
+    <h2 id="preview-heading">{{ self.tr("build-preview") }}</h2>
+    <p>{{ self.tr("build-preview-help") }}</p>
+    <form class="op-stack" method="get" action="/admin/client-build">
+      <input type="hidden" name="lang" value="{{ lang }}">
+      <div class="op-paths">
+        <div class="op-field">
+          <label for="update-channel">{{ self.tr("build-channel") }}</label>
+          <select class="op-input" id="update-channel" name="channel">
+            {% for channel in self.channels() %}
+            <option value="{{ channel.as_str() }}"{% if form.channel == *channel %} selected{% endif %}>{{ channel.as_str() }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="op-field">
+          <label for="release-id">{{ self.tr("build-release-id") }}</label>
+          <input class="op-input" id="release-id" name="release" maxlength="96" value="{{ form.release }}" aria-describedby="legacy-hint">
+        </div>
+        <div class="op-field">
+          <label for="release-sequence">{{ self.tr("build-sequence") }}</label>
+          <input class="op-input" id="release-sequence" name="sequence" inputmode="numeric" maxlength="16" value="{{ form.sequence }}" aria-describedby="legacy-hint">
+        </div>
+        <div class="op-field">
+          <label for="rollout-mode">{{ self.tr("build-mode") }}</label>
+          <select class="op-input" id="rollout-mode" name="mode">
+            {% for mode in self.modes() %}
+            <option value="{{ mode.as_str() }}"{% if form.mode == *mode %} selected{% endif %}>{{ self.mode_label(mode) }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="op-field">
+          <label for="proposed-minimum">{{ self.tr("build-proposed-min") }}</label>
+          <input class="op-input" id="proposed-minimum" name="minimum" inputmode="numeric" maxlength="16" value="{{ form.minimum }}">
+        </div>
+        <div class="op-field">
+          <label for="unknown-release">{{ self.tr("build-unknown") }}</label>
+          <select class="op-input" id="unknown-release" name="unknown">
+            <option value="admit"{% if !form.refuses_unknown() %} selected{% endif %}>{{ self.tr("build-admit") }}</option>
+            <option value="refuse"{% if form.refuses_unknown() %} selected{% endif %}>{{ self.tr("build-refuse") }}</option>
+          </select>
+        </div>
+      </div>
+      <p id="legacy-hint" class="op-hint">{{ self.tr("build-legacy-hint") }}</p>
+      <div><button class="op-button">{{ self.tr("build-check") }}</button></div>
+    </form>
+    {% if let Some(result) = result %}
+    <section class="op-card op-stack" aria-labelledby="preview-result-heading" data-preview-result="{{ result.outcome.label() }}">
+      <h3 id="preview-result-heading">{{ self.tr("build-result") }}</h3>
+      <p>{{ self.tr(result.outcome.label()) }}</p>
+      {% if let Some(code) = result.outcome.code() %}<p><code>{{ code }}</code></p>{% endif %}
+      {% if let Some(minimum) = result.minimum %}
+      <dl><dt>{{ self.tr("build-effective-min") }}</dt><dd>{{ minimum }}</dd></dl>
+      {% endif %}
+      {% if let Some(current) = result.current %}
+      <dl><dt>{{ self.tr("build-current") }}</dt><dd>{{ current }}</dd></dl>
+      {% endif %}
+      {% if result.missing_update %}
+      <p class="op-alert op-alert--warning">{{ self.tr("build-minimum-blocked") }}</p>
+      {% endif %}
+    </section>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>

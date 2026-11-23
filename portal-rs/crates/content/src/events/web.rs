@@ -38,7 +38,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
 pub fn public_router(pool: PgPool) -> Router {
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN").into_iter().collect();
-    let calendar = Router::new()
+    let reads = Router::new()
         .route(
             "/{locale}/events/calendar/month",
             get(calendar::show).post(calendar::set_zone),
@@ -49,7 +49,9 @@ pub fn public_router(pool: PgPool) -> Router {
         ))
         .route("/{locale}/events/upcoming.ics", get(ical::upcoming))
         .route("/{locale}/events/{slug}/event.ics", get(ical::single))
-        .route_layer(middleware::from_fn(limit_calendar))
+        .route("/{locale}/events", get(index))
+        .route("/{locale}/events/{slug}", get(show))
+        .route_layer(middleware::from_fn(limit_events))
         .route_layer(middleware::from_fn_with_state(
             RateLimiter::new(pool.clone()),
             ratelimit::supply,
@@ -66,15 +68,13 @@ pub fn public_router(pool: PgPool) -> Router {
                 }
             }),
         )
-        .route("/{locale}/events", get(index))
-        .route("/{locale}/events/{slug}", get(show))
         .route("/events/calendar.css", get(calendar::stylesheet))
-        .merge(calendar)
+        .merge(reads)
         .with_state(Events::new(pool))
         .layer(middleware::from_fn(headers))
 }
 
-async fn limit_calendar(
+async fn limit_events(
     Extension(limiter): Extension<RateLimiter>,
     source: Option<ClientSource>,
     request: Request,

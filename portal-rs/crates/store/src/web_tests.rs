@@ -895,3 +895,80 @@ fn r8_currency_minor_unit_scale() {
     assert_eq!(Locale("en").currency(500, "KWD"), "KWD 0.500");
     assert_eq!(Locale("pl").currency(500, "CLF"), "0,0500 CLF");
 }
+
+#[tokio::test]
+async fn postgres_offer_filter_renders_matching_results_and_validation() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let d = domain(db.pool.clone());
+    let data = std::str::from_utf8(CATALOG)?.replace("ITEM", "PREMIUM_TIME");
+    let actor = Uuid::now_v7();
+    let revision = d.catalog.import(data.as_bytes(), actor, &Policy).await?;
+    d.catalog.activate(&revision, actor, &Policy).await?;
+    let app = app(db.pool.clone(), Arc::new(d));
+    let (cookie, _) = session(&db.pool, actor).await?;
+    for lang in ["en", "pl"] {
+        let locale = Locale::parse(lang).unwrap();
+        for (query, status, matches) in [
+            ("q=PACK", StatusCode::OK, true),
+            ("q=-PACK", StatusCode::OK, true),
+            ("q=missing", StatusCode::OK, false),
+            ("q=%00", StatusCode::UNPROCESSABLE_ENTITY, false),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get(format!("/{lang}/shop?{query}"))
+                        .header(header::COOKIE, &cookie)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), status);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            let html = body(response).await?;
+            assert_eq!(html.contains("<h2>potion-pack-10</h2>"), matches);
+            assert!(html.contains("autofocus"));
+            assert!(html.contains(&locale.text("offer-filter")));
+            if status == StatusCode::UNPROCESSABLE_ENTITY {
+                assert!(html.contains("role=\"alert\""));
+                assert!(html.contains(&locale.text("invalid")));
+            } else {
+                let mut args = FluentArgs::new();
+                args.set("count", i64::from(matches));
+                assert!(html.contains(&locale.text_args("offer-results", Some(&args))));
+            }
+        }
+    }
+    db.close().await
+}
+
+#[test]
+fn offer_filter_normalizes_keys_and_rejects_bad_queries() {
+    let catalogue = crate::catalog::Catalog::parse(CATALOG).unwrap();
+    let unavailable = &catalogue.offers()[0];
+    assert!(!OfferQuery::parse("").unwrap().matches(unavailable));
+
+    let mut available = unavailable.clone();
+    available.units[0].unit_kind = "PREMIUM_TIME".into();
+    for raw in ["", "q=", "q=+PACK-10+", "q=potion-pack-10", "q=-pack"] {
+        assert!(OfferQuery::parse(raw).unwrap().matches(&available), "{raw}");
+    }
+    assert!(!OfferQuery::parse("q=missing").unwrap().matches(&available));
+    for raw in [
+        "q=%00",
+        "q=%",
+        "q=%3Ctag%3E",
+        "q=pack+10",
+        "q=pack&q=potion",
+        "price=250",
+        &format!("q={}", "a".repeat(129)),
+        &format!("q={}", "%61".repeat(171)),
+    ] {
+        assert!(
+            matches!(OfferQuery::parse(raw), Err(Error::Invalid)),
+            "{raw}"
+        );
+    }
+}

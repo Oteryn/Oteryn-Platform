@@ -21,19 +21,20 @@
     <a href="/{{ lang }}/news">{{ self.text("news") }}</a>
     {% endif %}
   </nav>
+  {% if let Some(message) = error %}<p role="alert">{{ message }}</p>{% endif %}
   <form method="get" action="/{{ lang }}/{{ section }}" class="op-stack">
     {% if section == "news" %}
     <div>
       <label for="archive-year">{{ self.text("year") }}</label>
-      <input class="op-input" type="number" name="year" id="archive-year" min="1" max="9999"{% if let Some(year) = filters.year %} value="{{ year }}"{% endif %}>
+      <input class="op-input" type="number" name="year" id="archive-year" min="1" max="9999" value="{{ options.year }}">
     </div>
     <div>
       <label for="archive-month">{{ self.text("month") }}</label>
-      <input class="op-input" type="number" name="month" id="archive-month" min="1" max="12"{% if let Some(month) = filters.month %} value="{{ month }}"{% endif %}>
+      <input class="op-input" type="number" name="month" id="archive-month" min="1" max="12" value="{{ options.month }}">
     </div>
     <div>
       <label for="archive-tag">{{ self.text("tag") }}</label>
-      <input class="op-input" name="tag" id="archive-tag" maxlength="48" value="{{ filters.tag }}">
+      <input class="op-input" name="tag" id="archive-tag" maxlength="48" value="{{ options.tag }}">
     </div>
     <div class="op-row">
       <button type="submit" class="op-button">{{ self.text("filter") }}</button>
@@ -42,7 +43,7 @@
     {% else %}
     <div>
       <label for="changelog-search">{{ self.text("search") }}</label>
-      <input class="op-input" type="search" name="q" id="changelog-search" maxlength="120" value="{{ filters.search }}">
+      <input class="op-input" type="search" name="q" id="changelog-search" maxlength="120" value="{{ options.q }}">
     </div>
     <div class="op-row">
       <button type="submit" class="op-button">{{ self.text("search") }}</button>
@@ -50,9 +51,7 @@
     </div>
     {% endif %}
   </form>
-  {% if entries.is_empty() %}
-  <p>{{ self.text("no-results") }}</p>
-  {% endif %}
+  {% if error.is_none() %}<p>{{ count }}</p>{% endif %}
   {% for entry in entries %}
   <article class="op-panel op-stack">
     <h2><a href="/{{ lang }}/news/{{ entry.slug }}">{{ entry.title }}</a></h2>

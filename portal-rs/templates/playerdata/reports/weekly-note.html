@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <a href="../reports">{{ reports }}</a>
+  <h1>{{ title }}</h1>
+  <p>{{ start }} – {{ end }} UTC</p>
+  <nav aria-label="{{ weeks }}">
+    {% if let Some(previous) = previous %}<a href="?week={{ previous }}">{{ previous_label }}</a>{% endif %}
+    {% if let Some(next) = next %}<a href="?week={{ next }}">{{ next_label }}</a>{% endif %}
+  </nav>
+  <form class="op-stack" method="post" action="?week={{ week }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label for="note">{{ label }}</label>
+    <p id="hint">{{ hint }}</p>
+    {% if let Some(error) = error %}<p id="note-error" role="alert">{{ error }}</p>{% endif %}
+    <textarea class="op-input" id="note" name="body" rows="8" cols="24" maxlength="4000" aria-describedby="hint{% if error.is_some() %} note-error{% endif %}"{% if error.is_some() %} aria-invalid="true"{% endif %}>
+{{ body }}</textarea>
+    <button class="op-button" type="submit">{{ save }}</button>
+  </form>
+  <a href="weekly-note/export?format=json">{{ export }}</a>
+</main>
+</body>
+</html>

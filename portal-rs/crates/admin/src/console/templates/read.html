@@ -1,7 +1,22 @@
 <!doctype html>
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme op-stack"><header><nav class="op-panel" aria-label="{{ title }}"><ul class="op-tabs"><li><a href="/admin/console/players?lang={{ lang }}">{{ players }}</a></li><li><a href="/admin/console/audit?lang={{ lang }}">{{ audit }}</a></li><li><a href="/admin/console/access?lang={{ lang }}">{{ access }}</a></li>{% if let Some(label) = invitations %}<li><a href="/admin/roles/invitations">{{ label }}</a></li>{% endif %}<li><a href="/admin/console/approvals?lang={{ lang }}">{{ approvals }}</a></li></ul></nav></header>
-<main class="op-panel op-stack" id="main"><h1>{{ title }}</h1><p>{{ source }}</p>
-{% if search %}{% if !csrf.is_empty() %}<form class="op-stack" method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="lang" value="{{ lang }}"><label for="q">{{ query_label }}</label><input class="op-input" id="q" name="q" minlength="2" maxlength="64" required><button class="op-button" type="submit">{{ submit }}</button></form>{% endif %}<form class="op-stack" method="get"><input type="hidden" name="lang" value="{{ lang }}"><label for="character">{{ character_label }}</label><input class="op-input" id="character" name="character" maxlength="80" required><button class="op-button" type="submit">{{ submit }}</button></form>{% endif %}
-{% if filters %}<form class="op-stack" method="get"><input type="hidden" name="lang" value="{{ lang }}"><label for="request_id">{{ request_label }}</label><input class="op-input" id="request_id" name="request_id" maxlength="36"><label for="admin">{{ admin_label }}</label><input class="op-input" id="admin" name="admin" maxlength="36"><label for="operation">{{ operation_label }}</label><input class="op-input" id="operation" name="operation" maxlength="128"><label for="target">{{ target_label }}</label><input class="op-input" id="target" name="target" maxlength="128"><button class="op-button" type="submit">{{ submit }}</button></form>{% endif %}
+<body class="op-theme op-stack"><a class="op-skip" href="#main">{{ skip }}</a><header><nav class="op-panel" aria-label="{{ title }}"><ul class="op-tabs"><li><a href="/admin/console/players?lang={{ lang }}">{{ players }}</a></li><li><a href="/admin/console/audit?lang={{ lang }}">{{ audit }}</a></li><li><a href="/admin/console/access?lang={{ lang }}">{{ access }}</a></li>{% if let Some(label) = invitations %}<li><a href="/admin/roles/invitations">{{ label }}</a></li>{% endif %}<li><a href="/admin/console/approvals?lang={{ lang }}">{{ approvals }}</a></li></ul></nav>
+<nav class="op-row" aria-label="{{ language_label }}"><a href="{{ path }}?lang=pl" lang="pl" hreflang="pl">Polski</a><a href="{{ path }}?lang=en" lang="en" hreflang="en">English</a></nav></header>
+<main class="op-panel op-stack" id="main" tabindex="-1"><h1>{{ title }}</h1><p>{{ source }}</p>
+{% if search %}{% if !csrf.is_empty() %}<form class="op-stack" method="post" action="{{ path }}?lang={{ lang }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="lang" value="{{ lang }}"><label for="q">{{ query_label }}</label><input class="op-input" id="q" name="q" minlength="2" maxlength="64" required><button class="op-button" type="submit">{{ submit }}</button></form>{% endif %}<form class="op-stack" method="get"><input type="hidden" name="lang" value="{{ lang }}"><label for="character">{{ character_label }}</label><input class="op-input" id="character" name="character" maxlength="80" required><button class="op-button" type="submit">{{ submit }}</button></form>{% endif %}
+{% if let Some(filter) = audit_filter %}
+<form class="op-stack" method="get">
+  <input type="hidden" name="lang" value="{{ lang }}">
+  <label for="request_id">{{ request_label }}</label>
+  <input class="op-input" id="request_id" name="request_id" maxlength="36"{% if let Some(value) = filter.request_id %} value="{{ value }}"{% endif %}>
+  <label for="admin">{{ admin_label }}</label>
+  <input class="op-input" id="admin" name="admin" maxlength="36"{% if let Some(value) = filter.admin %} value="{{ value }}"{% endif %}>
+  <label for="operation">{{ operation_label }}</label>
+  <input class="op-input" id="operation" name="operation" maxlength="128"{% if let Some(value) = filter.operation %} value="{{ value }}"{% endif %}>
+  <label for="target">{{ target_label }}</label>
+  <input class="op-input" id="target" name="target" maxlength="128"{% if let Some(value) = filter.target %} value="{{ value }}"{% endif %}>
+  <button class="op-button" type="submit">{{ submit }}</button>
+</form>
+{% endif %}
+{% if let Some(rows) = audit_rows %}<section class="op-stack"><h2>{{ rows.heading }}</h2><p>{{ rows.count }}</p><ul class="op-prose">{% for row in rows.entries %}<li>{{ row.details }} · <time datetime="{{ row.datetime }}">{{ row.timestamp }}</time></li>{% endfor %}</ul></section>{% endif %}
 {% for section in sections %}<section class="op-stack"><h2>{{ section.title }}</h2><ul>{% for line in section.lines %}<li><p>{{ line }}</p></li>{% endfor %}</ul></section>{% endfor %}</main></body></html>

@@ -1,0 +1,26 @@
+{% extends "content/discussion_base.html" %}
+{% block title %}{{ self.text("discussion-queue") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("discussion-queue") }}</h1>
+<p><a href="/admin/news?lang={{ lang }}">{{ self.text("news") }}</a></p>
+<nav class="op-row" aria-label="{{ self.text("discussion-filter") }}">
+{% for key in statuses %}
+  <a href="?lang={{ lang }}&amp;status={{ key }}"{% if self.selected(key) %} aria-current="page"{% endif %}>{{ self.status_label(key) }}</a>
+{% endfor %}
+</nav>
+{% for entry in entries %}
+<article class="op-panel op-stack">
+  <h2>{% if let Some(title) = entry.article %}{{ title }}{% else %}{{ self.text("discussion-article-unavailable") }}{% endif %}</h2>
+  <p>{{ entry.time }} UTC</p>
+  <p><a href="/admin/news/discussions/{{ entry.id }}?lang={{ lang }}">{{ entry.excerpt }}</a></p>
+</article>
+{% else %}
+<p>{{ self.text("discussion-queue-empty") }}</p>
+{% endfor %}
+{% if pages.previous.is_some() || pages.next.is_some() %}
+<nav aria-label="{{ self.text("pagination") }}" class="op-row">
+  {% if let Some(previous) = pages.previous %}<a rel="prev" href="?lang={{ lang }}&amp;status={{ status }}&amp;page={{ previous }}">{{ self.text("previous") }}</a>{% endif %}
+  {% if let Some(next) = pages.next %}<a rel="next" href="?lang={{ lang }}&amp;status={{ status }}&amp;page={{ next }}">{{ self.text("next") }}</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

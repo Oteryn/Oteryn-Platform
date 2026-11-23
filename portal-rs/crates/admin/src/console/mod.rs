@@ -7,10 +7,12 @@ pub mod approvals;
 pub mod audit;
 pub mod players;
 
+mod locale;
 mod projection;
 mod stored;
 pub use stored::StoredChannel;
 mod alerts;
+mod character_creation;
 mod dashboard;
 mod database;
 mod nodes;
@@ -24,7 +26,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -399,6 +401,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool,
         Permission::Access,
     )
+    .map(|router| router.route_layer(axum::middleware::from_fn(locale::response_language)))
 }
 pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChannel) -> Router {
     routes(Console {
@@ -448,6 +451,7 @@ pub fn router<P: Permissions, C: Channel, I: web::StaffSession, A: AccountStateR
         accounts,
         Permission::Access,
     )
+    .route_layer(axum::middleware::from_fn(locale::response_language))
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -489,40 +493,8 @@ struct QueryForm {
     lang: String,
     _csrf: String,
 }
-fn lang(headers: &HeaderMap, selection: &Selection) -> &'static str {
-    if selection.lang.as_deref() == Some("en")
-        || (selection.lang.is_none()
-            && headers
-                .get(header::ACCEPT_LANGUAGE)
-                .and_then(|v| v.to_str().ok())
-                .is_some_and(|v| v.starts_with("en")))
-    {
-        "en"
-    } else {
-        "pl"
-    }
-}
 fn text(lang: &str, key: &str) -> String {
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
-    let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
-    let source = if lang == "en" {
-        include_str!("en.ftl")
-    } else {
-        include_str!("pl.ftl")
-    };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
-    bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
-        .unwrap_or_default()
+    locale::message(lang, key, None, false).unwrap_or_default()
 }
 fn connected(view: &AgentView, op: Operation, now: SystemTime) -> bool {
     view.owner_epoch > 0
@@ -583,12 +555,12 @@ async fn render<P: Permissions, C: Channel>(
         return Ok(StatusCode::NOT_FOUND.into_response());
     }
     q.validate()?;
+    let language = locale::select(q.lang.as_deref(), &headers).ok_or(Error::Invalid)?;
     if q.target.is_some()
         && !operations
             .iter()
             .all(|op| matches!(op, Operation::World | Operation::Node))
     {
-        let language = lang(&headers, &q);
         let error = GameReadError::InvalidTarget;
         return Ok((error.status(), text(language, error.key())).into_response());
     }
@@ -602,7 +574,6 @@ async fn render<P: Permissions, C: Channel>(
     if !allowed && (q.agent.is_some() || q.target.is_some() || q.request.is_some()) {
         return Err(Error::Denied);
     }
-    let language = lang(&headers, &q);
     let mut sections = Vec::new();
     for op in operations {
         let mut section = Section {
@@ -636,7 +607,7 @@ async fn render<P: Permissions, C: Channel>(
                 && q.request.is_none_or(|id| id == result.request_id)
                 && let Ok(age) = SystemTime::now().duration_since(result.observed_at)
             {
-                section.freshness = format!("{} {}", age.as_secs(), text(language, "seconds"));
+                section.freshness = locale::seconds_ago(language, age.as_secs());
                 section.state = text(
                     language,
                     if age < Duration::from_secs(60) {
@@ -686,6 +657,7 @@ async fn render<P: Permissions, C: Channel>(
             sections.push(dashboard::section(&s.pool, language).await);
         }
         sections.push(alerts::section(&s.pool, language).await);
+        sections.push(character_creation::section(&s.pool, language).await);
     }
     let mut nav = Vec::new();
     for op in [

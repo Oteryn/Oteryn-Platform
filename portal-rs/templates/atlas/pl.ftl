@@ -1,5 +1,5 @@
 title = Atlas świata
-help = Przesuwaj mapę strzałkami lub przeciągaj. Użyj + i −, aby zmienić przybliżenie. Wybierz piętro i warstwy poniżej. Współrzędne są zapisywane w adresie URL.
+help = Użyj poniższych przycisków albo ustaw fokus na mapie i przesuwaj ją strzałkami. Klawisze + i − zmieniają przybliżenie. Tab przenosi fokus poza mapę. Dane warstw są pod mapą, a współrzędne w adresie URL.
 floor = Piętro
 zoom-in = Przybliż
 zoom-out = Oddal
@@ -10,3 +10,6 @@ north = Północ
 south = Południe
 west = Zachód
 east = Wschód
+
+controls = Sterowanie mapą
+position = X: %x, Y: %y, piętro: %floor, przybliżenie: %zoom

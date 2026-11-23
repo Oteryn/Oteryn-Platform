@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="{{ lang }}" class="op-theme">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("operator-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+  <main class="op-panel op-stack">
+    <h1>{{ self.text("operator-title") }}</h1>
+    <dl>
+      <dt>{{ self.text("operator-ingest") }}</dt><dd>{{ self.switch(ingest_enabled) }}</dd>
+      <dt>{{ self.text("operator-public") }}</dt><dd>{{ self.switch(public_enabled) }}</dd>
+      <dt>{{ self.text("operator-configuration") }}</dt>
+      <dd>{% if configured %}{{ self.text("operator-configured") }}{% else %}{{ self.text("operator-incomplete") }}{% endif %}</dd>
+    </dl>
+    {% if !worlds.is_empty() %}
+    <form method="get" action="/admin/today" class="op-stack">
+      <input type="hidden" name="lang" value="{{ lang }}">
+      <div class="op-field">
+        <label for="operator-world">{{ self.text("world") }}</label>
+        <select class="op-input" id="operator-world" name="world" required>
+          <option value="">{{ self.text("choose-world") }}</option>
+          {% for world in worlds %}
+          <option value="{{ world.id }}"{% if world.selected %} selected{% endif %}>{{ world.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button class="op-button" type="submit">{{ self.text("operator-check") }}</button>
+    </form>
+    {% endif %}
+    <section aria-labelledby="daily-evidence">
+      <h2 id="daily-evidence">{{ self.text("operator-evidence") }}</h2>
+      {% if let Some(cut) = complete_through %}
+      <p role="status">{{ self.text("operator-ready") }}</p>
+      <p>{{ self.text("operator-watermark") }} <time datetime="{{ cut }}">{{ cut }}</time></p>
+      {% else %}
+      <p role="status">{{ self.text("unavailable") }}</p>
+      {% endif %}
+    </section>
+    <a href="/admin">{{ self.text("operator-back") }}</a>
+  </main>
+</body>
+</html>

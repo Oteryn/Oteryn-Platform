@@ -25,3 +25,53 @@ no-results = Brak pasujących opublikowanych wpisów.
 rss = Kanał RSS
 feed-title = Aktualności Oteryn
 feed-description = Najnowsze opublikowane aktualności Oteryn.
+
+discussion-title = Dyskusja pod artykułem
+discussion-replies = Odpowiedzi
+discussion-new = Napisz odpowiedź
+discussion-guidance = Użyj zwykłego tekstu o długości do 2000 znaków. Moderator sprawdzi odpowiedź przed publikacją.
+discussion-submit = Prześlij do moderacji
+discussion-sign-in = Zaloguj się, aby odpowiedzieć
+discussion-empty = Brak odpowiedzi do wyświetlenia.
+discussion-your-reply = Twoja odpowiedź
+discussion-edit = Edytuj odpowiedź
+discussion-edit-guidance = Zmieniona odpowiedź wróci do moderacji. Poprzedni tekst przestanie być publiczny.
+discussion-status-pending = Oczekuje na moderację
+discussion-status-published = Opublikowana
+discussion-status-rejected = Odrzucona
+discussion-status-hidden = Ukryta
+discussion-queue = Moderacja dyskusji
+discussion-filter = Filtruj odpowiedzi według stanu
+discussion-queue-empty = Brak odpowiedzi w tym stanie.
+discussion-review = Moderuj odpowiedź
+discussion-article-unavailable = Artykuł niedostępny
+discussion-decision = Decyzja
+discussion-select-decision = Wybierz decyzję
+discussion-action-publish = Opublikuj odpowiedź
+discussion-action-reject = Odrzuć odpowiedź
+discussion-action-hide = Ukryj odpowiedź
+discussion-reason = Uzasadnienie decyzji (tylko dla zespołu)
+discussion-save-decision = Zapisz decyzję
+discussion-history = Historia moderacji
+discussion-history-empty = Nie ma jeszcze decyzji moderacji.
+discussion-revision = Wersja
+discussion-moderator = Moderator
+discussion-self-review = Twoją odpowiedź musi sprawdzić inny moderator.
+discussion-error-forbidden = To konto nie może wprowadzić tej zmiany w dyskusji.
+discussion-error-invalid = Sprawdź odpowiedź lub uzasadnienie decyzji i spróbuj ponownie.
+discussion-error-conflict = Odpowiedź lub artykuł uległy zmianie. Odśwież stronę przed ponowną próbą.
+discussion-error-limit = Możesz wysłać do pięciu odpowiedzi w ciągu godziny. Spróbuj później.
+archive-count = { $count ->
+    [0] { no-results }
+    [one] Jeden wpis na tej stronie
+    [few] { $count } wpisy na tej stronie
+    [many] { $count } wpisów na tej stronie
+   *[other] { $count } wpisu na tej stronie
+    }
+invalid-year = Wpisz rok od 1 do 9999.
+invalid-month = Wpisz miesiąc od 1 do 12.
+invalid-tag = Wpisz tag o długości do 48 znaków, używając małych liter a–z, cyfr lub pojedynczych myślników.
+invalid-search = Wpisz do 120 znaków bez znaków sterujących.
+invalid-page = Wybierz prawidłową stronę wyników.
+invalid-archive-query = Sprawdź wartości w formularzu.
+archive-unavailable = Archiwum jest obecnie niedostępne.

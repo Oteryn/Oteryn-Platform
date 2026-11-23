@@ -25,3 +25,51 @@ no-results = No published entries match.
 rss = RSS feed
 feed-title = Oteryn News
 feed-description = The latest published news from Oteryn.
+
+discussion-title = Article discussion
+discussion-replies = Replies
+discussion-new = Write a reply
+discussion-guidance = Use plain text, up to 2,000 characters. A moderator reviews each reply before it appears publicly.
+discussion-submit = Submit for review
+discussion-sign-in = Sign in to reply
+discussion-empty = There are no replies to show.
+discussion-your-reply = Your reply
+discussion-edit = Edit reply
+discussion-edit-guidance = Your changes go back to review. The previous text will no longer appear publicly.
+discussion-status-pending = Awaiting review
+discussion-status-published = Published
+discussion-status-rejected = Rejected
+discussion-status-hidden = Hidden
+discussion-queue = Discussion moderation
+discussion-filter = Filter replies by status
+discussion-queue-empty = There are no replies with this status.
+discussion-review = Review reply
+discussion-article-unavailable = Article unavailable
+discussion-decision = Decision
+discussion-select-decision = Choose a decision
+discussion-action-publish = Publish reply
+discussion-action-reject = Reject reply
+discussion-action-hide = Hide reply
+discussion-reason = Moderation reason (staff only)
+discussion-save-decision = Save decision
+discussion-history = Moderation history
+discussion-history-empty = No moderation decisions yet.
+discussion-revision = Revision
+discussion-moderator = Moderator
+discussion-self-review = Another moderator must review your reply.
+discussion-error-forbidden = This account cannot make that discussion change.
+discussion-error-invalid = Check the reply or moderation reason and try again.
+discussion-error-conflict = The reply or article has changed. Reload the page before trying again.
+discussion-error-limit = You can post up to five replies per hour. Try again later.
+archive-count = { $count ->
+    [0] { no-results }
+    [one] One entry on this page
+   *[other] { $count } entries on this page
+    }
+invalid-year = Enter a year from 1 to 9999.
+invalid-month = Enter a month from 1 to 12.
+invalid-tag = Enter a tag of up to 48 lowercase letters, digits or single hyphens.
+invalid-search = Enter up to 120 characters without control characters.
+invalid-page = Choose a valid result page.
+invalid-archive-query = Check the values in the form.
+archive-unavailable = The archive is currently unavailable.

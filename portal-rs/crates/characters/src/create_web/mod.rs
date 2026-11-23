@@ -9,6 +9,7 @@ mod page;
 mod service;
 pub use http::{BrowserContext, configured_router, router};
 pub use names::{NameError, canonicalize};
+pub(crate) use service::recent_requests;
 pub use service::{Creation, Error, Outcome, Settings, Submission, World};
 
 #[cfg(test)]

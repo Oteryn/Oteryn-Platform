@@ -33,3 +33,6 @@ character-services = Usługi postaci
 character-items = Ekwipunek postaci
 market-history = Historia rynku
 trade-history = Historia wymian
+create-character = Utwórz postać
+recent-character-requests = Ostatnie prośby o utworzenie postaci
+character-service-operations = Operacje usług postaci

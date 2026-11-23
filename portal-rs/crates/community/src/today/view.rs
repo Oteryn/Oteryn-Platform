@@ -41,8 +41,34 @@ pub struct DailyView {
     pub history_complete_from: i64,
     pub history: Vec<Boost>,
     pub raids: Vec<Raid>,
+    raid_history_available: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selected_date: Option<String>,
 }
 impl DailyView {
+    pub(super) fn complete_through(&self) -> i64 {
+        self.complete_through
+    }
+
+    pub(super) fn raid_history_available(&self) -> bool {
+        self.raid_history_available
+    }
+
+    pub(super) fn for_date(mut self, date: time::Date, now: i64) -> Result<Self, Error> {
+        let today = super::selection::day(now).ok_or(Error::Unavailable)?;
+        let start = date.midnight().assume_utc().unix_timestamp();
+        let end = start + 86_400;
+        if date > today || end <= self.history_complete_from {
+            return Err(Error::Unavailable);
+        }
+        let day = start..end;
+        self.history.retain(|boost| day.contains(&boost.from));
+        self.raid_history_available = end > self.current.from && start < self.current.until;
+        self.raids.retain(|raid| day.contains(&raid.started_at));
+        self.selected_date = Some(date.to_string());
+        Ok(self)
+    }
+
     pub(super) fn eligible(&self, now: i64) -> bool {
         now.saturating_sub(self.complete_through).saturating_add(1) <= 30
             && self.complete_through <= now.saturating_add(1)
@@ -164,6 +190,8 @@ async fn read_inner(
         history_complete_from: schema::seconds(&d.history_complete_from)?,
         history,
         raids,
+        raid_history_available: true,
+        selected_date: None,
     };
     tx.commit().await?;
     // Leave the catalogue snapshot before validating the exact generation. Every
@@ -263,4 +291,65 @@ pub(super) async fn read_current(
     )
     .await
     .map_err(|_| Error::Unavailable)?
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use time::macros::datetime;
+
+    #[test]
+    fn date_selection_keeps_the_live_boost_and_filters_committed_history() {
+        let observed = datetime!(2026-11-23 12:00 UTC).unix_timestamp();
+        let midnight = datetime!(2026-11-23 00:00 UTC).unix_timestamp();
+        let reset = datetime!(2026-11-23 06:00 UTC).unix_timestamp();
+        let boost = |from, until| Boost {
+            creature: "Rat".into(),
+            boss: "Badger".into(),
+            from,
+            until,
+        };
+        let raid = |started_at| Raid {
+            name: "Fixed raid".into(),
+            started_at,
+            scheduled_at: None,
+            state: "done".into(),
+        };
+        let view = DailyView {
+            complete_through: observed,
+            watermark_observed: observed,
+            observed,
+            world: "World".into(),
+            current: boost(reset, reset + 86_400),
+            history_complete_from: midnight - 86_400,
+            history: vec![boost(midnight, reset), boost(reset - 86_400, midnight)],
+            raids: vec![raid(reset + 60)],
+            raid_history_available: true,
+            selected_date: None,
+        };
+
+        let today = super::super::selection::day(observed).unwrap();
+        let current_day = view.clone().for_date(today, observed).unwrap();
+        assert_eq!(current_day.current.from, reset);
+        assert_eq!(current_day.history.len(), 1);
+        assert_eq!(current_day.history[0].from, midnight);
+        assert!(current_day.raid_history_available());
+        assert_eq!(current_day.raids.len(), 1);
+
+        let yesterday = today.previous_day().unwrap();
+        let historical = view.clone().for_date(yesterday, observed).unwrap();
+        assert_eq!(historical.history.len(), 1);
+        assert!(!historical.raid_history_available());
+        assert!(historical.raids.is_empty());
+
+        for outside in [today.next_day().unwrap(), yesterday.previous_day().unwrap()] {
+            assert!(matches!(
+                view.clone().for_date(outside, observed),
+                Err(Error::Unavailable)
+            ));
+        }
+        assert!(view.eligible(observed + 29));
+        assert!(!view.eligible(observed + 30));
+    }
 }

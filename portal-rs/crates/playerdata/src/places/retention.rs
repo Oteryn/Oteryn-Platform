@@ -26,6 +26,8 @@ impl PlacesRetention {
             .execute(&mut *tx).await?;
         sqlx::query("DELETE FROM pd_places_replay_fences WHERE ctid IN (SELECT ctid FROM pd_places_replay_fences WHERE expires_at<=now() ORDER BY expires_at LIMIT 512 FOR UPDATE SKIP LOCKED)")
             .execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM pd_places_publication_days WHERE utc_day < (now() AT TIME ZONE 'UTC')::date - 90")
+            .execute(&mut *tx).await?;
         tx.commit().await
     }
 }

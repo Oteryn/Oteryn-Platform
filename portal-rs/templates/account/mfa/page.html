@@ -2,12 +2,12 @@
 {% block title %}{% if mode == "login" %}{{ self.text("shell-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}{% endblock %}
 {% block content %}
 <h1>{% if mode == "login" %}{{ self.text("shell-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}</h1>
-{% if failed %}<p class="op-error" role="alert" id="mfa-error">{% if mode == "challenge" %}{{ self.text("mfa-code-error") }}{% else %}{{ self.text("mfa-error") }}{% endif %}</p>{% endif %}
+{% if failed %}<p class="op-error" role="alert" id="mfa-error" tabindex="-1" autofocus>{% if mode == "challenge" %}{{ self.text("mfa-code-error") }}{% else %}{{ self.text("mfa-error") }}{% endif %}</p>{% endif %}
 {% if mode == "login" %}
 <form class="op-stack" method="post" action="/{{ lang }}/login">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
-<div class="op-field"><label for="email">{{ self.text("register-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required></div>
-<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<div class="op-field"><label for="email">{{ self.text("register-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required{% if failed %} aria-describedby="mfa-error" aria-invalid="true"{% endif %}></div>
+<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required{% if failed %} aria-describedby="mfa-error" aria-invalid="true"{% endif %}></div>
 <button class="op-button op-button--primary">{{ self.text("shell-login") }}</button></form>
 {% if passkeys_enabled %}<p><a class="op-button" href="/{{ lang }}/account/passkeys">{{ self.text("mfa-passkey") }}</a></p>{% endif %}
 <p>{{ self.text("mfa-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("register-title") }}</a></p>

@@ -16,3 +16,4 @@ back = Atlas
 provenance = Catalogue / NPC price revision
 world = World
 participation = Session participation
+unavailable = Hunting-place data is unavailable.

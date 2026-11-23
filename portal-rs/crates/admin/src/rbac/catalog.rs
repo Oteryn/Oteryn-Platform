@@ -121,6 +121,7 @@ pub enum Permission {
     ForumPostEdit,
     ForumSubscribe,
     ForumProfile,
+    ReviewCharacterCases,
 }
 
 impl Permission {
@@ -250,6 +251,7 @@ impl Permission {
         Self::ForumPostEdit,
         Self::ForumSubscribe,
         Self::ForumProfile,
+        Self::ReviewCharacterCases,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -371,6 +373,7 @@ impl Permission {
             Self::ForumPostEdit => "forum.post.edit",
             Self::ForumSubscribe => "forum.subscription.edit",
             Self::ForumProfile => "forum.profile.edit",
+            Self::ReviewCharacterCases => "support.character-cases.review",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }

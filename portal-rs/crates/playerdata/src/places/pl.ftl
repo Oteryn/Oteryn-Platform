@@ -16,3 +16,4 @@ back = Atlas
 provenance = Wersja katalogu / cen NPC
 world = Świat
 participation = Udział sesji
+unavailable = Dane o łowiskach są niedostępne.

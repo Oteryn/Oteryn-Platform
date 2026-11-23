@@ -74,3 +74,17 @@ cancelled = Query cancelled
 
 game-read-invalid-target = The selected target or filters are incompatible with this Game read.
 game-read-character-online = The character must be offline. Sign out of the character and try again.
+creation-status = Character creation
+creation-issuance = Browser command issuance
+creation-exchange = Game exchange settings for browser issuance
+creation-configured = Configured
+creation-pending = Requests awaiting a receipt
+creation-expired = Awaiting a receipt after intent expiry
+creation-committed = Committed receipts in the last 24 hours
+creation-rejected = Rejected receipts in the last 24 hours
+invalid-form = Check the values in the form.
+access-denied = Access denied
+seconds-ago = { $count ->
+    [one] One second ago
+   *[other] { $number } seconds ago
+    }

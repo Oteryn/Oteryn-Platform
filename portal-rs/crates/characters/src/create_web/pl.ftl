@@ -42,3 +42,6 @@ any = Dowolne
 apply = Filtruj światy
 filter-invalid = Wybierz prawidłowe filtry światów.
 no-worlds = Żaden świat nie pasuje do filtrów. Zmień filtry, aby kontynuować.
+created-visible = Gra potwierdziła utworzenie. Twoja postać jest już na liście postaci konta.
+open-roster = Otwórz listę postaci
+roster-unavailable = Bieżąca lista postaci jest niedostępna.

@@ -260,7 +260,7 @@ async fn today_transport_refusals_and_bad_input() -> Result {
     Ok(())
 }
 #[tokio::test]
-async fn today_disabled_preserves_existing_page_without_database() -> Result {
+async fn today_disabled_keeps_editorial_and_daily_status_without_database() -> Result {
     let db = PgPool::connect_lazy("postgres://portal@127.0.0.1:1/unreachable")?;
     let a = today::mount(
         Router::new().route(
@@ -274,10 +274,11 @@ async fn today_disabled_preserves_existing_page_without_database() -> Result {
         .oneshot(Request::get("/pl/today").body(Body::empty())?)
         .await?;
     assert_eq!(r.status(), StatusCode::OK);
-    assert_eq!(
-        to_bytes(r.into_body(), 4096).await?,
-        "<body><main>Editorial</main></body>"
-    );
+    let html = String::from_utf8(to_bytes(r.into_body(), 8192).await?.to_vec())?;
+    assert!(html.contains("<main>Editorial"));
+    assert!(html.contains("Dzienne dane świata są teraz niedostępne."));
+    assert!(html.contains("name=\"date\""));
+    assert!(!html.contains("<header>"));
     Ok(())
 }
 #[tokio::test]
@@ -312,6 +313,9 @@ async fn today_postgres_success_replay_history_and_public_render() -> Result {
     assert!(html.contains("Aktualności"));
     assert!(html.contains("Szczur"));
     assert!(html.contains("Historia wzmocnień"));
+    assert!(html.contains("Nadchodzące rajdy"));
+    assert!(html.contains("Rozpoczęcie (UTC)"));
+    assert!(html.contains("name=\"world\""));
     assert!(html.contains("Część źródeł jest niedostępna."));
     assert!(!html.contains("Wszystkie źródła są teraz niedostępne."));
     assert!(html.contains("<header>"));
@@ -489,12 +493,24 @@ async fn today_postgres_data_unavailable_and_bad_query() -> Result {
         assert_eq!(r.status(), status);
         assert!(r.headers()["cache-control"].to_str()?.contains("no-store"));
     }
+    let date = OffsetDateTime::from_unix_timestamp(now)?.date();
+    let path = format!("/en/today/data?world={WORLD}&date={date}");
+    let dated = a
+        .clone()
+        .oneshot(Request::get(path.as_str()).body(Body::empty())?)
+        .await?;
+    assert_eq!(dated.status(), StatusCode::OK);
+    let data: serde_json::Value =
+        serde_json::from_slice(&to_bytes(dated.into_body(), 8192).await?)?;
+    assert_eq!(data["selected_date"], date.to_string());
+    assert_eq!(data["current"]["creature"], "Rat");
+    assert_eq!(data["upcoming_raids"], "unavailable");
     sqlx::query("UPDATE today_watermarks SET complete_through=complete_through-31")
         .execute(&d.db)
         .await?;
     let r = a
         .clone()
-        .oneshot(Request::get("/en/today/data").body(Body::empty())?)
+        .oneshot(Request::get(path.as_str()).body(Body::empty())?)
         .await?;
     assert_eq!(r.status(), StatusCode::SERVICE_UNAVAILABLE);
     let body = String::from_utf8(to_bytes(r.into_body(), 1024).await?.to_vec())?;

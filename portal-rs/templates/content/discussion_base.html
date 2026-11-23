@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/discussion.css">
+</head>
+<body class="op-theme">
+<main class="op-stack news-discussion">
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-panel">
+  <h1>{{ title }}</h1>
+  <p><a href="/{{ locale.0 }}/account/journal/items">{{ locale.text("items-journal") }}</a></p>
+  {% if let Some(path) = items_link %}
+  <p><a href="{{ path }}">{{ locale.text("items-title") }}</a></p>
+  {% endif %}
+  <p>{{ locale.text("items-coverage") }} · <time datetime="{{ start }}">{{ start }}</time> – <time datetime="{{ through }}">{{ through }}</time></p>
+  <p>{{ locale.text("items-history-note") }}</p>
+  {% if events.is_empty() %}<p>{{ locale.text("items-history-empty") }}</p>{% endif %}
+  <ol class="op-stack">
+    {% for event in events %}
+    <li>
+      <article class="op-panel op-stack">
+        <h2>{{ event.kind }}</h2>
+        <p>{{ locale.text("items-time") }} · <time datetime="{{ event.at }}">{{ event.at }}</time></p>
+        <dl>
+          {% for (label, value) in event.details %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}
+        </dl>
+      </article>
+    </li>
+    {% endfor %}
+  </ol>
+  {% if let Some(cursor) = next_cursor %}
+  <p><a href="?cursor={{ cursor }}">{{ locale.text("items-next") }}</a></p>
+  {% endif %}
+</main>
+</body>
+</html>
