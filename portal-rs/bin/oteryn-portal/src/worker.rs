@@ -498,6 +498,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "league.ingest",
         "identity.email-change",
         "admin.control.expire",
+        "operations.refresh-statistics",
         "referrals.process",
         "stats.poll",
     ] {
