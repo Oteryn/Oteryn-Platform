@@ -167,8 +167,8 @@ test('TOTP, recovery codes, trusted devices and recovery-key MFA reset', async (
   await logout(page, locale);
   await signIn(page, locale, account);
   await expect(page).toHaveURL(`/${locale}/`);
-  await page.goto(settings);
-  await expect(page.getByRole('heading', { name: t('Trusted devices', 'Zaufane urządzenia') })).toBeVisible();
+  expect((await page.goto(settings)).status()).toBe(200);
+  await expect(page.getByRole('heading', { name: t('Remembered browsers', 'Zapamiętane przeglądarki'), exact: true })).toBeVisible();
   const remove = page.getByRole('button', { name: t('Remove device 1', 'Usuń urządzenie 1') });
   await expect(remove).toBeVisible();
   await submit(page, 'main form[action$="/mfa/devices"]');
