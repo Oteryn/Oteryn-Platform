@@ -1,10 +1,12 @@
 //! Appeal workflow persistence; behavioural reference:
 //! app/Support/Actions/ManageEnforcementRecord.php.
 //!
-//! T34 is not available. Its adapter must lock and authorize the authoritative
+//! The Platform adapter must lock and authorize the authoritative
 //! sanction in the same transaction, revoke Platform enforcement on acceptance,
 //! and write staff audit and notification outbox entries before committing.
 //! This module never issues game commands. See the enforcement command contract.
+pub(crate) mod player;
+
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 

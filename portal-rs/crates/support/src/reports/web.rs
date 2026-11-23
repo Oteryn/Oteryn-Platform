@@ -43,17 +43,21 @@ pub fn configured_router(pool: PgPool) -> Router {
     let unjustified_limit =
         std::env::var("OTERYN_REPORTS_UNJUSTIFIED_LIMIT").map_or(3, |v| v.parse().unwrap_or(0));
     router(
-        pool,
+        pool.clone(),
         Policy {
             enabled: std::env::var("OTERYN_REPORTS_ENABLED").as_deref() == Ok("true"),
             pending_limit,
             unjustified_limit,
         },
     )
+    .merge(crate::appeals::player::router(
+        pool,
+        std::env::var("OTERYN_PUBLIC_ORIGIN").ok(),
+    ))
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct Locale(&'static str);
+pub(crate) struct Locale(pub(crate) &'static str);
 impl From<oteryn_notify::Locale> for Locale {
     fn from(locale: oteryn_notify::Locale) -> Self {
         match locale {
@@ -63,14 +67,14 @@ impl From<oteryn_notify::Locale> for Locale {
     }
 }
 impl Locale {
-    fn parse(lang: &str) -> Result<Self, StatusCode> {
+    pub(crate) fn parse(lang: &str) -> Result<Self, StatusCode> {
         match lang {
             "pl" => Ok(Self("pl")),
             "en" => Ok(Self("en")),
             _ => Err(StatusCode::NOT_FOUND),
         }
     }
-    pub(super) fn text(self, key: &str) -> String {
+    pub(crate) fn text(self, key: &str) -> String {
         let source = if self.0 == "pl" {
             include_str!("pl.ftl")
         } else {
@@ -126,7 +130,10 @@ const FLASH: SessionKey<Option<Flash>> = SessionKey::new("support.reports.flash"
 {% if reports.is_empty() %}<p class="op-empty">{{ self.text("empty") }}</p>{% endif %}
 {% for report in reports %}<article class="op-panel op-stack"><h2><a href="/{{ locale.0 }}/support/reports/{{ report.id }}">{{ report.target_reference }}</a></h2><p>{{ self.text(&report.report_type) }} · {{ self.text(&report.category) }}</p><p>{{ self.text("status") }}: {{ self.status_text(report) }}</p><p>{{ self.text("date") }}: {{ report.created_at.date() }}</p>
 {% if detail %}<p>{{ report.evidence_summary.as_deref().unwrap_or_default() }}</p>{% endif %}
-{% if detail || report.report_type == "atlas" %}{% if let Some(outcome) = report.public_outcome %}{% if detail %}<h3>{{ self.text("outcome") }}</h3>{% else %}<p><strong>{{ self.text("outcome") }}</strong></p>{% endif %}<p>{{ outcome }}</p>{% endif %}{% endif %}</article>{% endfor %}
+{% if detail || report.report_type == "atlas" %}{% if let Some(outcome) = report.public_outcome %}{% if detail %}<h3>{{ self.text("outcome") }}</h3>{% else %}<p><strong>{{ self.text("outcome") }}</strong></p>{% endif %}<p>{{ outcome }}</p>{% endif %}{% endif %}
+{% if detail && matches!(report.status.as_str(), "actioned" | "rejected" | "closed") %}
+<p>{{ self.text("sanctions-handoff") }} <a href="/{{ locale.0 }}/account/sanctions">{{ self.text("sanctions-title") }}</a></p>
+{% endif %}</article>{% endfor %}
 {% if !detail && (page > 1 || has_next) %}<nav class="op-row" aria-label="{{ self.text("pagination") }}">{% if page > 1 %}<a class="op-button op-button--secondary" href="?page={{ page - 1 }}">{{ self.text("previous") }}</a>{% endif %}{% if has_next %}<a class="op-button op-button--secondary" href="?page={{ page + 1 }}">{{ self.text("next") }}</a>{% endif %}</nav>{% endif %}
 {% endif %}</main></body></html>"#,
     ext = "html"
@@ -345,7 +352,7 @@ async fn show(
     ];
     page.render().map_err(IntoResponse::into_response)
 }
-async fn private_headers(request: Request, next: Next) -> Response {
+pub(crate) async fn private_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     for (name, value) in [
         (header::CACHE_CONTROL, "private, no-store"),

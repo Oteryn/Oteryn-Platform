@@ -506,6 +506,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    enforcement_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -594,6 +595,15 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let enforcement_link = match s
+        .auth
+        .check(context, Permission::ManageSupportEnforcement)
+        .await
+    {
+        Ok(()) => Some(crate::support::web::text(lang, "enforcement")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -601,6 +611,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        enforcement_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

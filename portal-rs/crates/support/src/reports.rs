@@ -11,7 +11,7 @@ use serde::Deserialize;
 use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
-mod web;
+pub(crate) mod web;
 pub use web::{configured_router, router};
 
 /// Deployment policy. Defaults retain the reference's stricter pending limit.

@@ -26,4 +26,12 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        true,
+        "sanctions",
+        "shell-sanctions",
+        "account/sanctions",
+        Group::Account,
+        false,
+    );
 }

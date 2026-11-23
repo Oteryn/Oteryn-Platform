@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("sanctions-title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ self.text("sanctions-title") }}</h1>
+  <nav class="op-row" aria-label="{{ self.text("sanctions-navigation") }}">
+    <a class="op-button op-button--secondary" href="/account">{{ self.text("sanctions-account") }}</a>
+    {% if detail %}<a class="op-button op-button--secondary" href="/{{ locale.0 }}/account/sanctions">{{ self.text("sanctions-title") }}</a>{% endif %}
+  </nav>
+  {% if items.is_empty() %}<p class="op-empty">{{ self.text("sanctions-empty") }}</p>{% endif %}
+  {% for item in items %}
+  <article class="op-panel op-stack">
+    <h2>{{ self.text(item.category) }}</h2>
+    <p><strong>{{ self.text("status") }}</strong> <span>{{ self.text(item.status) }}</span></p>
+    <p>{{ self.text("sanctions-effective") }} <time>{{ item.effective_at.date() }}</time></p>
+    <p>{{ self.text("sanctions-expiry") }} {% if let Some(expires) = item.expires_at %}<time>{{ expires.date() }}</time>{% else %}{{ self.text("sanctions-permanent") }}{% endif %}</p>
+    <div class="op-prose"><p>{{ item.public_reason }}</p></div>
+    <p><strong>{{ self.text("sanctions-appeal") }}</strong> {{ self.text(item.appeal_status) }}</p>
+    {% if detail %}
+      {% if let Some(message) = item.message %}<div class="op-prose"><h3>{{ self.text("sanctions-message") }}</h3><p>{{ message }}</p></div>{% endif %}
+      {% if let Some(outcome) = item.outcome %}<div class="op-prose"><h3>{{ self.text("outcome") }}</h3><p>{{ outcome }}</p></div>{% endif %}
+      {% if item.acknowledged %}
+      <p>{{ self.text("sanctions-acknowledged") }}</p>
+      {% else %}
+      <form method="post" action="/{{ locale.0 }}/account/sanctions/{{ item.id }}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="version" value="{{ item.version }}">
+        <input type="hidden" name="action" value="acknowledge">
+        <button class="op-button op-button--secondary" type="submit">{{ self.text("sanctions-acknowledge") }}</button>
+      </form>
+      {% endif %}
+      {% if Self::can_submit(item) %}
+      <form class="op-stack" method="post" action="/{{ locale.0 }}/account/sanctions/{{ item.id }}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="version" value="{{ item.version }}">
+        <input type="hidden" name="action" value="submit">
+        <div class="op-field">
+          <label for="appeal-message">{{ self.text("sanctions-message") }}</label>
+          <textarea class="op-input" id="appeal-message" name="message" required maxlength="4000" rows="5"></textarea>
+        </div>
+        <button class="op-button" type="submit">{{ self.text("sanctions-submit") }}</button>
+      </form>
+      {% endif %}
+    {% else %}
+      <a href="/{{ locale.0 }}/account/sanctions/{{ item.id }}">{{ self.text("sanctions-details") }}</a>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% if previous.is_some() || next.is_some() %}
+  <nav class="op-row" aria-label="{{ self.text("sanctions-pages") }}">
+    {% if let Some(page) = previous %}<a href="?page={{ page }}">{{ self.text("previous") }}</a>{% endif %}
+    {% if let Some(page) = next %}<a href="?page={{ page }}">{{ self.text("next") }}</a>{% endif %}
+  </nav>
+  {% endif %}
+</main>
+</body>
+</html>

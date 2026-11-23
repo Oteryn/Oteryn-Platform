@@ -1,7 +1,8 @@
 //! Production staff queue adapter. Domain writes share the admin authorization/audit transaction.
 use super::*;
 use oteryn_admin::support::{
-    Area, Backend, Command, Error as StaffError, Message as StaffMessage, Record,
+    Area, Backend, Command, EnforcementDetails, Error as StaffError, Message as StaffMessage,
+    Record,
 };
 use sqlx::Row;
 
@@ -231,7 +232,7 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,target_reference,status FROM support_report_queue ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,public_reason,status FROM sanctions ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
         };
         let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
@@ -248,6 +249,7 @@ impl Backend for StaffSupport {
                 status,
                 messages: vec![],
                 next_message: None,
+                enforcement: None,
             })
             .collect())
     }
@@ -269,6 +271,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                enforcement: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -288,7 +291,13 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,public_outcome,moderator_notes AS private_message FROM support_report_queue WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,NULL::text AS public_outcome,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT s.id,s.lock_version+coalesce(a.version,1)-1 AS lock_version,
+                    s.public_reason AS title,s.status,a.message AS public_message,a.outcome AS public_outcome,
+                    s.moderator_notes AS private_message,s.account_id,s.category,
+                    floor(extract(epoch FROM s.effective_at))::bigint AS effective_at,
+                    floor(extract(epoch FROM s.expires_at))::bigint AS expires_at,a.status AS appeal_status
+                 FROM sanctions s LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.id=$1"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -312,7 +321,19 @@ impl Backend for StaffSupport {
                     });
                 }
             }
+            let enforcement = if area == Area::Enforcement {
+                Some(EnforcementDetails {
+                    target: row.try_get("account_id")?,
+                    category: row.try_get("category")?,
+                    effective_at: row.try_get("effective_at")?,
+                    expires_at: row.try_get("expires_at")?,
+                    appeal_status: row.try_get("appeal_status")?,
+                })
+            } else {
+                None
+            };
             Ok(Record {
+                enforcement,
                 id: row.try_get("id")?,
                 version: row.try_get("lock_version")?,
                 title: row.try_get("title")?,
