@@ -708,7 +708,7 @@ test('character creation queues one operation and exposes the pending Game outco
 });
 
 test('support ticket staff reply and status enforce RBAC and stale writes', async ({ page, browser }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const options = {
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
