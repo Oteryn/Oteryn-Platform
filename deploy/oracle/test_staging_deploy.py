@@ -192,6 +192,11 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42',
                       services['postgres']['image'])
         self.assertEqual(services['mail']['environment']['MP_SMTP_REQUIRE_STARTTLS'], 'true')
+        # The ingress exposes only a GET view of the catcher's API, never its UI.
+        ingress = services['ingress']['command'][0]
+        self.assertIn("const MAIL = '/__mailpit/api/v1/';", ingress)
+        self.assertIn("request.method !== 'GET'", ingress)
+        self.assertIn("hostname: 'mail', port: 8025, method: 'GET'", ingress)
         with patch.object(staging, 'run') as command:
             staging.compose(directory, 'ps')
         self.assertEqual(command.call_args.args[0][:4], ['docker', 'compose', '-p', 'oteryn-staging'])

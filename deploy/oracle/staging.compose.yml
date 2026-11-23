@@ -84,7 +84,30 @@ services:
     command:
       - |
         const http = require('node:http');
+        // Read-only view of the stack's mail catcher for black-box tests that
+        // reach staging through Cloudflare Access: GET /__mailpit/api/v1/...
+        // maps to the catcher's API. Only GET; no delete, no UI, no websocket.
+        const MAIL = '/__mailpit/api/v1/';
         http.createServer((request, response) => {
+          if (request.url.startsWith('/__mailpit/')) {
+            if (request.method !== 'GET' || !request.url.startsWith(MAIL)) {
+              response.writeHead(405).end();
+              return;
+            }
+            const mail = http.request({
+              hostname: 'mail', port: 8025, method: 'GET',
+              path: '/api/v1/' + request.url.slice(MAIL.length),
+            }, result => {
+              response.writeHead(result.statusCode, {
+                'content-type': result.headers['content-type'] || 'application/octet-stream',
+                'cache-control': 'no-store',
+              });
+              result.pipe(response);
+            });
+            mail.on('error', () => response.writeHead(502).end());
+            mail.end();
+            return;
+          }
           const upstream = http.request({
             hostname: 'portal-public', port: 8080, method: request.method,
             path: request.url, headers: request.headers,
