@@ -26,6 +26,7 @@
     "platform-db-outage-validation.yml",
     "portal-rs-ci.yml",
     "portal-rs-e2e.yml",
+    "prod-synthetic-monitor.yml",
     "terminal-branch-lifecycle-read-reusable.yml",
     "terminal-branch-lifecycle-reusable.yml",
     "terminal-branch-lifecycle.yml",

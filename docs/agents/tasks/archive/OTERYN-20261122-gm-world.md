@@ -27,8 +27,8 @@ ADM-01 ratifies transport framing. The pinned read result union includes `analyt
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-22T20:52:39Z
-head: ae8786651dbc41156aacd9f5c99486b5e3dad067
+updated_at: 2026-11-23T08:15:00Z
+head: e0b1fcd23d74af3d849dd7993d99a3c54fc58174
 branch: codex/feat-gm-world
 pr: 2036
 status: completed
@@ -125,9 +125,9 @@ next_action: none; delivered by PR #2036 and archived
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: Coordinator review of the five findings and the integrated revision under issue 2002.
-source_branch_evidence: The follow-up began at remote SHA 9038dc292163277df5998ac8c8d79cd6c53de975. Merge cc017130685509e60f5d5d9a93cea36066a05f74 integrated main at 6c2ba2ed76b4bef8e6877ed71ef18a6ee094a12a. The validated portal sources are at ae8786651dbc41156aacd9f5c99486b5e3dad067.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: Dedicated same-repository task branch for issue 2002.
+source_branch_evidence: PR #2036 merged as e0b1fcd23d74af3d849dd7993d99a3c54fc58174 on 2026-11-22; refs/heads/codex/feat-gm-world no longer exists on origin
 ```
 
 The previous qualification covered the Bazaar worker handoff at `03cbe4a65a557fe5ddebd4eef9b2971fe9e4685d` on original base `33145d6ec7662cd01f91e304ba09fa904edeaf37`. The concurrent mutation and Polish news cases passed on isolated reruns in that qualification.

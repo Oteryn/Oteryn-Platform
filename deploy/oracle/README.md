@@ -489,3 +489,53 @@ consumers' additional settings before starting the worker.
 The gateway also trusts only Caddy at `172.18.0.10`, and receives the same single
 resolved client address header. Native login/recovery and browser account/source
 budgets therefore keep independent client identities behind the edge.
+
+## Staging
+
+Oracle staging runs from a root shell on the host. It accepts the current
+full SHA of a `codex/*` or `staging/*` branch in
+`Oteryn/Oteryn-Platform`. Install all three files from the same reviewed
+revision once, then use the installed copies for every branch build.
+
+```sh
+install -d -m 0700 /opt/oteryn-staging
+install -m 0755 deploy/oracle/staging-deploy.py /opt/oteryn-staging/
+install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.yml /opt/oteryn-staging/
+```
+
+The host needs Python 3.11+, Git, OpenSSL, Docker Engine 28+ with BuildKit and
+Compose v2, at least four CPUs and 10 GiB RAM. The largest running staging
+workload, including the stack and one test container, is capped at two CPUs
+and under 5 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
+The CLI refuses a held production deployment lock or a pending production
+deployment when it starts, before building, and before replacing staging.
+Each check releases its shared read lock immediately.
+
+```sh
+python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs
+python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs --pg-tests oteryn-db,oteryn-web
+python3 /opt/oteryn-staging/staging-deploy.py status
+python3 /opt/oteryn-staging/staging-deploy.py logs
+```
+
+A successful launch returns as soon as the deploy is queued. `status` shows the
+serving SHA and live readiness, plus the latest deploy phase and summary.
+`logs` prints that deploy's phase history and summary. Both commands return 0
+for a passed run, 1 for a failed run and 2 while work is pending or before the
+first deploy. The detailed state is under `/opt/oteryn-staging/run/<sha>/`.
+Keep the generated environment files and captured mail private.
+
+Each replacement recreates PostgreSQL, migrates it, installs the testing legal
+pages and seeds a disposable account through the portal CLI. The staging portal
+is reachable on `127.0.0.1:18080` on the host, including `/readyz`. The browser
+container connects through its own loopback HTTPS origin and trusts the generated
+staging CA. Mail goes to the stack's authenticated STARTTLS catcher. Game,
+store and payment features are disabled. With no spec argument Playwright
+discovers the full suite, which includes specs that require the local harness's
+Game or commerce fixtures and can fail under this staging profile.
+
+Optional PostgreSQL tests run one crate at a time in the staging builder image,
+each with a fresh database and a role that cannot connect to the portal database.
+The stack stays available after testing. The next deployment replaces it and
+removes staging images and checkouts beyond the last three distinct attempted
+SHAs, while preserving the serving checkout if a replacement never starts.
