@@ -134,13 +134,17 @@ export async function publishEditorial(editor, visitor, player, lang, evidence) 
     ends_at: new Date(now + 86_400_000).toISOString().slice(0, 16),
     en_title: en.event, en_slug: key, en_summary: en.body, en_body: en.body,
     pl_title: pl.event, pl_slug: key, pl_summary: pl.body, pl_body: pl.body,
+    reason: lang === 'pl' ? 'Utworzenie wydarzenia redakcyjnego' : 'Create an editorial event',
   };
   await denied(editor, 'main form', eventFields, player, visitor);
   expect((await responseForForm(editor, 'main form', { ...eventFields, ends_at: eventFields.starts_at })).status()).toBe(422);
   await submit(editor, 'main form', eventFields);
   await expect(editor).toHaveURL(/\/admin\/events\/[a-f0-9-]+\/edit$/);
   const event = new URL(editor.url()).pathname.split('/')[3];
-  await action(editor, 'main form[action$="/status"]', { status: 'published' });
+  await action(editor, 'main form[action$="/status"]', {
+    status: 'published',
+    reason: lang === 'pl' ? 'Publikacja wydarzenia redakcyjnego' : 'Publish an editorial event',
+  });
   await expect(editor.locator('main')).toContainText(lang === 'pl' ? 'Opublikowane' : 'Published');
   evidence.push(['events.event_created', event], ['events.status_changed', event]);
 

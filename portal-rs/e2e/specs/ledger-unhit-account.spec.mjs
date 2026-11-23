@@ -51,7 +51,7 @@ test('player denies OAuth consent without granting an authorization code', async
   const lang = info.project.metadata.locale;
   await login(page, lang, await register(page, lang));
   const state = randomUUID();
-  const redirect = 'https://localhost:18443/__oauth/callback';
+  const redirect = new URL('/__oauth/callback', page.url()).href;
   const challenge = createHash('sha256').update(randomBytes(32)).digest('base64url');
   const params = new URLSearchParams({
     response_type: 'code', client_id: 'e2e-local', redirect_uri: redirect,
