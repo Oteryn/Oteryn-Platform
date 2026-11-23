@@ -39,8 +39,8 @@ pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
         unlocked: false,
     };
     let connection = &mut **guard.connection;
-    // Match SQLx's PostgreSQL lock key. Polling releases the statement snapshot
-    // between attempts so a competing concurrent index build can finish.
+    // Match SQLx's PostgreSQL lock key and release each statement snapshot
+    // between attempts.
     let mut retry = tokio::time::interval(std::time::Duration::from_millis(25));
     loop {
         retry.tick().await;
@@ -71,12 +71,12 @@ pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
         (
             20261122160701,
             "accounts_operations_created_at",
-            "DROP INDEX CONCURRENTLY accounts_operations_created_at",
+            "DROP INDEX accounts_operations_created_at",
         ),
         (
             20261122160702,
             "security_events_operations_login_created_at",
-            "DROP INDEX CONCURRENTLY security_events_operations_login_created_at",
+            "DROP INDEX security_events_operations_login_created_at",
         ),
     ] {
         if applied.iter().any(|migration| migration.version == version) {
