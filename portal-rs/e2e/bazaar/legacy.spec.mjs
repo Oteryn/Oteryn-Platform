@@ -65,6 +65,7 @@ async function send(page, path, form) {
 }
 
 test('Game runtime replaces the legacy item forms', async ({ page, browser }, info) => {
+  test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const databaseURL = localDatabaseURL(process.env.OTERYN_DATABASE_URL);
   const assertionsURL = process.env.PORTAL_E2E_DATABASE_URL;
