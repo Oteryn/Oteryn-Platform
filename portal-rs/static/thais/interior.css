@@ -338,17 +338,19 @@ body.op-shell::before {
 .om-interior .om-section > summary { list-style: none; cursor: pointer; }
 .om-interior .om-section > summary::-webkit-details-marker { display: none; }
 .om-interior .om-section > summary:focus-visible { outline: 2px solid var(--om-gold); outline-offset: 2px; }
-.om-interior .om-section .om-panel .om-heading { color: var(--gilt-dark); }
+.om-interior .om-section .om-panel .om-heading { color: var(--om-accent); }
+.om-interior .om-panel a:focus-visible { outline-color: var(--om-accent); }
 @media (min-width: 961px) {
   .om-interior .om-fallback-menu { display: none; }
   .om-interior:not(.is-enhanced) :is(.om-nav, .om-sections) { flex-wrap: nowrap; align-items: center; }
   .om-interior:not(.is-enhanced) .om-chevron { display: inline-block; }
   .om-interior .om-section[open] .om-chevron { transform: rotate(225deg); }
-  .om-interior .om-fallback-account .account-grid h3 { color: var(--gilt-light); }
 }
 @media (max-width: 960px) {
   .om-interior .om-fallback-menu:not([open]) + .om-nav { display: none; }
   .om-interior .om-fallback-menu[open] + .om-nav {
+    --om-ink: var(--text);
+    --om-accent: var(--gilt-light);
     position: absolute;
     inset: calc(100% + 4px) var(--om-edge) auto auto;
     width: min(28rem, calc(100% - 24px));
@@ -361,6 +363,7 @@ body.op-shell::before {
     border-radius: 8px;
     background: var(--surface);
   }
+  .om-interior .om-nav :is(a, button):focus-visible { outline-color: var(--gilt-light); }
   .om-interior .om-nav .om-sections { flex-direction: column; align-items: stretch; }
   .om-interior .om-section .om-panel { position: static; width: auto; grid-template-columns: 1fr; }
 }
@@ -377,6 +380,7 @@ body.op-shell::before {
 .om-fallback-account[open] { flex-basis: 100%; }
 .om-fallback-account[open] > summary { width: fit-content; }
 .om-fallback-account .account-grid { margin-block: .75rem; }
+.om-interior .om-fallback-account .account-grid h3 { color: var(--gilt-light); }
 @media (max-width: 360px) {
   .om-fallback-menu > summary { padding-inline: .65rem; gap: .35rem; }
 }
