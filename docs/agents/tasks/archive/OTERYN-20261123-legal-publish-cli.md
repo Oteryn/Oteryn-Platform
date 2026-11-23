@@ -47,10 +47,10 @@ cross_repository_tasks: []
 ```yaml
 checkpoint_version: 1
 updated_at: 2026-11-23T08:28:13Z
-head: see containing commit
+head: 4b86c79691926636f2a33ea17e27c3f000b4a32c
 branch: codex/legal-publish-cli
-pr: none
-status: ready
+pr: 2051
+status: completed
 context_routes:
   - CMS legal editions and Oracle deployment
 owned_paths:
@@ -106,13 +106,13 @@ validation:
     result: NOT_APPLICABLE
     evidence: The script is absent on main, and the task changes neither E2E nor generated files.
 blockers: []
-next_action: Publish the reviewed task branch to origin for owner review.
+next_action: none; delivered by PR #2051 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: pending
+source_branch_disposition: auto_delete_after_merge
 source_branch_reason: Branch requested for owner review under issue 2002.
 source_branch_evidence: pending
 ```
