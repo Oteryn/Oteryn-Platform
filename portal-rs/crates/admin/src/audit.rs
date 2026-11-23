@@ -43,20 +43,28 @@ pub(crate) async fn append_with_reason(
     {
         return Err(crate::rbac::Error::InvalidInput);
     }
-    // Existing audit writers remain compatible with a nullable reason.
-    let id = sqlx::query_scalar(
-        "INSERT INTO audit_log (actor, action, target, before, after, request_id, staff_reason)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
-    )
+    // Reason-free writes also support the original audit schema.
+    let insert = sqlx::query_scalar(match reason {
+        Some(_) => {
+            "INSERT INTO audit_log (actor, action, target, before, after, request_id, staff_reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id"
+        }
+        None => {
+            "INSERT INTO audit_log (actor, action, target, before, after, request_id)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
+        }
+    })
     .bind(entry.context.actor)
     .bind(entry.action)
     .bind(entry.target)
     .bind(entry.before)
     .bind(entry.after)
-    .bind(entry.context.request_id)
-    .bind(reason)
-    .fetch_one(&mut **transaction)
-    .await?;
+    .bind(entry.context.request_id);
+    let insert = match reason {
+        Some(reason) => insert.bind(reason),
+        None => insert,
+    };
+    let id = insert.fetch_one(&mut **transaction).await?;
     Ok(id)
 }
 
