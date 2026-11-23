@@ -19,6 +19,7 @@ pub mod control;
 pub use control::control_http;
 
 pub mod analytics;
+pub mod system;
 
 #[cfg(test)]
 mod begin_guard_tests;

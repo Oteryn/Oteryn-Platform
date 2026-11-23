@@ -299,7 +299,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
         required: Vec::new(),
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
-        pool,
+        pool: pool.clone(),
     });
     Router::new()
         .route("/admin", get(page::<I, A>))
@@ -333,6 +333,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             registration_policy::CONFIRM_PATH,
             axum::routing::post(registration_policy::confirm::<I, A>),
         )
+        .merge(crate::system::routes(pool))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -475,6 +476,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         (path, &Method::POST) if path.starts_with("/admin/roles/invitations/") => &[Permission::RevokeStaffInvite],
         (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => &[Permission::ViewRegistrationPolicy],
         (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => &[Permission::ManageRegistrationPolicy, Permission::ViewRegistrationPolicy],
+        ("/admin/system" | "/admin/system/data", _) => &[Permission::ViewSystem],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
@@ -528,26 +530,50 @@ fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'s
 }
 
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
+    for cookie in headers.get_all(header::COOKIE) {
+        if let Ok(cookie) = cookie.to_str() {
+            for part in cookie.split(';') {
+                match part.trim().split_once('=') {
+                    Some(("portal_language", "en")) => return "en",
+                    Some(("portal_language", "pl")) => return "pl",
+                    _ => {}
+                }
+            }
+        }
     }
+    let value = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let mut preferred = ("pl", 0.0);
+    for item in value.split(',') {
+        let mut parts = item.trim().split(';');
+        let tag = parts.next().unwrap_or_default().trim();
+        let primary = tag.split('-').next().unwrap_or_default();
+        let lang = if primary.eq_ignore_ascii_case("en") {
+            "en"
+        } else if primary.eq_ignore_ascii_case("pl") {
+            "pl"
+        } else {
+            continue;
+        };
+        let quality = parts.next().map_or(1.0, |part| {
+            part.trim()
+                .strip_prefix("q=")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(0.0)
+        });
+        if quality > preferred.1 && quality <= 1.0 {
+            preferred = (lang, quality);
+        }
+    }
+    preferred.0
 }
 pub(crate) fn messages(
     lang: &str,
 ) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
     let mut bundle = fluent_bundle::FluentBundle::new(vec![lang.parse().ok()?]);
-    let source = if lang == "en" {
-        include_str!("../../../templates/admin/en.ftl")
-    } else {
-        include_str!("../../../templates/admin/pl.ftl")
-    };
-    let resource = fluent_bundle::FluentResource::try_new(source.to_owned()).ok()?;
+    let resource = fluent_bundle::FluentResource::try_new(locale_source(lang).to_owned()).ok()?;
     bundle.add_resource(resource).ok()?;
     Some(bundle)
 }
@@ -568,6 +594,14 @@ pub(crate) fn message(
         .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
+pub(crate) fn locale_source(lang: &str) -> &'static str {
+    if lang == "en" {
+        include_str!("../../../templates/admin/en.ftl")
+    } else {
+        include_str!("../../../templates/admin/pl.ftl")
+    }
+}
+
 #[derive(Template)]
 #[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
@@ -579,6 +613,7 @@ struct Page {
     mail_link: Option<String>,
     registration_policy_label: Option<String>,
     errors_label: Option<String>,
+    system_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -686,6 +721,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let system_label = s
+        .auth
+        .check(context, Permission::ViewSystem)
+        .await
+        .ok()
+        .map(|()| text(lang, "system-title"));
     oteryn_web::render(&Page {
         lang,
         registration_policy_label,
@@ -700,6 +741,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .ok()
             .map(|()| text(lang, "errors-title")),
+        system_label,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

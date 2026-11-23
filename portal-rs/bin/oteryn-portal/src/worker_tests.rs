@@ -316,9 +316,22 @@ async fn shutdown_drains_in_flight_job() -> TestResult {
         }),
     )?;
     let subscriber = tracing_subscriber::registry().with(ObserveDrain(draining.clone()));
-    let worker = run_until(db.pool.clone(), registry, shutdown.notified()).with_subscriber(subscriber);
+    let worker = run_until(db.pool.clone(), registry, shutdown.notified(), Duration::from_millis(50)).with_subscriber(subscriber);
     let control = async {
         started.notified().await;
+        // Keep delivery blocked until two distinct heartbeats have committed.
+        let mut previous = None;
+        loop {
+            let seen: Option<OffsetDateTime> =
+                query_scalar("SELECT seen_at FROM portal_worker_heartbeat")
+                    .fetch_optional(&db.pool)
+                    .await?;
+            if previous.is_some() && seen > previous {
+                break;
+            }
+            previous = seen;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         shutdown.notify_one();
         draining.notified().await;
         assert_eq!(outbox::counts(&db.pool).await?.running, 1);
@@ -955,7 +968,7 @@ async fn shutdown_budget_cancels_locked_topup_and_leaves_retryable_lease() -> Te
     };
     let (result, signalled) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            run_until(db.pool.clone(), registry, shutdown.notified()),
+            run_until(db.pool.clone(), registry, shutdown.notified(), Duration::from_millis(50)),
             control
         )
     })

@@ -32,7 +32,7 @@ version = "0.16"
 version = "0.9"
 [dependencies.serde]
 version = "1"
-features = ["derive"]
+features = ["derive", "rc"]
 [dev-dependencies.tower]
 version = "0.5.3"
 features = ["util"]
@@ -79,7 +79,7 @@ version = "1.9"
 path = "../internal-api"
 [dependencies.tokio]
 version = "1.54.1"
-features = ["time"]
+features = ["macros", "sync", "time"]
 [dependencies.tower]
 version = "0.5.3"
 features = ["util"]
