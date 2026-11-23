@@ -318,6 +318,10 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     });
     Router::new()
         .route("/admin", get(page::<I, A>))
+        .route(
+            crate::client_build::PATH,
+            get(crate::client_build::page::<I, A>),
+        )
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
@@ -487,6 +491,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         session_proof: proof,
     };
     let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
+        (crate::client_build::PATH, _) => &[Permission::ManageDownloads],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -653,6 +658,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    client_build_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -807,6 +813,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let client_build_link = match s.auth.check(context, Permission::ManageDownloads).await {
+        Ok(()) => Some(text(lang, "build-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -816,6 +827,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        client_build_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s

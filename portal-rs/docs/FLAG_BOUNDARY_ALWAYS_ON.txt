@@ -208,3 +208,4 @@ public P /{lang}/support/tickets/{id}/attachments
 public P /{lang}/unsubscribe/confirm
 public P /{locale}/events/calendar/month
 public G /{lang}/admin/character-services
+public G /admin/client-build
