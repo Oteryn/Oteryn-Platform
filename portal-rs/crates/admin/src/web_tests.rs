@@ -138,6 +138,7 @@ fn localized_responsive_labelled_template() {
             reports_label: text(lang, "reports"),
             moderate_reports: true,
             mail_link: None,
+            incidents_link: Some(text(lang, "incident-title")),
             players_label: text(lang, "players"),
             players: true,
             account_label: text(lang, "account"),

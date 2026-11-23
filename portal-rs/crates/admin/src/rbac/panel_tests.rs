@@ -853,3 +853,176 @@ async fn generic_role_revocation_requires_a_nonterminating_survivor() -> TestRes
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn incident_index_uses_staff_session_boundary() -> TestResult {
+    let pool = PgPoolOptions::new().connect_lazy_with(sqlx::postgres::PgConnectOptions::new());
+    let app = router(
+        pool.clone(),
+        PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        crate::web::PendingAuthentication,
+        crate::web::PendingAuthentication,
+    );
+    let response = app
+        .oneshot(
+            Request::get("/admin/incidents")
+                .header("host", "staff.test")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    Ok(())
+}
+
+#[tokio::test]
+async fn incident_case_and_response_history_follow_assignment() -> TestResult {
+    let db = Fixture::open(5).await?;
+    let investigator = Uuid::now_v7();
+    insert_account(&db, db.actor.account, "active").await?;
+    insert_account(&db, investigator, "active").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(investigator).execute(&db.pool).await?;
+    let (cookie, csrf) = browser(&db).await?;
+    let alarm: Uuid = sqlx::query_scalar(
+        "INSERT INTO audit_log (action, target, before, after, request_id)
+         VALUES ('ops.playerdata_binding_conflict', 'binding-reference', 'null',
+                 '{\"record_id\":\"raw-alarm-marker\"}', uuidv7()) RETURNING id",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    let create = |world: &str, authorized: bool| {
+        let mut request = Request::post("/admin/incidents")
+            .header("host", "staff.test")
+            .header("cookie", &cookie)
+            .header("origin", "https://staff.test")
+            .header("content-type", "application/x-www-form-urlencoded");
+        if authorized {
+            request = request.header("x-csrf-token", &csrf);
+        }
+        request.body(Body::from(format!(
+            "investigator={}&world_id={world}&node_id=&character_id=hero-1&account_ref=&alarm_id={alarm}",
+            db.actor.account,
+        )))
+    };
+    let missing_token = app(&db).oneshot(create("world-1", false)?).await?;
+    assert_eq!(missing_token.status(), StatusCode::FORBIDDEN);
+    let bad_scope = app(&db).oneshot(create("world%2F1", true)?).await?;
+    assert_eq!(bad_scope.status(), StatusCode::BAD_REQUEST);
+    let opened = app(&db).oneshot(create("world-1", true)?).await?;
+    assert_eq!(opened.status(), StatusCode::SEE_OTHER);
+    let duplicate = app(&db).oneshot(create("world-1", true)?).await?;
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    let path = opened
+        .headers()
+        .get("location")
+        .ok_or("case location")?
+        .to_str()?;
+    let id: Uuid = path.rsplit('/').next().ok_or("case id")?.parse()?;
+
+    let preview: Uuid = sqlx::query_scalar(
+        "WITH requests AS (INSERT INTO admin_control_requests
+         (request_id,admin_operation_id,operation,operation_version,kind,target,params,params_digest,
+          dry_run,risk_class,actor,reason,approvals,issued_at,expires_at,nonce,signer_key_id,canonical_envelope,signature,status)
+         SELECT uuidv7(),uuidv7(),operation,1,'command',jsonb_build_object('world_id',world,'character_id',subject),
+                '{}',decode(repeat('00',32),'hex'),true,'R4',$1,jsonb_build_object('ticket_ref',$2::text),'[]',
+                now(),now()+interval '2 minutes',decode(repeat('00',16),'hex'),'test','x',
+                decode(repeat('00',64),'hex'),'succeeded'
+         FROM (VALUES ('case.operation','world-1','hero-1'),
+                      ('foreign.operation','world-2','hero-1'),
+                      ('other.character','world-1','hero-2')) AS scopes(operation,world,subject)
+         RETURNING request_id, operation)
+         SELECT request_id FROM requests WHERE operation='case.operation'",
+    )
+    .bind(db.actor.account)
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO admin_control_previews (id,requester,operation,permission,intent_digest,preview_digest,preview,reason)
+         VALUES($1,$2,'case.operation','game.ops.read',repeat('0',64),repeat('1',64),
+                '{\"message\":\"raw-preview-marker\"}', '{}')",
+    )
+    .bind(preview)
+    .bind(db.actor.account)
+    .execute(&db.pool)
+    .await?;
+    let approve = |actor| {
+        sqlx::query_scalar::<_, Uuid>(
+            "INSERT INTO admin_control_approvals (id,preview_id,admin_id,step_up_at,approved_at)
+             VALUES(uuidv7(),$1,$2,1,2) RETURNING id",
+        )
+        .bind(preview)
+        .bind(actor)
+    };
+    assert!(approve(db.actor.account).fetch_one(&db.pool).await.is_err());
+    let approval = approve(investigator).fetch_one(&db.pool).await?;
+    sqlx::query(
+        "INSERT INTO audit_log (action,target,before,after,request_id)
+         VALUES ('admin.control.transition',$1::uuid::text,'null','{\"status\":\"succeeded\"}',$1)",
+    )
+    .bind(preview)
+    .execute(&db.pool)
+    .await?;
+
+    let get = |path: &str| {
+        Request::get(path)
+            .header("host", "staff.test")
+            .header("cookie", &cookie)
+            .header("accept-language", "en")
+            .body(Body::empty())
+    };
+    let detail = app(&db).oneshot(get(path)?).await?;
+    assert_eq!(detail.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(detail.into_body(), 100_000).await?.to_vec())?;
+    for text in [
+        "Binding conflict alarm",
+        "Independent approval recorded",
+        "<strong>Platform recorded ADM status</strong> · Succeeded",
+        "Unavailable",
+        "case.operation",
+        &approval.to_string(),
+    ] {
+        assert!(html.contains(text), "{text}");
+    }
+    for text in [
+        "foreign.operation",
+        "other.character",
+        "raw-alarm-marker",
+        "raw-preview-marker",
+    ] {
+        assert!(!html.contains(text), "{text}");
+    }
+    let viewed: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='incident.viewed' AND target=$2",
+    )
+    .bind(db.actor.account)
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(viewed, 1);
+    let inverted = format!("{path}?from=2026-11-02&through=2026-11-01");
+    assert_eq!(
+        app(&db).oneshot(get(&inverted)?).await?.status(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let reassign = Request::post("/admin/incidents/assign")
+        .header("host", "staff.test")
+        .header("cookie", &cookie)
+        .header("x-csrf-token", &csrf)
+        .header("origin", "https://staff.test")
+        .header("content-type", "application/x-www-form-urlencoded")
+        .body(Body::from(format!(
+            "case_id={id}&investigator={investigator}"
+        )))?;
+    let reassigned = app(&db).oneshot(reassign).await?;
+    assert_eq!(reassigned.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        app(&db).oneshot(get(path)?).await?.status(),
+        StatusCode::NOT_FOUND
+    );
+    db.close().await
+}
