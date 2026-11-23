@@ -49,7 +49,9 @@ test('two players trade, report harassment, appeal through support and face staf
       expect(await query('SELECT name FROM world_status WHERE id=$1', [world]))
         .toEqual([{ name: 'Local Bazaar World' }]);
       expect((await buyer.page.request.get('/admin/moderation/enforcement')).status()).toBe(403);
-      expect((await moderator.page.request.get('/admin/moderation/reports')).status()).toBe(403);
+      expect((await moderator.page.request.get('/admin/moderation/reports')).status()).toBe(200);
+      expect((await buyer.page.request.get('/admin/moderation/reports')).status()).toBe(403);
+      expect((await moderator.page.request.get('/admin/roles')).status()).toBe(403);
       expect((await buyer.page.request.get('/admin/console/audit')).status()).toBe(403);
       expect((await support.page.request.get('/admin/moderation/enforcement')).status()).toBe(403);
       const anonymousReport = await request.get(local('support/reports'), { maxRedirects: 0 });
@@ -246,11 +248,10 @@ test('two players trade, report harassment, appeal through support and face staf
 
     await test.step('The moderator issues a restriction and B loses the party posting form', async () => {
       await follow(moderator.page, '/admin/moderation/enforcement/create');
-      const now = Math.floor(Date.now() / 1000);
-      const create = main(moderator).locator('form:has(input[value="sanction"])');
+      const create = main(moderator).locator('form:has(input[value="apply_sanction"])');
       await clickForm(moderator.page, create, {
-        target: buyer.id, category: 'restriction', status: 'active', public_reason: evidence,
-        moderator_notes: `Player report ${report}`, effective_at: String(now - 1), expires_at: String(now + 3600),
+        target: buyer.id, category: 'restriction', duration_hours: '1', public_reason: evidence,
+        moderator_notes: `Player report ${report}`,
       });
       await expect(moderator.page).toHaveURL(/\/moderation\/enforcement\/[a-f0-9-]+$/);
       sanction = lastSegment(moderator);
@@ -285,10 +286,10 @@ test('two players trade, report harassment, appeal through support and face staf
       await follow(support.page, `/admin/support/tickets/${ticket}`);
       await expect(main(support)).toContainText(evidence);
       const reply = t('Support received your request for review.', 'Pomoc otrzymała prośbę o ponowne rozpatrzenie.');
-      await clickForm(support.page, main(support).locator('form:has(input[value="reply"])'), { body: reply });
+      await clickForm(support.page, main(support).locator('form:has(input[value="reply"])'), { body: reply, reason: evidence });
       await expect(main(support)).toContainText(reply);
       await clickForm(support.page, main(support).locator('form:has(input[value="ticket_status"])'), {
-        status: 'resolved',
+        status: 'resolved', reason: evidence,
       });
       await expect(main(support)).toContainText(t('Resolved', 'Rozwiązane'));
       await buyer.page.reload();
