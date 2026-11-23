@@ -253,10 +253,17 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            "action=create&key=missing_reason".into()
+            "action=create&key=invalid_reason&reason=unapproved".into()
         )
         .await?,
         StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert!(
+        !sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM roles WHERE key='invalid_reason')"
+        )
+        .fetch_one(&db.pool)
+        .await?
     );
     assert_eq!(
         post(

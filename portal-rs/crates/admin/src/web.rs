@@ -1209,7 +1209,15 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
             .await;
             return staff_action_response(&s.pool, context.account, result, chrome).await;
         }
-        "revoke" => revoke(&s, context, form.account, form.role, reason).await,
+        "revoke" => {
+            if form.account.is_nil() || form.role.is_nil() {
+                return invalid();
+            }
+            if reason.is_empty() {
+                return staff_actions::Error::Reason.response(chrome);
+            }
+            revoke(&s, context, form.account, form.role, reason).await
+        }
         _ => return invalid(),
     };
     match result {

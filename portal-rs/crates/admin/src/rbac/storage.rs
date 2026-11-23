@@ -149,6 +149,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         }
         Ok(AuditChange::RoleCreated {
             role: create_role::<A>(connection, context.account, key, permissions).await?,
+            key: key.to_owned(),
             permissions: permissions.to_vec(),
         })
     }
@@ -184,6 +185,10 @@ impl<A: AccountStateReader> Authorizer<A> {
         else {
             return Ok(());
         };
+        let delegates_grant = permissions.contains(&Permission::GrantRoles)
+            && !before
+                .iter()
+                .any(|name| name == Permission::GrantRoles.as_str());
         let snapshot = AuditChange::RolePermissions {
             role,
             before: before
@@ -193,7 +198,7 @@ impl<A: AccountStateReader> Authorizer<A> {
             after: permissions.clone(),
         };
         if protected {
-            if !grant_confirmation || action.reason.is_empty() {
+            if !grant_confirmation || (action.reason.is_empty() && !delegates_grant) {
                 return Err(Forbidden);
             }
             let reason = staff_actions::validated_reason(&guard, &action)?;
@@ -213,7 +218,14 @@ impl<A: AccountStateReader> Authorizer<A> {
             .await;
         }
         write_permission_edit(&mut tx, role, &permissions).await?;
-        staff_actions::record(&mut tx, actor, Uuid::now_v7(), snapshot, None).await?;
+        staff_actions::record(
+            &mut tx,
+            actor,
+            Uuid::now_v7(),
+            snapshot,
+            (!action.reason.is_empty()).then_some(action.reason),
+        )
+        .await?;
         self.check_in(&mut tx, actor, Permission::ManageRoles)
             .await?;
         self.check_in(&mut tx, actor, Permission::Access).await?;

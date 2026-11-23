@@ -212,7 +212,13 @@ test('report creation, validation, staff decisions and public history', async ({
           await expect(player.locator('main')).not.toContainText('Staff-only report note');
         }
         await expect(form).toHaveCount(0);
-        await mutation(staff, detail(staff), { ...closedForm, lock_version: Number(closedForm.lock_version) + 1, status: 'reviewing' }, 409);
+        await mutation(staff, detail(staff), {
+          ...closedForm,
+          lock_version: Number(closedForm.lock_version) + 1,
+          status: 'reviewing',
+          public_outcome: 'Attempted reopening',
+          moderator_notes: 'Staff-only report note',
+        }, 409);
       }
       await open(staff, enforcement, 403);
     });
@@ -330,7 +336,7 @@ test('support searches players, adds notes, revokes sessions and requests a two-
         .toHaveCount(1);
       await open(staff, players + '?q=bad-search', 400);
       await open(staff, path);
-      await submitForm(playerForm(staff, 'note'), { body: 'New internal player note', reason: 'support_case' }, { bad: { body: ' ', expected: 422 } });
+      await submitForm(playerForm(staff, 'note'), { body: 'New internal player note', reason: 'support_case' }, { bad: { body: ' ', expected: 400 } });
       await expect(staff.getByRole('heading', { name: p.notes }).locator('..').getByRole('listitem'))
         .toHaveText('New internal player note');
       if (lang === 'pl') {

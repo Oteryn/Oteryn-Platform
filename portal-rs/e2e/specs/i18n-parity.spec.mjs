@@ -518,7 +518,10 @@ function routeContract(target, inventoryStatus, actor, locale) {
   const [, prefix] = /^\/(en|pl)(?=\/|$)/u.exec(target) ?? [];
   const lang = prefix ?? locale;
   const route = prefix ? target.slice(prefix.length + 1) : target;
-  const coldProjection = route === '/wiki/creatures' || /^\/characters\/[^/]+\/skills$/u.test(route);
+  const ownedCharacter = `/account/characters/${encodeURIComponent(ownedCharacterName)}`;
+  const coldOwnerProjection = ['achievements', 'equipment', 'outfit']
+    .some(tab => route === `${ownedCharacter}/${tab}`);
+  const coldProjection = coldOwnerProjection || route === '/wiki/creatures' || /^\/characters\/[^/]+\/skills$/u.test(route);
   const missingFixture = /^\/(?:shop\/test-checkout\/[^/]+|account\/characters\/[^/]+\/(?:achievements|equipment|outfit))$/u.test(route);
   const missingInvite = /^\/referrals\/[^/]+$/u.test(route);
   let status = inventoryStatus ?? (coldProjection ? 503 : missingFixture ? 404 : missingInvite ? 403 : 200);

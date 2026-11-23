@@ -233,9 +233,10 @@ fn localized_responsive_labelled_template() {
             next: None,
         };
         let html = page.render().unwrap();
-        assert!(html.contains("return_to=roles"));
+        let confirm = format!("href=\"/{lang}/admin/roles/confirm\"");
+        assert!(html.contains(&confirm));
         page.can_grant = false;
-        assert!(!page.render().unwrap().contains("return_to=roles"));
+        assert!(!page.render().unwrap().contains(&confirm));
         assert!(html.contains(&format!(r#"href="{REPORTS_PATH}">{reports_label}</a>"#)));
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));

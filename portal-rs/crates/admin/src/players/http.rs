@@ -470,6 +470,11 @@ async fn apply_change<A: AccountStateReader, I: Accounts>(
 ) -> Result<Response, Error> {
     let mut location = format!("/admin/players/{id}");
     if let Some(field) = edits::Field::parse(&form.action) {
+        if field == edits::Field::Note && super::valid_text(&form.body, 4000).is_err() {
+            s.check(context, Permission::ManageSupportTickets).await?;
+            s.target(id).await?;
+            return Err(Error::BadInput);
+        }
         let view_authority = guard.authority.clone();
         let result = staff_actions::run(
             &s.pool,

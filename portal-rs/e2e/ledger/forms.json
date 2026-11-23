@@ -1413,7 +1413,7 @@
   },
   {
     "template": "templates/admin/roles.html",
-    "line": 20,
+    "line": 19,
     "action": "/admin/roles",
     "method": "POST",
     "route_pattern": "/admin/roles",
@@ -1432,7 +1432,7 @@
   },
   {
     "template": "templates/admin/roles.html",
-    "line": 30,
+    "line": 29,
     "action": "/admin/roles",
     "method": "POST",
     "route_pattern": "/admin/roles",

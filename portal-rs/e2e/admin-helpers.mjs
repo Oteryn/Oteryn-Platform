@@ -51,7 +51,7 @@ export async function roleAction(page, operation, fields, status) {
     if (screen !== page) await screen.goto(page.url());
     const button = screen.locator(`button[name="action"][value="${operation}"]`);
     const form = screen.locator('main form').filter({ has: button });
-    const input = operation === "grant" ? { reason: "role_assignment", ...fields } : fields;
+    const input = ['grant', 'revoke'].includes(operation) ? { reason: 'role_assignment', ...fields } : fields;
     for (const [name, value] of Object.entries(input)) {
       const field = form.locator(`[name="${name}"]`);
       if (await field.evaluate(element => element.tagName === 'SELECT')) {

@@ -121,6 +121,7 @@ pub enum AuditChange {
     },
     RoleCreated {
         role: Uuid,
+        key: String,
         permissions: Vec<Permission>,
     },
     RolePermissions {
@@ -163,7 +164,7 @@ impl AuditChange {
         let permissions = |permissions: Vec<Permission>| {
             let mut names: Vec<_> = permissions.into_iter().map(Permission::as_str).collect();
             names.sort_unstable();
-            json!({"permissions": names})
+            names
         };
         match self {
             Self::Commerce(change) => change.project(),
@@ -175,12 +176,13 @@ impl AuditChange {
             ),
             Self::RoleCreated {
                 role,
+                key,
                 permissions: assigned,
             } => (
                 "rbac.role.created",
                 role,
                 Value::Null,
-                permissions(assigned),
+                json!({"key": key, "permissions": permissions(assigned)}),
             ),
             Self::RolePermissions {
                 role,
@@ -189,8 +191,8 @@ impl AuditChange {
             } => (
                 "rbac.role.permissions_changed",
                 role,
-                permissions(before),
-                permissions(after),
+                json!({"permissions": permissions(before)}),
+                json!({"permissions": permissions(after)}),
             ),
             Self::AccountNote { account, note } => (
                 "players.note.added",
