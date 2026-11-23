@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="{{ locale.code }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ locale.label("journal-title") }}</title>
+  <link rel="stylesheet" href="/static/playerdata/journal.css">
+</head>
+<body>
+<main id="main" class="op-stack journal">
+  <h1>{{ locale.label("journal-title") }}</h1>
+  {% if operator %}<p><a href="{{ locale.url() }}/status">{{ locale.label("journal-operator") }}</a></p>{% endif %}
+  <section class="op-panel op-stack" aria-labelledby="goals-heading">
+    <h2 id="goals-heading">{{ locale.label("goals") }}</h2>
+    <p>{{ locale.label("journal-personal") }}</p>
+    <form class="op-stack" method="post" action="{{ locale.url() }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="request_id" value="{{ request_id }}">
+      <label for="title">{{ locale.label("journal-goal-title") }}</label>
+      <input class="op-input" id="title" name="title" required maxlength="120" dir="auto">
+      <label for="kind">{{ locale.label("journal-goal-kind") }}</label>
+      <select class="op-input" id="kind" name="kind">
+        {% for kind in kinds %}
+        <option value="{{ kind }}">{{ locale.label(kind) }}</option>
+        {% endfor %}
+      </select>
+      <label for="remind-on">{{ locale.label("journal-remind-on") }}</label>
+      <input class="op-input" type="date" id="remind-on" name="remind_on" aria-describedby="reminder-help">
+      <p id="reminder-help">{{ locale.label("journal-reminder-help") }}</p>
+      <button class="op-button" type="submit">{{ locale.label("journal-add") }}</button>
+    </form>
+    {% if goals.is_empty() %}<p>{{ locale.label("journal-no-goals") }}</p>{% endif %}
+    {% for goal in goals %}
+    <article class="op-panel op-stack" data-goal="{{ goal.id }}">
+      <h3 dir="auto">{{ goal.title }}</h3>
+      <p>{{ locale.label(goal.kind.as_str()) }}</p>
+      {% if let Some(date) = goal.remind_on %}
+      <p>{{ locale.label("journal-reminder") }} <time datetime="{{ date }}">{{ date }}</time></p>
+      {% endif %}
+      {% if goal.completed %}
+      <p>{{ locale.label("completed") }}</p>
+      {% else if goal.due %}
+      <p role="status" data-reminder="due">{{ locale.label("journal-due") }}</p>
+      {% endif %}
+      <form method="post" action="{{ locale.url() }}/goals/{{ goal.id }}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        {% if !goal.completed %}
+        <button class="op-button" name="action" value="complete">{{ locale.label("journal-complete") }}</button>
+        {% endif %}
+        <button class="op-button" name="action" value="delete">{{ locale.label("journal-delete") }}</button>
+      </form>
+    </article>
+    {% endfor %}
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="observation-heading">
+    <h2 id="observation-heading">{{ locale.label("journal-observations") }}</h2>
+    {% if !characters.is_empty() %}
+    <form class="op-stack" method="get" action="{{ locale.url() }}">
+      <label for="character">{{ locale.label("journal-character") }}</label>
+      <select class="op-input" id="character" name="character">
+        {% for (id, name) in characters %}
+        <option value="{{ id }}"{% if selected.as_ref() == Some(id) %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+      <button class="op-button" type="submit">{{ locale.label("journal-view") }}</button>
+    </form>
+    {% endif %}
+    {% for section in sections %}
+    <section aria-labelledby="observation-{{ section.family }}" class="op-stack">
+      <h3 id="observation-{{ section.family }}">{{ locale.label(section.family) }}</h3>
+      <p>{{ locale.label(section.state) }}</p>
+      {% for row in section.rows %}
+      <article class="op-panel">
+        <p><time datetime="{{ row.when }}">{{ row.when }}</time></p>
+        <dl>
+          {% for (label, value) in row.details %}
+          <dt>{{ label }}</dt>
+          <dd>{{ value }}</dd>
+          {% endfor %}
+        </dl>
+      </article>
+      {% endfor %}
+    </section>
+    {% endfor %}
+    <p><a href="/{{ locale.code }}/account/game-logins">{{ locale.label("game_login") }}</a></p>
+  </section>
+</main>
+</body>
+</html>

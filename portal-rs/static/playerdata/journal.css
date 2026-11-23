@@ -1,0 +1,12 @@
+.journal {
+  overflow-wrap: anywhere;
+}
+.journal .op-input {
+  box-sizing: border-box;
+  inline-size: 100%;
+  max-inline-size: 28rem;
+  min-inline-size: 0;
+}
+.journal form > .op-button {
+  margin-block-end: .375rem;
+}

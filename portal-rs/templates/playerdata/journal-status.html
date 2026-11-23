@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="{{ locale.code }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ locale.label("journal-operator") }}</title>
+</head>
+<body>
+<main id="main" class="op-stack">
+  <h1>{{ locale.label("journal-operator") }}</h1>
+  <p><a href="{{ locale.url() }}">{{ locale.label("journal-title") }}</a></p>
+  <section class="op-panel op-stack" aria-labelledby="configuration-heading">
+    <h2 id="configuration-heading">{{ locale.label("journal-configuration") }}</h2>
+    <dl>
+      <dt>{{ locale.label("journal-ingest-flag") }}</dt>
+      <dd>{{ locale.toggle(ingest) }}</dd>
+      <dt>{{ locale.label("journal-read-flag") }}</dt>
+      <dd>{{ locale.toggle(read) }}</dd>
+      <dt>{{ locale.label("journal-source") }}</dt>
+      <dd>{{ locale.toggle(source_configured) }}</dd>
+      <dt>{{ locale.label("journal-peer") }}</dt>
+      <dd>{{ locale.toggle(peer_configured) }}</dd>
+    </dl>
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="family-heading">
+    <h2 id="family-heading">{{ locale.label("journal-families") }}</h2>
+    <p>{{ locale.label("journal-qualification") }}</p>
+    <dl>
+      {% for (family, state) in families %}
+      <dt>{{ locale.label(family) }}</dt>
+      <dd>{{ locale.label(state) }}</dd>
+      {% endfor %}
+    </dl>
+  </section>
+</main>
+</body>
+</html>

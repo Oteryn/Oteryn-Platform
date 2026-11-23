@@ -3092,3 +3092,94 @@ async fn collection_evidence_requires_current_ownership_and_valid_character_id()
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn journal_reads_only_a_current_published_owner_observation() {
+    use super::progress_read::read_character_progress;
+    use crate::store::Freshness;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    seller(&db).await;
+    db.create(SELLER, CHARACTER, WORLD, ["9", "12", "1789998000"])
+        .await;
+    let app = app(&db, Arc::new(FixedClock(PROGRESS_NOW)), true);
+    let character = Uuid::parse_str(CHARACTER).unwrap();
+    let owner = Uuid::parse_str(SELLER).unwrap();
+    let other = Uuid::parse_str(BUYER).unwrap();
+    let read = |account, unix_ms| {
+        read_character_progress(
+            &db.pool,
+            account,
+            character,
+            PROGRESS_AUTHORITY,
+            "stamina",
+            TrustedTime {
+                unix_ms,
+                uncertainty_ms: 0,
+            },
+        )
+    };
+    assert_eq!(
+        record(&app, &progress("record-stamina.invalid.json"))
+            .await
+            .0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        record(&app, &progress("record-stamina.valid.json")).await.0,
+        StatusCode::OK
+    );
+    assert!(matches!(
+        read(owner, PROGRESS_NOW).await,
+        Err(Error::Unavailable)
+    ));
+    assert_eq!(
+        post(
+            &app,
+            PROGRESS_SAN,
+            http::PROGRESS_WATERMARK_PATH,
+            &progress("watermark-baseline.valid.json")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    let (state, rows) = read(owner, PROGRESS_NOW).await.unwrap();
+    assert!(matches!(state, Freshness::Fresh));
+    assert_eq!(rows.len(), 1);
+    let value = serde_json::to_value(&rows[0].payload).unwrap();
+    assert_eq!(value["stamina_minutes"], 2400);
+    assert!(matches!(
+        read(other, PROGRESS_NOW).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        read(owner, PROGRESS_NOW + 10_001).await,
+        Err(Error::Unavailable)
+    ));
+    db.pending_transfer(CHARACTER).await;
+    assert!(matches!(
+        read(owner, PROGRESS_NOW).await,
+        Err(Error::Unavailable)
+    ));
+    db.close().await;
+}
+
+#[test]
+fn quest_record_requires_an_accepted_definition_mapping() {
+    let envelope = progress("record-stamina.valid.json");
+    let (prefix, _) = envelope.split_once("\"payload\":").unwrap();
+    let prefix = prefix
+        .replace("\"family\":\"stamina\"", "\"family\":\"quest\"")
+        .replace(
+            "\"entity_key\":\"stamina\"",
+            "\"entity_key\":\"quest/example\"",
+        );
+    let payload = progress("payload-quest.valid.json");
+    let bytes = format!(r#"{prefix}"payload":{payload}}}"#);
+    let record = oteryn_internal_api::playerdata::progress(bytes.as_bytes()).unwrap();
+    assert!(matches!(DbLease.validate(&record), Err(Error::Unavailable)));
+}

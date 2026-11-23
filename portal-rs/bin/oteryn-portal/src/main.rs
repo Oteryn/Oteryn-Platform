@@ -390,6 +390,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_playerdata::hunts::web::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::items::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::dashboard::configured_router());
+            let app = app.merge(oteryn_playerdata::progress::web::router(db.clone()));
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 db.clone(),
             ));
