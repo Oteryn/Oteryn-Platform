@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, logout, mailLink, password, seedPasswordRange, submit } from '../helpers.mjs';
 import {
-  clickPost, identityEmail, identityQuery, localized, localizedPage,
+  identityEmail, identityQuery, localized, localizedPage,
   seedBreachedPassword, signIn, waitForIdentityBudget,
 } from '../identity-helpers.mjs';
 
@@ -12,7 +12,7 @@ const registrationPolicies = [
 ];
 
 test('registration validates every field, current consent versions and breached passwords', async ({ page }, info) => {
-  test.setTimeout(180_000);
+  test.setTimeout(420_000);
   const locale = info.project.metadata.locale;
   const t = (en, pl) => localized(locale, en, pl);
   const path = `/${locale}/register`;
@@ -45,9 +45,22 @@ test('registration validates every field, current consent versions and breached 
   }
   const form = page.locator('main form');
   const button = form.getByRole('button', { name: t('Register', 'Zarejestruj się'), exact: true });
+  // The browser solves the registration challenge before issuing its form POST.
+  // Observe that navigation separately from the helper's missing-CSRF probe.
+  async function expectRegistrationRefusal(trigger) {
+    const posted = page.waitForResponse(
+      response => response.request().isNavigationRequest() && response.request().method() === 'POST'
+        && new URL(response.url()).pathname === path,
+      { timeout: 90_000 },
+    );
+    const [result] = await Promise.all([posted, trigger()]);
+    expect(result.status()).toBe(422);
+  }
   // Disable the browser's built-in validation to exercise the server's field errors.
   await form.evaluate(element => { element.noValidate = true; });
-  await submit(page, 'main form', { email: 'invalid', password: 'short', password_confirmation: 'different' });
+  await expectRegistrationRefusal(() => submit(page, 'main form', {
+    email: 'invalid', password: 'short', password_confirmation: 'different',
+  }));
   await expect(page.getByRole('alert')).toHaveText(t('Please correct the fields below.', 'Popraw poniższe pola.'));
   const consentError = t('Accept the current document version.', 'Zaakceptuj aktualną wersję dokumentu.');
   for (const [id, message] of [
@@ -67,7 +80,7 @@ test('registration validates every field, current consent versions and breached 
   await form.locator('[name=email]').fill(email);
   await form.locator('[name=password]').fill(breached);
   await form.locator('[name=password_confirmation]').fill(breached);
-  expect((await clickPost(page, button, path)).status()).toBe(422);
+  await expectRegistrationRefusal(() => button.click());
   await expect(page.locator('#terms-error')).toHaveText(consentError);
   await expect(page.locator('#privacy-error')).toHaveText(consentError);
 
@@ -90,9 +103,9 @@ test('registration validates every field, current consent versions and breached 
   ))).toBe(true);
 
   await waitForIdentityBudget(registrationPolicies, 4);
-  await submit(page, 'main form', {
+  await expectRegistrationRefusal(() => submit(page, 'main form', {
     email, password: breached, password_confirmation: breached, terms: true, privacy: true,
-  });
+  }));
   await expect(page.locator('main').getByText(t(
     'This password appears in a data breach. Choose a different password.',
     'To hasło występuje w wycieku danych. Wybierz inne hasło.',
