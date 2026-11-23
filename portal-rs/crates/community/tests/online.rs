@@ -44,6 +44,7 @@ async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::err
     let db = PgPool::connect_with(options).await?;
     sqlx::raw_sql(concat!(
         include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
+        include_str!("../../../migrations/20261105190000_t25_world_registry.sql"),
         include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql")
     ))
     .execute(&db)
@@ -56,7 +57,11 @@ async fn database() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::err
         "11111111-1111-7111-8111-111111111111",
         "22222222-2222-7222-8222-222222222222",
     ] {
-        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('world_online',$1,1,1,1,$2)")
+        sqlx::query("INSERT INTO world_status(id,name) VALUES($1::text::uuid,$1::text)")
+            .bind(world)
+            .execute(&db)
+            .await?;
+        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('world_online',$1,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,$2)")
             .bind(world).bind(serde_json::json!({"world_id":world,"characters":[{"name":"Zed","level":"100","vocation":1},{"name":"Alice","level":"9","vocation":2},{"name":"Hidden","level":"999","vocation":3},{"name":"<script>","level":"2","vocation":0}]})).execute(&db).await?;
     }
     sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online','',true,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,'null')")
@@ -76,8 +81,8 @@ async fn scenario(case: &str) -> TestResult {
     let Some((root, db, schema)) = database().await? else {
         return Ok(());
     };
-    if case == "fresh" {
-        sqlx::query("UPDATE public_snapshots SET watermark=extract(epoch FROM now())::bigint")
+    if case == "stale" {
+        sqlx::query("UPDATE public_snapshots SET watermark=1 WHERE NOT is_watermark")
             .execute(&db)
             .await?;
     }
@@ -88,6 +93,11 @@ async fn scenario(case: &str) -> TestResult {
     }
     if case == "unavailable_without_cut" {
         sqlx::query("DELETE FROM public_snapshots WHERE is_watermark")
+            .execute(&db)
+            .await?;
+    }
+    if case == "no_world_snapshots" {
+        sqlx::query("DELETE FROM public_snapshots WHERE NOT is_watermark")
             .execute(&db)
             .await?;
     }
@@ -135,10 +145,22 @@ async fn scenario(case: &str) -> TestResult {
             assert!(html.contains("Temporarily unavailable"));
             assert!(!html.contains("Alice"));
         }
+        "stale" => {
+            assert_eq!(status, StatusCode::OK);
+            assert!(html.contains("Data is stale"));
+            assert!(html.contains("Data as of: 1970-01-01 00:00:01"));
+            assert!(!html.contains("Alice"));
+            assert!(!html.contains("Visible characters online:"));
+        }
         "epoch" | "watermark_epoch" => {
             assert_eq!(status, StatusCode::OK);
             assert!(!html.contains("Alice"));
             assert_eq!(html.matches("<section").count(), 0);
+        }
+        "no_world_snapshots" => {
+            assert_eq!(status, StatusCode::OK);
+            assert!(html.contains("Temporarily unavailable."));
+            assert!(!html.contains("Visible characters online:"));
         }
         _ => {
             assert_eq!(status, StatusCode::OK);
@@ -154,13 +176,18 @@ async fn scenario(case: &str) -> TestResult {
             }
             if case == "filter" {
                 assert_eq!(html.matches("<section").count(), 1);
+                assert_eq!(
+                    request(
+                        app.clone(),
+                        "/en/online?world=33333333-3333-7333-8333-333333333333"
+                    )
+                    .await?
+                    .0,
+                    StatusCode::NOT_FOUND
+                );
             }
             if case == "fresh" {
                 assert!(!html.contains("Data is stale"));
-            }
-            if case == "stale" {
-                assert!(html.contains("Data is stale"));
-                assert!(html.contains("Data as of: 1970-01-01 00:00:01"));
             }
             if case == "list" {
                 assert_eq!(html.matches("<section").count(), 2);
@@ -204,6 +231,10 @@ db_test!(flag_off_404, "disabled");
 db_test!(bad_query_400, "bad");
 
 db_test!(fresh_snapshot, "fresh");
+db_test!(
+    fresh_cut_reports_missing_world_snapshots,
+    "no_world_snapshots"
+);
 db_test!(old_epoch_excluded, "epoch");
 db_test!(
     old_watermark_epoch_withholds_current_worlds,
@@ -319,6 +350,7 @@ async fn audit06_online_age_rechecked_after_privacy_wait() -> TestResult {
     let (status, html) = request(app, "/en/online").await?;
     assert_eq!(status, StatusCode::OK);
     assert!(html.contains("Data is stale"));
+    assert!(!html.contains("Visible characters online:"));
     db.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)

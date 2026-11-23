@@ -211,3 +211,7 @@ public P /{lang}/unsubscribe/confirm
 internal G /admin/native-login
 native G /admin/native-login
 public G /admin/native-login
+public G /{lang}/worlds/{world}/uptime
+public G /admin/world-status/{lang}/{world}
+public P /admin/world-status/{lang}/{world}
+public P /admin/world-status/{lang}/{world}/{incident}/resolve
