@@ -277,6 +277,7 @@ fn checkout_uses_the_requested_locale_for_copy_and_order_state() -> Result<(), a
         let html = page.render()?;
         assert!(html.contains(&format!("<html lang=\"{lang}\">")));
         assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
+        assert!(html.contains(&format!("<h1>{title}</h1>")));
         assert!(html.contains(&format!("<dd>{status}</dd>")));
         assert!(html.contains(&format!("<dd>{price}</dd>")));
         assert!(html.contains(pay));
@@ -311,7 +312,7 @@ impl CheckoutPage {
 
 fn checkout_language<'a>(chrome: Option<&'a Extension<Chrome>>, headers: &HeaderMap) -> &'a str {
     chrome.map_or_else(
-        || oteryn_web::negotiate(headers).code(),
+        || oteryn_web::Language::from_headers(headers).code(),
         |Extension(chrome)| chrome.lang.as_str(),
     )
 }
