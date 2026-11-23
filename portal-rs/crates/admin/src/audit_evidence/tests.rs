@@ -123,6 +123,49 @@ async fn daily_evidence_lifecycle() {
 }
 
 #[tokio::test]
+async fn daily_evidence_accepts_events_with_a_fixed_snapshot() {
+    let Some(_guard) = oteryn_db::test_support::global_lock_guard().await.unwrap() else {
+        return;
+    };
+    let Some((pool, root, schema)) = database().await else {
+        return;
+    };
+    let mut writer = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *writer)
+        .await
+        .unwrap();
+    let (today, day): (String, String) = sqlx::query_as(
+        "SELECT utc::text, (utc-1)::text
+         FROM (SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date AS utc) dates",
+    )
+    .fetch_one(&mut *writer)
+    .await
+    .unwrap();
+    let actor = CheckContext::new(Uuid::now_v7());
+    let first = store::export(&pool, &Auditor(true), actor, &day)
+        .await
+        .unwrap();
+    let event: (String, String) = sqlx::query_as(
+        "INSERT INTO audit_log (action, target, before, after, request_id, created_at)
+         VALUES ('test.action', 'test-target', '{}', '{}', uuidv7(),
+                 $1::text::date::timestamp AT TIME ZONE 'UTC')
+         RETURNING evidence_day::text, ((created_at AT TIME ZONE 'UTC')::date)::text",
+    )
+    .bind(&day)
+    .fetch_one(&mut *writer)
+    .await
+    .unwrap();
+    writer.commit().await.unwrap();
+    assert_eq!(event, (today, day.clone()));
+    let second = store::export(&pool, &Auditor(true), actor, &day)
+        .await
+        .unwrap();
+    assert_eq!(first, second);
+    close(pool, root, schema).await;
+}
+
+#[tokio::test]
 async fn daily_export_requires_a_matching_seal() {
     let Some(_guard) = oteryn_db::test_support::global_lock_guard().await.unwrap() else {
         return;
@@ -148,5 +191,42 @@ async fn daily_export_requires_a_matching_seal() {
         .await,
         Err(Error::Integrity)
     ));
+    close(pool, root, schema).await;
+}
+
+#[tokio::test]
+async fn oversized_day_remains_unsealed() {
+    let Some(_guard) = oteryn_db::test_support::global_lock_guard().await.unwrap() else {
+        return;
+    };
+    let Some((pool, root, schema)) = database().await else {
+        return;
+    };
+    let (_, day) = store::window(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO audit_log (action, target, before, after, request_id, created_at)
+         SELECT 'test.action', 'test-target', '{}', '{}', uuidv7(),
+                $1::text::date::timestamp AT TIME ZONE 'UTC'
+         FROM generate_series(1, 25001)",
+    )
+    .bind(&day)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        store::export(
+            &pool,
+            &Auditor(true),
+            CheckContext::new(Uuid::now_v7()),
+            &day
+        )
+        .await,
+        Err(Error::Limit)
+    ));
+    let seals: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_evidence_seals")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(seals, 0);
     close(pool, root, schema).await;
 }

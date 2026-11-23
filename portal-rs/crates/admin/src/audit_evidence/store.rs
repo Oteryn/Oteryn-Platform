@@ -11,6 +11,7 @@ use uuid::Uuid;
 const VERSION: &str = "oteryn-audit-evidence-v1";
 const RETENTION_DAYS: i32 = 90;
 const MAX_ENTRIES: i32 = 25_000;
+const EXPORTS_PER_MINUTE: i64 = 5;
 
 #[derive(Deserialize, Serialize)]
 struct Record {
@@ -81,7 +82,26 @@ pub(super) async fn window(pool: &PgPool) -> Result<(String, String), sqlx::Erro
     .await
 }
 
-async fn lock_day(connection: &mut PgConnection, day: &str) -> Result<(), Error> {
+pub(super) async fn charge_export(pool: &PgPool, account: Uuid) -> Result<(), Error> {
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count)
+         VALUES ('audit-evidence-export', sha256(uuid_send($1)), date_trunc('minute', statement_timestamp()), 1)
+         ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE
+         SET count = least(web_rate_limits.count + 1, $2 + 1)
+         RETURNING count, greatest(1, ceil(extract(epoch FROM
+             window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(account)
+    .bind(EXPORTS_PER_MINUTE)
+    .fetch_one(pool)
+    .await?;
+    if count > EXPORTS_PER_MINUTE {
+        return Err(Error::Limited(retry_after));
+    }
+    Ok(())
+}
+
+async fn check_window(connection: &mut PgConnection, day: &str) -> Result<(), Error> {
     let eligible: bool = sqlx::query_scalar(
         "SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date - $1::text::date BETWEEN 1 AND $2",
     )
@@ -92,14 +112,38 @@ async fn lock_day(connection: &mut PgConnection, day: &str) -> Result<(), Error>
     if !eligible {
         return Err(Error::OutsideWindow);
     }
-    sqlx::query("SELECT pg_advisory_xact_lock(20261124, $1::text::date - DATE '2000-01-01')")
-        .bind(day)
-        .execute(connection)
-        .await?;
     Ok(())
 }
 
+async fn lock_day(connection: &mut PgConnection, day: &str) -> Result<(), Error> {
+    check_window(connection, day).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(20261124, $1::text::date - DATE '2000-01-01')")
+        .bind(day)
+        .execute(&mut *connection)
+        .await?;
+    check_window(connection, day).await
+}
+
 async fn load(connection: &mut PgConnection, day: &str) -> Result<Vec<Record>, Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT greatest(
+            (SELECT count(*) FROM (
+                SELECT 1 FROM audit_log
+                WHERE coalesce(evidence_day, (created_at AT TIME ZONE 'UTC')::date) = $1::text::date
+                LIMIT $2
+            ) AS entries),
+            (SELECT count(*) FROM (
+                SELECT 1 FROM audit_evidence_records WHERE day = $1::text::date LIMIT $2
+            ) AS records)
+        )",
+    )
+    .bind(day)
+    .bind(MAX_ENTRIES + 1)
+    .fetch_one(&mut *connection)
+    .await?;
+    if count > i64::from(MAX_ENTRIES) {
+        return Err(Error::Limit);
+    }
     let rows: Vec<(Option<sqlx::types::Json<Record>>, Option<bool>)> = sqlx::query_as(
         "WITH entries AS (
              SELECT entry FROM audit_log AS entry
@@ -176,7 +220,9 @@ pub(super) async fn export(
     actor: CheckContext,
     day: &str,
 ) -> Result<Vec<u8>, Error> {
+    let read_committed = sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
     let mut tx = pool.begin().await?;
+    read_committed.execute(&mut *tx).await?;
     rbac::mutation_budget(&mut tx).await?;
     const PERMISSIONS: &[Permission] = &[Permission::Access, Permission::ViewAudit];
     for &permission in PERMISSIONS {

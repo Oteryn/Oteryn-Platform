@@ -17,11 +17,13 @@ pages and JSON remain unavailable. Export has no route (§10.4).
 Staff with a current MFA-backed session, `admin.access` and `audit.view` can
 download a verified completed UTC day from **Audit evidence** in the staff panel.
 The portal accepts the last 90 completed days, with a maximum of 25,000 entries
-per day. The export window does not delete source audit records or seals.
+per day and five export requests per minute per staff account. The export window
+does not delete source audit records or seals.
 Existing audit rows are captured by the migration using their UTC occurrence
 dates. New events use their UTC ingestion day by default. Explicitly dated events
-can join their original day until it is being sealed, and join the current open
-day if they arrive later. The original occurrence timestamp remains in the export.
+can join their original day in read-committed transactions until it is being
+sealed. Later arrivals and transactions with a fixed snapshot use the current
+open day. The original occurrence timestamp remains in the export.
 
 The first successful export seals the day. Subsequent exports verify against that
 same seal. The portal logs the day, version, count and head under

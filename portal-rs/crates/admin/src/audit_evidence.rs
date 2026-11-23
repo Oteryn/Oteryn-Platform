@@ -25,6 +25,8 @@ enum Error {
     OutsideWindow,
     #[error("audit evidence exceeds the daily export limit")]
     Limit,
+    #[error("audit evidence export quota reached")]
+    Limited(i64),
     #[error("audit evidence cannot be verified")]
     Integrity,
     #[error(transparent)]
@@ -43,6 +45,7 @@ impl Error {
             Self::Invalid => (StatusCode::BAD_REQUEST, "audit-evidence-invalid"),
             Self::OutsideWindow => (StatusCode::NOT_FOUND, "audit-evidence-window"),
             Self::Limit => (StatusCode::PAYLOAD_TOO_LARGE, "audit-evidence-limit"),
+            Self::Limited(_) => (StatusCode::TOO_MANY_REQUESTS, "audit-evidence-limited"),
             Self::Integrity => (StatusCode::CONFLICT, "audit-evidence-integrity"),
             Self::Authorization(rbac::Error::Denied) => {
                 (StatusCode::FORBIDDEN, "audit-evidence-denied")
@@ -52,7 +55,13 @@ impl Error {
                 "audit-evidence-unavailable",
             ),
         };
-        private((status, text(lang, key)).into_response())
+        let mut response = private((status, text(lang, key)).into_response());
+        if let Self::Limited(delay) = self {
+            response
+                .headers_mut()
+                .insert(header::RETRY_AFTER, header::HeaderValue::from(*delay));
+        }
+        response
     }
 }
 
@@ -131,6 +140,9 @@ pub(super) async fn export<I: StaffSession, A: AccountStateReader>(
         return Error::Invalid.response(lang);
     };
     if let Err(error) = parse_day(&form.day) {
+        return error.response(lang);
+    }
+    if let Err(error) = store::charge_export(&state.pool, actor.account).await {
         return error.response(lang);
     }
     match store::export(&state.pool, &authority, actor, &form.day).await {

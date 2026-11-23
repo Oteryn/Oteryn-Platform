@@ -75,6 +75,7 @@ audit-evidence-download = Zweryfikuj i pobierz JSON
 audit-evidence-invalid = Podaj prawidłową datę.
 audit-evidence-window = Ta data wykracza poza okres dostępności dowodów audytowych.
 audit-evidence-limit = Liczba wpisów z tego dnia przekracza limit eksportu w portalu.
+audit-evidence-limited = Zbyt wiele żądań eksportu. Spróbuj ponownie za chwilę.
 audit-evidence-integrity = Portal nie mógł zweryfikować dowodów z tego dnia.
 audit-evidence-denied = Nie masz uprawnień do eksportu dowodów audytowych.
 audit-evidence-unavailable = Dowody audytowe są tymczasowo niedostępne.

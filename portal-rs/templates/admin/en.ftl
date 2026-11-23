@@ -75,6 +75,7 @@ audit-evidence-download = Verify and download JSON
 audit-evidence-invalid = Enter a valid date.
 audit-evidence-window = This date is outside the audit evidence window.
 audit-evidence-limit = This day has too many entries for the portal to export.
+audit-evidence-limited = Too many export requests. Try again in a moment.
 audit-evidence-integrity = The portal could not verify the evidence for this date.
 audit-evidence-denied = You do not have permission to export audit evidence.
 audit-evidence-unavailable = Audit evidence is temporarily unavailable.

@@ -77,13 +77,43 @@ test('staff can verify and download a closed day of Platform audit evidence', as
   const restricted = await browser.newContext({ ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport, baseURL: origin });
   try {
     const staff = await restricted.newPage();
-    await seededStaff(staff, lang, 'support');
+    const support = await seededStaff(staff, lang, 'support');
     await staff.goto('/admin');
     await expect(staff.getByRole('link', { name: title })).toHaveCount(0);
     expect((await staff.goto(path)).status()).toBe(403);
+    const refusals = async () => (await query(
+      "SELECT count(*)::int AS count FROM audit_log WHERE actor=$1 AND target=$2 AND action='admin.access.denied'",
+      [support, path],
+    ))[0].count;
+    const previousRefusals = await refusals();
+    const sudo = `/${lang}/account/sudo`;
+    expect((await staff.goto(sudo)).status()).toBe(200);
+    const supportCsrf = await staff.locator('main form[method=post] input[name=_csrf]').inputValue();
+    const refusal = await staff.request.post(path, {
+      form: { day, _csrf: supportCsrf }, headers: { origin }, maxRedirects: 0,
+    });
+    expect(refusal.status()).toBe(403);
+    expect(await refusals()).toBe(previousRefusals + 1);
   } finally {
     await restricted.close();
   }
+  await query(
+    `INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count)
+     SELECT 'audit-evidence-export', sha256(uuid_send($1)),
+            date_trunc('minute', statement_timestamp()) + buckets.minutes * interval '1 minute', 5
+     FROM generate_series(0, 1) AS buckets(minutes)
+     ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE SET count = EXCLUDED.count`,
+    [actor],
+  );
+  const limited = await page.request.post(path, {
+    form: { day, _csrf: csrf }, headers: { origin, 'accept-language': lang },
+  });
+  expect(limited.status()).toBe(429);
+  expect(limited.headers()['cache-control']).toBe('no-store');
+  expect(Number(limited.headers()['retry-after'])).toBeGreaterThan(0);
+  expect(await limited.text()).toBe(lang === 'pl'
+    ? 'Zbyt wiele żądań eksportu. Spróbuj ponownie za chwilę.'
+    : 'Too many export requests. Try again in a moment.');
 });
 
 test('i18n-parity for audit evidence', () => {

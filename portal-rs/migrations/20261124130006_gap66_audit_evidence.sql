@@ -45,21 +45,34 @@ FROM audit_log AS entry;
 -- The matching exclusive lock in the exporter waits for pending writes and
 -- protects the transition from an open day to an immutable seal.
 CREATE FUNCTION assign_audit_evidence_day() RETURNS trigger LANGUAGE plpgsql AS $$
+DECLARE
+    open_day date;
 BEGIN
-    NEW.evidence_day := (clock_timestamp() AT TIME ZONE 'UTC')::date;
-    IF NEW.created_at <> transaction_timestamp() THEN
-        NEW.evidence_day := least((NEW.created_at AT TIME ZONE 'UTC')::date, NEW.evidence_day);
+    IF current_setting('transaction_isolation') IN ('read committed', 'read uncommitted')
+       AND NEW.created_at <> transaction_timestamp() THEN
+        NEW.evidence_day := least(
+            (NEW.created_at AT TIME ZONE 'UTC')::date,
+            (clock_timestamp() AT TIME ZONE 'UTC')::date
+        );
+        IF pg_try_advisory_xact_lock_shared(20261124, NEW.evidence_day - DATE '2000-01-01') THEN
+            IF NOT EXISTS (SELECT 1 FROM audit_evidence_seals WHERE day = NEW.evidence_day) THEN
+                RETURN NEW;
+            END IF;
+        END IF;
     END IF;
-    IF pg_try_advisory_xact_lock_shared(20261124, NEW.evidence_day - DATE '2000-01-01')
-       AND NOT EXISTS (SELECT 1 FROM audit_evidence_seals WHERE day = NEW.evidence_day) THEN
-        RETURN NEW;
-    END IF;
-    NEW.evidence_day := (clock_timestamp() AT TIME ZONE 'UTC')::date;
-    IF NOT pg_try_advisory_xact_lock_shared(20261124, NEW.evidence_day - DATE '2000-01-01')
-       OR EXISTS (SELECT 1 FROM audit_evidence_seals WHERE day = NEW.evidence_day) THEN
-        RAISE EXCEPTION 'no open audit evidence day' USING ERRCODE = '40001';
-    END IF;
-    RETURN NEW;
+    LOOP
+        open_day := (clock_timestamp() AT TIME ZONE 'UTC')::date;
+        IF pg_try_advisory_xact_lock_shared(20261124, open_day - DATE '2000-01-01') THEN
+            IF open_day = (clock_timestamp() AT TIME ZONE 'UTC')::date
+               AND NOT EXISTS (SELECT 1 FROM audit_evidence_seals WHERE day = open_day) THEN
+                NEW.evidence_day := open_day;
+                RETURN NEW;
+            END IF;
+        END IF;
+        IF open_day = (clock_timestamp() AT TIME ZONE 'UTC')::date THEN
+            RAISE EXCEPTION 'no open audit evidence day' USING ERRCODE = '40001';
+        END IF;
+    END LOOP;
 END;
 $$;
 CREATE TRIGGER audit_evidence_assign_day
