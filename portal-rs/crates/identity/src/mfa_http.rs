@@ -541,6 +541,7 @@ async fn login(
         crate::sessions_http::complete_login(&context.mfa.pool(), &session, account).await?;
         return home_or_return(language, &session).await;
     }
+    crate::login_http::record_failure(&context.mfa.pool()).await;
     refusal(language, &session, "/login").await
 }
 #[derive(Default, Deserialize)]
@@ -615,6 +616,7 @@ async fn challenge(
     {
         return establish(&context, language, &session, auth).await;
     }
+    crate::login_http::record_failure(&context.mfa.pool()).await;
     refusal(language, &session, "/mfa/challenge").await
 }
 async fn email(

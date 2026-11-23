@@ -334,6 +334,11 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             axum::routing::post(registration_policy::confirm::<I, A>),
         )
         .merge(crate::system::routes(pool))
+        .merge(crate::charts::routes(
+            state.pool.clone(),
+            std::env::var("OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED")
+                .is_ok_and(|value| value == "true"),
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -477,6 +482,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => &[Permission::ViewRegistrationPolicy],
         (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => &[Permission::ManageRegistrationPolicy, Permission::ViewRegistrationPolicy],
         ("/admin/system" | "/admin/system/data", _) => &[Permission::ViewSystem],
+        (crate::charts::PAGE | crate::charts::STYLESHEET, _) => &[Permission::AdminAnalyticsView],
+        (path, _) if path.starts_with("/admin/charts/") => &[Permission::AdminAnalyticsView, Permission::AdminAnalyticsExport],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
@@ -495,6 +502,16 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             };
         }
+    }
+    if configured_permissions.is_empty() && request.uri().path() == crate::charts::PAGE {
+        let export = s
+            .auth
+            .check(context, Permission::AdminAnalyticsExport)
+            .await
+            .is_ok();
+        request
+            .extensions_mut()
+            .insert(crate::charts::CanExport(export));
     }
     request.extensions_mut().insert(context);
     request
@@ -615,6 +632,8 @@ struct Page {
     errors_label: Option<String>,
     system_label: Option<String>,
     status_label: Option<String>,
+    charts_label: String,
+    can_view_charts: bool,
     account_label: String,
     role_label: String,
     grant: String,
@@ -749,6 +768,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .ok()
             .map(|()| crate::status::text(lang, "staff-title")),
+        charts_label: crate::charts::nav_label(lang),
+        can_view_charts: s
+            .auth
+            .check(context, Permission::AdminAnalyticsView)
+            .await
+            .is_ok(),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

@@ -1,0 +1,63 @@
+.staff-charts { min-width: 0; }
+.staff-charts h1, .staff-charts h2, .staff-charts h3, .staff-charts p, .staff-charts figure { margin: 0; }
+.staff-charts__filters, .staff-charts__grid, .staff-charts__series-grid {
+  display: grid;
+  gap: var(--op-space-4);
+}
+.staff-charts__filters {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+  align-items: end;
+}
+.staff-charts__grid, .staff-charts__card--wide .staff-charts__series-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+}
+.staff-charts__card { align-content: start; overflow-wrap: anywhere; }
+.staff-charts__card--wide { grid-column: 1 / -1; }
+.staff-charts__card--wide .staff-charts__series {
+  border-top: 1px solid var(--op-border);
+  padding-top: var(--op-space-3);
+}
+.staff-charts__card-heading, .staff-charts__periods {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--op-space-3);
+  flex-wrap: wrap;
+}
+.staff-charts__muted, .staff-charts #range-hint, .staff-charts figcaption {
+  color: var(--op-muted);
+  font-size: var(--op-type-sm);
+}
+.staff-charts__value {
+  color: var(--op-accent);
+  font-size: var(--op-type-2xl);
+  font-weight: var(--op-weight-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--op-leading-tight);
+}
+.staff-charts svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  fill: var(--op-accent);
+}
+.staff-charts__axis { stroke: var(--op-border); stroke-width: 2px; }
+.staff-charts figcaption { display: flex; justify-content: space-between; gap: var(--op-space-2); }
+.staff-charts summary { color: var(--op-accent); cursor: pointer; }
+.staff-charts table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-block-start: var(--op-space-2);
+  text-align: left;
+}
+.staff-charts caption { text-align: left; }
+.staff-charts th, .staff-charts td {
+  border-bottom: 1px solid var(--op-border);
+  padding: var(--op-space-2);
+}
+.staff-charts td { font-variant-numeric: tabular-nums; }
+@media (forced-colors: active) {
+  .staff-charts svg { fill: CanvasText; }
+  .staff-charts__axis { stroke: CanvasText; }
+}
+.staff-charts__scale { fill: var(--op-text); font-size: 24px; }
