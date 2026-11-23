@@ -3755,7 +3755,7 @@ test('staff refunds a real uncredited test payment through one independent appro
     const panel = '/admin/commerce';
     expect((await proposer.screen.goto(panel)).status()).toBe(200);
     const form = 'main form[action="/admin/commerce/refund"]';
-    const data = { target: intent, reason: 'Refund this authorized uncredited test provider payment.' };
+    const data = { target: intent, reason: 'refund_requested' };
     const offer = await prepare(proposer.screen, form, data);
     const operation = offer.fields.request_id;
     const snapshot = async () => ({
@@ -3771,6 +3771,7 @@ test('staff refunds a real uncredited test payment through one independent appro
     });
     const validation = lang === 'pl' ? 'Nieprawidłowe dane. Sprawdź identyfikatory, kwotę i powód.'
       : 'Invalid input. Check the identifiers, amount and reason.';
+    const reasonValidation = lang === 'pl' ? 'Wybierz zatwierdzony powód.' : 'Choose an approved reason.';
     const initial = { payment: paid, review: [], dispatch: [] };
     const refusal = async (screen, action, baseline) => {
       await rejected({ page: screen, ...action, snapshot, baseline });
@@ -3781,12 +3782,16 @@ test('staff refunds a real uncredited test payment through one independent appro
     };
     await refusal(proposer.screen, offer, initial);
     await invalid({ page: proposer.screen, ...offer, snapshot, baseline: initial, message: validation, samples: [
-      { name: 'empty reason', patch: { reason: '' } },
-      { name: 'overlong reason', patch: { reason: 'x'.repeat(501) } },
       { name: 'wrong target identifier format', patch: { target: 'text' } },
-      { name: 'reason below minimum length', patch: { reason: 'x'.repeat(9) } },
     ] });
-    await submit(proposer.screen, form, data);
+    await invalid({ page: proposer.screen, ...offer, snapshot, baseline: initial, message: reasonValidation, samples: [
+      { name: 'empty reason', patch: { reason: '' } },
+      { name: 'overlong reason code', patch: { reason: 'x'.repeat(501) } },
+      { name: 'unrecognized short reason code', patch: { reason: 'x'.repeat(9) } },
+      { name: 'approval reason in a proposal', patch: { reason: 'refund_verified' } },
+    ] });
+    await proposer.screen.locator(form).locator('select[name=reason]').selectOption(data.reason);
+    await submit(proposer.screen, form, { target: data.target });
     await expect(proposer.screen).toHaveURL(new URL(panel, origin).href);
     const approval = `main form[action="${panel}/approvals/${operation}"]`;
     await expect(proposer.screen.locator(approval)).toBeVisible();
@@ -3798,9 +3803,10 @@ test('staff refunds a real uncredited test payment through one independent appro
     expect(await snapshot()).toEqual(pending);
 
     expect((await reviewer.screen.goto(panel)).status()).toBe(200);
-    const decision = await prepare(reviewer.screen, approval);
+    const approvalReason = 'refund_verified';
+    const decision = await prepare(reviewer.screen, approval, { reason: approvalReason });
     await refusal(reviewer.screen, decision, pending);
-    const own = await prepare(proposer.screen, approval);
+    const own = await prepare(proposer.screen, approval, { reason: approvalReason });
     expect((await sendForm(proposer.screen, decision.url, own.fields)).status()).toBe(403);
     expect(await snapshot()).toEqual(pending);
     for (const value of ['_', 'x'.repeat(128), '123', operation.slice(0, -1)]) {
@@ -3809,6 +3815,10 @@ test('staff refunds a real uncredited test payment through one independent appro
       expect(await denied.text()).toContain(validation);
       expect(await snapshot()).toEqual(pending);
     }
+    await invalid({ page: reviewer.screen, ...decision, snapshot, baseline: pending, message: reasonValidation, samples: [
+      { name: 'withdrawal reason in an approval', patch: { reason: 'refund_withdrawn' } },
+    ] });
+    await reviewer.screen.locator(approval).locator('select[name=reason]').selectOption(approvalReason);
     await submit(reviewer.screen, approval);
     await expect(reviewer.screen).toHaveURL(new URL(panel, origin).href);
     await expect(reviewer.screen.locator(approval)).toHaveCount(0);
