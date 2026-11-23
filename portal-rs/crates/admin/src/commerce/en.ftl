@@ -24,3 +24,17 @@ pending = Awaiting a second staff member
 
 cancel = Cancel request
 next = Next page
+premium-status = Platform Premium status
+lookup-account = Account identifier
+lookup = Check status
+account-not-found = Account not found.
+entitlement-status = Entitlement status
+expiry = Premium ends (UTC)
+revision = Entitlement revision
+no-premium = No premium
+ACTIVE = Active
+EXPIRED = Expired
+REVOKED = Revoked
+NOT_YET_EFFECTIVE = Not yet active
+game-status = Game status
+game-unavailable = Temporarily unavailable.

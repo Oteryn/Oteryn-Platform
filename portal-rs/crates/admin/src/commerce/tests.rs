@@ -2573,3 +2573,83 @@ async fn reconcile_loads_charged_back_intent() {
     assert_eq!(state, "chargeback");
     h.close().await;
 }
+
+#[tokio::test]
+async fn postgres_premium_status_lookup_requires_premium_permission() {
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let app = router(
+        h.pool.clone(),
+        crate::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Session(h.actor, h.pool.clone()),
+        Authority(h.pool.clone()),
+        h.effects(),
+        flags(),
+    );
+    let lookup = |account: String| {
+        app.clone().oneshot(
+            HttpRequest::get(format!("/admin/commerce?premium_account={account}"))
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+    let response = lookup(h.target.to_string()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let bytes = to_bytes(response.into_body(), 200_000).await.unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert!(html.contains("Platform Premium status"));
+    assert!(html.contains("No premium"));
+    assert!(html.contains("Temporarily unavailable"));
+    let entitlement = h
+        .effects()
+        .premium
+        .mutate(
+            &premium::Operator {
+                actor: h.actor,
+                confirmed_mfa: true,
+                permission: "products.premium.manage".to_owned(),
+            },
+            &premium::Mutation {
+                account: h.target,
+                request: Uuid::now_v7(),
+                change: premium::Change::Grant(7),
+                reason: "Qualification for the Premium status view".to_owned(),
+            },
+        )
+        .await
+        .unwrap();
+    let response = lookup(h.target.to_string()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = to_bytes(response.into_body(), 200_000).await.unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    let expiry = time::OffsetDateTime::from_unix_timestamp(entitlement.until)
+        .unwrap()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap();
+    assert!(html.contains(&format!("datetime=\"{expiry}\"")));
+    assert!(html.contains("Entitlement revision</dt><dd>1</dd>"));
+    assert_eq!(
+        lookup("invalid".into()).await.unwrap().status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        lookup(Uuid::now_v7().to_string()).await.unwrap().status(),
+        StatusCode::NOT_FOUND
+    );
+
+    sqlx::query("DELETE FROM role_permissions WHERE permission='products.premium.manage' AND role_id IN (SELECT role_id FROM account_roles WHERE account_id=$1)")
+        .bind(h.actor).execute(&h.pool).await.unwrap();
+    assert_eq!(
+        lookup(h.target.to_string()).await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(h.count("premium_ledger").await, 1);
+    h.close().await;
+}

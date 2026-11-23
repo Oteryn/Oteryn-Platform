@@ -370,7 +370,7 @@ impl Ledger {
 fn timestamp(value: i64) -> Result<OffsetDateTime, Error> {
     OffsetDateTime::from_unix_timestamp(value).map_err(|_| Error::Unavailable)
 }
-fn recorded(row: &sqlx::postgres::PgRow) -> Result<Entitlement, Error> {
+pub(crate) fn recorded(row: &sqlx::postgres::PgRow) -> Result<Entitlement, Error> {
     let result = Entitlement {
         id: row.try_get("entitlement_id")?,
         revoked: row.try_get::<String, _>("event_type")? == "REVOKE",
@@ -385,7 +385,7 @@ fn recorded(row: &sqlx::postgres::PgRow) -> Result<Entitlement, Error> {
     result.validate()?;
     Ok(result)
 }
-async fn current(
+pub(crate) async fn current(
     connection: &mut PgConnection,
     account: Uuid,
 ) -> Result<Option<Entitlement>, Error> {
