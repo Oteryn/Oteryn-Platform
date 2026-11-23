@@ -210,3 +210,5 @@ public P /{locale}/events/calendar/month
 public G /{lang}/pass/operator
 public P /{lang}/pass/operator
 public P /{lang}/pass/{season}/progress
+# League prediction registration. The router mounts it only with OTERYN_LEAGUE_ENABLED.
+public P /{lang}/league/prediction

@@ -1,6 +1,7 @@
-//! T94: non-authoritative, display-only consumer. No stakes, rewards or predictions.
+//! Verified Game publications and stake-free Platform predictions.
 mod admission;
 pub mod config;
+mod predictions;
 pub mod runtime;
 pub mod schema;
 mod store;
@@ -22,6 +23,8 @@ pub enum Error {
     MissingPredecessor,
     #[error("league retention period expired")]
     Expired,
+    #[error("prediction requires an active account")]
+    Denied,
     #[error("invalid league evidence")]
     Invalid,
     #[error("league publication superseded by the recovery fence")]
@@ -119,6 +122,15 @@ pub trait Authority: Send + Sync {
         _wire: &[u8],
     ) -> impl Future<Output = Result<()>> + Send {
         async { Ok(()) }
+    }
+    fn prediction_events(
+        &self,
+        _tx: &mut Transaction<'_, Postgres>,
+        _fence: Fence,
+        _now: u64,
+        _subject: Option<(Uuid, Uuid)>,
+    ) -> impl Future<Output = Result<Vec<schema::EventSnapshot>>> + Send {
+        async { Ok(vec![]) }
     }
     fn reconciled_recovery(&self) -> bool {
         false
