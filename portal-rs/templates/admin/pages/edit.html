@@ -13,6 +13,7 @@
   <a href="/admin/pages">{{ self.t("publication-page-list") }}</a>
   <p>{{ slug }} / {{ locale }}</p>
   {% if !history.is_empty() %}<a href="{{ history }}">{{ history_label }}</a>{% endif %}
+  {% include "content/preview_links.html" %}
   <form method="post" class="op-stack">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="expected_revision" value="{{ form.expected_revision }}">

@@ -44,3 +44,5 @@ faq-previous = Poprzednie pytania
 faq-next = Więcej pytań
 faq-back = Wszystkie najczęstsze pytania
 faq-editor-help = Aby dodać wpis do FAQ, użyj adresu strony zaczynającego się od faq-, na przykład faq-account-access. Zapisz najpierw wersję angielską, a następnie polskie tłumaczenie.
+preview-link = Podgląd po polsku
+preview-notice = Podgląd zapisanej wersji dla redakcji.

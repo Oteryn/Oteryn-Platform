@@ -270,3 +270,7 @@ system-unset = Unset
 forum = Community forum
 editorial-news = News
 editorial-pages = Pages
+cms-news = News
+cms-pages = Pages
+cms-events = Events
+cms-announcements = Announcements

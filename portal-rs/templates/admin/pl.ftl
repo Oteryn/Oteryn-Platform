@@ -270,3 +270,7 @@ system-unset = Brak
 forum = Forum społeczności
 editorial-news = Aktualności
 editorial-pages = Strony
+cms-news = Aktualności
+cms-pages = Strony
+cms-events = Wydarzenia
+cms-announcements = Ogłoszenia

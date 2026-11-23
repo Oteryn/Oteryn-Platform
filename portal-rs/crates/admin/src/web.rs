@@ -662,8 +662,7 @@ struct Page {
     can_view_charts: bool,
     newsletter_label: Option<String>,
     forum_label: Option<String>,
-    news_label: Option<String>,
-    pages_label: Option<String>,
+    editorial_links: Vec<(&'static str, String)>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -790,20 +789,26 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         .await
         .ok()
         .map(|()| text(lang, "system-title"));
-    let news_label = s
-        .auth
-        .check(context, Permission::ManageNews)
-        .await
-        .is_ok()
-        .then(|| text(lang, "editorial-news"));
-    let pages_label = s
-        .auth
-        .check(context, Permission::ManagePages)
-        .await
-        .is_ok()
-        .then(|| text(lang, "editorial-pages"));
+    let mut editorial_links = Vec::new();
+    for (permission, href, label) in [
+        (Permission::ManageNews, "/admin/news", "cms-news"),
+        (Permission::ManagePages, "/admin/pages", "cms-pages"),
+        (Permission::ManageEvents, "/admin/events", "cms-events"),
+        (
+            Permission::ManagePortalAnnouncements,
+            "/admin/announcements",
+            "cms-announcements",
+        ),
+    ] {
+        match s.auth.check(context, permission).await {
+            Ok(()) => editorial_links.push((href, text(lang, label))),
+            Err(Error::Denied) => continue,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    }
     oteryn_web::render(&Page {
         lang,
+        editorial_links,
         registration_policy_label,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
@@ -843,8 +848,6 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .ok()
             .map(|()| text(lang, "forum")),
-        news_label,
-        pages_label,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

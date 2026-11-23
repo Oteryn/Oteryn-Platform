@@ -44,3 +44,5 @@ faq-previous = Previous questions
 faq-next = More questions
 faq-back = All frequently asked questions
 faq-editor-help = To add an FAQ entry, use a page slug beginning with faq-, such as faq-account-access. Save the English edition first, then the Polish translation.
+preview-link = Preview in English
+preview-notice = Staff preview of the saved revision.

@@ -93,6 +93,7 @@ struct Page {
     version: String,
     draft_notice: String,
     unpublished_notice: String,
+    preview_notice: String,
     help_links: bool,
     tickets_label: String,
     password_label: String,
@@ -233,25 +234,12 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             let body: String = row.get("body");
             let title: String = row.get("title");
             let version: String = row.get("version");
-            let draft_notice = if legal(slug)
-                && oteryn_identity::consents::inspect_legal_edition(&version, &title, &body)
-                    .needs_operator_update()
-            {
-                text(lang, "operator-draft")
-            } else {
-                String::new()
-            };
-            let mut html = String::new();
-            pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&body));
+            let draft_notice = legal_notice(lang, slug, &version, &title, &body);
             (
                 StatusCode::OK,
                 title,
-                ammonia::clean(&html),
-                if version.is_empty() {
-                    String::new()
-                } else {
-                    format!("{} {}", version, row.get::<String, _>("effective"))
-                },
+                render_markdown(&body),
+                edition_line(&version, &row.get::<String, _>("effective")),
                 draft_notice,
             )
         }
@@ -291,6 +279,7 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
         } else {
             String::new()
         },
+        preview_notice: String::new(),
         help_links,
         tickets_label: text(lang, "help-tickets"),
         password_label: text(lang, "help-password"),
@@ -308,6 +297,27 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
         axum::http::HeaderValue::from_static("no-store"),
     );
     response
+}
+
+fn legal_notice(lang: &str, slug: &str, version: &str, title: &str, body: &str) -> String {
+    if legal(slug)
+        && oteryn_identity::consents::inspect_legal_edition(version, title, body)
+            .needs_operator_update()
+    {
+        text(lang, "operator-draft")
+    } else {
+        String::new()
+    }
+}
+
+fn edition_line(version: &str, effective: &str) -> String {
+    format!("{version} {effective}").trim().to_owned()
+}
+
+fn render_markdown(markdown: &str) -> String {
+    let mut html = String::new();
+    pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(markdown));
+    ammonia::clean(&html)
 }
 
 async fn public_headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {

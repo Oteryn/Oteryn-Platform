@@ -3,6 +3,7 @@ mod calendar;
 mod ical;
 
 use super::{repository::ZonedEvent, *};
+use crate::preview;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -235,6 +236,7 @@ struct PublicPage<'a> {
     empty: String,
     events: Vec<EventCard>,
     detail: bool,
+    preview_notice: String,
     next: u64,
     next_label: String,
 }
@@ -285,6 +287,7 @@ async fn index(
                     .map(|row| EventCard::new(&lang, row))
                     .collect(),
                 detail: false,
+                preview_notice: String::new(),
             })
         }
         Err(e) => response(e),
@@ -314,6 +317,7 @@ async fn show(
                 empty: String::new(),
                 events: vec![EventCard::new(&lang, row)],
                 detail: true,
+                preview_notice: String::new(),
                 next_label: String::new(),
                 next: 0,
             }),
@@ -321,6 +325,24 @@ async fn show(
         },
         Err(e) => response(e),
     }
+}
+fn detail(lang: &str, event: PublicEvent, preview_notice: String) -> Response {
+    let local_start = time::PrimitiveDateTime::new(event.starts_at.date(), event.starts_at.time());
+    let local_end = time::PrimitiveDateTime::new(event.ends_at.date(), event.ends_at.time());
+    oteryn_web::render(&PublicPage {
+        lang,
+        title: event.title.clone(),
+        zone: String::new(),
+        calendar_label: String::new(),
+        zone_label: String::new(),
+        export_label: String::new(),
+        empty: String::new(),
+        events: vec![EventCard::new(lang, ZonedEvent { event, local_start, local_end })],
+        detail: true,
+        preview_notice,
+        next_label: String::new(),
+        next: 0,
+    })
 }
 struct Staff<A> {
     auth: Authorizer<A>,
@@ -351,6 +373,10 @@ fn staff_routes<A: AccountStateReader + 'static>(pool: PgPool, accounts: A) -> R
         .route("/admin/events", get(admin_index::<A>).post(save_new::<A>))
         .route("/admin/events/create", get(create::<A>))
         .route("/admin/events/{id}/edit", get(edit::<A>))
+        .route(
+            "/admin/events/{id}/preview/{locale}/{revision}",
+            get(preview::<A>),
+        )
         .route(
             "/admin/events/{id}",
             axum::routing::put(save_existing::<A>).post(save_existing::<A>),
@@ -487,6 +513,7 @@ struct AdminForm {
     can_publish: bool,
     status: String,
     labels: Vec<String>,
+    links: Vec<(String, String, String)>,
 }
 async fn form<A: AccountStateReader>(
     s: &Staff<A>,
@@ -541,7 +568,22 @@ async fn form<A: AccountStateReader>(
         Err(oteryn_admin::rbac::Error::Denied) => false,
         Err(e) => return response(e.into()),
     };
+    let links = match (id, form.lock_version) {
+        (Some(id), Some(revision)) => {
+            let base = format!("/admin/events/{id}");
+            [
+                ("en", &form.en_title, &form.en_body),
+                ("pl", &form.pl_title, &form.pl_body),
+            ]
+            .into_iter()
+            .filter(|(_, title, body)| preview::complete(title, body))
+            .map(|(locale, _, _)| preview::link(&base, locale, revision))
+            .collect()
+        }
+        _ => vec![],
+    };
     oteryn_web::render(&AdminForm {
+        links,
         lang,
         title: text(lang, "events"),
         csrf,
@@ -592,6 +634,18 @@ async fn edit<A: AccountStateReader>(
 ) -> Response {
     form(&s, c, session, h, Some(id)).await
 }
+async fn preview<A: AccountStateReader>(
+    State(s): State<Arc<Staff<A>>>,
+    Extension(_): Extension<CheckContext>,
+    Path((id, lang, revision)): Path<(Uuid, String, i64)>,
+) -> Result<Response, StatusCode> {
+    let lang = preview::locale(&lang)?;
+    Ok(match s.events.preview(id, lang, revision).await {
+        Ok(event) => preview::response(detail(lang, event, preview::notice(lang)), lang),
+        Err(error) => response(error),
+    })
+}
+
 async fn save<A: AccountStateReader>(
     s: &Staff<A>,
     c: CheckContext,

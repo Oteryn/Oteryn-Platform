@@ -1,4 +1,5 @@
 use super::*;
+use crate::preview;
 use crate::editorial::{self, Window};
 use crate::revisions::{self, Target};
 use axum::{Extension, Form, extract::Query, response::Redirect, routing::post};
@@ -49,6 +50,10 @@ fn admin_routes(pool: PgPool) -> Router {
             "/admin/pages/{slug}/{locale}/revisions/{source}/restore",
             post(restore),
         )
+        .route(
+            "/admin/pages/{slug}/preview/{locale}/{revision}",
+            get(preview),
+        )
         .with_state(pool)
 }
 #[derive(Template)]
@@ -62,6 +67,7 @@ struct Editor {
     form: PageForm,
     labels: Vec<String>,
     legal: bool,
+    links: Vec<(String, String, String)>,
     history: String,
     history_label: String,
     can_schedule: bool,
@@ -340,8 +346,24 @@ async fn edit(
             history = target.history_path();
         }
     }
+    let preview_revisions = sqlx::query_as::<_, (String, i64)>(
+        "SELECT e.locale,(extract(epoch FROM e.updated_at)*1000000)::bigint
+         FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+         WHERE p.slug=$1 AND e.locale IN ('en','pl') ORDER BY e.locale",
+    )
+    .bind(&slug)
+    .fetch_all(&pool)
+    .await;
+    let Ok(preview_revisions) = preview_revisions else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let base = format!("/admin/pages/{slug}");
+    let links = preview_revisions.into_iter()
+        .map(|(locale, revision)| preview::link(&base, &locale, revision))
+        .collect();
     let lang = editorial::staff_language(chrome.as_deref(), &headers);
     oteryn_web::render(&Editor {
+        links,
         history,
         history_label: revisions::history_label(lang),
         title: text(lang, "pages"),
@@ -369,6 +391,43 @@ async fn edit(
         form,
     })
 }
+async fn preview(
+    State(pool): State<PgPool>,
+    Extension(_): Extension<CheckContext>,
+    Path((slug, lang, revision)): Path<(String, String, i64)>,
+) -> Result<Response, StatusCode> {
+    preview::locale(&lang)?;
+    if !valid_slug(&slug) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let (title, markdown, version, effective): (String, String, String, String) =
+        sqlx::query_as(
+            "SELECT e.title,e.body,COALESCE(e.legal_version,''),COALESCE(e.legal_effective_date::text,'')
+             FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+             WHERE p.slug=$1 AND e.locale=$2 AND (extract(epoch FROM e.updated_at)*1000000)::bigint=$3",
+        )
+        .bind(&slug)
+        .bind(&lang)
+        .bind(revision)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let draft_notice = legal_notice(&lang, &slug, &version, &title, &markdown);
+    let page = Page {
+        title,
+        body: render_markdown(&markdown),
+        version: edition_line(&version, &effective),
+        draft_notice,
+        preview_notice: preview::notice(&lang),
+        lang,
+        help_links: false,
+        tickets_label: String::new(),
+        password_label: String::new(),
+    };
+    Ok(preview::response(oteryn_web::render(&page), &page.lang))
+}
+
 async fn save(
     State(pool): State<PgPool>,
     Path((slug, locale)): Path<(String, String)>,

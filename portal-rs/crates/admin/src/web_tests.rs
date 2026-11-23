@@ -148,8 +148,7 @@ fn localized_responsive_labelled_template() {
             can_view_charts: true,
             newsletter_label: None,
             forum_label: Some(text(lang, "forum")),
-            news_label: Some(text(lang, "editorial-news")),
-            pages_label: None,
+            editorial_links: vec![("/admin/news", text(lang, "cms-news"))],
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -175,6 +174,10 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));
+        assert!(html.contains(&format!(
+            "href=\"/admin/news\">{}</a>",
+            text(lang, "cms-news")
+        )));
         assert!(!html.contains("<unsafe>"));
         assert!(html.contains("href=\"/admin/news\""));
         assert!(!html.contains("href=\"/admin/pages\""));

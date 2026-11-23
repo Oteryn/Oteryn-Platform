@@ -10,12 +10,15 @@
 </head>
 <body class="op-theme">
   <main class="op-stack op-panel events-page">
+    {% include "content/preview_notice.html" %}
     <h1>{{ title }}</h1>
+    {% if preview_notice.is_empty() %}
     <div class="events-controls">
       <a href="/{{ lang }}/events/calendar/month">{{ calendar_label }}</a>
       <a href="/{{ lang }}/events/calendar/month#event-zone">{{ zone_label }}: {{ zone }}</a>
       {% if !detail %}<a href="/{{ lang }}/events/upcoming.ics">{{ export_label }}</a>{% endif %}
     </div>
+    {% endif %}
     {% if events.is_empty() %}<p>{{ empty }}</p>{% endif %}
     {% for card in events %}
     <article class="op-stack op-card">
@@ -24,7 +27,7 @@
       <p>{{ card.event.summary }}</p>
       {% if detail %}
       <p>{{ card.event.body }}</p>
-      <a href="/{{ lang }}/events/{{ card.event.slug }}/event.ics">{{ export_label }}</a>
+      {% if preview_notice.is_empty() %}<a href="/{{ lang }}/events/{{ card.event.slug }}/event.ics">{{ export_label }}</a>{% endif %}
       {% endif %}
     </article>
     {% endfor %}

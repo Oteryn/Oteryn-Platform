@@ -1,0 +1,7 @@
+{% if !links.is_empty() %}
+<div class="op-row">
+  {% for (url, locale, label) in links %}
+  <a class="op-button op-button--secondary" href="{{ url }}" lang="{{ locale }}" hreflang="{{ locale }}">{{ label }}</a>
+  {% endfor %}
+</div>
+{% endif %}
