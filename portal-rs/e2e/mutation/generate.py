@@ -97,13 +97,6 @@ def option_values(source, dynamic):
             yield label
 
 
-def support_choices(source):
-    choices = source.split("let choices: &[&str] =", 1)[1].split("if choices.is_empty()", 1)[0]
-    for name, values in re.findall(r'\("(\w+)",\s*[^)]+\)\s*=>\s*(?:\{\s*)?&\[(.*?)\]', choices, re.S):
-        for value in re.findall(r'"([^"]+)"', values):
-            yield {"name": name, "value": value}
-
-
 def bindings(path, source, all_sources):
     """Read the finite discriminants supplied to shared form templates."""
     if path == "crates/identity/src/recovery_key_http.rs":
@@ -159,12 +152,20 @@ def bindings(path, source, all_sources):
     if path == "crates/minigames/src/collection_pvp/http.rs":
         operations = source.split("let options = [", 1)[1].split("]", 1)[0]
         return {"{{ option.0 }}": re.findall(r'"([^"]+)"', operations)}
-    if path == "crates/admin/src/support_web.rs":
-        panel = source.split("let actions:", 1)[1].split("for (action, fields)", 1)[0]
-        areas = source.split("fn base(area: Area)", 1)[1].split("fn area_routes", 1)[0]
+    if path == "crates/admin/templates/support_record.html":
+        panel = all_sources["crates/admin/src/support_web.rs"]
+        actions = panel.split("let actions:", 1)[1].split("let mut forms", 1)[0]
+        shared = panel.split("let sanction_fields:", 1)[1].split("];", 1)[0]
+        controls = re.findall(r'\(\s*"([^"]+)",\s*(?:&\[([^\]]*)\]|(sanction_fields))', actions)
         return {
-            "{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel),
-            "{}/{}": [f"{base}/{{id}}" for base in re.findall(r'Area::\w+ => "([^"]+)"', areas)],
+            "{{ action_path }}": ROUTE_BINDINGS[
+                ("crates/admin/src/support_web.rs", '&format!("{}/{{id}}", base(area))')
+            ],
+            "{{ form.action }}": list(dict.fromkeys(action for action, _, _ in controls)),
+            "{{ field.name }}": list(dict.fromkeys(
+                name for _, fields, use_shared in controls
+                for name in re.findall(r'"([^"]+)"', shared if use_shared else fields)
+            )),
         }
     if path == "crates/content/src/news.rs":
         action = source.split("let action = id.map_or_else(", 1)[1].split(");", 1)[0]
@@ -233,11 +234,6 @@ def forms(path, source, all_sources):
             elif name in ACTION_FIELDS and tag[1].lower() == "select":
                 options = form[tag.end():].split("</select", 1)[0]
                 submits.extend({"name": name, "value": choice} for choice in option_values(options, dynamic))
-            elif name == "{field}" and tag[1].lower() == "select" and path == "crates/admin/src/support_web.rs":
-                for choice in support_choices(source):
-                    fields.append(choice["name"])
-                    if choice not in submits:
-                        submits.append(choice)
         action_variants = conditional_targets(target)
         if "{{ action }}" in target:
             # Literal action loops in Askama templates emit one form per action.

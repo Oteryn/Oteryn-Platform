@@ -1495,20 +1495,74 @@
       "source": "crates/admin/templates/support_record.html:18",
       "ordinal": 1,
       "action": "{{ action_path }}",
-      "actionVariants": [],
+      "actionVariants": [
+        "/admin/support/tickets/{id}",
+        "/admin/moderation/reports/{id}",
+        "/admin/moderation/enforcement/{id}"
+      ],
       "fields": [
         "_csrf",
         "lock_version",
         "action",
         "create",
         "=",
-        "{{ field.name }}",
+        "assignee",
+        "reason",
+        "body",
+        "status",
+        "public_outcome",
+        "moderator_notes",
+        "target",
+        "sanction",
+        "category",
+        "public_reason",
+        "effective_at",
+        "expires_at",
+        "duration_hours",
+        "appeal_status",
+        "appeal_outcome",
         "internal"
       ],
       "submits": [
         {
           "name": "action",
-          "value": "{{ form.action }}"
+          "value": "assign_ticket"
+        },
+        {
+          "name": "action",
+          "value": "reply"
+        },
+        {
+          "name": "action",
+          "value": "ticket_status"
+        },
+        {
+          "name": "action",
+          "value": "moderate"
+        },
+        {
+          "name": "action",
+          "value": "verify_report_target"
+        },
+        {
+          "name": "action",
+          "value": "link_sanction"
+        },
+        {
+          "name": "action",
+          "value": "sanction"
+        },
+        {
+          "name": "action",
+          "value": "apply_sanction"
+        },
+        {
+          "name": "action",
+          "value": "revoke_sanction"
+        },
+        {
+          "name": "action",
+          "value": "appeal"
         },
         {}
       ]

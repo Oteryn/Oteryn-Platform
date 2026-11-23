@@ -120,7 +120,17 @@ impl<A: AccountStateReader> Authorizer<A> {
         self.check_in(connection, context, Permission::ManageRoles)
             .await?;
         ensure_panel_role_grant(connection, role).await?;
-        grant_membership(connection, &self.accounts, context.account, account, role).await
+        // The staff action already holds GrantRoles, an approved reason and a
+        // fresh password. Ordinary role changes retain the permission subset check.
+        grant_membership(
+            connection,
+            &self.accounts,
+            context.account,
+            account,
+            role,
+            false,
+        )
+        .await
     }
 
     pub(crate) async fn create_grant_role(
@@ -330,8 +340,15 @@ impl<A: AccountStateReader> Authorizer<A> {
                 let grant = matches!(change, Change::Grant { .. });
                 let affected = if grant {
                     u64::from(
-                        grant_membership(&mut tx, &self.accounts, context.account, account, role)
-                            .await?,
+                        grant_membership(
+                            &mut tx,
+                            &self.accounts,
+                            context.account,
+                            account,
+                            role,
+                            true,
+                        )
+                        .await?,
                     )
                 } else {
                     require_role(&mut tx, role).await?;
@@ -606,6 +623,7 @@ async fn grant_membership<A: AccountStateReader>(
     actor: Uuid,
     account: Uuid,
     role: Uuid,
+    require_permission_subset: bool,
 ) -> Result<bool, Error> {
     require_role(connection, role).await?;
     // A different manager must make the grant, and the recipient must be active.
@@ -617,14 +635,16 @@ async fn grant_membership<A: AccountStateReader>(
     {
         return Err(Error::Denied);
     }
-    let permissions: Vec<String> =
-        sqlx::query_scalar("SELECT permission FROM role_permissions WHERE role_id=$1")
-            .bind(role)
-            .fetch_all(&mut *connection)
-            .await?;
-    for permission in permissions {
-        let permission = permission.parse().map_err(|_| Error::Denied)?;
-        Authorizer::<A>::check_permission(connection, actor, permission).await?;
+    if require_permission_subset {
+        let permissions: Vec<String> =
+            sqlx::query_scalar("SELECT permission FROM role_permissions WHERE role_id=$1")
+                .bind(role)
+                .fetch_all(&mut *connection)
+                .await?;
+        for permission in permissions {
+            let permission = permission.parse().map_err(|_| Error::Denied)?;
+            Authorizer::<A>::check_permission(connection, actor, permission).await?;
+        }
     }
     let result = sqlx::query(
         "INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",

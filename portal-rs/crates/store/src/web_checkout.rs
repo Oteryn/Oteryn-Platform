@@ -30,7 +30,7 @@ pub(super) async fn checkout_page(
     };
     let a = match account(&s, &session, l).await {
         Ok(a) => a,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let mut p = Page::new(l, "checkout");
     p.csrf = match session.csrf_token().await {
@@ -58,7 +58,7 @@ pub(super) async fn checkout_post(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.top_ups).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: CheckoutForm = match parse(request).await {
         Ok(v) => v,

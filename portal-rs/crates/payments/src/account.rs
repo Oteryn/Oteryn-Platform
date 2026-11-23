@@ -94,11 +94,11 @@ impl Locale {
             .unwrap_or_default()
     }
 }
-async fn identity(session: &impl CurrentAccount, locale: Locale) -> Result<Uuid, Response> {
+async fn identity(session: &impl CurrentAccount, locale: Locale) -> Result<Uuid, Redirect> {
     session
         .current_account()
         .await
-        .ok_or_else(|| Redirect::to(&format!("/{}/login", locale.0)).into_response())
+        .ok_or_else(|| Redirect::to(&format!("/{}/login", locale.0)))
 }
 
 #[derive(Template)]
@@ -190,7 +190,7 @@ async fn premium(
     let locale = Locale::parse(&lang)?;
     let account = match identity(&session, locale).await {
         Ok(id) => id,
-        Err(response) => return Ok(response),
+        Err(redirect) => return Ok(redirect.into_response()),
     };
     let value = oteryn_store::account::premium(&pool, account)
         .await
@@ -267,7 +267,7 @@ async fn history(
     let locale = Locale::parse(&lang)?;
     let account = match identity(&session, locale).await {
         Ok(id) => id,
-        Err(response) => return Ok(response),
+        Err(redirect) => return Ok(redirect.into_response()),
     };
     let number = paging(query.as_deref())?;
     let mut page = Page::new(locale, "payments");
@@ -322,7 +322,7 @@ async fn receipt(
     let locale = Locale::parse(&lang)?;
     let account = match identity(&session, locale).await {
         Ok(id) => id,
-        Err(response) => return Ok(response),
+        Err(redirect) => return Ok(redirect.into_response()),
     };
     let id = Uuid::parse_str(&id).map_err(|_| StatusCode::NOT_FOUND)?;
     let entry = receipt_entry(&pool, account, id, locale)

@@ -272,7 +272,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/console/access.rs:431"
+        "crates/admin/src/console/access.rs:491"
       ]
     },
     {
@@ -286,7 +286,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/console/access.rs:432"
+        "crates/admin/src/console/access.rs:492"
       ]
     },
     {
@@ -300,7 +300,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/console/access.rs:433"
+        "crates/admin/src/console/access.rs:493"
       ]
     },
     {
@@ -314,7 +314,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/console/access.rs:435"
+        "crates/admin/src/console/access.rs:495"
       ]
     },
     {
@@ -328,21 +328,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:437"
-      ]
-    },
-    {
-      "route": "/console",
-      "crate": "admin",
-      "flags": [
-        "OTERYN_ADMIN_CONSOLE",
-        "OTERYN_ADMIN_PANEL"
-      ],
-      "methods": [
-        "GET"
-      ],
-      "sources": [
-        "crates/admin/src/console/mod.rs:424"
+        "crates/admin/src/console/mod.rs:438"
       ]
     },
     {
@@ -357,7 +343,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:438"
+        "crates/admin/src/console/mod.rs:439"
       ]
     },
     {
@@ -372,7 +358,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:442"
+        "crates/admin/src/console/mod.rs:443"
       ]
     },
     {
@@ -387,7 +373,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:446"
+        "crates/admin/src/console/mod.rs:447"
       ]
     },
     {
@@ -402,7 +388,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/console/mod.rs:450"
+        "crates/admin/src/console/mod.rs:451"
       ]
     },
     {
@@ -527,17 +513,33 @@
       "route": "/admin/players",
       "crate": "admin",
       "flags": [
+        "OTERYN_ADMIN_CONSOLE",
         "OTERYN_ADMIN_PANEL"
       ],
       "methods": [
         "GET"
       ],
       "sources": [
-        "crates/admin/src/players/http.rs:69"
+        "crates/admin/src/players/http.rs:76"
       ]
     },
     {
       "route": "/admin/players/{id}",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/players/http.rs:77"
+      ]
+    },
+    {
+      "route": "/admin/staff-invites",
       "crate": "admin",
       "flags": [
         "OTERYN_ADMIN_PANEL"
@@ -547,7 +549,34 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/players/http.rs:70"
+        "crates/admin/src/staff_invites/web.rs:59"
+      ]
+    },
+    {
+      "route": "/admin/staff-invites/{id}/revoke",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/staff_invites/web.rs:60"
+      ]
+    },
+    {
+      "route": "/{lang}/staff-invite",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/staff_invites/web.rs:63"
       ]
     },
     {
@@ -562,7 +591,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/support_web.rs:125"
+        "crates/admin/src/support_web.rs:154"
       ]
     },
     {
@@ -577,7 +606,7 @@
         "GET"
       ],
       "sources": [
-        "crates/admin/src/web.rs:276"
+        "crates/admin/src/web.rs:481"
       ]
     },
     {
@@ -593,7 +622,7 @@
         "POST"
       ],
       "sources": [
-        "crates/admin/src/web.rs:277"
+        "crates/admin/src/web.rs:482"
       ]
     },
     {
@@ -788,7 +817,7 @@
       ],
       "sources": [
         "crates/bazaar/src/characters/http.rs:100",
-        "crates/bazaar/src/characters/http.rs:142",
+        "crates/bazaar/src/characters/http.rs:162",
         "crates/bazaar/src/game/runtime/browser.rs:203"
       ]
     },
@@ -1258,7 +1287,7 @@
         "GET"
       ],
       "sources": [
-        "crates/community/src/online.rs:72"
+        "crates/community/src/online.rs:75"
       ]
     },
     {
@@ -1271,8 +1300,8 @@
         "GET"
       ],
       "sources": [
-        "crates/community/src/online.rs:73",
-        "crates/community/src/online.rs:74"
+        "crates/community/src/online.rs:76",
+        "crates/community/src/online.rs:77"
       ]
     },
     {
@@ -1391,7 +1420,7 @@
         "POST"
       ],
       "sources": [
-        "crates/community/src/referrals/web.rs:137"
+        "crates/community/src/referrals/web.rs:136"
       ]
     },
     {
@@ -1403,7 +1432,7 @@
         "POST"
       ],
       "sources": [
-        "crates/community/src/referrals/web.rs:138"
+        "crates/community/src/referrals/web.rs:137"
       ]
     },
     {
@@ -1577,7 +1606,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:50"
+        "crates/content/src/events/web.rs:38"
       ]
     },
     {
@@ -1588,7 +1617,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:51"
+        "crates/content/src/events/web.rs:39"
       ]
     },
     {
@@ -1602,7 +1631,7 @@
         "POST"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:215"
+        "crates/content/src/events/web.rs:219"
       ]
     },
     {
@@ -1615,7 +1644,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:216"
+        "crates/content/src/events/web.rs:220"
       ]
     },
     {
@@ -1628,7 +1657,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:217"
+        "crates/content/src/events/web.rs:221"
       ]
     },
     {
@@ -1642,7 +1671,7 @@
         "PUT"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:218"
+        "crates/content/src/events/web.rs:222"
       ]
     },
     {
@@ -1656,7 +1685,7 @@
         "PUT"
       ],
       "sources": [
-        "crates/content/src/events/web.rs:222"
+        "crates/content/src/events/web.rs:226"
       ]
     },
     {
@@ -1670,7 +1699,7 @@
         "POST"
       ],
       "sources": [
-        "crates/content/src/media.rs:123"
+        "crates/content/src/media.rs:397"
       ]
     },
     {
@@ -1683,7 +1712,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/media.rs:129"
+        "crates/content/src/media.rs:403"
       ]
     },
     {
@@ -1696,7 +1725,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/media.rs:130"
+        "crates/content/src/media.rs:404"
       ]
     },
     {
@@ -1709,7 +1738,7 @@
         "DELETE"
       ],
       "sources": [
-        "crates/content/src/media.rs:131"
+        "crates/content/src/media.rs:405"
       ]
     },
     {
@@ -1722,7 +1751,7 @@
         "POST"
       ],
       "sources": [
-        "crates/content/src/media.rs:135"
+        "crates/content/src/media.rs:409"
       ]
     },
     {
@@ -1733,7 +1762,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/news.rs:128"
+        "crates/content/src/news.rs:131"
       ]
     },
     {
@@ -1744,7 +1773,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/news.rs:129"
+        "crates/content/src/news.rs:132"
       ]
     },
     {
@@ -1755,7 +1784,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/news.rs:130"
+        "crates/content/src/news.rs:133"
       ]
     },
     {
@@ -1766,7 +1795,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/news.rs:131"
+        "crates/content/src/news.rs:134"
       ]
     },
     {
@@ -1780,7 +1809,7 @@
         "POST"
       ],
       "sources": [
-        "crates/content/src/news.rs:138"
+        "crates/content/src/news.rs:141"
       ]
     },
     {
@@ -1793,7 +1822,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/news.rs:139"
+        "crates/content/src/news.rs:142"
       ]
     },
     {
@@ -1806,7 +1835,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/news.rs:140"
+        "crates/content/src/news.rs:143"
       ]
     },
     {
@@ -1821,7 +1850,7 @@
         "PUT"
       ],
       "sources": [
-        "crates/content/src/news.rs:141"
+        "crates/content/src/news.rs:144"
       ]
     },
     {
@@ -1834,7 +1863,7 @@
         "POST"
       ],
       "sources": [
-        "crates/content/src/news.rs:142"
+        "crates/content/src/news.rs:145"
       ]
     },
     {
@@ -1847,7 +1876,7 @@
         "GET"
       ],
       "sources": [
-        "crates/content/src/pages/staff.rs:39"
+        "crates/content/src/pages/staff.rs:43"
       ]
     },
     {
@@ -1861,7 +1890,7 @@
         "POST"
       ],
       "sources": [
-        "crates/content/src/pages/staff.rs:40"
+        "crates/content/src/pages/staff.rs:44"
       ]
     },
     {
@@ -2033,8 +2062,8 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/account_lifecycle_http.rs:137",
-        "crates/identity/src/account_lifecycle_http.rs:143"
+        "crates/identity/src/account_lifecycle_http.rs:141",
+        "crates/identity/src/account_lifecycle_http.rs:147"
       ]
     },
     {
@@ -2047,7 +2076,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/account_lifecycle_http.rs:138"
+        "crates/identity/src/account_lifecycle_http.rs:142"
       ]
     },
     {
@@ -2061,7 +2090,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/account_lifecycle_http.rs:150"
+        "crates/identity/src/account_lifecycle_http.rs:154"
       ]
     },
     {
@@ -2075,8 +2104,8 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/account_lifecycle_http.rs:151",
-        "crates/identity/src/account_lifecycle_http.rs:159"
+        "crates/identity/src/account_lifecycle_http.rs:155",
+        "crates/identity/src/account_lifecycle_http.rs:163"
       ]
     },
     {
@@ -2120,7 +2149,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/credentials_http.rs:120"
+        "crates/identity/src/credentials_http.rs:122"
       ]
     },
     {
@@ -2147,7 +2176,7 @@
         "GET"
       ],
       "sources": [
-        "crates/identity/src/credentials_http.rs:121"
+        "crates/identity/src/credentials_http.rs:126"
       ]
     },
     {
@@ -2174,7 +2203,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/email_change_http.rs:46"
+        "crates/identity/src/email_change_http.rs:45"
       ]
     },
     {
@@ -2202,7 +2231,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/email_change_http.rs:50"
+        "crates/identity/src/email_change_http.rs:49"
       ]
     },
     {
@@ -2230,7 +2259,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/email_change_http.rs:54"
+        "crates/identity/src/email_change_http.rs:53"
       ]
     },
     {
@@ -2258,85 +2287,93 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/export_http.rs:193",
-        "crates/identity/src/export_http.rs:199"
+        "crates/identity/src/export_http.rs:192",
+        "crates/identity/src/export_http.rs:198"
       ]
     },
     {
       "route": "/login",
       "crate": "identity",
       "flags": [
-        "OTERYN_ACCOUNT_LOGIN"
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ADMIN_PANEL"
       ],
       "methods": [
         "GET",
         "POST"
       ],
       "sources": [
-        "crates/identity/src/login_http.rs:43"
+        "crates/identity/src/login_http.rs:59"
       ]
     },
     {
       "route": "/{lang}/login",
       "crate": "identity",
       "flags": [
-        "OTERYN_ACCOUNT_LOGIN"
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ADMIN_PANEL"
       ],
       "methods": [
         "GET",
         "POST"
       ],
       "sources": [
-        "crates/identity/src/login_http.rs:44",
-        "crates/identity/src/login_http.rs:45"
+        "crates/identity/src/login_http.rs:60",
+        "crates/identity/src/login_http.rs:61"
       ]
     },
     {
       "route": "/logout",
       "crate": "identity",
       "flags": [
-        "OTERYN_ACCOUNT_LOGIN"
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ADMIN_PANEL"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/login_http.rs:46"
+        "crates/identity/src/login_http.rs:62"
       ]
     },
     {
       "route": "/{lang}/logout",
       "crate": "identity",
       "flags": [
-        "OTERYN_ACCOUNT_LOGIN"
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ADMIN_PANEL"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/login_http.rs:47",
-        "crates/identity/src/login_http.rs:48"
+        "crates/identity/src/login_http.rs:63",
+        "crates/identity/src/login_http.rs:64"
       ]
     },
     {
       "route": "/{lang}/mfa/login",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "GET",
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:65"
+        "crates/identity/src/mfa_http.rs:103"
       ]
     },
     {
       "route": "/mfa/login",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "GET",
@@ -2350,21 +2387,25 @@
       "route": "/{lang}/mfa/challenge",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "GET",
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:66"
+        "crates/identity/src/mfa_http.rs:107"
       ]
     },
     {
       "route": "/mfa/challenge",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "GET",
@@ -2378,20 +2419,24 @@
       "route": "/{lang}/mfa/email",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:70"
+        "crates/identity/src/mfa_http.rs:111"
       ]
     },
     {
       "route": "/mfa/email",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
@@ -2404,20 +2449,24 @@
       "route": "/{lang}/mfa",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "GET"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:71"
+        "crates/identity/src/mfa_http.rs:112"
       ]
     },
     {
       "route": "/mfa",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "GET"
@@ -2430,20 +2479,24 @@
       "route": "/{lang}/mfa/enroll",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:72"
+        "crates/identity/src/mfa_http.rs:113"
       ]
     },
     {
       "route": "/mfa/enroll",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
@@ -2456,20 +2509,24 @@
       "route": "/{lang}/mfa/confirm",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:73"
+        "crates/identity/src/mfa_http.rs:114"
       ]
     },
     {
       "route": "/mfa/confirm",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
@@ -2482,13 +2539,30 @@
       "route": "/{lang}/mfa/devices",
       "crate": "identity",
       "flags": [
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:74"
+        "crates/identity/src/mfa_http.rs:115"
+      ]
+    },
+    {
+      "route": "/mfa/devices",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
       ]
     },
     {
@@ -2497,14 +2571,13 @@
       "flags": [
         "OTERYN_ACCOUNT_CREDENTIALS",
         "OTERYN_ACCOUNT_LOGIN",
-        "OTERYN_ACCOUNT_MFA",
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:89"
+        "crates/identity/src/mfa_http.rs:116"
       ]
     },
     {
@@ -2513,8 +2586,7 @@
       "flags": [
         "OTERYN_ACCOUNT_CREDENTIALS",
         "OTERYN_ACCOUNT_LOGIN",
-        "OTERYN_ACCOUNT_MFA",
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
@@ -2529,14 +2601,13 @@
       "flags": [
         "OTERYN_ACCOUNT_CREDENTIALS",
         "OTERYN_ACCOUNT_LOGIN",
-        "OTERYN_ACCOUNT_MFA",
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:90"
+        "crates/identity/src/mfa_http.rs:117"
       ]
     },
     {
@@ -2545,8 +2616,7 @@
       "flags": [
         "OTERYN_ACCOUNT_CREDENTIALS",
         "OTERYN_ACCOUNT_LOGIN",
-        "OTERYN_ACCOUNT_MFA",
-        "OTERYN_ADMIN_PANEL"
+        "OTERYN_ACCOUNT_MFA"
       ],
       "methods": [
         "POST"
@@ -2562,14 +2632,13 @@
         "OTERYN_ACCOUNT_CREDENTIALS",
         "OTERYN_ACCOUNT_LOGIN",
         "OTERYN_ACCOUNT_MFA",
-        "OTERYN_ADMIN_PANEL",
         "OTERYN_PANEL_NATIVE_DEVICES_ENABLED"
       ],
       "methods": [
         "POST"
       ],
       "sources": [
-        "crates/identity/src/mfa_http.rs:95"
+        "crates/identity/src/mfa_http.rs:122"
       ]
     },
     {
@@ -2579,35 +2648,7 @@
         "OTERYN_ACCOUNT_CREDENTIALS",
         "OTERYN_ACCOUNT_LOGIN",
         "OTERYN_ACCOUNT_MFA",
-        "OTERYN_ADMIN_PANEL",
         "OTERYN_PANEL_NATIVE_DEVICES_ENABLED"
-      ],
-      "methods": [
-        "POST"
-      ],
-      "sources": [
-        "crates/identity/src/mfa_http.rs:prefix alias"
-      ]
-    },
-    {
-      "route": "/{lang}/account/profile",
-      "crate": "identity",
-      "flags": [
-        "OTERYN_ACCOUNT_LOGIN"
-      ],
-      "methods": [
-        "GET",
-        "POST"
-      ],
-      "sources": [
-        "crates/identity/src/profile_http.rs:33"
-      ]
-    },
-    {
-      "route": "/mfa/devices",
-      "crate": "identity",
-      "flags": [
-        "OTERYN_ADMIN_PANEL"
       ],
       "methods": [
         "POST"
@@ -2652,7 +2693,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:37"
+        "crates/identity/src/passkeys_http.rs:40"
       ]
     },
     {
@@ -2665,7 +2706,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:41"
+        "crates/identity/src/passkeys_http.rs:44"
       ]
     },
     {
@@ -2678,7 +2719,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:45"
+        "crates/identity/src/passkeys_http.rs:48"
       ]
     },
     {
@@ -2691,7 +2732,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:49"
+        "crates/identity/src/passkeys_http.rs:52"
       ]
     },
     {
@@ -2704,7 +2745,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/passkeys_http.rs:53"
+        "crates/identity/src/passkeys_http.rs:56"
       ]
     },
     {
@@ -2720,6 +2761,20 @@
       ],
       "sources": [
         "crates/identity/src/privacy_web.rs:36"
+      ]
+    },
+    {
+      "route": "/{lang}/account/profile",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_LOGIN"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/profile_http.rs:33"
       ]
     },
     {
@@ -2830,7 +2885,7 @@
       ],
       "sources": [
         "crates/identity/src/reset_http.rs:46",
-        "crates/identity/src/reset_http.rs:86"
+        "crates/identity/src/reset_http.rs:89"
       ]
     },
     {
@@ -2858,7 +2913,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/reset_http.rs:50"
+        "crates/identity/src/reset_http.rs:53"
       ]
     },
     {
@@ -2872,7 +2927,7 @@
         "POST"
       ],
       "sources": [
-        "crates/identity/src/reset_http.rs:54"
+        "crates/identity/src/reset_http.rs:57"
       ]
     },
     {
@@ -2885,7 +2940,7 @@
         "GET"
       ],
       "sources": [
-        "crates/identity/src/reset_http.rs:58"
+        "crates/identity/src/reset_http.rs:61"
       ]
     },
     {
@@ -3194,7 +3249,7 @@
         "GET"
       ],
       "sources": [
-        "crates/minigames/src/league/web.rs:166"
+        "crates/minigames/src/league/web.rs:159"
       ]
     },
     {
@@ -4050,7 +4105,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/lib.rs:348"
+        "crates/web/src/lib.rs:391"
       ]
     },
     {
@@ -4065,7 +4120,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/lib.rs:349"
+        "crates/web/src/lib.rs:392"
       ]
     },
     {
@@ -4080,7 +4135,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/lib.rs:350"
+        "crates/web/src/lib.rs:393"
       ]
     },
     {
@@ -4096,7 +4151,7 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/lib.rs:354"
+        "crates/web/src/lib.rs:397"
       ]
     },
     {
@@ -4111,7 +4166,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/lib.rs:479"
+        "crates/web/src/lib.rs:528"
       ]
     },
     {
@@ -4127,7 +4182,7 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/lib.rs:496"
+        "crates/web/src/lib.rs:545"
       ]
     },
     {
@@ -4143,8 +4198,8 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/lib.rs:497",
-        "crates/web/src/lib.rs:498"
+        "crates/web/src/lib.rs:546",
+        "crates/web/src/lib.rs:547"
       ]
     },
     {
@@ -4159,7 +4214,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/lib.rs:499"
+        "crates/web/src/lib.rs:548"
       ]
     },
     {
@@ -4174,8 +4229,8 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/lib.rs:500",
-        "crates/web/src/lib.rs:504"
+        "crates/web/src/lib.rs:549",
+        "crates/web/src/lib.rs:553"
       ]
     },
     {
@@ -4191,7 +4246,7 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/lib.rs:505"
+        "crates/web/src/lib.rs:554"
       ]
     },
     {
@@ -4203,7 +4258,7 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/routes/register.rs:22"
+        "crates/web/src/routes/register.rs:21"
       ]
     },
     {
@@ -4215,8 +4270,8 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/routes/register.rs:23",
-        "crates/web/src/routes/register.rs:24"
+        "crates/web/src/routes/register.rs:22",
+        "crates/web/src/routes/register.rs:23"
       ]
     },
     {
@@ -4227,7 +4282,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/routes/register.rs:25"
+        "crates/web/src/routes/register.rs:24"
       ]
     },
     {
@@ -4238,8 +4293,8 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/routes/register.rs:26",
-        "crates/web/src/routes/register.rs:27"
+        "crates/web/src/routes/register.rs:25",
+        "crates/web/src/routes/register.rs:26"
       ]
     },
     {
@@ -4263,8 +4318,8 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/routes/verify.rs:22",
-        "crates/web/src/routes/verify.rs:23"
+        "crates/web/src/routes/verify.rs:25",
+        "crates/web/src/routes/verify.rs:29"
       ]
     },
     {
@@ -4276,7 +4331,7 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/routes/verify.rs:24"
+        "crates/web/src/routes/verify.rs:33"
       ]
     },
     {
@@ -4288,8 +4343,8 @@
         "POST"
       ],
       "sources": [
-        "crates/web/src/routes/verify.rs:25",
-        "crates/web/src/routes/verify.rs:29"
+        "crates/web/src/routes/verify.rs:37",
+        "crates/web/src/routes/verify.rs:41"
       ]
     },
     {
@@ -4345,8 +4400,8 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/surface.rs:39",
-        "crates/web/src/surface.rs:40"
+        "crates/web/src/surface.rs:42",
+        "crates/web/src/surface.rs:43"
       ]
     },
     {
@@ -4357,8 +4412,8 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/surface.rs:41",
-        "crates/web/src/surface.rs:42"
+        "crates/web/src/surface.rs:44",
+        "crates/web/src/surface.rs:45"
       ]
     },
     {
@@ -4369,7 +4424,7 @@
         "GET"
       ],
       "sources": [
-        "crates/web/src/surface.rs:43"
+        "crates/web/src/surface.rs:46"
       ]
     },
     {
@@ -4396,7 +4451,7 @@
         "GET"
       ],
       "sources": [
-        "crates/wiki/src/entities.rs:120"
+        "crates/wiki/src/entities.rs:121"
       ]
     },
     {
@@ -4409,7 +4464,7 @@
         "GET"
       ],
       "sources": [
-        "crates/wiki/src/entities.rs:121"
+        "crates/wiki/src/entities.rs:122"
       ]
     },
     {
@@ -4422,7 +4477,7 @@
         "GET"
       ],
       "sources": [
-        "crates/wiki/src/entities.rs:122"
+        "crates/wiki/src/entities.rs:123"
       ]
     },
     {
@@ -4435,7 +4490,7 @@
         "GET"
       ],
       "sources": [
-        "crates/wiki/src/entities.rs:123"
+        "crates/wiki/src/entities.rs:124"
       ]
     },
     {

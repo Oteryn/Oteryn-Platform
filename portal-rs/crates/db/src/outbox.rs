@@ -171,30 +171,38 @@ pub async fn finish(
     error: Option<&str>,
     permanent: bool,
 ) -> Result<bool, Error> {
-    sqlx::query_scalar(
-        "WITH finished AS (
-         UPDATE outbox SET
+    let mut tx = pool.begin().await?;
+    let finished: Option<(String, bool, OffsetDateTime)> = sqlx::query_as(
+        "UPDATE outbox SET
            state = CASE WHEN $3::text IS NULL THEN 'done'
                         WHEN $4 OR attempts >= max_attempts THEN 'dead' ELSE 'pending' END,
            run_after = CASE WHEN $3::text IS NULL THEN run_after ELSE
              now() + make_interval(secs => LEAST(3600.0, power(2.0, LEAST(attempts, 12))) * (0.5 + random() * 0.5)) END,
            leased_until = NULL, last_error = left($3, 2048), updated_at = now()
          WHERE id = $1 AND attempts = $2 AND state = 'running' AND leased_until > now()
-         RETURNING kind, schedule_slot, updated_at
-         ), recorded AS (
-           INSERT INTO outbox_schedule_success (kind, completed_at)
-           SELECT kind, updated_at FROM finished WHERE $3::text IS NULL AND schedule_slot IS NOT NULL
-           ON CONFLICT (kind) DO UPDATE
-           SET completed_at = greatest(outbox_schedule_success.completed_at, EXCLUDED.completed_at)
-         )
-         SELECT EXISTS(SELECT 1 FROM finished)",
+         RETURNING kind, schedule_slot IS NOT NULL, updated_at",
     )
     .bind(job.id)
     .bind(job.attempts)
     .bind(error)
     .bind(permanent)
-    .fetch_one(pool)
-    .await
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some((kind, true, completed_at)) = &finished
+        && error.is_none()
+    {
+        sqlx::query(
+            "INSERT INTO outbox_schedule_success (kind, completed_at) VALUES ($1, $2)
+             ON CONFLICT (kind) DO UPDATE
+             SET completed_at = greatest(outbox_schedule_success.completed_at, EXCLUDED.completed_at)",
+        )
+        .bind(kind)
+        .bind(completed_at)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(finished.is_some())
 }
 
 /// Counts for metrics exporters, including zero values for empty states. No payloads or errors.

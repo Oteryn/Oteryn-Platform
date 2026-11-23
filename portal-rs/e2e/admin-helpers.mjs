@@ -121,22 +121,22 @@ export const builtInPermissions = {
     game_catalog.snapshots.activate game_catalog.profiles.manage game_catalog.translations.manage
     game_catalog.overrides.manage wiki.access wiki.articles.manage wiki.categories.manage wiki.publish
     account.security.kick payments.coin_hold.release store.catalog.import store.catalog.activate
-    store.codes.generate`,
+    store.codes.generate account.email.edit account.status.edit account.flags.edit puzzles.publish`,
   security_admin: `admin.access admin.roles.manage admin.roles.grant audit.view`,
   content_editor: `cms.news.manage cms.pages.manage media.manage portal.announcements.manage events.manage events.publish
     support.content.manage wiki.access wiki.articles.manage wiki.categories.manage wiki.publish admin.access
     portal.access`,
   support: `admin.access support.tickets.manage support.reports.manage`,
-  moderator: `admin.access support.enforcement.manage marketplace.manage account.security.kick`,
+  moderator: `admin.access support.enforcement.manage marketplace.manage account.security.kick support.reports.review`,
   operations: `admin.access downloads.manage portal.access portal.settings.manage game_catalog.access
     game_catalog.snapshots.view game_catalog.snapshots.import game_catalog.snapshots.activate
     game_catalog.profiles.manage game_catalog.translations.manage game_catalog.overrides.manage`,
   game_viewer: `admin.access ${viewer}`,
   game_support: `admin.access ${viewer} ${gameSupport}`,
   game_master_senior: `admin.access ${viewer} ${gameSupport} game.player.manage game.player.value.write game.sanction.ban game.world.events
-    game.economy.moderate`,
+    game.economy.moderate game.sanction.enforce`,
   game_operator: `admin.access ${viewer} ${operator}`,
-  game_admin: `admin.access ${viewer} ${operator} game.world.admin game.node.admin game.db.admin game.staff.admin`,
+  game_admin: `admin.access ${viewer} ${operator} game.world.admin game.node.admin game.db.admin game.staff.admin ops.playerdata_binding_conflict.read`,
   game_dba: `admin.access game.db.read game.db.backup game.db.query game.analytics.sql`,
   game_analyst: `admin.access game.analytics.read game.analytics.player game.analytics.sql game.analytics.export`,
   game_security: `admin.access game.analytics.read game.analytics.player game.analytics.sql game.analytics.export game.analytics.relink

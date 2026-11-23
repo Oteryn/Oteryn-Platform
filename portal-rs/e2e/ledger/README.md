@@ -1,18 +1,29 @@
 # Portal E2E coverage ledger
 
-From the repository root, use the disposable PostgreSQL setup in the [browser qualification README](../README.md). With the local administrator URL available as `PORTAL_E2E_ADMIN_DATABASE_URL`, run:
+Use the disposable PostgreSQL setup in the [browser qualification README](../README.md). Generate all three inventories before committing the capture candidate.
 
 ```sh
+cd portal-rs/e2e
+python3 inventory.py
 python3 mutation/generate.py
 python3 ledger/forms.py
+```
+
+With the local administrator URL available as `PORTAL_E2E_ADMIN_DATABASE_URL`, run the instrumented suite from the repository root.
+
+```sh
+CARGO_BUILD_JOBS=2 portal-rs/e2e/ledger/llvm-cov.sh
+```
+
+The script runs all four projects against the instrumented portal and writes the request, form and LLVM reports to its private run directory. Pass `--gate` to fail on every unhit route or form row. Playwright failures retain their usual nonzero exit status. Raw results, traces, per-worker JSONL and LLVM profiles stay in the private directory.
+
+To capture browser coverage without LLVM instrumentation, use the normal harness from `portal-rs/e2e`.
+
+```sh
 node run.mjs /absolute/scratch/env.json test
 node ledger/report.mjs
 node ledger/report.mjs --gate
 ```
-
-This entry point rebuilds the route and form inventories, runs all four Playwright projects against the same instrumented portal, and refreshes the request, form and LLVM reports. Pass `--gate` to also fail on every unhit request or form row. Playwright failures retain their usual nonzero exit status. Commit the regenerated inventories and aggregate reports when refreshing the baseline.
-
-Raw Playwright results, traces, per-worker JSONL and LLVM profiles stay in the private run directory printed by the command. The JSONL files are isolated per run and separate from the Playwright output directory that gets cleared at startup.
 
 The recorder installs in Playwright workers before context creation. Browser context events include popups and pages opened by specs. Playwright's pinned in-process transport exposes API request events for both standalone and browser-associated contexts, including individual redirect hops. Check these hooks when upgrading Playwright. Each request is associated with the active Playwright test. The shared fixture awaits lookups and form capture during teardown. Capture errors fail the attempt with a fixed diagnostic and prevent report generation.
 

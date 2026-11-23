@@ -41,8 +41,8 @@ export PORTAL_E2E_SCRATCH="$run_dir/harness"
 export PLAYWRIGHT_JSON_OUTPUT_FILE="$run_dir/playwright.json"
 export PORTAL_E2E_LEDGER_HITS="$run_dir/ledger-hits"
 export PORTAL_E2E_LEDGER_REPORT_DIR="$run_dir"
-python3 "$e2e/inventory.py"
-python3 "$e2e/ledger/forms.py"
+python3 "$e2e/mutation/generate.py" --check
+python3 "$e2e/ledger/forms.py" --check
 cat >"$run_dir/portal" <<'WRAPPER'
 #!/usr/bin/env bash
 # Give startup, HTTP and worker profiles distinct names so they can be verified.

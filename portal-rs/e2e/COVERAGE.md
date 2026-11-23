@@ -19,6 +19,7 @@ Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all fo
 | `/admin/store-catalog` | admin | OTERYN_ADMIN_PANEL, OTERYN_PANEL_PAYMENTS_ENABLED, OTERYN_PANEL_STORE_CATALOG_ENABLED, OTERYN_PAYMENTS_ENABLED | staff | pending | NOT_RUN |
 | `/admin/store-activation` | admin | OTERYN_ADMIN_PANEL, OTERYN_PANEL_PAYMENTS_ENABLED, OTERYN_PANEL_STORE_CATALOG_ENABLED, OTERYN_PAYMENTS_ENABLED | staff | pending | NOT_RUN |
 | `/admin/payment-review` | admin | OTERYN_ADMIN_PANEL, OTERYN_PANEL_PAYMENTS_ENABLED, OTERYN_PANEL_STORE_CATALOG_ENABLED, OTERYN_PAYMENTS_ENABLED, OTERYN_REFUNDS_ENABLED | staff | pending | NOT_RUN |
+| `/admin/console/players/retry` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
 | `/admin/console/players` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
 | `/admin/console/audit` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
 | `/admin/console/access` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
@@ -35,8 +36,11 @@ Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all fo
 | `/admin/operations/rate-limits.csv` | admin | OTERYN_ACCOUNT_EXPORT_ENABLED, OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL, OTERYN_DOWNLOADS_ENABLED | staff | pending | NOT_RUN |
 | `/admin/operations/flags` | admin | OTERYN_ACCOUNT_EXPORT_ENABLED, OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL, OTERYN_DOWNLOADS_ENABLED | staff | pending | NOT_RUN |
 | `/admin/operations/health` | admin | OTERYN_ACCOUNT_EXPORT_ENABLED, OTERYN_ADMIN_ANALYTICS_INGEST, OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL, OTERYN_DOWNLOADS_ENABLED | staff | pending | NOT_RUN |
-| `/admin/players` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
-| `/admin/players/{id}` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
+| `/admin/players` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
+| `/admin/players/{id}` | admin | OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
+| `/admin/staff-invites` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
+| `/admin/staff-invites/{id}/revoke` | admin | OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
+| `/{lang}/staff-invite` | admin | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
 | `/admin/moderation/enforcement/create` | admin | OTERYN_ADMIN_PANEL, OTERYN_REPORTS_ENABLED, OTERYN_SUPPORT_TICKETS | staff | pending | NOT_RUN |
 | `/admin` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
 | `/admin/roles` | admin | OTERYN_ADMIN_ANALYTICS_PRESENT, OTERYN_ADMIN_CONSOLE, OTERYN_ADMIN_PANEL | staff | pending | NOT_RUN |
@@ -166,24 +170,30 @@ Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all fo
 | `/{lang}/email-change/revert/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | anonymous/player | pending | NOT_RUN |
 | `/email-change/revert/{token}` | identity | OTERYN_ACCOUNT_EMAIL_CHANGE | anonymous/player | pending | NOT_RUN |
 | `/{lang}/account/privacy/export` | identity | OTERYN_ACCOUNT_EXPORT_ENABLED | owner | pending | NOT_RUN |
-| `/login` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/{lang}/login` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/logout` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/{lang}/logout` | identity | OTERYN_ACCOUNT_LOGIN | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/login` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa/login` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/challenge` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa/challenge` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/email` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa/email` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/enroll` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa/enroll` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/confirm` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa/confirm` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/{lang}/mfa/devices` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
-| `/mfa/devices` | identity | OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
+| `/login` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
+| `/{lang}/login` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
+| `/logout` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
+| `/{lang}/logout` | identity | OTERYN_ACCOUNT_LOGIN, OTERYN_ADMIN_PANEL | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/login` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/login` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/challenge` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/challenge` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/email` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/email` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/enroll` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/enroll` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/confirm` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/confirm` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/devices` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/devices` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/manage` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/manage` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/replace/confirm` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/mfa/replace/confirm` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA | anonymous/player | pending | NOT_RUN |
+| `/{lang}/mfa/native-devices` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA, OTERYN_PANEL_NATIVE_DEVICES_ENABLED | anonymous/player | pending | NOT_RUN |
+| `/mfa/native-devices` | identity | OTERYN_ACCOUNT_CREDENTIALS, OTERYN_ACCOUNT_LOGIN, OTERYN_ACCOUNT_MFA, OTERYN_PANEL_NATIVE_DEVICES_ENABLED | anonymous/player | pending | NOT_RUN |
 | `/{lang}/account/passkeys` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
 | `/{lang}/account/passkeys/manage` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
 | `/{lang}/account/passkeys/register/start` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
@@ -192,6 +202,7 @@ Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all fo
 | `/{lang}/account/passkeys/authenticate/finish` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
 | `/{lang}/account/passkeys/{id}/remove` | identity | OTERYN_ACCOUNT_PASSKEYS | owner | pending | NOT_RUN |
 | `/{lang}/account/privacy` | identity | OTERYN_ACCOUNT_PRIVACY_ENABLED | owner | pending | NOT_RUN |
+| `/{lang}/account/profile` | identity | OTERYN_ACCOUNT_LOGIN | owner | pending | NOT_RUN |
 | `/{lang}/recovery-key` | identity | always mounted | anonymous/player | pending | NOT_RUN |
 | `/recovery-key` | identity | always mounted | anonymous/player | pending | NOT_RUN |
 | `/{lang}/account/recovery-key` | identity | always mounted | owner | pending | NOT_RUN |
@@ -363,10 +374,15 @@ Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all fo
 
 | Section | Route | Group | Module | Footer | Result |
 | --- | --- | --- | --- | --- | --- |
+| account-mfa | `mfa` | Account | identity | False | NOT_RUN |
+| account-sudo | `account/sudo` | Account | identity | False | NOT_RUN |
+| account-email | `account/security/email` | Account | identity | False | NOT_RUN |
+| account-export | `account/privacy/export` | Account | identity | False | NOT_RUN |
+| account-termination | `account/privacy/delete` | Account | identity | False | NOT_RUN |
 | account-overview | `/account` | Account | identity | False | NOT_RUN |
 | account-security | `password/change` | Account | identity | False | NOT_RUN |
 | account-wizard | `account/security/wizard` | Account | identity | False | NOT_RUN |
-| account-passkeys | `account/passkeys/manage` | Account | identity | False | NOT_RUN |
+| account-passkeys | `account/passkeys` | Account | identity | False | NOT_RUN |
 | account-recovery-key | `account/recovery-key` | Account | identity | False | NOT_RUN |
 | account-sessions | `account/sessions` | Account | identity | False | NOT_RUN |
 | account-privacy | `account/privacy` | Account | identity | False | NOT_RUN |

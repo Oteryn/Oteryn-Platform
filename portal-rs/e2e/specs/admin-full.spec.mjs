@@ -187,7 +187,7 @@ for (const key of [...platformRoles, ...gameRoles]) {
     await expect(page).toHaveURL(/mfa\/challenge/);
     const pending = await page.request.get('/admin', { maxRedirects: 0 });
     expect(pending.status()).toBe(303);
-    expect(pending.headers().location).toBe('/login');
+    expect(pending.headers().location).toBe('/login?return_to=/admin');
     expect(Boolean(code), 'seeded recovery code for this login').toBe(true);
     await submit(page, 'form[action$="/mfa/challenge"]', { code });
     await expect(page).not.toHaveURL(/mfa\/challenge/);
@@ -199,7 +199,7 @@ for (const key of [...platformRoles, ...gameRoles]) {
     await expect(page.getByRole('heading', { name: panelHeading[lang], exact: true })).toBeVisible();
     const adminNav = [
       ['/admin', true],
-      ['/admin/roles', managesRoles],
+      [`/admin/roles?lang=${lang}`, managesRoles],
       ['/admin/players', has('support.tickets.manage')],
       [`/admin/${lang}/bazaar`, has('marketplace.manage')],
       [`/admin/store-catalog?lang=${lang}`, has('store.catalog.import')],
@@ -226,7 +226,7 @@ for (const key of [...platformRoles, ...gameRoles]) {
       ['/admin/control/step-up', true],
       ['/admin/players', ['platform_admin', 'support'].includes(key)],
       ['/admin/support/tickets', has('support.tickets.manage')],
-      ['/admin/moderation/reports', has('support.reports.manage')],
+      ['/admin/moderation/reports', has('support.reports.manage') || has('support.reports.review')],
       ['/admin/moderation/enforcement', has('support.enforcement.manage')],
       ['/admin/moderation/enforcement/create', has('support.enforcement.manage')],
       [`/admin/${lang}/bazaar`, ['platform_admin', 'moderator'].includes(key)],
@@ -292,7 +292,7 @@ for (const key of [...platformRoles, ...gameRoles]) {
     expect(await accountRoles(account.id)).toEqual([]);
     const denied = await page.request.get('/admin', { maxRedirects: 0 });
     expect(denied.status()).toBe(303);
-    expect(denied.headers().location).toBe('/login');
+    expect(denied.headers().location).toBe('/login?return_to=/admin');
     await expectAuditEntry({
       action: 'rbac.role.revoked', actor: manager.id, target: account.id,
       before: { role, assigned: true }, after: { role, assigned: false },
@@ -422,9 +422,15 @@ test('Game console selection, refresh and query refusal on all four pages', asyn
   const navLabels = polish ? ['Przegląd gry', 'Światy', 'Węzły', 'Baza danych'] : ['Game overview', 'Worlds', 'Nodes', 'Database'];
   const key = `console_${manager.id.replaceAll('-', '')}`;
   await staff.goto('/admin/roles');
-  await roleAction(staff, 'create', {
-    key, permissions: 'admin.access game.ops.read game.world.read game.node.read game.db.read game.player.read support.tickets.manage',
-  }, 303);
+  // The role manager must hold the Game permissions used in a new role.
+  await query('INSERT INTO account_roles(account_id, role_id) VALUES($1,$2)', [manager.id, roles.game_master_senior]);
+  try {
+    await roleAction(staff, 'create', {
+      key, permissions: 'admin.access game.ops.read game.world.read game.node.read game.db.read game.player.read support.tickets.manage',
+    }, 303);
+  } finally {
+    await query('DELETE FROM account_roles WHERE account_id=$1 AND role_id=$2', [manager.id, roles.game_master_senior]);
+  }
   const [{ id }] = await query('SELECT id FROM roles WHERE key=$1', [key]);
   const actor = seedAdminAccount(lang);
   await rolePage(staff, id);
