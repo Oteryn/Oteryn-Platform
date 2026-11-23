@@ -5875,8 +5875,17 @@ test('staff Bazaar forms commit review, restriction and compensated invalidation
     await expect.poll(recover, { timeout: 90_000, intervals: [1000] }).toEqual([expected]);
     expect((await reviewer.screen.reload()).status()).toBe(200);
     await expect(displayed).toHaveAttribute('data-listing-state', 'cancelled');
-    expect((await sendForm(reviewer.screen, verdict.url, verdict.fields)).status()).toBe(409);
+    const approvals = () => query(
+      "SELECT actor, after->>'reason' AS reason FROM audit_log WHERE action='bazaar.invalidation.approve' AND target=$1",
+      [pending.id],
+    );
+    const audited = [{ actor: reviewer.account.id, reason }];
+    expect(await approvals()).toEqual(audited);
+    const replay = await sendForm(reviewer.screen, verdict.url, verdict.fields);
+    expect(replay.status()).toBe(303);
+    expect(replay.headers().location).toBe(panel);
     expect(await recover()).toEqual([expected]);
+    expect(await approvals()).toEqual(audited);
     const game = await page.request.get(`/__bazaar_game/state?asset=${lot.asset}`);
     expect(game.status()).toBe(200);
     expect((await game.json()).asset.owner).toBe(seller.id);
