@@ -129,6 +129,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         use staff_actions::Error::Forbidden;
         let actor = guard.actor;
         let mut tx = self.pool.begin().await?;
+        super::mutation_budget(&mut tx).await?;
         super::authorize_mutation(
             &mut tx,
             &[],

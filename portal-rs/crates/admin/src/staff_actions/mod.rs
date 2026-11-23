@@ -216,6 +216,7 @@ where
     let (mut accounts, input) = validate()?;
     accounts.push(guard.actor.account);
     let mut tx = pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
     rbac::lock_accounts_and_mutation(&mut tx, &accounts).await?;
     run_locked(tx, guard, action, reason, input, mutate).await
 }
