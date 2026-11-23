@@ -136,7 +136,7 @@ test('daily puzzles load clues, record one attempt per player, and extend the st
   }
 });
 
-test('season pass keeps unavailable progress private and refuses unwired purchase and claim', async ({page}, info) => {
+test('season pass keeps unavailable progress private and refuses missing-season purchases and unwired claims', async ({page}, info) => {
   const {locale: lang} = info.project.metadata;
   const target = `/${lang}/pass`;
   const main = page.locator('main');
@@ -150,11 +150,14 @@ test('season pass keeps unavailable progress private and refuses unwired purchas
   await expect(main.locator('form')).toHaveCount(0);
 
   await page.goto(`/${lang}/account/notifications`);
-  for (const [action, fields] of [['buy', {operation: absent}], ['claim', {operation: absent, reward: absent}]]) {
+  for (const [action, fields, refusedStatus] of [
+    ['buy', {operation: absent}, 403], // The enabled Wallet refuses a nonexistent season.
+    ['claim', {operation: absent, reward: absent}, 404],
+  ]) {
     const mutation = `${target}/${absent}/${action}`;
     await csrfRejected(page, mutation, fields);
     expect((await post(page, mutation, {...fields, operation: 'invalid'})).status()).toBe(422);
-    expect((await post(page, mutation, fields)).status()).toBe(404);
+    expect((await post(page, mutation, fields)).status()).toBe(refusedStatus);
   }
 });
 

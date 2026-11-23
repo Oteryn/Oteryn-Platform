@@ -473,8 +473,8 @@ The original flow specs remain. `inventory.py` scans module route declarations,
 expands locale/prefix aliases and records module-owned navigation in startup order.
 `inventory.json` retains sources, flags and methods. `route-expectations.json`
 records the explicit actor, status and refusal reason for each executed route.
-`routes.spec.mjs` exercises every inventory row; `navigation.spec.mjs` checks all
-48 registry destinations, exact group links/labels, current section and keyboard
+`routes.spec.mjs` exercises every inventory row; `navigation.spec.mjs` checks every
+registered destination, exact group links/labels, current section and keyboard
 and touch activation. `content.spec.mjs` additionally publishes bilingual news,
 events and Wiki articles and exercises media upload/read/delete. `oauth.spec.mjs`
 proves the browser consent/PKCE/refresh path. Staff storage states stay in the

@@ -4385,6 +4385,51 @@
   ],
   "sections": [
     {
+      "section": "account-mfa",
+      "label": "shell-mfa",
+      "path": "mfa",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-sudo",
+      "label": "shell-sudo",
+      "path": "account/sudo",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-email",
+      "label": "shell-email",
+      "path": "account/security/email",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-export",
+      "label": "shell-export",
+      "path": "account/privacy/export",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-termination",
+      "label": "shell-termination",
+      "path": "account/privacy/delete",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
       "section": "account-overview",
       "label": "shell-account-overview",
       "path": "/account",
@@ -4414,7 +4459,7 @@
     {
       "section": "account-passkeys",
       "label": "shell-account-passkeys",
-      "path": "account/passkeys/manage",
+      "path": "account/passkeys",
       "crate": "identity",
       "group": "Account",
       "footer": false,
