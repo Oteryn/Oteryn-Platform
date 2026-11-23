@@ -1,6 +1,7 @@
 import {test, expect} from '../fixtures.mjs';
 import {csrfRejected, pool, submit} from '../helpers.mjs';
 import {post, privatePage, refusesAnonymous, seedPlayer, signIn, strings, switchPlayer, sudo} from '../account-helpers.mjs';
+import {uuid7} from '../support/bazaar-game.mjs';
 
 test('character creation filters worlds, suggests names, validates input, and protects request status', async ({page}, info) => {
   test.setTimeout(240_000);
@@ -185,11 +186,18 @@ test('public character search validates names and follows the localized result r
 
 test('character services stay closed until the Game contract is accepted', async ({page}, info) => {
   const {locale: lang} = info.project.metadata;
-  const character = '019a541b-a000-7000-8000-000000000001';
-  const request = '019a541b-a000-7000-8000-000000000002';
+  const character = uuid7();
+  const request = uuid7();
   const target = `/${lang}/account/characters/${character}/services`;
   await refusesAnonymous(page, target, 303, `/${lang}/login`);
   const player = seedPlayer(lang);
+  const seller = seedPlayer(lang);
+  const sellerCharacter = uuid7();
+  const projection = await page.request.post('/__bazaar_game/seed', {data: {
+    kind: 'character', seller: seller.id, buyer: player.id, asset_id: sellerCharacter,
+    seller_character_id: sellerCharacter, buyer_character_id: character,
+  }});
+  expect(projection.status(), 'the Game fixture publishes a character owned by the player').toBe(201);
   await signIn(page, lang, player);
   await privatePage(page, target, 404);
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
@@ -216,6 +224,8 @@ test('character services stay closed until the Game contract is accepted', async
   // Game pulls browser service requests from the durable character command queue.
   const db = pool();
   try {
+    expect((await db.query('SELECT account_id FROM account_characters WHERE character_id=$1', [character])).rows)
+      .toEqual([{account_id: player.id}]);
     expect((await db.query('SELECT id FROM character_commands WHERE account_id=$1', [player.id])).rows).toEqual([]);
     expect((await db.query('SELECT operation_id FROM character_service_orders WHERE account_id=$1', [player.id])).rows).toEqual([]);
   } finally {
