@@ -249,6 +249,9 @@ async fn load(
         }
         for g in guilds {
             wire::validate(&g, current).map_err(|_| Unavailable::Evidence)?;
+            let Some(world) = picker.name(&g.world_id) else {
+                continue;
+            };
             let uniqueness_scope = if name.is_some() { "" } else { &g.world_id };
             if !names.insert((uniqueness_scope.to_owned(), g.name.to_lowercase())) {
                 return Err(Unavailable::Evidence);
@@ -324,14 +327,8 @@ async fn load(
                 _ => return Err(Unavailable::Evidence),
             };
             result.push(Guild {
-                href: format!(
-                    "/{lang}/guilds/{}{}",
-                    encoded(&g.name),
-                    picker
-                        .name(&g.world_id)
-                        .map_or_else(String::new, |_| format!("?world={}", g.world_id)),
-                ),
-                world: picker.name(&g.world_id).unwrap_or_default().to_owned(),
+                href: format!("/{lang}/guilds/{}?world={}", encoded(&g.name), g.world_id),
+                world: world.to_owned(),
                 name: g.name,
                 state: labels[state_label].clone(),
                 founded: date(&g.founded_at)?,
@@ -403,7 +400,7 @@ async fn page(
         return StatusCode::BAD_REQUEST.into_response();
     };
     let world = query.world.filter(|value| !value.is_empty());
-    let search = query.q.unwrap_or_default().trim().to_owned();
+    let search = query.q.unwrap_or_default();
     let index = query.page.unwrap_or(1);
     if search.chars().count() > 80
         || search.chars().any(char::is_control)
@@ -415,6 +412,7 @@ async fn page(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let search = search.trim().to_owned();
     let prefix = if en {
         "/en/guilds"
     } else if uri.path().starts_with("/pl/") {

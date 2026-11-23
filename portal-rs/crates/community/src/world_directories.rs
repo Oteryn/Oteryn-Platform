@@ -8,6 +8,7 @@ use axum::{
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_admin::{rbac::Permission, web};
 use sqlx::PgPool;
 use uuid::{Uuid, Variant};
 
@@ -101,14 +102,20 @@ fn status_routes(state: Status) -> Router {
 
 /// Reports the local projection watermarks and rollout gates to authorized world operators.
 pub fn directory_status(db: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    let get = |key: &str| std::env::var(key).ok();
+    directory_status_from(db, &|key| std::env::var(key).ok())
+}
+
+fn directory_status_from(
+    db: PgPool,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     let routes = status_routes(Status {
         db: db.clone(),
         authority: get("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").unwrap_or_default(),
         guilds_enabled: guilds_enabled(get),
         houses_enabled: houses_enabled(get),
     });
-    oteryn_admin::web::configured_guard(routes, db, oteryn_admin::rbac::Permission::GameWorldRead)
+    web::configured_guard_from(routes, db, Permission::GameWorldRead, get)
 }
 
 #[derive(Template)]
@@ -263,12 +270,7 @@ mod tests {
             "OTERYN_ADMIN_HOST" => Some("staff.example.test".into()),
             _ => None,
         };
-        let guarded = oteryn_admin::web::configured_guard_from(
-            routes.clone(),
-            db.clone(),
-            oteryn_admin::rbac::Permission::GameWorldRead,
-            &guard_config,
-        )?;
+        let guarded = directory_status_from(db.clone(), &guard_config)?;
         let path = "/admin/en/world-directories";
         let wrong_host = guarded
             .clone()

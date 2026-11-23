@@ -254,9 +254,6 @@ async fn load(
             .try_get::<Option<serde_json::Value>, _>("payload")
             .map_err(|_| unavailable)?
         else {
-            if world.is_none() && key.is_none() {
-                return Err(unavailable);
-            }
             continue;
         };
         identities.push(v.clone());
@@ -266,6 +263,9 @@ async fn load(
         }
         let w = v["world_id"].as_str().ok_or(unavailable)?;
         let k = v["house_key"].as_str().ok_or(unavailable)?;
+        let Some(world_name) = picker.name(w) else {
+            continue;
+        };
         if world.is_some_and(|wanted| wanted != w) || key.is_some_and(|wanted| wanted != k) {
             continue;
         }
@@ -308,7 +308,7 @@ async fn load(
         houses.push(House {
             name: value("name")?,
             world: w.into(),
-            world_name: picker.name(w).unwrap_or_default().into(),
+            world_name: world_name.into(),
             key: k.into(),
             kind: label(en, &value("kind")?),
             town: value("town")?,

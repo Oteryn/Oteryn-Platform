@@ -107,6 +107,16 @@ async fn page_body(app: Router, path: &str) -> (StatusCode, String) {
         String::from_utf8(to_bytes(r.into_body(), 100000).await.unwrap().to_vec()).unwrap(),
     )
 }
+
+async fn register_world(db: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO world_status(id,name) VALUES ('01934f10-7c02-7001-805b-3b1122334401','First World')",
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -208,6 +218,21 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
         page_body(pages(), "/en/guilds?world=invalid").await.0,
         StatusCode::BAD_REQUEST
     );
+    assert_eq!(
+        page_body(pages(), "/en/guilds?q=Red%20Rose%0A").await.0,
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("DELETE FROM world_status WHERE id=$1::uuid")
+        .bind(world)
+        .execute(&db)
+        .await?;
+    let (status, without_unregistered_world) = page_body(pages(), "/en/guilds").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!without_unregistered_world.contains("Red Rose"));
+    sqlx::query("INSERT INTO world_status(id,name) VALUES ($1::uuid,'First World')")
+        .bind(world)
+        .execute(&db)
+        .await?;
     let (status, body) = page_body(pages(), "/en/guilds").await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Visible members: 1"));
@@ -351,6 +376,7 @@ async fn audit06_guild_scenario(oversized: bool) -> TestResult {
         }
     }
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     apply(&d.db, &publication(GOLDEN, false))
         .await
         .map_err(|_| "guild publication failed")?;
@@ -541,6 +567,7 @@ async fn w3_c06_002_guild_profile_conflict_during_privacy() -> TestResult {
     }
     let started = std::time::Instant::now();
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     apply(&d.db, &publication(GOLDEN, false))
         .await
         .map_err(|_| "guild publication failed")?;
@@ -597,6 +624,7 @@ async fn w3_c06_010_guild_privacy_unavailability_returns_503() -> TestResult {
     }
     let started = std::time::Instant::now();
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     apply(&d.db, &publication(GOLDEN, false))
         .await
         .map_err(|_| "publish")?;

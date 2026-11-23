@@ -673,6 +673,12 @@ async fn render<P: Permissions, C: Channel>(
                 format!("/console/{}?lang={language}", op.page()),
                 text(language, op.title()),
             ));
+            if matches!(op, Operation::Worlds) {
+                nav.push((
+                    format!("/admin/{language}/world-directories"),
+                    text(language, "world-directories"),
+                ));
+            }
         }
     }
     let op = operations[0];

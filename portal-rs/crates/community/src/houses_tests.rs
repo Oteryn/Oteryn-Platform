@@ -221,6 +221,14 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(
+        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
+         INSERT INTO world_status VALUES
+          ('01934f10-7c02-7001-805b-3b1122334401','First World'),
+          ('01934f10-7c02-7001-805b-3b1122334402','Second World');",
+    )
+    .execute(&db)
+    .await?;
     assert_eq!(
         get(app(db.clone(), true), "/en/houses").await.status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -276,14 +284,6 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
         .status(),
         StatusCode::OK
     );
-    sqlx::raw_sql(
-        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
-         INSERT INTO world_status VALUES
-          ('01934f10-7c02-7001-805b-3b1122334401','First World'),
-          ('01934f10-7c02-7001-805b-3b1122334402','Second World');",
-    )
-    .execute(&db)
-    .await?;
     let foreign = "01934f10-7c02-7001-805b-3b1122334402";
     let response = get(app(db.clone(), true), &format!("/en/houses?world={WORLD}")).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -302,6 +302,15 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     assert!(html.contains("Example Shop"));
     assert!(html.contains("Vacant"));
     assert!(html.contains("viewport"));
+    sqlx::query("DELETE FROM world_status WHERE id=$1::uuid")
+        .bind(WORLD)
+        .execute(&db)
+        .await?;
+    let response = get(app(db.clone(), true), "/en/houses").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(!html.contains("Example Shop"));
+    register_world(&db).await?;
     let detail = format!("/en/houses/oteryn:content.house.example_shop?world={WORLD}");
     assert_eq!(
         get(app(db.clone(), true), &detail).await.status(),
@@ -412,6 +421,21 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
         get(app(db.clone(), true), &detail).await.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    assert_eq!(
+        send(
+            app(db.clone(), true),
+            "watermark",
+            watermark(3, now()),
+            true
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let response = get(app(db.clone(), true), "/en/houses").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(&label(true, "empty")));
     db.close().await;
     sqlx::query("DROP SCHEMA houses_t24f_test CASCADE")
         .execute(&root)
