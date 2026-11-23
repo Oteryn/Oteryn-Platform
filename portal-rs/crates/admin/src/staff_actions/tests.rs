@@ -22,7 +22,10 @@ struct Fixture {
     authority: MutationAuthorization,
 }
 
-const OVERSIZED_REASON_BYTES: usize = 501;
+const OVERSIZED_REASON: &str = match std::str::from_utf8(&[b'x'; 501]) {
+    Ok(reason) => reason,
+    Err(_) => panic!("ASCII reason fixture is valid UTF-8"),
+};
 
 #[derive(Deserialize)]
 struct TestForm {
@@ -40,7 +43,6 @@ async fn apply(
     Form(form): Form<TestForm>,
 ) -> Response {
     let actor = fixture.actor.account;
-    let oversized_reason = "x".repeat(OVERSIZED_REASON_BYTES);
     let mut response = match run(
         &fixture.pool,
         Guard {
@@ -51,7 +53,7 @@ async fn apply(
         Action {
             permission: Permission::GrantRoles,
             reason: &form.reason,
-            reason_codes: &["role_assignment", "short", &oversized_reason],
+            reason_codes: &["role_assignment", "short", OVERSIZED_REASON],
             step_up: StepUp::RecentPassword,
         },
         || Ok((vec![actor], (form.conflict, form.expire_step_up))),
@@ -226,7 +228,7 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         .execute(&pool)
         .await?;
 
-    let oversized_reason = format!("reason={}", "x".repeat(OVERSIZED_REASON_BYTES));
+    let oversized_reason = format!("reason={OVERSIZED_REASON}");
     for form in [
         "",
         "reason=arbitrary+credential-shaped+text",
