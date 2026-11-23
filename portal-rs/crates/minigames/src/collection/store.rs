@@ -308,7 +308,7 @@ impl Collection {
             return Err(Error::BadInput);
         }
         match &self.source {
-            BestiarySource::Projection(store, authority) => store
+            BestiarySource::Projection(store, Some(authority)) => store
                 .read(
                     Actor::Owner(account),
                     &ReadScope {
@@ -324,6 +324,7 @@ impl Collection {
                     oteryn_playerdata::progress::Error::Denied => Error::Denied,
                     _ => Error::Unavailable,
                 }),
+            BestiarySource::Projection(_, None) => Err(Error::Unavailable),
             BestiarySource::Journal(_) => {
                 let mut tx = crate::browser::begin(&self.pool).await?;
                 let progress = self.progress(&mut tx, account, character, now).await?;
