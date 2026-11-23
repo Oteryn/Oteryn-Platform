@@ -6,13 +6,16 @@
 //! refused and an unavailable corpus denies registration; neither is ever accepted.
 //! SHA-1 is used only for corpus lookup, never password storage (which uses Argon2id).
 //!
-//! Work: SHA-256 of `token:nonce` must begin with two zero bytes (16 bits). Tokens
-//! contain 256 random bits, expire after five minutes, and bind to the form's CSRF
-//! token. Atomic DELETE consumes a valid solution once across all workers. Issuance
+//! Work: SHA-256 of `token:nonce` must begin with the configured number of zero bits.
+//! Tokens contain 256 random bits, use the policy lifetime, and bind to the form's
+//! CSRF token. Atomic DELETE consumes a valid solution once across all workers. Issuance
 //! replaces any outstanding challenge for that form. Expired rows are pruned on issue.
 //! HTTP adapters must enforce CSRF before calling issue/consume and must not log proofs.
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+
+pub mod policy;
+use policy::Policy;
 
 pub const DIFFICULTY: u8 = 16;
 
@@ -51,22 +54,31 @@ fn form_hash(csrf: &str) -> Result<Vec<u8>, Error> {
     Ok(Sha256::digest(csrf.as_bytes()).to_vec())
 }
 
+async fn load_policy(pool: &PgPool) -> Result<Policy, Error> {
+    policy::read(pool)
+        .await
+        .map(|row| row.values)
+        .map_err(|_| Error::Unavailable)
+}
+
 pub async fn enabled(pool: &PgPool) -> Result<(), Error> {
-    match sqlx::query_scalar::<_, bool>(
-        "SELECT enabled FROM registration_abuse_policy WHERE singleton=true",
-    )
-    .fetch_optional(pool)
-    .await
-    {
-        Ok(Some(true)) => Ok(()),
-        Ok(Some(false)) => Err(Error::Disabled),
-        _ => Err(Error::Unavailable),
+    if load_policy(pool).await?.enabled {
+        Ok(())
+    } else {
+        Err(Error::Disabled)
     }
 }
 
 /// Issue at most one outstanding challenge per form, serialized across instances.
 pub async fn issue(pool: &PgPool, csrf: &str) -> Result<String, Error> {
-    enabled(pool).await?;
+    let policy = load_policy(pool).await?;
+    issue_with_policy(pool, csrf, &policy).await
+}
+
+async fn issue_with_policy(pool: &PgPool, csrf: &str, policy: &Policy) -> Result<String, Error> {
+    if !policy.enabled {
+        return Err(Error::Disabled);
+    }
     let binding = form_hash(csrf)?;
     let mut random = [0_u8; 32];
     getrandom::fill(&mut random).map_err(|_| Error::Unavailable)?;
@@ -82,15 +94,20 @@ pub async fn issue(pool: &PgPool, csrf: &str) -> Result<String, Error> {
         .execute(&mut *tx)
         .await
         .map_err(|_| Error::Unavailable)?;
-    sqlx::query("INSERT INTO registration_work(token_hash,form_hash,expires_at) VALUES ($1,$2,now()+interval '5 minutes')")
+    sqlx::query("INSERT INTO registration_work(token_hash,form_hash,expires_at) VALUES ($1,$2,now()+make_interval(secs => $3))")
         .bind(Sha256::digest(token.as_bytes()).to_vec())
         .bind(binding)
+        .bind(f64::from(policy.work_ttl_seconds))
         .execute(&mut *tx).await.map_err(|_| Error::Unavailable)?;
     tx.commit().await.map_err(|_| Error::Unavailable)?;
     Ok(token)
 }
 
 pub fn valid_solution(token: &str, nonce: &str) -> bool {
+    solution_meets(token, nonce, u32::from(DIFFICULTY))
+}
+
+fn solution_meets(token: &str, nonce: &str, bits: u32) -> bool {
     if !valid_hex(token, 64)
         || nonce.is_empty()
         || nonce.len() > 16
@@ -99,13 +116,16 @@ pub fn valid_solution(token: &str, nonce: &str) -> bool {
         return false;
     }
     let hash = Sha256::digest(format!("{token}:{nonce}").as_bytes());
-    hash[0] == 0 && hash[1] == 0
+    u32::from_be_bytes([hash[0], hash[1], hash[2], hash[3]]).leading_zeros() >= bits
 }
 
 pub async fn consume(pool: &PgPool, csrf: &str, token: &str, nonce: &str) -> Result<(), Error> {
-    enabled(pool).await?;
+    let policy = load_policy(pool).await?;
+    if !policy.enabled {
+        return Err(Error::Disabled);
+    }
     let binding = form_hash(csrf)?;
-    if !valid_solution(token, nonce) {
+    if !solution_meets(token, nonce, policy.work_bits as u32) {
         return Err(Error::Invalid);
     }
     let result = sqlx::query(

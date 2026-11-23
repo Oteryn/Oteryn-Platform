@@ -541,3 +541,38 @@ async fn outage_timeout_and_malformed_body_are_unavailable() -> TestResult {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn corpus_import_time_tracks_operator_upserts_separately_from_cache_refreshes() -> TestResult
+{
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let p = &db.pool;
+    let last_import = || async {
+        sqlx::query_scalar::<_, sqlx::types::time::OffsetDateTime>(
+            "SELECT imported_at FROM registration_corpus_import_status WHERE singleton",
+        )
+        .fetch_optional(p)
+        .await
+    };
+    store(p, "ABCDE", &[]).await?;
+    assert!(last_import().await?.is_none());
+    let mut importer = p.begin().await?;
+    sqlx::query("CREATE TEMP TABLE import_ranges (prefix text, suffixes text[]) ON COMMIT DROP")
+        .execute(&mut *importer)
+        .await?;
+    sqlx::query(
+        "INSERT INTO import_ranges VALUES('ABCDE',ARRAY[]::text[]),('ABCDF',ARRAY[]::text[])",
+    )
+    .execute(&mut *importer)
+    .await?;
+    sqlx::query(NEW_IMPORT_SQL).execute(&mut *importer).await?;
+    importer.commit().await?;
+    let imported = last_import().await?;
+    assert!(imported.is_some());
+    store(p, "ABCDE", &[]).await?;
+    store(p, "ABCDD", &[]).await?;
+    assert_eq!(last_import().await?, imported);
+    db.close().await
+}

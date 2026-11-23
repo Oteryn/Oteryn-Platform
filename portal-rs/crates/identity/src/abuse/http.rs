@@ -1,5 +1,5 @@
 //! HTTP adapter: mount inside the existing browser session/CSRF middleware.
-use super::{Error, check_password, consume, enabled, issue};
+use super::{Error, check_password, consume, issue_with_policy, load_policy};
 use axum::{
     Router,
     body::{Body, to_bytes},
@@ -39,6 +39,10 @@ fn text(language: &str, key: &str) -> String {
     String::new()
 }
 fn refusal(error: Error, language: &str) -> Response {
+    refusal_with_reason(error, language, "")
+}
+
+fn refusal_with_reason(error: Error, language: &str, reason: &str) -> Response {
     let (status, key) = match error {
         Error::Invalid => (StatusCode::UNPROCESSABLE_ENTITY, "work-error"),
         Error::Breached => (StatusCode::UNPROCESSABLE_ENTITY, "breach-error"),
@@ -52,9 +56,14 @@ fn refusal(error: Error, language: &str) -> Response {
         text(language, "retry")
     );
     let mut response = (status, [(header::CACHE_CONTROL, "no-store")], Html(body)).into_response();
+    let message = if reason.is_empty() {
+        text(language, key)
+    } else {
+        reason.to_owned()
+    };
     response
         .extensions_mut()
-        .insert(oteryn_ui::RefusalMessage(text(language, key)));
+        .insert(oteryn_ui::RefusalMessage(message));
     response
 }
 async fn script() -> impl IntoResponse {
@@ -79,16 +88,42 @@ fn source(request: &Request) -> Option<String> {
         .map(|peer| peer.ip().to_string())
 }
 
+fn language(request: &Request) -> &'static str {
+    match request.uri().path().split('/').nth(1) {
+        Some("en") => "en",
+        Some("pl") => "pl",
+        _ if request
+            .extensions()
+            .get::<oteryn_ui::Chrome>()
+            .is_some_and(|chrome| chrome.lang == "en") =>
+        {
+            "en"
+        }
+        _ => "pl",
+    }
+}
+
 async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
-    let language = if request.uri().path().starts_with("/en/") {
-        "en"
-    } else {
-        "pl"
-    };
+    let language = language(&request);
     let Some(source) = source(&request) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    if let Err(response) = budget(&pool, "identity-registration-challenge", &source, 5, 60).await {
+    let policy = match load_policy(&pool).await {
+        Ok(policy) if policy.enabled => policy,
+        Ok(policy) => {
+            return refusal_with_reason(Error::Disabled, language, policy.reason(language));
+        }
+        Err(error) => return refusal(error, language),
+    };
+    if let Err(response) = budget(
+        &pool,
+        "identity-registration-challenge",
+        &source,
+        i64::from(policy.challenge_limit),
+        i64::from(policy.rate_window_seconds),
+    )
+    .await
+    {
         return *response;
     }
     let csrf = request
@@ -96,10 +131,10 @@ async fn challenge(State(pool): State<PgPool>, request: Request) -> Response {
         .get("x-csrf-token")
         .and_then(|h| h.to_str().ok())
         .unwrap_or_default();
-    match issue(&pool, csrf).await {
+    match issue_with_policy(&pool, csrf, &policy).await {
         Ok(token) => (
             [(header::CACHE_CONTROL, "no-store")],
-            axum::Json(serde_json::json!({"token":token,"bits":super::DIFFICULTY})),
+            axum::Json(serde_json::json!({"token":token,"bits":policy.work_bits})),
         )
             .into_response(),
         Err(error) => refusal(error, language),
@@ -113,17 +148,29 @@ pub async fn protect(State(pool): State<PgPool>, mut request: Request, next: Nex
     if !matches!(path, "/register" | "/pl/register" | "/en/register") {
         return next.run(request).await;
     }
-    let language = if path.starts_with("/en/") { "en" } else { "pl" };
-    if let Err(error) = enabled(&pool).await {
-        return refusal(error, language);
-    }
+    let language = language(&request);
+    let policy = match load_policy(&pool).await {
+        Ok(policy) if policy.enabled => policy,
+        Ok(policy) => {
+            return refusal_with_reason(Error::Disabled, language, policy.reason(language));
+        }
+        Err(error) => return refusal(error, language),
+    };
     if request.method() != Method::POST {
         return next.run(request).await;
     }
     let Some(source) = source(&request) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    if let Err(response) = budget(&pool, "identity-registration-attempt", &source, 5, 60).await {
+    if let Err(response) = budget(
+        &pool,
+        "identity-registration-attempt",
+        &source,
+        i64::from(policy.attempt_limit),
+        i64::from(policy.rate_window_seconds),
+    )
+    .await
+    {
         return *response;
     }
     let body = std::mem::replace(request.body_mut(), Body::empty());

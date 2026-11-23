@@ -22,6 +22,9 @@ use sqlx::PgPool;
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
 
+#[path = "registration_policy.rs"]
+mod registration_policy;
+
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
     pub account: Uuid,
@@ -253,6 +256,14 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .route(
+            registration_policy::PATH,
+            get(registration_policy::show::<I, A>).post(registration_policy::save::<I, A>),
+        )
+        .route(
+            registration_policy::CONFIRM_PATH,
+            axum::routing::post(registration_policy::confirm::<I, A>),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -386,10 +397,15 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     };
     let permission = s
         .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
+        .unwrap_or_else(|| match (request.uri().path(), request.method()) {
+            ("/admin/roles", _) => Permission::ManageRoles,
+            (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => {
+                Permission::ViewRegistrationPolicy
+            }
+            (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => {
+                Permission::ManageRegistrationPolicy
+            }
+            _ => Permission::Access,
         });
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
@@ -466,6 +482,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    registration_policy_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -535,8 +552,18 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         String::new()
     };
     let lang = language(&headers);
+    let registration_policy_label = match s
+        .auth
+        .check(context, Permission::ViewRegistrationPolicy)
+        .await
+    {
+        Ok(()) => Some(text(lang, "registration-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
+        registration_policy_label,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         account_label: text(lang, "account"),

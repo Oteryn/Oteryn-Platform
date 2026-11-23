@@ -618,3 +618,44 @@ async fn audit3_english_challenge_refusal_uses_requested_language() -> TestResul
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn configured_proof_difficulty_and_lifetime_are_enforced() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    db.enable().await?;
+    sqlx::query("UPDATE registration_abuse_policy SET work_bits=17,work_ttl_seconds=420")
+        .execute(&db.pool)
+        .await?;
+    issue(&db.pool, CSRF).await?;
+    let lifetime: i32 = sqlx::query_scalar(
+        "SELECT extract(epoch FROM expires_at-created_at)::int FROM registration_work",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(lifetime, 420);
+    let token = "A".repeat(64);
+    sqlx::query("UPDATE registration_work SET token_hash=$1")
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .execute(&db.pool)
+        .await?;
+    let default_only = (0..1_000_000_u64)
+        .map(|nonce| nonce.to_string())
+        .find(|nonce| valid_solution(&token, nonce) && !solution_meets(&token, nonce, 17))
+        .ok_or("no proof of default difficulty found")?;
+    assert_eq!(
+        consume(&db.pool, CSRF, &token, &default_only).await,
+        Err(Error::Invalid)
+    );
+    let configured = (0..3_000_000_u64)
+        .map(|nonce| nonce.to_string())
+        .find(|nonce| solution_meets(&token, nonce, 17))
+        .ok_or("no proof of configured difficulty found")?;
+    assert_eq!(consume(&db.pool, CSRF, &token, &configured).await, Ok(()));
+    assert_eq!(
+        consume(&db.pool, CSRF, &token, &configured).await,
+        Err(Error::Invalid)
+    );
+    db.close().await
+}

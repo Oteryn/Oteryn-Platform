@@ -1,8 +1,9 @@
 # Registration abuse protection
 
-Registration is disabled by default. Enabling it requires an explicit operator
-update of `registration_abuse_policy.enabled` to true. A missing policy row or
-database error denies registration. The flag also applies to the trusted Rust
+Registration is closed by default. Authorized staff can open or close it from
+`/admin/registration-policy` after confirming their password. A closure publishes
+the Polish and English reasons from the policy. A missing policy row or database
+error denies registration. The setting also applies to the trusted Rust
 registration function's password check.
 
 There is no external captcha. The breach corpus is the Have I Been Pwned range
@@ -54,11 +55,13 @@ ignored by the check, and the live range API decides. Production requires the
 complete corpus (owner decision 2026-11-21): the live check with its cache
 provides it; a `--min-count 1` import is optional and only pre-fills the cache.
 
-Challenges require the existing browser session's CSRF verification. Work is 16
-leading SHA-256 zero bits over the ASCII string `TOKEN:NONCE`; TOKEN is 64 uppercase
-hex characters and NONCE contains at most 16 decimal digits. Each token contains
-256 cryptographically random bits, binds to the form CSRF token and expires after
-five minutes of database time. Atomic consumption prevents replay across workers.
+Challenges require the existing browser session's CSRF verification. Work
+defaults to 16 leading SHA-256 zero bits over the ASCII string `TOKEN:NONCE`.
+TOKEN is 64 uppercase hex characters and NONCE contains at most 16 decimal
+digits. Each token contains 256 cryptographically random bits, binds to the form
+CSRF token and expires after five minutes of database time by default. Staff can
+adjust the difficulty, lifetime and per-IP challenge and attempt budgets in the
+policy panel. Atomic consumption prevents replay across workers.
 Issuing again replaces the prior challenge for that form. Work is consumed before
 password lookup and account creation, even when subsequent registration is refused.
 Invalid/expired proofs return 422, disabled registration returns 503, and CSRF
