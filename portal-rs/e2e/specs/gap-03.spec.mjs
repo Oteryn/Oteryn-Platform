@@ -61,10 +61,10 @@ async function publishFixtures() {
 }
 
 const copy = {
-  en: {home: 'Get the client', guide: 'Client setup guide', update: 'Update or repair the client',
+  en: {home: 'Get the client', download: 'Client downloads', guide: 'Client setup guide', update: 'Update or repair the client',
     recovery: 'Account recovery and support', unavailable: 'No verified release is available for this channel.',
     package: 'Download Windows (x86_64)'},
-  pl: {home: 'Pobierz klienta', guide: 'Jak zainstalować klienta', update: 'Aktualizacja i naprawa klienta',
+  pl: {home: 'Pobierz klienta', download: 'Pobierz klienta', guide: 'Jak zainstalować klienta', update: 'Aktualizacja i naprawa klienta',
     recovery: 'Odzyskiwanie konta i pomoc', unavailable: 'W tym kanale nie ma zweryfikowanego wydania.',
     package: 'Pobierz Windows (x86_64)'},
 };
@@ -80,7 +80,7 @@ test('a new player finds the signed client and follows setup and recovery', asyn
   await entry.click();
   await expect(page).toHaveURL(new RegExp(`/${lang}/download$`));
   const main = page.getByRole('main');
-  await expect(main.getByRole('heading', {level: 1})).toHaveText(label.home);
+  await expect(main.getByRole('heading', {level: 1})).toHaveText(label.download);
   await expect(main).toContainText('1.0.0');
 
   const bytes = Buffer.from('package');
@@ -130,7 +130,7 @@ test('a new player finds the signed client and follows setup and recovery', asyn
 
   await main.getByRole('link', {name: label.guide, exact: true}).click();
   await expect(page).toHaveURL(new RegExp(`/${lang}/start$`));
-  await expect(main.getByRole('heading', {level: 1})).toHaveText(label.guide);
+  await expect(main.getByRole('heading', {level: 2, name: label.guide, exact: true})).toBeVisible();
   await expect(main.getByRole('heading', {name: label.update})).toBeVisible();
   const recovery = main.getByRole('link', {name: label.recovery, exact: true});
   await expect(recovery).toHaveAttribute('href', `/${lang}/support`);
@@ -156,7 +156,7 @@ test('i18n-parity for the onboarding pages', async ({page}, info) => {
     }
   }
   const read = file => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
-  const templates = ['downloads/index.html', 'downloads/start.html', 'components/thais-guide.html'];
+  const templates = ['downloads/index.html', 'downloads/start.html', 'downloads/setup.html', 'pages/start.html', 'components/thais-guide.html'];
   const keys = new Set(templates.flatMap(file => [...read(`templates/${file}`)
     .matchAll(/chrome\.text\("(onboarding-[\w-]+)"\)/g)].map(([, key]) => key)));
   expect(keys.size).toBeGreaterThan(0);

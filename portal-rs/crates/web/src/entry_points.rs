@@ -18,39 +18,41 @@ use crate::{
 
 const CHANNELS: [&str; 2] = ["stable", "beta"];
 
-pub(super) fn routes() -> Router<AppState> {
+pub(super) fn routes(module_entry_pages: bool) -> Router<AppState> {
     let mut router = Router::new();
     for lang in [Language::Pl, Language::En] {
         let code = lang.code();
-        router = router
-            .route(
-                &format!("/{code}/start"),
-                get(move |request: Request| async move {
-                    render(&Start {
-                        chrome: request_chrome(&request, lang),
-                    })
-                }),
-            )
-            .route(
-                &format!("/{code}/download"),
-                get(
-                    move |State(state): State<AppState>, request: Request| async move {
-                        let chrome = request_chrome(&request, lang);
-                        downloads(&state.db, chrome, None, downloads_enabled()).await
-                    },
-                ),
-            )
-            .route(
-                &format!("/{code}/download/{{channel}}"),
-                get(
-                    move |State(state): State<AppState>,
-                          Path(channel): Path<String>,
-                          request: Request| async move {
-                        let chrome = request_chrome(&request, lang);
-                        downloads(&state.db, chrome, Some(&channel), downloads_enabled()).await
-                    },
-                ),
-            );
+        if !module_entry_pages {
+            router = router
+                .route(
+                    &format!("/{code}/start"),
+                    get(move |request: Request| async move {
+                        render(&Start {
+                            chrome: request_chrome(&request, lang),
+                        })
+                    }),
+                )
+                .route(
+                    &format!("/{code}/download"),
+                    get(
+                        move |State(state): State<AppState>, request: Request| async move {
+                            let chrome = request_chrome(&request, lang);
+                            downloads(&state.db, chrome, None, downloads_enabled()).await
+                        },
+                    ),
+                );
+        }
+        router = router.route(
+            &format!("/{code}/download/{{channel}}"),
+            get(
+                move |State(state): State<AppState>,
+                      Path(channel): Path<String>,
+                      request: Request| async move {
+                    let chrome = request_chrome(&request, lang);
+                    downloads(&state.db, chrome, Some(&channel), downloads_enabled()).await
+                },
+            ),
+        );
     }
     router
 }

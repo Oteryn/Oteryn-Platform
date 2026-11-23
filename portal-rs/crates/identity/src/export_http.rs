@@ -1,7 +1,8 @@
 //! Browser adapter for personal-data exports.
 use crate::export::navigation::{self, SudoReturn};
 use crate::export::{
-    EXPORT_REAUTH_QUERY, ExportConfig, PRODUCER_DEADLINE, confirmation_access, export_account, stream_download_until,
+    EXPORT_REAUTH_QUERY, ExportConfig, PRODUCER_DEADLINE, confirmation_access, export_account,
+    stream_download_until,
 };
 use askama::Template;
 use axum::{
@@ -99,14 +100,20 @@ async fn confirmation(
         Ok(false)
             if method == Method::GET
                 && navigation::sudo_enabled()
-                && headers.get("sec-fetch-site").is_some_and(|site| site == "same-origin")
-                && headers.get(header::ACCEPT)
+                && headers
+                    .get("sec-fetch-site")
+                    .is_some_and(|site| site == "same-origin")
+                && headers
+                    .get(header::ACCEPT)
                     .and_then(|accept| accept.to_str().ok())
                     .is_some_and(|accept| accept.contains("text/html"))
                 && browser.account_id().await.is_some() =>
         {
-            Redirect::to(&format!("/{}/account/sudo?{EXPORT_REAUTH_QUERY}", language.code()))
-                .into_response()
+            Redirect::to(&format!(
+                "/{}/account/sudo?{EXPORT_REAUTH_QUERY}",
+                language.code()
+            ))
+            .into_response()
         }
         Ok(false) if navigation::sudo_enabled() => (
             StatusCode::FORBIDDEN,

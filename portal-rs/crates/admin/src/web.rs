@@ -184,6 +184,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
+        PortalIdentity::configured(pool.clone()),
         std::env::var("OTERYN_ADMIN_PLAYERS").is_ok_and(|value| value == "true"),
     );
     let router = router.merge(invitations::acceptance_router(pool.clone()));

@@ -108,6 +108,15 @@ fn public_sessions(db: sqlx::PgPool, origin: Option<String>) -> session::Session
 
 /// Builds the public router. Module routers are merged here as their tasks land.
 pub fn router(state: AppState, static_dir: &str) -> Router {
+    router_with_entry_owners(state, static_dir, false)
+}
+
+/// The composed portal supplies its editorial start and typed download index routes.
+pub fn router_with_portal_entry_points(state: AppState, static_dir: &str) -> Router {
+    router_with_entry_owners(state, static_dir, true)
+}
+
+fn router_with_entry_owners(state: AppState, static_dir: &str, module_entry_pages: bool) -> Router {
     let device_routes = oteryn_gameauth::devices::routes(state.db.clone());
     let shared_limiter = ratelimit::RateLimiter::new(state.db.clone());
     let session_layer =
@@ -351,7 +360,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))
         .merge(surface::module_router())
-        .merge(surface::module_routes())
+        .merge(surface::module_routes(module_entry_pages))
         .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
         .route("/{lang}/account/consents", get(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>| async move {
             let mut config = config.map(|c| c.0).unwrap_or_else(oteryn_identity::consents::OptionalConfig::configured);

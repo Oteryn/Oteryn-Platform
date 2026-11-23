@@ -1,6 +1,6 @@
 use super::*;
-use crate::preview;
 use crate::editorial::{self, Window};
+use crate::preview;
 use crate::revisions::{self, Target};
 use axum::{Extension, Form, extract::Query, response::Redirect, routing::post};
 use oteryn_admin::{
@@ -286,7 +286,11 @@ async fn edit(
     .bind(&locale)
     .fetch_optional(&pool)
     .await;
-    let document_id = row.as_ref().ok().and_then(Option::as_ref).map(|row| row.get("document_id"));
+    let document_id = row
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .map(|row| row.get("document_id"));
     let (mut form, schedule_until) = match row {
         Ok(Some(row)) => (
             PageForm {
@@ -361,7 +365,8 @@ async fn edit(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let base = format!("/admin/pages/{slug}");
-    let links = preview_revisions.into_iter()
+    let links = preview_revisions
+        .into_iter()
         .map(|(locale, revision)| preview::link(&base, &locale, revision))
         .collect();
     let lang = editorial::staff_language(chrome.as_deref(), &headers);
@@ -424,6 +429,8 @@ async fn preview(
         version: edition_line(&version, &effective),
         draft_notice,
         preview_notice: preview::notice(&lang),
+        unpublished_notice: String::new(),
+        faq_label: String::new(),
         lang,
         help_links: false,
         tickets_label: String::new(),

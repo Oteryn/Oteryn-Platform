@@ -252,7 +252,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let admission_listener = game_login::start_admission_listener(db.clone()).await?;
             let static_dir =
                 std::env::var("OTERYN_STATIC_DIR").unwrap_or_else(|_| "static".to_owned());
-            let app = oteryn_web::router(AppState { db: db.clone() }, &static_dir);
+            let app = oteryn_web::router_with_portal_entry_points(
+                AppState { db: db.clone() },
+                &static_dir,
+            );
             let app = oteryn_community::home::feed(db.clone()).layer(app);
             let app = app.merge(oteryn_community::ingest::configured_router(db.clone()));
             let app = app.merge(oteryn_web::favicon::router());

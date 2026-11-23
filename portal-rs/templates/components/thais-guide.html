@@ -37,7 +37,7 @@
         {% if let Some(link) = chrome.link("downloads") %}
           <a href="{{ link.url }}">{{ chrome.text("stage-btn-download") }}</a>
         {% else %}
-          <strong>{{ chrome.text("stage-btn-download") }}</strong>
+          <a href="/{{ chrome.lang }}/download">{{ chrome.text("stage-btn-download") }}</a>
           <p>{{ chrome.text("thais-home-client-unavailable") }}</p>
         {% endif %}
         <p><a class="step-rules" href="/{{ chrome.lang }}/start">{{ chrome.text("onboarding-guide") }}</a></p>

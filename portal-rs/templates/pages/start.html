@@ -1,0 +1,16 @@
+{% extends "layout.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/thais/home.css">{% endblock %}
+{% block content %}
+<section class="op-panel op-stack">
+  <h1>{{ title }}</h1>
+  <article class="op-stack">{{ body|safe }}</article>
+</section>
+{% let standalone_guide = false %}
+{% include "components/thais-guide.html" %}
+<section class="op-panel op-stack">
+  <h2>{{ chrome.text("onboarding-guide") }}</h2>
+  <p>{{ chrome.text("onboarding-start-intro") }}</p>
+</section>
+{% include "downloads/setup.html" %}
+{% endblock %}

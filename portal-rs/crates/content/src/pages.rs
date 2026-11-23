@@ -1,7 +1,7 @@
 //! Published pages and staff editorial workflows. Unknown publication state is never public.
 use askama::Template;
 use axum::{
-    Router,
+    Extension, Router,
     extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
@@ -121,9 +121,24 @@ pub fn router(pool: PgPool) -> Router {
                     },
                 ),
             );
+        app =
+            app.route(
+                &format!("/{lang}/start"),
+                get(
+                    move |State(pool): State<PgPool>,
+                          chrome: Option<Extension<oteryn_ui::Chrome>>| async move {
+                        show_page(
+                            &pool,
+                            lang,
+                            "getting-started",
+                            chrome.map(|Extension(chrome)| chrome),
+                        )
+                        .await
+                    },
+                ),
+            );
         for (route, slug) in [
             ("rules", "rules"),
-            ("start", "getting-started"),
             ("help", "support"),
             ("support", "support"),
             ("legal/terms", "terms-of-service"),
@@ -219,7 +234,24 @@ async fn custom(
     };
     show(&pool, lang, &slug).await
 }
+#[derive(Template)]
+#[template(path = "pages/start.html", config = "src/pages/askama.toml")]
+struct StartPage {
+    chrome: oteryn_ui::Chrome,
+    title: String,
+    body: String,
+}
+
 async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
+    show_page(pool, lang, slug, None).await
+}
+
+async fn show_page(
+    pool: &PgPool,
+    lang: &str,
+    slug: &str,
+    chrome: Option<oteryn_ui::Chrome>,
+) -> Response {
     let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.expires_at IS NULL OR now()<e.expires_at) AND (source.expires_at IS NULL OR now()<source.expires_at) AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
     let nav_title = match slug {
         "rules" => Some("shell-rules"),
@@ -265,6 +297,25 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
         ),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    if slug == "getting-started" && status == StatusCode::OK {
+        let chrome = chrome.unwrap_or_else(|| {
+            oteryn_ui::Registry::default().chrome(
+                lang,
+                &format!("/{lang}/start"),
+                oteryn_ui::Account::Anonymous,
+            )
+        });
+        let title = if body.is_empty() {
+            chrome.text("thais-nav-start")
+        } else {
+            title
+        };
+        return oteryn_web::render(&StartPage {
+            chrome,
+            title,
+            body,
+        });
+    }
     let mut response = oteryn_web::render(&Page {
         lang: lang.to_owned(),
         title: match (unpublished, nav_title) {

@@ -447,7 +447,7 @@ async fn upload(
     }
     let alt = validated_alt(alt.as_deref().ok_or(StatusCode::UNPROCESSABLE_ENTITY)?)?;
     let (name, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-    let processed = process_upload(name, bytes.to_vec()).await?;
+    let processed = process_upload(name.clone(), bytes.to_vec()).await?;
     // Persist only after processing, with fresh transactional authorization.
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(

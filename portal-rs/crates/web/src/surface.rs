@@ -34,14 +34,14 @@ pub fn module_router() -> Router<AppState> {
     Router::new()
 }
 
-pub(super) fn module_routes() -> Router<AppState> {
+pub(super) fn module_routes(module_entry_pages: bool) -> Router<AppState> {
     Router::new()
         .route("/pl", get(localized_home))
         .route("/en", get(localized_home))
         .route("/pl/", get(localized_home))
         .route("/en/", get(localized_home))
         .route("/language/{lang}", get(switch_language))
-        .merge(crate::entry_points::routes())
+        .merge(crate::entry_points::routes(module_entry_pages))
 }
 
 pub(super) fn shop_fallback_routes() -> Router<AppState> {

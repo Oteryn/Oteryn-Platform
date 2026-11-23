@@ -337,7 +337,14 @@ fn detail(lang: &str, event: PublicEvent, preview_notice: String) -> Response {
         zone_label: String::new(),
         export_label: String::new(),
         empty: String::new(),
-        events: vec![EventCard::new(lang, ZonedEvent { event, local_start, local_end })],
+        events: vec![EventCard::new(
+            lang,
+            ZonedEvent {
+                event,
+                local_start,
+                local_end,
+            },
+        )],
         detail: true,
         preview_notice,
         next_label: String::new(),

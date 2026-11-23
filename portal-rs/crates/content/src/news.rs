@@ -1,7 +1,7 @@
 //! News storage and public and staff routes.
-use crate::revisions::{self, Edit, Target};
 use crate::editorial::{self, Window};
 use crate::preview;
+use crate::revisions::{self, Edit, Target};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -496,7 +496,14 @@ async fn admin_listing(
             NewsQueueRow {
                 id: row.get("id"),
                 title: row.get("title"),
-                kind: label(lang, if row.get("is_changelog") { "changelog" } else { "news" }),
+                kind: label(
+                    lang,
+                    if row.get("is_changelog") {
+                        "changelog"
+                    } else {
+                        "news"
+                    },
+                ),
                 en_status: crate::pages::text(
                     lang,
                     editorial::status(start.is_some(), row.get("pending"), expired, true),
@@ -525,7 +532,10 @@ async fn admin_listing(
         end_label: crate::pages::text(lang, "publication-end-label"),
         media_id: q.media_id,
         media_library: if can_manage_media {
-            Some(crate::media::label(&crate::media::messages(lang)?, "media-news-library"))
+            Some(crate::media::label(
+                &crate::media::messages(lang)?,
+                "media-news-library",
+            ))
         } else {
             None
         },
@@ -872,10 +882,10 @@ async fn save_change(
         Edit::Save(input) => input.media_id.as_deref(),
         Edit::Restore { .. } => None,
     }
-        .filter(|field| !field.is_empty())
-        .map(str::parse::<Uuid>)
-        .transpose()
-        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    .filter(|field| !field.is_empty())
+    .map(str::parse::<Uuid>)
+    .transpose()
+    .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
@@ -971,7 +981,9 @@ async fn save_change(
             let window = Window::parse(&input.schedule_at, &input.schedule_until)
                 .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
             input.published_at = editorial::format_timestamp(Some(window.start));
-            input.translation_published_at.clone_from(&input.published_at);
+            input
+                .translation_published_at
+                .clone_from(&input.published_at);
             Some(window)
         }
         _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
@@ -996,7 +1008,10 @@ async fn save_change(
         "cms.news_created"
     };
     let end = paired.as_ref().and_then(|window| window.end);
-    let (id, is_changelog, tags, expiry): (Uuid, bool, Vec<String>, Option<String>) = if let Some(id) = id {
+    let (id, is_changelog, tags, expiry): (Uuid, bool, Vec<String>, Option<String>) = if let Some(
+        id,
+    ) = id
+    {
         sqlx::query_as(
             "WITH revision AS MATERIALIZED (
                 SELECT greatest(clock_timestamp(), updated_at + interval '1 microsecond') AS stamp

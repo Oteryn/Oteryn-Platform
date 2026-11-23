@@ -2,7 +2,7 @@
 {% block title %}{{ chrome.text("stage-btn-download") }}{% endblock %}
 {% block content %}
 <section class="op-shell__hero op-stack">
-  <h1>{{ chrome.text("stage-btn-download") }}</h1>
+  <h1>{{ chrome.text("shell-downloads") }}</h1>
   <p>{{ chrome.text("onboarding-download-intro") }}</p>
   <p><a href="/{{ chrome.lang }}/start">{{ chrome.text("onboarding-guide") }}</a></p>
 </section>
@@ -14,6 +14,7 @@
   </ul>
   {% if let Some(release) = release %}
   <h2>{{ chrome.text("onboarding-verified") }} {{ release.version }}</h2>
+  <p><a href="/{{ chrome.lang }}/download/{{ channel.as_str() }}">{% if channel == Channel::Stable %}{{ chrome.text("download-stable") }}{% else %}{{ chrome.text("download-beta") }}{% endif %}</a></p>
   <p>{{ chrome.text("onboarding-platform-help") }}</p>
   <ul>
     {% for package in release.packages %}

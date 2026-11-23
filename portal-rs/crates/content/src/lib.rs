@@ -1,7 +1,7 @@
 //! News, pages, events, announcements and media (design T11, T12).
 
-mod editorial;
 pub mod discovery;
+mod editorial;
 pub mod events;
 pub mod news;
 pub mod pages;
