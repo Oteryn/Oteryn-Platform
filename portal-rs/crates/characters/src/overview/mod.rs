@@ -331,11 +331,11 @@ async fn load(
                 main: main == Some(character),
                 profile: (public_profiles && available)
                     .then(|| format!("/{lang}/characters/{name}")),
-                    level: level.map_or_else(|| t("unavailable"), |n| n.to_string()),
-                    vocation: t(vocation.unwrap_or("unavailable")),
-                    observed: profile
-                        .filter(|_| level.is_some() || vocation.is_some())
-                        .map(|p| p.observed),
+                level: level.map_or_else(|| t("unavailable"), |n| n.to_string()),
+                vocation: t(vocation.unwrap_or("unavailable")),
+                observed: profile
+                    .filter(|_| level.is_some() || vocation.is_some())
+                    .map(|p| p.observed),
                 links,
             });
         }

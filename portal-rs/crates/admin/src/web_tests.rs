@@ -136,7 +136,10 @@ fn localized_responsive_labelled_template() {
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
             reports_label: text(lang, "reports"),
-            world_catalog_link: Some((text(lang, "downloads-catalog"), text(lang, "world-catalog"))),
+            world_catalog_link: Some((
+                text(lang, "downloads-catalog"),
+                text(lang, "world-catalog"),
+            )),
             moderate_reports: true,
             mail_link: None,
             players_label: text(lang, "players"),
