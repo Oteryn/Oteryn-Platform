@@ -183,6 +183,7 @@ pub struct Record {
     pub version: i64,
     pub title: String,
     pub status: String,
+    pub appeal_status: Option<String>,
     pub messages: Vec<Message>,
     pub next_message: Option<Uuid>,
 }

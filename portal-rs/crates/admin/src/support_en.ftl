@@ -36,3 +36,7 @@ restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
 screenshots = Screenshots
+appeal-requested = Appeal submitted
+appeal-reviewing = Appeal under review
+appeal-accepted = Appeal accepted
+appeal-rejected = Appeal rejected

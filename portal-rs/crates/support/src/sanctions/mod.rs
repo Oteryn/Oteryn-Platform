@@ -103,7 +103,7 @@ pub enum Error {
     #[error("sanctions authorization unavailable")]
     Authorization(#[from] oteryn_admin::rbac::Error),
 }
-fn valid_id(id: Uuid) -> Result<(), Error> {
+pub(super) fn valid_id(id: Uuid) -> Result<(), Error> {
     if id.get_version_num() == 7 && id.get_variant() == uuid::Variant::RFC4122 {
         Ok(())
     } else {

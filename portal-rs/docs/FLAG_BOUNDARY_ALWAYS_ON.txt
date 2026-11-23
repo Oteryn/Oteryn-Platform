@@ -58,6 +58,8 @@ public G /wiki
 public G /wiki/articles/{slug}
 public G /wiki/search
 public G /{language}/account/dashboard
+public G /{lang}/account/sanctions
+public G /{lang}/account/sanctions/{id}
 public G /{lang}/announcements/ticker
 public G /{lang}/news
 public G /{lang}/news/{slug}
@@ -103,6 +105,8 @@ public P /register
 public P /register/abuse/challenge
 public P /verify-email
 public P /verify-email/resend
+public P /{lang}/account/sanctions/{id}/acknowledge
+public P /{lang}/account/sanctions/{id}/appeal
 public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}

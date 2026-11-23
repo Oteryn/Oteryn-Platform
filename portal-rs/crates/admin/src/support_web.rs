@@ -130,6 +130,10 @@ fn area_routes<A: AccountStateReader + 'static, B: Backend>(
 fn valid_record(area: Area, record: &Record) -> bool {
     !record.id.is_nil()
         && record.version > 0
+        && record.appeal_status.as_deref().is_none_or(|status| {
+            area == Area::Enforcement
+                && matches!(status, "requested" | "reviewing" | "accepted" | "rejected")
+        })
         && match area {
             Area::Tickets => ticket_status(&record.status),
             Area::Reports => matches!(
@@ -228,11 +232,15 @@ async fn list<A: AccountStateReader, B: Backend>(
     }
     for record in records {
         body.push_str(&format!(
-            "<li><a href=\"{}/{}\">{}</a></li>",
+            "<li><a href=\"{}/{}\">{}</a>",
             base(area),
             record.id,
             escape(&record.title)
         ));
+        if let Some(status) = record.appeal_status {
+            body.push_str(&format!(" · {}", text(lang, &format!("appeal-{status}"))));
+        }
+        body.push_str("</li>");
     }
     body.push_str("</ul>");
     if has_next {
@@ -274,6 +282,7 @@ async fn create_page(
         version: 1,
         title: text(language(&headers), "create"),
         status: "active".into(),
+        appeal_status: None,
         messages: vec![],
         next_message: None,
     };
@@ -301,6 +310,12 @@ async fn render_record(
             "<p><a href=\"/{lang}/admin/support/tickets/{}#screenshots\">{}</a></p>",
             record.id,
             escape(&text(lang, "screenshots")),
+        ));
+    }
+    if let Some(status) = &record.appeal_status {
+        body.push_str(&format!(
+            "<p>{}</p>",
+            text(lang, &format!("appeal-{status}"))
         ));
     }
     for message in record.messages {
@@ -350,7 +365,13 @@ async fn render_record(
         ],
     };
     for (action, fields) in actions {
-        if create && *action != "sanction" {
+        if (create && *action != "sanction")
+            || (*action == "appeal"
+                && !matches!(
+                    record.appeal_status.as_deref(),
+                    Some("requested" | "reviewing")
+                ))
+        {
             continue;
         }
         body.push_str(&format!("<form method=\"post\" action=\"{}/{}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"lock_version\" value=\"{}\"><input type=\"hidden\" name=\"action\" value=\"{action}\">",base(area),record.id,escape(&csrf),record.version));

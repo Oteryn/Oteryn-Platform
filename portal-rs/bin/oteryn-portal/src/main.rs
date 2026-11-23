@@ -318,6 +318,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 std::env::var("OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY").unwrap_or_default(),
             )));
             let app = app.merge(oteryn_support::reports::configured_router(db.clone()));
+            let app = app.merge(oteryn_support::appeals::router(db.clone(), &origin));
             let app = app.merge(oteryn_admin::players::http::configured_router(db.clone())?);
             let wizard_pool = db.clone();
             let wizard = oteryn_identity::security_wizard::configured(wizard_pool.clone())

@@ -36,3 +36,7 @@ restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
 screenshots = Zrzuty ekranu
+appeal-requested = Odwołanie złożone
+appeal-reviewing = Odwołanie w trakcie rozpatrywania
+appeal-accepted = Odwołanie uwzględnione
+appeal-rejected = Odwołanie odrzucone

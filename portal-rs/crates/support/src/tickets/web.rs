@@ -203,7 +203,7 @@ pub(crate) fn screenshot_error(status: StatusCode, language: &str, key: &str) ->
     let language = if language == "en" { "en" } else { "pl" };
     (status, text::text(language, key)).into_response()
 }
-async fn private(request: Request, next: Next) -> Response {
+pub(crate) async fn private(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
         header::CACHE_CONTROL,

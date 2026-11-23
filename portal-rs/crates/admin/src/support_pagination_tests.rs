@@ -38,6 +38,7 @@ impl Backend for Queue {
                         Area::Enforcement => "active",
                     }
                     .into(),
+                    appeal_status: None,
                     messages: vec![],
                     next_message: None,
                 })

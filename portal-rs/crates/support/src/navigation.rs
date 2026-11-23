@@ -12,6 +12,14 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        true,
+        "sanctions",
+        "shell-sanctions",
+        "account/sanctions",
+        Group::Account,
+        false,
+    );
     let pending =
         std::env::var("OTERYN_REPORTS_PENDING_LIMIT").map_or(Some(5), |v| v.parse::<u8>().ok());
     let unjustified =
