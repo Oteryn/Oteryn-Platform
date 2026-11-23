@@ -163,10 +163,12 @@ async fn routes_disabled_bad_input_and_privacy_unavailable() -> Result {
         std::sync::Arc::new(Public(true)),
     );
     assert_eq!(
-        enabled
-            .oneshot(request("/en/stats/world?world=bad")?)
-            .await?
-            .status(),
+        tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            enabled.oneshot(request("/en/stats/world?world=bad")?)
+        )
+        .await??
+        .status(),
         StatusCode::BAD_REQUEST
     );
     let future = format!(

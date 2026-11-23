@@ -12,3 +12,4 @@ start = From (UTC)
 end = To (UTC)
 all-deaths = All recent deaths
 world-stats = World statistics
+invalid-filter = Enter an exact registered world name or leave it blank. Enter both dates within the allowed range, from earliest to latest, or leave both blank.

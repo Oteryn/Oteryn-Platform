@@ -12,7 +12,7 @@ use axum::{
     routing::get,
 };
 use sqlx::PgPool;
-use std::{fmt, sync::Arc};
+use std::{fmt, sync::Arc, time::Duration};
 use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
@@ -104,6 +104,7 @@ struct Page {
     days: Vec<Day>,
     kills: Vec<KillDay>,
     selected: bool,
+    invalid_filter: bool,
     worlds: Vec<(Uuid, String, bool)>,
     start: String,
     end: String,
@@ -143,6 +144,7 @@ fn labels(en: bool) -> Vec<String> {
         "bosses",
         "complete",
         "provisional",
+        "invalid-filter",
     ]
     .iter()
     .map(|key| {
@@ -184,27 +186,26 @@ async fn page(
         }
         let now = OffsetDateTime::now_utc();
         let today = now.date();
-        let selection = match raw
+        let requested = raw
             .as_deref()
             .filter(|raw| !raw.is_empty())
             .map(|raw| parse(raw, today))
-            .transpose()
-        {
-            Ok(selection) => selection,
-            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-        };
-        let worlds = sqlx::query_as::<_, (Uuid, String)>(
-            "SELECT id, name FROM world_status ORDER BY name COLLATE \"C\", id LIMIT 1001",
+            .transpose();
+        let worlds = tokio::time::timeout(
+            Duration::from_secs(2),
+            sqlx::query_as::<_, (Uuid, String)>(
+                "SELECT id, name FROM world_status ORDER BY name COLLATE \"C\", id LIMIT 1001",
+            )
+            .fetch_all(&state.db),
         )
-        .fetch_all(&state.db)
         .await
         .ok()
+        .and_then(Result::ok)
         .filter(|worlds| worlds.len() <= 1000);
-        if let (Some((world, _, _)), Some(worlds)) = (&selection, &worlds)
-            && !worlds.iter().any(|(registered, _)| registered == world)
-        {
-            return StatusCode::BAD_REQUEST.into_response();
-        }
+        let invalid_filter = requested.is_err()
+            || matches!((&requested, &worlds), (Ok(Some((world, _, _))), Some(worlds))
+                if !worlds.iter().any(|(registered, _)| registered == world));
+        let selection = requested.ok().flatten().filter(|_| !invalid_filter);
 
         let en = uri.path().starts_with("/en/");
         let mut page = Page {
@@ -214,6 +215,7 @@ async fn page(
             days: Vec::new(),
             kills: Vec::new(),
             selected: selection.is_some(),
+            invalid_filter,
             worlds: worlds
                 .unwrap_or_default()
                 .into_iter()
@@ -254,7 +256,9 @@ async fn page(
                 }
             }
         }
-        let status = if page.worlds.is_empty()
+        let status = if page.invalid_filter {
+            StatusCode::BAD_REQUEST
+        } else if page.worlds.is_empty()
             || (page.selected && !page.observations_available && page.kills.is_empty())
         {
             StatusCode::SERVICE_UNAVAILABLE

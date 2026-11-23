@@ -18,3 +18,4 @@ world-monsters = Monsters killed
 world-bosses = Bosses killed
 world-complete = Complete
 world-provisional = Provisional
+world-invalid-filter = Select a registered world and up to 31 consecutive UTC dates ending today or earlier.

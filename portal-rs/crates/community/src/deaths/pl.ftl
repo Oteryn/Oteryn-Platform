@@ -12,3 +12,4 @@ start = Od (UTC)
 end = Do (UTC)
 all-deaths = Wszystkie ostatnie zgony
 world-stats = Statystyki świata
+invalid-filter = Wpisz dokładną nazwę zarejestrowanego świata lub pozostaw to pole puste. Podaj obie daty w dozwolonym zakresie, od wcześniejszej do późniejszej, lub pozostaw oba pola puste.

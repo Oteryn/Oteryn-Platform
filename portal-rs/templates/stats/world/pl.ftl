@@ -18,3 +18,4 @@ world-monsters = Zabite potwory
 world-bosses = Zabici bossowie
 world-complete = Dane kompletne
 world-provisional = Dane wstępne
+world-invalid-filter = Wybierz zarejestrowany świat i zakres do 31 kolejnych dni UTC, kończący się dziś lub wcześniej.

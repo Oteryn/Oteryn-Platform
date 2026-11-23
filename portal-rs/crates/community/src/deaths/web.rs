@@ -142,6 +142,7 @@ struct Page {
     lang: &'static str,
     labels: Vec<String>,
     unavailable: bool,
+    invalid_filter: bool,
     entries: Vec<Entry>,
     filter: String,
     character: String,
@@ -180,6 +181,7 @@ fn labels(en: bool) -> Vec<String> {
         "end",
         "all-deaths",
         "world-stats",
+        "invalid-filter",
     ]
     .iter()
     .map(|key| {
@@ -419,63 +421,70 @@ async fn page(
     if !s.config.enabled {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let Ok(query) = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or("")) else {
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-    if query
-        .world
-        .as_deref()
-        .is_some_and(|w| w.chars().count() > 96 || w.chars().any(char::is_control))
-    {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
     let today = OffsetDateTime::now_utc().date();
-    let Ok(window) = query.window(today) else {
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-    let world = query.world.unwrap_or_default();
     let en = path.starts_with("/en/");
-    let world_id = if world.is_empty() {
-        Ok(None)
-    } else {
-        match registered_world(&s.db, &world).await {
-            Ok(Some(id)) => Ok(Some(id)),
-            Ok(None) => return StatusCode::BAD_REQUEST.into_response(),
-            Err(error) => Err(error),
-        }
-    };
-    let result = match world_id {
-        Ok(world_id) => load(&s, &Filter { world_id, window }, character.as_deref(), en).await,
-        Err(error) => Err(error),
-    };
-    if matches!(result, Ok(None)) {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let unavailable = result.is_err();
-    let page = Page {
+    let query = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or_default());
+    let mut page = Page {
         lang: if en { "en" } else { "pl" },
         labels: labels(en),
-        unavailable,
-        entries: result.ok().flatten().unwrap_or_default(),
-        filter: world,
-        character: character.unwrap_or_default(),
-        start: query.start.unwrap_or_default(),
-        end: query.end.unwrap_or_default(),
+        unavailable: false,
+        invalid_filter: false,
+        entries: Vec::new(),
+        filter: String::new(),
+        character: character.clone().unwrap_or_default(),
+        start: String::new(),
+        end: String::new(),
         first_date: (today - Duration::days(30)).to_string(),
         today: today.to_string(),
         world_stats_enabled: std::env::var("PORTAL_WORLD_STATS_ENABLED").as_deref() == Ok("true"),
     };
-    match page.render() {
-        Ok(body) => (
-            if unavailable {
-                StatusCode::SERVICE_UNAVAILABLE
-            } else {
-                StatusCode::OK
-            },
-            Html(body),
-        )
-            .into_response(),
-        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    let Ok(query) = query else {
+        return page.respond(StatusCode::BAD_REQUEST);
+    };
+    let window = query.window(today);
+    let world = query.world.unwrap_or_default();
+    page.start = query
+        .start
+        .filter(|date| date.len() <= 10)
+        .unwrap_or_default();
+    page.end = query
+        .end
+        .filter(|date| date.len() <= 10)
+        .unwrap_or_default();
+    if world.chars().count() > 96 || world.chars().any(char::is_control) {
+        return page.respond(StatusCode::BAD_REQUEST);
+    }
+    page.filter = world;
+    let Ok(window) = window else {
+        return page.respond(StatusCode::BAD_REQUEST);
+    };
+    let world_id = if page.filter.is_empty() {
+        None
+    } else {
+        match registered_world(&s.db, &page.filter).await {
+            Ok(Some(id)) => Some(id),
+            Ok(None) => return page.respond(StatusCode::BAD_REQUEST),
+            Err(_) => return page.respond(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    };
+    match load(&s, &Filter { world_id, window }, character.as_deref(), en).await {
+        Ok(Some(entries)) => {
+            page.entries = entries;
+            page.respond(StatusCode::OK)
+        }
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => page.respond(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+impl Page {
+    fn respond(mut self, status: StatusCode) -> Response {
+        self.invalid_filter = status == StatusCode::BAD_REQUEST;
+        self.unavailable = status == StatusCode::SERVICE_UNAVAILABLE;
+        match self.render() {
+            Ok(body) => (status, Html(body)).into_response(),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
     }
 }
 async fn policy(request: axum::extract::Request, next: axum::middleware::Next) -> Response {

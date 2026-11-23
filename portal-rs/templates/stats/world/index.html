@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="{{ lang }}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main class="op-stack"><h1>{{ labels[0] }}</h1>
+{% if invalid_filter %}<p role="alert">{{ labels[19] }}</p>{% endif %}
 {% if worlds.is_empty() %}<p role="status">{{ labels[1] }}</p>{% else %}
 <form method="get" class="op-card op-stack">
 <label for="world">{{ labels[10] }}</label><select class="op-input" id="world" name="world" required>{% for (id, name, active) in worlds %}<option value="{{ id }}"{% if active %} selected{% endif %}>{{ name }}</option>{% endfor %}</select>
@@ -8,7 +9,7 @@
 <label for="end">{{ labels[13] }}</label><input class="op-input" id="end" name="end" type="date" value="{{ end }}" max="{{ today }}" required>
 <button class="op-button" type="submit">{{ labels[14] }}</button>
 </form>
-{% if !selected %}<p>{{ labels[11] }}</p>{% endif %}
+{% if !selected && !invalid_filter %}<p>{{ labels[11] }}</p>{% endif %}
 {% endif %}
 <section class="op-stack" aria-labelledby="daily-kills-title">
 <h2 id="daily-kills-title">{{ labels[9] }}</h2>

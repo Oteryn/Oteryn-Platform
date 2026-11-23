@@ -35,14 +35,19 @@ test('players filter deaths and reach daily kill availability for the selected w
   await expect(form.locator('[name=world]')).toHaveValue(world.name);
   await expect(page.locator('main')).toContainText(deaths.unavailable);
   await expect(page.locator('main article')).toHaveCount(0);
-  expect((await page.request.get(`${recent}?world=${randomUUID()}`)).status()).toBe(400);
+  const unknownWorld = randomUUID();
+  expect((await page.goto(`${recent}?world=${unknownWorld}`)).status()).toBe(400);
+  await expect(page.getByRole('alert')).toHaveText(deaths['invalid-filter']);
+  await expect(form.locator('[name=world]')).toHaveValue(unknownWorld);
   expect((await page.request.get(`${recent}?start=${today}`)).status()).toBe(400);
 
   const characterDeaths = `/${lang}/characters/${encodeURIComponent('Unqualified Character')}/deaths`;
   expect((await page.goto(characterDeaths)).status()).toBe(503);
   await expect(page.locator('main')).toContainText(deaths.unavailable);
   await page.locator(`main a[href="${recent}"]`).click();
+  const picker = navigate();
   await page.locator(`main a[href="${worldStats}"]`).click();
+  expect((await picker).status()).toBe(200);
   await form.locator('[name=world]').selectOption(world.id);
   await form.locator('[name=start]').fill(today);
   await form.locator('[name=end]').fill(today);
@@ -55,8 +60,21 @@ test('players filter deaths and reach daily kill availability for the selected w
   const kills = page.getByRole('region', { name: stats['world-kills'] });
   await expect(kills.getByRole('status')).toHaveText(stats['world-unavailable']);
   await expect(kills.locator('dd')).toHaveCount(0);
-  expect((await page.request.get(`${worldStats}?world=${world.id}&start=2099-01-01&end=2099-01-01`)).status()).toBe(400);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
+  expect((await page.goto(`${worldStats}?world=${world.id}&start=2099-01-01&end=2099-01-01`)).status()).toBe(400);
+  await expect(page.getByRole('alert')).toHaveText(stats['world-invalid-filter']);
+  await expect(form.locator(`[name=world] option[value="${world.id}"]`)).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
+});
+
+test('i18n-parity for deaths, world statistics and projection status', () => {
+  for (const directory of ['crates/community/src/deaths', 'templates/stats/world', 'templates/admin']) {
+    const keys = lang => Object.keys(messages(directory, lang))
+      .filter(key => directory !== 'templates/admin' || key.startsWith('public-projections-'))
+      .sort();
+    expect(keys('en').length).toBeGreaterThan(0);
+    expect(keys('pl')).toEqual(keys('en'));
+  }
 });
 
 test('game catalogue staff can read the two feed qualification decisions', async ({ page }, info) => {
