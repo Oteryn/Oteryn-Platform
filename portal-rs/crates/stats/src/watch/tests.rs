@@ -479,10 +479,31 @@ async fn postgres_configured_watch_access_lifecycle() -> Result<()> {
         .bind(account)
         .execute(&pool)
         .await?;
-    sqlx::query("UPDATE stats_watch_access SET expires_at=now() WHERE token_hash=$1")
-        .bind(Sha256::digest(token).to_vec())
+    assert_eq!(
+        access::owner(&pool, token)
+            .await
+            .map_err(|code| code.to_string())?,
+        None
+    );
+
+    // Account status changes revoke the browser session. Sign in again before
+    // exercising expiration and explicit revocation for a new credential.
+    let session = "c".repeat(64);
+    let csrf = "d".repeat(64);
+    let session_hash = Sha256::digest(&session).to_vec();
+    let cookie = format!("{}={session}", oteryn_web::session::COOKIE_NAME);
+    sqlx::query("INSERT INTO web_sessions(id_hash, account_id, csrf_token, user_agent_summary, idle_expires_at, absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '30 minutes',now()+interval '1 hour')")
+        .bind(&session_hash).bind(account).bind(&csrf).execute(&pool).await?;
+    let (token, _) = access::update(&pool, account, &session_hash, access::Action::Issue)
+        .await
+        .map_err(|code| code.to_string())?
+        .ok_or("credential was not issued")?;
+    let authorization = format!("Bearer {token}");
+    let expired = sqlx::query("UPDATE stats_watch_access SET expires_at=now() WHERE token_hash=$1")
+        .bind(Sha256::digest(&token).to_vec())
         .execute(&pool)
         .await?;
+    assert_eq!(expired.rows_affected(), 1);
     let response = app
         .clone()
         .oneshot(
@@ -532,7 +553,7 @@ async fn postgres_configured_watch_access_lifecycle() -> Result<()> {
         Some(account)
     );
     sqlx::query("UPDATE web_sessions SET id_hash=$1 WHERE id_hash=$2")
-        .bind(Sha256::digest("c".repeat(64)).to_vec())
+        .bind(Sha256::digest("e".repeat(64)).to_vec())
         .bind(session_hash)
         .execute(&pool)
         .await?;
