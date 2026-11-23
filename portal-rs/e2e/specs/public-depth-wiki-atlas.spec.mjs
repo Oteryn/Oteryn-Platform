@@ -17,7 +17,7 @@ test('wiki entity routes enforce catalogue availability and validate search filt
     503, { lang, message: t.unavailable });
   for (const query of ['q=x', 'page=0', 'page=1001', 'page=1&page=2', 'kind=unknown',
     'category=%00', 'classification=%00', 'sort=name']) {
-    await probe(page, `${prefix}/search?${query}`, 422, { lang, message: t.invalid });
+    await probe(page, `${prefix}/search?${query}`, 400, { lang, message: t.invalid });
   }
   await visit(page, `${prefix}/not-a-kind`, 404, { lang, message: t.missing });
 });

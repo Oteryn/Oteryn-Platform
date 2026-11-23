@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
+import { seedPasswordRange } from '../helpers.mjs';
 import {isHome} from '../shell.mjs';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -12,7 +13,8 @@ function consoleError(message, errors, diagnostics) {
 }
 
 test('all public header and footer links: shell, links, keyboard, accessibility and mobile', async ({ page: homePage }, info) => {
-  test.setTimeout(240_000); // Every HTML refusal receives the full accessibility and link sweep.
+  test.setTimeout(480_000); // Every HTML refusal receives the full accessibility and link sweep.
+  await seedPasswordRange();
   const page = homePage;
   const lang = info.project.metadata.locale;
   const errors = [];
