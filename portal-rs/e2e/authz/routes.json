@@ -7887,7 +7887,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -7900,7 +7900,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -7968,7 +7968,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -7981,7 +7981,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -7995,7 +7995,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -8008,7 +8008,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -8022,7 +8022,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -8035,7 +8035,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -8288,7 +8288,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:81",
+          "source": "crates/content/src/pages.rs:83",
           "guard": {
             "kind": "anonymous"
           }
@@ -8301,7 +8301,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:81",
+          "source": "crates/content/src/pages.rs:83",
           "guard": {
             "kind": "anonymous"
           },
@@ -8555,7 +8555,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -8568,7 +8568,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -8609,7 +8609,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -8622,7 +8622,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -8690,7 +8690,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -8703,7 +8703,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -8717,7 +8717,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -8730,7 +8730,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -10881,7 +10881,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -10894,7 +10894,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -10962,7 +10962,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -10975,7 +10975,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -10989,7 +10989,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -11002,7 +11002,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -11016,7 +11016,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -11029,7 +11029,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -11282,7 +11282,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:81",
+          "source": "crates/content/src/pages.rs:83",
           "guard": {
             "kind": "anonymous"
           }
@@ -11295,7 +11295,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:81",
+          "source": "crates/content/src/pages.rs:83",
           "guard": {
             "kind": "anonymous"
           },
@@ -11549,7 +11549,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -11562,7 +11562,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -11603,7 +11603,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -11616,7 +11616,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -11684,7 +11684,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -11697,7 +11697,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },
@@ -11711,7 +11711,7 @@
       "method": "GET",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           }
@@ -11724,7 +11724,7 @@
       "method": "HEAD",
       "registrations": [
         {
-          "source": "crates/content/src/pages.rs:92",
+          "source": "crates/content/src/pages.rs:94",
           "guard": {
             "kind": "anonymous"
           },

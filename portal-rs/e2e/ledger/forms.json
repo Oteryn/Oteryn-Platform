@@ -699,6 +699,7 @@
       "_csrf",
       "body",
       "expected_revision",
+      "final_approved",
       "legal_effective_date",
       "legal_version",
       "published_at",

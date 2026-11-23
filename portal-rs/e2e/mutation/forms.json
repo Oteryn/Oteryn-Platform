@@ -241,6 +241,7 @@
         "published_at",
         "legal_version",
         "legal_effective_date",
+        "final_approved",
         "action",
         "expected_revision",
         "reviewed_source_revision"
