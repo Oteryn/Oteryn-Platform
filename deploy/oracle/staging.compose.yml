@@ -43,7 +43,7 @@ services:
     image: axllent/mailpit:v1.27.8@sha256:6abc8e633df15eaf785cfcf38bae48e66f64beecdc03121e249d0f9ec15f0707
     user: '10001:10001'
     cpus: 0.075
-    mem_limit: 128m
+    mem_limit: 256m
     environment:
       MP_SMTP_TLS_CERT: /tls/leaf.pem
       MP_SMTP_TLS_KEY: /tls/key.pem
@@ -53,7 +53,7 @@ services:
     volumes:
       - mail_tls:/tls:ro
     tmpfs:
-      - /tmp:size=64m,uid=10001,gid=10001
+      - /tmp:size=256m,uid=10001,gid=10001
   portal:
     <<: *app
     cpus: 0.2
