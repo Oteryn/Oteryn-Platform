@@ -1,0 +1,70 @@
+name: Production synthetic monitor
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-synthetic-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    if: >-
+      github.repository == 'Oteryn/Oteryn-Platform' &&
+      github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install E2E dependencies and Chromium
+        working-directory: portal-rs/e2e
+        run: |
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund
+          npx --no-install playwright install --with-deps chromium
+
+      - name: Check monitor account
+        id: account
+        env:
+          OTERYN_MONITOR_EMAIL: ${{ secrets.OTERYN_MONITOR_EMAIL }}
+          OTERYN_MONITOR_PASSWORD: ${{ secrets.OTERYN_MONITOR_PASSWORD }}
+          OTERYN_MONITOR_TOTP_SEED: ${{ secrets.OTERYN_MONITOR_TOTP_SEED }}
+        run: |
+          if [[ -n "$OTERYN_MONITOR_EMAIL" && -n "$OTERYN_MONITOR_PASSWORD" && -n "$OTERYN_MONITOR_TOTP_SEED" ]]; then
+            printf '%s\n' 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            printf '%s\n' '::notice::skipped: monitor account not configured'
+            printf '%s\n' 'skipped: monitor account not configured' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Run public monitor
+        if: steps.account.outputs.configured != 'true'
+        working-directory: portal-rs/e2e
+        run: node prod/run.mjs
+
+      - name: Run production monitor
+        if: steps.account.outputs.configured == 'true'
+        working-directory: portal-rs/e2e
+        env:
+          OTERYN_MONITOR_EMAIL: ${{ secrets.OTERYN_MONITOR_EMAIL }}
+          OTERYN_MONITOR_PASSWORD: ${{ secrets.OTERYN_MONITOR_PASSWORD }}
+          OTERYN_MONITOR_TOTP_SEED: ${{ secrets.OTERYN_MONITOR_TOTP_SEED }}
+        run: node prod/run.mjs --production-auth
+
+      - name: Reconcile recent workflow attempts
+        if: ${{ !cancelled() && steps.account.outcome == 'success' }}
+        working-directory: portal-rs/e2e
+        run: node prod/reconcile.mjs
