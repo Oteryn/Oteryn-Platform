@@ -412,3 +412,6 @@ discovery-navigation = Odnośniki redakcyjne
 shell-sandbox-coin-checkout = Testowy zakup coinów
 
 shell-referrals = Polecenia
+
+shell-atlas-bestiary = Mój bestiariusz i bossowie
+shell-wiki-places = Miejsca polowań

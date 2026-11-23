@@ -220,3 +220,5 @@ public G /admin/operational-mail/{id}
 public P /admin/operational-mail
 public P /admin/operational-mail/{id}
 public G /admin/referrals
+public G /admin/wiki/game-evidence
+public G /{lang}/atlas/bestiary

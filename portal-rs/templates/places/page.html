@@ -3,38 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ title }}</title>
+  <title>{{ self.t("title")? }}</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/wiki/places.css">
 </head>
 <body class="op-theme">
-<main class="op-stack">
-  <h1>{{ title }}</h1>
-  <p>{{ reports }}</p>
+<main id="main" class="op-stack wiki-places">
+  <h1>{{ self.t("title")? }}</h1>
+  <form class="op-panel op-stack" method="get">
+    <label class="op-field">{{ self.t("purpose")? }}
+      <select class="op-input" name="purpose">
+        <option value="hunt">{{ self.t("hunt")? }}</option>
+        <option value="bestiary"{% if filters.purpose.as_deref() == Some("bestiary") %} selected{% endif %}>{{ self.t("bestiary")? }}</option>
+        <option value="boss"{% if filters.purpose.as_deref() == Some("boss") %} selected{% endif %}>{{ self.t("boss")? }}</option>
+      </select>
+    </label>
+    <label class="op-field">{{ self.t("party")? }}
+      <select class="op-input" name="party">
+        <option value="">{{ self.t("any-party")? }}</option>
+        {% for party in [1u8, 2u8, 4u8] %}
+        <option value="{{ party }}"{% if self.party_selected(party) %} selected{% endif %}>{{ party }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="op-field">{{ self.t("sort")? }}
+      <select class="op-input" name="sort">
+        <option value="experience">{{ self.t("experience")? }}</option>
+        <option value="profit"{% if filters.sort.as_deref() == Some("profit") %} selected{% endif %}>{{ self.t("profit")? }}</option>
+      </select>
+    </label>
+    <button class="op-button" type="submit">{{ self.t("filter")? }}</button>
+  </form>
+  {% if let Some(key) = state %}
+  <p role="status">{{ self.t(key)? }}</p>
+  {% endif %}
   {% for card in cards %}
   <article class="op-card op-stack">
     <h2>{{ card.title }}</h2>
     <p>{{ card.editorial_summary }}</p>
     <dl>
-      <dt>{{ labels[0] }}</dt><dd>{{ card.level }}</dd>
-      <dt>{{ labels[1] }}</dt><dd>{{ card.party_size }}</dd>
+      <dt>{{ self.t("level")? }}</dt><dd>{{ card.level }}</dd>
+      <dt>{{ self.t("party")? }}</dt><dd>{{ card.party_size }}</dd>
       {% if let Some(value) = card.experience_per_hour %}
-      <dt>{{ labels[2] }}</dt><dd>{{ value }}</dd>
+      <dt>{{ self.t("experience")? }}</dt><dd>{{ value }}</dd>
       {% endif %}
       {% if let Some(value) = card.profit_per_hour %}
-      <dt>{{ labels[3] }}</dt><dd>{{ value }}</dd>
+      <dt>{{ self.t("profit")? }}</dt><dd>{{ value }}</dd>
       {% endif %}
       {% if let Some(value) = card.points %}
-      <dt>{{ labels[4] }}</dt><dd>{{ value }}</dd>
+      <dt>{{ self.t("points")? }}</dt><dd>{{ value }}</dd>
       {% endif %}
       {% if let Some(value) = card.completion_seconds %}
-      <dt>{{ labels[5] }}</dt><dd>{{ value }}</dd>
+      <dt>{{ self.t("completion")? }}</dt><dd>{{ value }}</dd>
       {% endif %}
     </dl>
   </article>
-  {% else %}
-  <p>{{ unavailable }}</p>
   {% endfor %}
+  <p><a href="/{{ locale }}/atlas/bestiary">{{ self.t("my-bestiary")? }}</a></p>
+  <p>{{ self.t("reports")? }}</p>
 </main>
 </body>
 </html>

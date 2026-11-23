@@ -6,8 +6,8 @@ use askama::Template;
 use axum::{
     Router,
     extract::{Path, Query, State},
-    http::StatusCode,
-    response::Html,
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Response},
     routing::get,
 };
 use serde::Deserialize;
@@ -52,9 +52,13 @@ pub struct PlacesState {
     pub enabled: bool,
     pub source: Arc<dyn PublicPlaces>,
 }
+fn enabled() -> bool {
+    std::env::var("PORTAL_WIKI_PLACES_ENABLED").as_deref() == Ok("true")
+}
+
 pub fn configured_router() -> Router {
     router(PlacesState {
-        enabled: std::env::var("PORTAL_WIKI_PLACES_ENABLED").as_deref() == Ok("true"),
+        enabled: enabled(),
         source: Arc::new(Unavailable),
     })
 }
@@ -80,24 +84,43 @@ async fn no_store(
 struct Filters {
     sort: Option<String>,
     purpose: Option<String>,
+    #[serde(default, deserialize_with = "optional_party")]
     party: Option<u8>,
 }
+
+fn optional_party<'de, D: serde::Deserializer<'de>>(value: D) -> Result<Option<u8>, D::Error> {
+    let raw = String::deserialize(value)?;
+    if raw.is_empty() {
+        Ok(None)
+    } else {
+        raw.parse().map(Some).map_err(serde::de::Error::custom)
+    }
+}
+
+impl Filters {
+    fn purpose(&self) -> Result<Purpose, StatusCode> {
+        match self.purpose.as_deref() {
+            None | Some("hunt") => Ok(Purpose::Hunt),
+            Some("bestiary") => Ok(Purpose::Bestiary),
+            Some("boss") => Ok(Purpose::Boss),
+            _ => Err(StatusCode::BAD_REQUEST),
+        }
+    }
+
+    fn validate(&self) -> Result<(), StatusCode> {
+        self.purpose()?;
+        if self.party.is_some_and(|n| !matches!(n, 1 | 2 | 4))
+            || !matches!(self.sort.as_deref(), None | Some("experience" | "profit"))
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        Ok(())
+    }
+}
+
 fn select(mut cards: Vec<Card>, filters: &Filters) -> Result<Vec<Card>, StatusCode> {
-    let purpose = match filters.purpose.as_deref() {
-        None | Some("hunt") => Purpose::Hunt,
-        Some("bestiary") => Purpose::Bestiary,
-        Some("boss") => Purpose::Boss,
-        _ => return Err(StatusCode::BAD_REQUEST),
-    };
-    if filters.party.is_some_and(|n| !matches!(n, 1 | 2 | 4)) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    if !matches!(
-        filters.sort.as_deref(),
-        None | Some("experience" | "profit")
-    ) {
-        return Err(StatusCode::BAD_REQUEST);
-    }
+    filters.validate()?;
+    let purpose = filters.purpose()?;
     if cards.iter().any(|c| {
         c.key.is_empty() || c.title.is_empty() || c.level == 0 || !matches!(c.party_size, 1 | 2 | 4)
     }) {
@@ -119,72 +142,146 @@ fn select(mut cards: Vec<Card>, filters: &Filters) -> Result<Vec<Card>, StatusCo
 #[template(path = "places/page.html", config = "wiki_askama.toml")]
 struct Page {
     locale: String,
-    title: String,
-    unavailable: String,
-    reports: String,
+    text: Text,
+    state: Option<&'static str>,
+    filters: Filters,
     cards: Vec<Card>,
-    labels: Vec<String>,
 }
-fn text(locale: &str, key: &str) -> Result<String, StatusCode> {
-    use fluent_bundle::{FluentBundle, FluentResource};
-    let source = match locale {
-        "pl" => include_str!("pl.ftl"),
-        "en" => include_str!("en.ftl"),
-        _ => return Err(StatusCode::NOT_FOUND),
-    };
-    let resource = FluentResource::try_new(source.to_owned())
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let language = locale
-        .parse()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let mut bundle = FluentBundle::new(vec![language]);
-    bundle
-        .add_resource(resource)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    let value = bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(bundle.format_pattern(value, None, &mut vec![]).into_owned())
+struct Text(fluent_bundle::FluentBundle<fluent_bundle::FluentResource>);
+
+impl Text {
+    fn new(locale: &str) -> Result<Self, StatusCode> {
+        use fluent_bundle::{FluentBundle, FluentResource};
+        let source = match locale {
+            "pl" => include_str!("pl.ftl"),
+            "en" => include_str!("en.ftl"),
+            _ => return Err(StatusCode::NOT_FOUND),
+        };
+        let resource = FluentResource::try_new(source.to_owned())
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let language = locale
+            .parse()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut bundle = FluentBundle::new(vec![language]);
+        bundle
+            .add_resource(resource)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(Self(bundle))
+    }
+
+    fn get(&self, key: &str) -> Result<String, askama::Error> {
+        self.0
+            .get_message(key)
+            .and_then(|m| m.value())
+            .map(|value| self.0.format_pattern(value, None, &mut vec![]).into_owned())
+            .ok_or(askama::Error::Fmt)
+    }
 }
+
+impl Page {
+    fn party_selected(&self, party: &u8) -> bool {
+        self.filters.party == Some(*party)
+    }
+
+    fn t(&self, key: &str) -> Result<String, askama::Error> {
+        self.text.get(key)
+    }
+}
+
 async fn page(
     State(state): State<PlacesState>,
     Path(locale): Path<String>,
-    Query(filters): Query<Filters>,
-) -> Result<(StatusCode, Html<String>), StatusCode> {
-    let title = text(&locale, "title")?;
-    select(vec![], &filters)?;
-    let (status, cards) = if state.enabled {
-        match state.source.cards(&locale).await {
-            Ok(cards) => (StatusCode::OK, select(cards, &filters)?),
-            Err(StatusCode::SERVICE_UNAVAILABLE) => (StatusCode::SERVICE_UNAVAILABLE, vec![]),
-            Err(StatusCode::FORBIDDEN) => return Err(StatusCode::FORBIDDEN),
-            Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
+    filters: Result<Query<Filters>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    if !matches!(locale.as_str(), "pl" | "en") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let (status, filters, cards) = match filters {
+        Ok(Query(filters)) if filters.validate().is_ok() => {
+            let cards = if state.enabled {
+                state
+                    .source
+                    .cards(&locale)
+                    .await
+                    .and_then(|cards| select(cards, &filters))
+            } else {
+                Err(StatusCode::SERVICE_UNAVAILABLE)
+            };
+            match cards {
+                Ok(cards) => (StatusCode::OK, filters, cards),
+                Err(StatusCode::FORBIDDEN) => return StatusCode::FORBIDDEN.into_response(),
+                Err(_) => (StatusCode::SERVICE_UNAVAILABLE, filters, Vec::new()),
+            }
         }
-    } else {
-        (StatusCode::SERVICE_UNAVAILABLE, vec![])
+        _ => (StatusCode::BAD_REQUEST, Filters::default(), Vec::new()),
     };
-    let page = Page {
-        title,
-        unavailable: text(&locale, "unavailable")?,
-        reports: text(&locale, "reports")?,
-        locale: locale.clone(),
-        cards,
-        labels: [
-            "level",
-            "party",
-            "experience",
-            "profit",
-            "points",
-            "completion",
-        ]
-        .iter()
-        .map(|key| text(&locale, key))
-        .collect::<Result<Vec<_>, _>>()?,
+    let state = match status {
+        StatusCode::BAD_REQUEST => Some("invalid"),
+        StatusCode::SERVICE_UNAVAILABLE => Some("unavailable"),
+        _ if cards.is_empty() => Some("empty"),
+        _ => None,
     };
-    page.render()
-        .map(|html| (status, Html(html)))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    let text = match Text::new(&locale) {
+        Ok(text) => text,
+        Err(status) => return status.into_response(),
+    };
+    render(
+        status,
+        Page {
+            locale,
+            text,
+            state,
+            filters,
+            cards,
+        },
+    )
 }
+
+fn render(status: StatusCode, page: impl Template) -> Response {
+    match page.render() {
+        Ok(html) => (status, Html(html)).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+#[derive(Template)]
+#[template(path = "admin/wiki/game_evidence.html", config = "wiki_askama.toml")]
+struct Operator {
+    lang: &'static str,
+    text: Text,
+    bestiary_enabled: bool,
+    places_enabled: bool,
+}
+
+impl Operator {
+    fn t(&self, key: &str) -> Result<String, askama::Error> {
+        self.text.get(key)
+    }
+
+    fn state(&self, enabled: &bool) -> Result<String, askama::Error> {
+        self.t(if *enabled {
+            "awaiting-qualification"
+        } else {
+            "flag-off"
+        })
+    }
+}
+
+pub(crate) async fn operator(headers: HeaderMap) -> Response {
+    let lang = crate::web::language(&headers);
+    match Text::new(lang) {
+        Ok(text) => render(
+            StatusCode::OK,
+            Operator {
+                lang,
+                text,
+                bestiary_enabled: oteryn_atlas::bestiary::web::enabled(),
+                places_enabled: enabled(),
+            },
+        ),
+        Err(status) => status.into_response(),
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -1,0 +1,13 @@
+{% extends "wiki/layout.html" %}
+{% block content %}
+<h1>{{ self.t("game-evidence")? }}</h1>
+<p><a href="/admin/wiki">{{ self.t("back-staff-wiki")? }}</a></p>
+<dl>
+  <dt>{{ self.t("my-bestiary")? }}</dt>
+  <dd>{{ self.state(bestiary_enabled)? }}</dd>
+  <dd>{{ self.t("bestiary-evidence")? }}</dd>
+  <dt>{{ self.t("title")? }}</dt>
+  <dd>{{ self.state(places_enabled)? }}</dd>
+  <dd>{{ self.t("places-evidence")? }}</dd>
+</dl>
+{% endblock %}

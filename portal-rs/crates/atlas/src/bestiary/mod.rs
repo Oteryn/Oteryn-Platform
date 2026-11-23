@@ -129,14 +129,20 @@ fn optional_stars<'de, D: serde::Deserializer<'de>>(
             .map_err(serde::de::Error::custom)
     }
 }
+fn filter_key(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._:/-".contains(&b))
+}
+
 impl Filters {
     pub fn validate(&self) -> Result<()> {
         if self.stars.is_some_and(|s| s > 5)
-            || [&self.class, &self.difficulty].iter().any(|v| {
-                v.as_ref().is_some_and(|s| {
-                    s.is_empty() || s.len() > 128 || s.chars().any(char::is_control)
-                })
-            })
+            || [&self.class, &self.difficulty]
+                .iter()
+                .any(|v| v.as_ref().is_some_and(|s| !filter_key(s)))
         {
             return Err(Error::BadInput);
         }
@@ -238,6 +244,17 @@ pub fn build(
     {
         return Err(Error::BadInput);
     }
+    if filters
+        .class
+        .as_ref()
+        .is_some_and(|class| !definitions.iter().any(|d| &d.class == class))
+        || filters
+            .difficulty
+            .as_ref()
+            .is_some_and(|difficulty| !definitions.iter().any(|d| &d.difficulty == difficulty))
+    {
+        return Err(Error::BadInput);
+    }
     let mut records = BTreeMap::new();
     for p in progress {
         if matches!(p, Payload::Bestiary(_) | Payload::Boss(_))
@@ -262,6 +279,8 @@ pub fn build(
     for d in definitions {
         if d.key.is_empty()
             || d.revision.is_empty()
+            || !filter_key(&d.class)
+            || !filter_key(&d.difficulty)
             || !seen.insert(&d.key)
             || d.thresholds[0] == 0
             || d.thresholds.windows(2).any(|w| w[0] >= w[1])

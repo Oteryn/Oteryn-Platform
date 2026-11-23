@@ -412,3 +412,6 @@ discovery-navigation = Editorial links
 shell-sandbox-coin-checkout = Sandbox coin checkout
 
 shell-referrals = Referrals
+
+shell-atlas-bestiary = My bestiary and bosses
+shell-wiki-places = Hunting places

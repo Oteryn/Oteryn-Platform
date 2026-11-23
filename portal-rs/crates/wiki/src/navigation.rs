@@ -21,4 +21,12 @@ pub fn register(registry: &mut Registry) {
         Group::World,
         false,
     );
+    registry.section(
+        true,
+        "wiki-places",
+        "shell-wiki-places",
+        "wiki/places",
+        Group::World,
+        false,
+    );
 }
