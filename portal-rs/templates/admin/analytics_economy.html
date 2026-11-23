@@ -33,12 +33,14 @@
       <p role="status" data-state="{{ group.state }}">{% match group.state %}
           {% when "available" %}{{ self.text("ops-available") }}
           {% when "expired" %}{{ self.text("ops-analytics-expired") }}
-          {% else %}{{ self.text("ops-analytics-unavailable") }}
+          {% else %}{{ self.text("ops-economy-unavailable") }}
         {% endmatch %}</p>
       {% if group.state == "available" %}
         <p>{{ self.text("ops-analytics-cut") }} {{ group.cut }} / {{ group.age }} s.
            {{ self.text("ops-analytics-epoch") }}: {{ group.epoch }} / {{ group.revision }}.
            {{ self.text("ops-economy-empty") }}</p>
+      {% else %}
+        <p>{{ self.text("ops-economy-cut") }}: —</p>
       {% endif %}
     {% else %}
       {% let game = self.text("ops-economy-game") %}

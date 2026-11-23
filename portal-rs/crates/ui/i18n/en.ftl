@@ -529,8 +529,9 @@ ops-analytics-incomplete = Incomplete
 
 ops-economy-title = Economy analytics
 ops-economy-retention = World × UTC day. Release delay is 24 hours. Retention is 400 days.
-ops-economy-units = Circulation records gold by location and excludes ground, houses, escrow, mail and in-flight gold. Flows track movements. Store currencies use separate units. Platform purchases cover all worlds.
+ops-economy-units = Stocks and flows are separate. Circulation records gold by location and excludes ground, houses, escrow, mail and in-flight gold. Flows track movements. Store currencies use separate units and are never added to gold. Platform purchases cover all worlds.
 ops-economy-empty = Complete empty row set; no unlisted zero inferred.
+ops-economy-unavailable = Unavailable — accepted resync baseline and fresh Game evidence required
 ops-economy-key = Key / item / currency
 ops-economy-cut = Data cut (UTC) / freshness
 ops-economy-source = Source

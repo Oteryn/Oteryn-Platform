@@ -529,8 +529,9 @@ ops-analytics-incomplete = Niekompletne
 
 ops-economy-title = Analityka gospodarki
 ops-economy-retention = Świat × dzień UTC. Dane są publikowane po 24 godzinach i przechowywane przez 400 dni.
-ops-economy-units = Stan obiegu obejmuje złoto według lokalizacji, z wyłączeniem ziemi, domów, depozytów, poczty i transferów w toku. Przepływy pokazują ruch złota. Waluty sklepu mają osobne jednostki. Zakupy na platformie obejmują wszystkie światy.
+ops-economy-units = Stany i przepływy są rozdzielone. Stan obiegu obejmuje złoto według lokalizacji, z wyłączeniem ziemi, domów, depozytów, poczty i transferów w toku. Przepływy pokazują ruch złota. Waluty sklepu mają osobne jednostki i nie sumują się ze złotem. Zakupy na platformie obejmują wszystkie światy.
 ops-economy-empty = Zestaw wierszy jest kompletny i pusty. Brak wiersza nie oznacza wartości zero.
+ops-economy-unavailable = Niedostępne — wymagana zaakceptowana baza synchronizacji i aktualne dane gry
 ops-economy-key = Klucz / przedmiot / waluta
 ops-economy-cut = Stan danych (UTC) / aktualność
 ops-economy-source = Źródło

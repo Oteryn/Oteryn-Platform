@@ -513,9 +513,9 @@ test('analytics navigation, range filters and data endpoints fail closed', async
   const polish = lang === 'pl';
   const staff = manager.page;
   const labels = polish ? [
-    'Przegląd', 'Stworzenia / bossowie', 'Aktywność godzinowa', 'Rozkład poziomów', 'Stan źródła', 'Gospodarka',
+    'Przegląd', 'Stworzenia i bossowie', 'Aktywność godzinowa', 'Rozkład poziomów', 'Stan źródła analitycznego', 'Gospodarka',
   ] : [
-    'Overview', 'Creatures / bosses', 'Hourly activity', 'Level distribution', 'Feed health', 'Economy',
+    'Overview', 'Creatures and bosses', 'Hourly activity', 'Level distribution', 'Analytics feed health', 'Economy',
   ];
   const world = '019b0760-0000-7000-8000-000000000001';
   await staff.goto('/admin/analytics');
@@ -528,11 +528,11 @@ test('analytics navigation, range filters and data endpoints fail closed', async
     await expect(form.getByRole('button')).toHaveText(polish ? 'Pokaż' : 'Show');
     await expect(form.getByLabel(polish ? 'Świat' : 'World', { exact: true })).toBeVisible();
     if (suffix === '/economy') {
-      await expect(form.getByLabel(polish ? 'UTC od (włącznie)' : 'UTC from (inclusive)')).toBeVisible();
-      await expect(form.getByLabel(polish ? 'UTC do (wyłącznie)' : 'UTC to (exclusive)')).toBeVisible();
+      await expect(form.getByLabel(polish ? 'Od (UTC, włącznie)' : 'From (UTC, inclusive)', { exact: true })).toBeVisible();
+      await expect(form.getByLabel(polish ? 'Do (UTC, wyłącznie)' : 'To (UTC, exclusive)', { exact: true })).toBeVisible();
       await expect(staff.locator('main > p').first()).toContainText(polish
-        ? 'Świat × dzień UTC. Opóźnienie publikacji: 24 godziny. Retencja: 400 dni. Polityka prywatności:'
-        : 'World × UTC day. Release delay: 24 hours. Retention: 400 days. Privacy policy:');
+        ? 'Świat × dzień UTC. Dane są publikowane po 24 godzinach i przechowywane przez 400 dni. Polityka prywatności'
+        : 'World × UTC day. Release delay is 24 hours. Retention is 400 days. Privacy policy');
       await expect(staff.locator('main > p').nth(1)).toContainText(polish
         ? 'Stany i przepływy są rozdzielone.'
         : 'Stocks and flows are separate.');
@@ -545,11 +545,11 @@ test('analytics navigation, range filters and data endpoints fail closed', async
     await expect(cold).toHaveCount(suffix === '/economy' ? 5 : 1);
     if (suffix === '/economy') {
       const text = polish
-        ? 'Niedostępne: wymagana zaakceptowana baza synchronizacji i aktualne dane gry'
-        : 'unavailable: accepted resync baseline and fresh Game evidence required';
+        ? 'Niedostępne — wymagana zaakceptowana baza synchronizacji i aktualne dane gry'
+        : 'Unavailable — accepted resync baseline and fresh Game evidence required';
       await expect(cold).toHaveText(Array(5).fill(text));
-      await expect(staff.getByText(polish ? 'Stan danych / aktualność: —' : 'Data cut / freshness: —', { exact: true })).toHaveCount(5);
-      await staff.getByRole('link', { name: polish ? 'Analityka' : 'Analytics', exact: true }).click();
+      await expect(staff.getByText(polish ? 'Stan danych (UTC) / aktualność: —' : 'Data cut (UTC) / freshness: —', { exact: true })).toHaveCount(5);
+      await staff.getByRole('link', { name: polish ? 'Analityka gry' : 'Game analytics', exact: true }).click();
       await expect(staff).toHaveURL(/\/admin\/analytics$/);
       await staff.locator('main nav').getByRole('link', { name: labels[index], exact: true }).click();
       await staff.goto(filtered.url());
@@ -578,7 +578,7 @@ test('analytics navigation, range filters and data endpoints fail closed', async
     expect((await page.request.get(`${path}/data`)).status()).toBe(403);
   }
   await staff.goto('/admin/analytics');
-  await staff.locator('main nav').getByRole('link', { name: polish ? 'Administracja' : 'Admin', exact: true }).click();
+  await staff.locator('main nav').getByRole('link', { name: polish ? 'Panel administracyjny' : 'Staff dashboard', exact: true }).click();
   await expect(staff).toHaveURL(/\/admin$/);
 });
 
@@ -642,6 +642,7 @@ test('roles pagination follows the cursor and keeps later roles actionable', asy
   );
   try {
     const last = [...records].sort((a, b) => a.id.localeCompare(b.id)).at(-1);
+    await confirmStaffPassword(staff, lang, manager.password);
     await staff.goto('/admin/roles');
     await expect(staff.locator(`select[name=role] option[value="${last.id}"]`)).toHaveCount(0);
     const next = staff.getByRole('link', { name: lang === 'pl' ? 'Następna strona' : 'Next page', exact: true });

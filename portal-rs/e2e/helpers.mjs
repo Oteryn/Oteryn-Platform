@@ -99,7 +99,9 @@ export async function register(page,lang) {
   await page.locator('[name=work_token]').waitFor({state:'attached'});
   await submit(page,'main form',{email,password:pass,password_confirmation:pass,terms:true,privacy:true});
   await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox`),{timeout:90_000});
-  const link=await mailLink(page,email,/https:\/\/localhost:18443\/(?:pl|en)\/verify-email\?token=[a-f0-9]+/);
+  const verificationUrl = new URL(`/${lang}/verify-email`, registration.url());
+  const verificationPath = verificationUrl.href.replace(/[\^$.*+?()[\]{}|\\]/g, '\\$&');
+  const link = await mailLink(page, email, new RegExp(verificationPath + '\\?token=[a-f0-9]+'));
   // Reserve room for the verification GET and form submissions in the current minute.
   const db=pool();
   try {
