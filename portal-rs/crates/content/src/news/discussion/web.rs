@@ -333,7 +333,8 @@ async fn detail(
     let offset = query.offset(PAGE_SIZE).map_err(|_| Error::Invalid)?;
     let reply: ReviewReply = sqlx::query_as(
         "SELECT r.body,r.status,r.revision,n.title AS article,n.slug,
-                coalesce(NOT n.is_changelog AND n.published_at<=clock_timestamp(),false) AS open,
+                coalesce(NOT n.is_changelog AND n.published_at<=clock_timestamp()
+                         AND (n.expires_at IS NULL OR n.expires_at>clock_timestamp()),false) AS open,
                 r.author_id=$2 AS own
          FROM news_discussion_replies r LEFT JOIN news n ON n.id=r.news_id WHERE r.id=$1",
     )

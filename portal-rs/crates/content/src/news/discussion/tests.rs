@@ -289,6 +289,39 @@ async fn lifecycle(pool: &PgPool) -> TestResult {
         .await,
         Err(Error::Limit)
     ));
+    sqlx::query(
+        "UPDATE news SET published_at=now()-interval '2 days', expires_at=now()-interval '1 day'
+         WHERE slug=$1",
+    )
+    .bind(slug)
+    .execute(pool)
+    .await?;
+    let expired = app
+        .clone()
+        .oneshot(Request::get(format!("/en/news/{slug}/discussion")).body(Body::empty())?)
+        .await?;
+    assert_eq!(expired.status(), StatusCode::NOT_FOUND);
+    assert!(matches!(
+        write(pool, "en", slug, author.account, &author_hash, Write::Reply("Expired reply")).await,
+        Err(Error::NotFound)
+    ));
+    let pending: Uuid = sqlx::query_scalar(
+        "SELECT id FROM news_discussion_replies WHERE status='pending' ORDER BY id LIMIT 1",
+    )
+    .fetch_one(pool)
+    .await?;
+    assert!(matches!(
+        moderate(pool, &auth, editor, pending, &Review {
+            decision: Decision::Publish,
+            revision: 1,
+            reason: "Expired article".into(),
+        }).await,
+        Err(Error::Conflict)
+    ));
+    sqlx::query("UPDATE news SET expires_at=NULL WHERE slug=$1")
+        .bind(slug)
+        .execute(pool)
+        .await?;
     sqlx::query("INSERT INTO sanctions(account_id,category,status,public_reason,effective_at,expires_at,created_by)
                  VALUES($1,'suspension','active','Fixture suspension',now(),now()+interval '1 day',$2)")
         .bind(author.account).bind(editor.account).execute(pool).await?;

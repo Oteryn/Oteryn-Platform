@@ -101,6 +101,7 @@ async fn thread(conn: &mut PgConnection, lang: &str, slug: &str) -> Result<Threa
     sqlx::query_as(
         "SELECT id, CASE WHEN $1='pl' THEN title_pl ELSE title END AS title
          FROM news WHERE slug=$2 AND NOT is_changelog AND published_at<=clock_timestamp()
+           AND (expires_at IS NULL OR expires_at>clock_timestamp())
            AND ($1='en' OR (translation_published_at<=clock_timestamp()
                 AND translation_source_updated_at>=updated_at
                 AND length(trim(title_pl))>0 AND length(trim(body_pl))>0))
@@ -273,7 +274,8 @@ async fn moderate(
     .await?;
     let (author, status, revision, open): (Uuid, String, i64, bool) = sqlx::query_as(
         "SELECT r.author_id,r.status,r.revision,
-                coalesce(NOT n.is_changelog AND n.published_at<=clock_timestamp(),false)
+                coalesce(NOT n.is_changelog AND n.published_at<=clock_timestamp()
+                         AND (n.expires_at IS NULL OR n.expires_at>clock_timestamp()),false)
          FROM news_discussion_replies r LEFT JOIN news n ON n.id=r.news_id WHERE r.id=$1",
     )
     .bind(id)
