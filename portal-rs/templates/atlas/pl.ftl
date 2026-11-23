@@ -10,3 +10,4 @@ north = Północ
 south = Południe
 west = Zachód
 east = Wschód
+unavailable = Dane świata są obecnie niedostępne.

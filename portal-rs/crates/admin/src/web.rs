@@ -651,6 +651,7 @@ struct Page {
     title: String,
     roles_label: String,
     reports_label: String,
+    world_catalog_link: Option<String>,
     moderate_reports: bool,
     mail_link: Option<String>,
     players_label: String,
@@ -807,6 +808,23 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let mut can_view_world = std::env::var("OTERYN_WORLD_ADMIN").as_deref() == Ok("true");
+    if can_view_world {
+        for permission in [
+            Permission::GameCatalogAccess,
+            Permission::ViewGameCatalogSnapshots,
+        ] {
+            match s.auth.check(context, permission).await {
+                Ok(()) => continue,
+                Err(Error::Denied) => {
+                    can_view_world = false;
+                    break;
+                }
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            }
+        }
+    }
+    let world_catalog_link = can_view_world.then(|| text(lang, "world-catalog"));
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -814,6 +832,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         reports_label: text(lang, "reports"),
+        world_catalog_link,
         moderate_reports,
         mail_link,
         players_label: text(lang, "players"),

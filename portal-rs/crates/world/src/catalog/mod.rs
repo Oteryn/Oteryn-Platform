@@ -17,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) const SCHEMA_VERSION: &str = "1.0.0";
 const CAPABILITIES: [&str; 8] = [
     "achievement",
     "creature",
@@ -384,7 +385,7 @@ pub fn verify(raw: &[u8], sidecar: &[u8], fence: &Fence) -> Result<Candidate> {
     let snapshot: Snapshot =
         serde_json::from_value(value.clone()).map_err(|_| Error::InvalidInput)?;
     if snapshot.contract_id != "oteryn.game-platform-catalog"
-        || snapshot.schema_version != "1.0.0"
+        || snapshot.schema_version != SCHEMA_VERSION
         || snapshot.content_authority_id != "oteryn-native"
     {
         return Err(Error::UnsupportedCapability);

@@ -274,3 +274,4 @@ cms-news = Aktualności
 cms-pages = Strony
 cms-events = Wydarzenia
 cms-announcements = Ogłoszenia
+world-catalog = Katalog świata

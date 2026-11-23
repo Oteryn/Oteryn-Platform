@@ -6,6 +6,18 @@ pub(super) fn snapshot() -> Snapshot {
     let version = Uuid::now_v7();
     let records = vec![
         ("Item", "item:ore", json!({})),
+        ("Item", "item:currency", json!({})),
+        ("NPC", "npc:broker", json!({})),
+        (
+            shops::KIND,
+            "shop:public",
+            json!({"direction":"npc_sell_offer","npc":"npc:broker","item":"item:ore","currency":"item:currency","unit_price":27,"item_subtype":-1}),
+        ),
+        (
+            shops::KIND,
+            "shop:hidden",
+            json!({"direction":"npc_sell_offer","npc":"npc:hidden","item":"item:ore","currency":"item:currency","unit_price":919191,"item_subtype":-1}),
+        ),
         (
             "Creature",
             "creature:rat",
@@ -119,8 +131,8 @@ fn refusal_and_bad_input() {
     );
     assert!(wiki_map_link("xx", "items", "ore").is_err());
     assert_eq!(
-        wiki_map_link("en", "items", "a&b").unwrap(),
-        "/en/atlas/delivery?item=a%26b"
+        wiki_map_link("en", "items", "oteryn:item.ore").unwrap(),
+        "/en/atlas/delivery?item=oteryn%3Aitem.ore"
     );
     assert!(
         Snapshot::from_visible(
@@ -433,6 +445,20 @@ async fn postgres_http_delivery_map_link_reaches_viewer() {
             .unwrap();
         }
         assert!(body.contains("40.00"));
+        assert!(body.contains("npc:broker"));
+        assert!(body.contains("27 item:currency"));
+        assert!(!body.contains("npc:hidden"));
+        assert!(!body.contains("919191"));
+        let stale = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/{lang}/atlas/delivery?version={}", Uuid::now_v7()))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(stale.status(), 404);
         let link = body
             .split("href=\"")
             .skip(1)
@@ -449,7 +475,15 @@ async fn postgres_http_delivery_map_link_reaches_viewer() {
             .await
             .unwrap();
         assert_eq!(response.status(), 200);
-        assert_eq!(link, format!("/{lang}/atlas?x=10&y=20&z=7"));
+        let version = WorldStore::new(pool.clone(), oteryn_world::WorldOptions { enabled: true })
+            .active_version_id()
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            link,
+            format!("/{lang}/atlas?x=10&y=20&z=7&version={version}")
+        );
         let viewer = String::from_utf8(
             to_bytes(response.into_body(), 1_000_000)
                 .await
@@ -470,22 +504,21 @@ async fn postgres_http_delivery_map_link_reaches_viewer() {
     );
 }
 #[tokio::test]
-async fn postgres_hidden_source_refused() {
+async fn postgres_denied_loot_and_currency_are_excluded() {
     let Some((pool, schema)) = database().await else {
         return;
     };
-    sqlx::query("UPDATE world_visibility SET allowed=false WHERE kind='Loot'")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE world_visibility SET allowed=false WHERE kind='Loot' OR key='item:currency'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let store = WorldStore::new(pool.clone(), oteryn_world::WorldOptions { enabled: true });
     let s = load(&store).await.unwrap();
-    assert!(
-        s.discover(Options { enabled: true }, &filters())
-            .unwrap()
-            .sources
-            .is_empty()
-    );
+    let delivery = s.discover(Options { enabled: true }, &filters()).unwrap();
+    assert!(delivery.sources.is_empty());
+    assert!(delivery.shops.is_empty());
     cleanup(pool, schema).await;
 }
 #[tokio::test]
@@ -585,4 +618,86 @@ fn maximum_count_many_sources_has_bounded_estimate_work() {
         )
         .unwrap();
     assert!(d.sources.iter().all(|source| source.estimate.is_some()));
+}
+
+#[test]
+fn catalog_item_keys_have_bounded_typed_syntax() {
+    for value in ["rope", "item:ore", "oteryn:item.quest_ore", "123"] {
+        assert!(
+            Filters {
+                item: Some(value.into()),
+                ..Filters::default()
+            }
+            .validate()
+            .is_ok()
+        );
+    }
+    for value in [
+        "item:",
+        "oteryn:item.ore/other",
+        "oteryn::item",
+        "ore name",
+        "item:?ore",
+        "oteryn:creature.rat",
+        "oteryn:item..",
+        "oteryn:item.Upper",
+    ] {
+        assert_eq!(
+            Filters {
+                item: Some(value.into()),
+                ..Filters::default()
+            }
+            .validate(),
+            Err(Error::InvalidInput)
+        );
+    }
+}
+
+#[test]
+fn each_quest_target_uses_its_own_count() {
+    let mut s = snapshot();
+    s.entities.insert(
+        ("Quest".into(), "quest:ore".into()),
+        json!({
+            "stages":[{"kind":"collect","key":"ore","count":20,
+                "target_items":[{"item":"item:ore","count":5}],
+                "reward_items":[{"item":"item:currency","count":2},{"name":"ore"}]}]
+        }),
+    );
+    let entries = s.requirements();
+    assert_eq!(entries[0].count, Some(5));
+    assert!(!entries[0].reward);
+    assert!(entries[1].reward);
+    assert_eq!(entries[1].item.as_deref(), Some("item:currency"));
+    assert_eq!(entries[1].count, Some(2));
+    assert!(entries[2].item.is_none());
+}
+
+#[test]
+fn approved_shop_offers_preserve_unit_terms_and_require_visible_endpoints() {
+    let mut s = snapshot();
+    let result = s.discover(Options { enabled: true }, &filters()).unwrap();
+    assert_eq!(result.shops.len(), 1);
+    let shop = &result.shops[0];
+    assert!(matches!(shop.direction, shops::Direction::NpcSellOffer));
+    assert_eq!(
+        (
+            &*shop.npc,
+            &*shop.currency,
+            shop.unit_price,
+            shop.item_subtype
+        ),
+        ("npc:broker", "item:currency", 27, -1)
+    );
+    let offer = s
+        .entities
+        .get_mut(&(shops::KIND.into(), "shop:public".into()))
+        .unwrap();
+    offer["unit_price"] = json!(0);
+    assert!(
+        s.discover(Options { enabled: true }, &filters())
+            .unwrap()
+            .shops
+            .is_empty()
+    );
 }
