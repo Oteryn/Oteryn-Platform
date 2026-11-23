@@ -202,6 +202,8 @@ impl Target<'_> {
         match self {
             Self::News(_) => &[
                 ("slug", "slug"),
+                ("is_changelog", "news-kind"),
+                ("tags", "news-tags"),
                 ("title", "title-en"),
                 ("body", "body-en"),
                 ("title_pl", "title-pl"),
@@ -312,6 +314,21 @@ struct Difference {
 fn differences(target: &Target<'_>, lang: &str, from: &Value, to: &Value) -> Vec<Difference> {
     let bundle = bundle(lang);
     let display = |snapshot: &Value, field: &str| {
+        if field == "is_changelog" {
+            return snapshot[field]
+                .as_bool()
+                .map_or_else(String::new, |is_changelog| {
+                    translated(&bundle, if is_changelog { "changelog" } else { "news" })
+                });
+        }
+        if field == "tags" {
+            return snapshot[field].as_array().map_or_else(String::new, |tags| {
+                tags.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            });
+        }
         let value = value(snapshot, field);
         match (field, value.as_str()) {
             ("publication_state", "published") => translated(&bundle, "published-status"),

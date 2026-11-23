@@ -42,3 +42,7 @@ published-status = Published
 info = Information
 maintenance = Maintenance
 warning = Warning
+news-kind = Type
+news-tags = Tags
+news = News
+changelog = Changelog

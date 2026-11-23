@@ -20,6 +20,20 @@ fn validation_and_escaping() {
     assert_eq!(label("pl", "save"), "Zapisz");
     assert_eq!(label("en", "save"), "Save");
 }
+#[test]
+fn tags_have_bounded_canonical_form() {
+    assert_eq!(
+        parse_tags(" fixes, release-2, fixes ").unwrap(),
+        ["fixes", "release-2"]
+    );
+    assert!(parse_tags(" ").unwrap().is_empty());
+    for invalid in ["fixes,,release", "Release", "bad--tag", "a/b", "a_1"] {
+        assert_eq!(parse_tags(invalid), Err(StatusCode::UNPROCESSABLE_ENTITY));
+    }
+    assert!(parse_tags(&"a".repeat(MAX_TAG_LENGTH + 1)).is_err());
+    assert!(parse_tags(&["a"; MAX_TAGS + 1].join(",")).is_err());
+}
+
 #[tokio::test]
 async fn postgres_news_lifecycle() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -46,6 +60,17 @@ async fn postgres_news_lifecycle() {
         .connect(&url)
         .await
         .unwrap();
+    oteryn_db::MIGRATOR
+        .run_to(20261122200000, &pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO news(slug,title,body,published_at)
+         VALUES ('undated-legacy-news','Legacy publication','Older content','0001-01-01 00:00:00+00 BC')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     oteryn_db::migrate(&pool).await.unwrap();
     let slug = format!("news-{}", Uuid::now_v7());
     let mut context = CheckContext {
@@ -74,9 +99,89 @@ async fn postgres_news_lifecycle() {
         published_at: "2020-01-01T00:00:00Z".into(),
         ..Input::default()
     };
+    let mut invalid_tags = make();
+    invalid_tags.tags = Some("release,,fixes".into());
+    assert_eq!(
+        save(&pool, &auth, context, None, invalid_tags)
+            .await
+            .unwrap_err(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    let mut release = make();
+    release.slug = "release-2".into();
+    release.kind = Some(Kind::Changelog);
+    release.tags = Some("updates, release-2".into());
+    release.title = "Release 2".into();
+    release.body = "Fixes 100% of the reported issues".into();
+    save(&pool, &auth, context, None, release).await.unwrap();
+    let mut legacy_edit = make();
+    legacy_edit.slug = "release-2".into();
+    legacy_edit.title = "Release 2 revised".into();
+    legacy_edit.body = "Fixes 100% of the reported issues".into();
+    let release_id: Uuid = sqlx::query_scalar("SELECT id FROM news WHERE slug=$1")
+        .bind(&legacy_edit.slug)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    save_current(&pool, &auth, context, Some(release_id), legacy_edit)
+        .await
+        .unwrap();
+    let (is_changelog, tags): (bool, Vec<String>) =
+        sqlx::query_as("SELECT is_changelog,tags FROM news WHERE id=$1")
+            .bind(release_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(is_changelog);
+    assert_eq!(tags, ["release-2", "updates"]);
+    let mut invalid_date = make();
+    invalid_date.published_at = "0001-01-01 00:00:00+00 BC".into();
+    assert_eq!(
+        save(&pool, &auth, context, None, invalid_date)
+            .await
+            .unwrap_err(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    let app = public_router_at(pool.clone(), "https://portal.example.test/")
+        .layer(Extension(axum::extract::ConnectInfo(news_test_peer())));
+    let (status, html) = get_public(&app, "/en/changelog?q=FIXES%20100%25").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(r#"href="/en/news/release-2""#));
+    let (status, html) = get_public(&app, "/en/changelog?q=%25%25").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("Release 2"));
+    let (status, html) = get_public(&app, "/pl/changelog").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!html.contains("Release 2"));
+    let (status, html) = get_public(&app, "/en/news").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains("/en/news/undated-legacy-news"));
+    assert!(!html.contains("<time"));
+    assert!(!html.contains("Release 2"));
+    let (status, rss) = get_public(&app, "/en/news/rss.xml").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(rss.contains("<link>https://portal.example.test/en/news</link>"));
+    assert!(rss.contains("<link>https://portal.example.test/en/news/undated-legacy-news</link>"));
+    assert!(!rss.contains("<pubDate>"));
+    assert!(!rss.contains("Release 2"));
+    for invalid in [
+        "/en/news?year=0",
+        "/en/news?month=13",
+        "/en/news?year=%2B2020",
+        "/en/news?tag=Bad",
+        "/en/changelog?page=100001",
+        "/en/changelog?q=bad%00query",
+    ] {
+        assert_eq!(
+            get_public(&app, invalid).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
     let op_pool = pool.clone();
     let op_auth = auth.clone();
-    let input = make();
+    let mut input = make();
+    input.tags = Some("launch".into());
     crate::test_staff::race_account_before_fence(&pool, context.account, async move {
         save(&op_pool, &op_auth, context, None, input).await
     })
@@ -88,6 +193,23 @@ async fn postgres_news_lifecycle() {
         .fetch_one(&pool)
         .await
         .unwrap();
+    let (_, html) = get_public(&app, "/en/news?year=2020&month=1&tag=launch").await;
+    assert!(html.contains(&slug) && !html.contains("<script>Title</script>"));
+    for filter in ["year=2021", "month=2", "tag=missing"] {
+        let (status, html) = get_public(&app, &format!("/en/news?{filter}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!html.contains(&slug));
+    }
+    let (_, rss) = get_public(&app, "/en/news/rss.xml").await;
+    assert!(rss.contains(&format!(
+        "<link>https://portal.example.test/en/news/{slug}</link>"
+    )));
+    assert!(rss.contains("<category>launch</category>"));
+    assert!(rss.contains("<pubDate>Wed, 01 Jan 2020 00:00:00 +0000</pubDate>"));
+    assert!(rss.contains("<title>&lt;script&gt;Title&lt;/script&gt;</title>"));
+    let (status, rss) = get_public(&app, "/pl/news/rss.xml").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!rss.contains(&slug));
     let revision: String = sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
         .bind(id)
         .fetch_one(&pool)
@@ -384,7 +506,7 @@ async fn postgres_news_lifecycle() {
         .unwrap_err(),
         StatusCode::NOT_FOUND
     );
-    let response = public_router(pool.clone())
+    let response = app
         .oneshot(
             Request::builder()
                 .uri("/en/news?page=0")
@@ -401,6 +523,14 @@ async fn postgres_news_lifecycle() {
         .execute(&pool)
         .await
         .unwrap();
+    let mut denied_release = make();
+    denied_release.kind = Some(Kind::Changelog);
+    assert_eq!(
+        save(&pool, &auth, context, None, denied_release)
+            .await
+            .unwrap_err(),
+        StatusCode::FORBIDDEN
+    );
     let role: Uuid = sqlx::query_scalar("INSERT INTO roles(key) VALUES ('news_test') RETURNING id")
         .fetch_one(&pool)
         .await
@@ -645,12 +775,14 @@ async fn postgres_pagination_language_and_caps() {
     oteryn_db::migrate(&pool).await.unwrap();
 
     sqlx::query("INSERT INTO news(slug,title,body,published_at) SELECT 'pagination-'||n,'English news','English body',now() FROM generate_series(1,26) n").execute(&pool).await.unwrap();
-    let app = public_router(pool.clone());
+    let app =
+        public_router(pool.clone()).layer(Extension(axum::extract::ConnectInfo(news_test_peer())));
     let response = app
         .clone()
         .oneshot(Request::get("/news?lang=en").body(Body::empty()).unwrap())
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let html = String::from_utf8(
         to_bytes(response.into_body(), 100000)
             .await
@@ -658,8 +790,14 @@ async fn postgres_pagination_language_and_caps() {
             .to_vec(),
     )
     .unwrap();
-    assert!(html.contains("?page=2&amp;lang=en"));
+    assert!(
+        html.replace("&#38;", "&amp;")
+            .contains(r#"href="?page=2&amp;lang=en" rel="next""#)
+    );
+    assert!(html.contains("/en/news/pagination-26"));
+    assert!(!html.contains("/en/news/pagination-16"));
     let response = app
+        .clone()
         .oneshot(
             Request::get("/news?page=2&lang=en")
                 .body(Body::empty())
@@ -667,6 +805,7 @@ async fn postgres_pagination_language_and_caps() {
         )
         .await
         .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
     let html = String::from_utf8(
         to_bytes(response.into_body(), 100000)
             .await
@@ -674,7 +813,42 @@ async fn postgres_pagination_language_and_caps() {
             .to_vec(),
     )
     .unwrap();
-    assert!(html.contains("English news"));
+    assert!(html.contains("/en/news/pagination-16"));
+    assert!(!html.contains("/en/news/pagination-26"));
+    let budget = ratelimit::NamedPolicy::PublicGameData;
+    sqlx::query(
+        "WITH filled AS (
+             UPDATE web_rate_limits SET count=$1 WHERE limiter_name=$2
+             RETURNING limiter_name,key_hash,window_start
+         )
+         INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT limiter_name,key_hash,window_start+make_interval(secs=>$3),$1
+           FROM filled
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(budget.limit())
+    .bind(budget.name())
+    .bind(budget.window_seconds() as f64)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let response = app
+        .oneshot(
+            Request::get("/en/changelog?q=release")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(
+        response.headers()["retry-after"]
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+            > 0
+    );
     let context = CheckContext {
         account: Uuid::now_v7(),
         require_staff_mfa: true,
@@ -685,8 +859,15 @@ async fn postgres_pagination_language_and_caps() {
         let q = Options {
             lang: Some("en".into()),
             page: Some(number),
+            ..Options::default()
         };
-        assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
+        assert!(
+            !public::listing(&pool, "en", &q)
+                .await
+                .unwrap()
+                .0
+                .contains(r#"rel="next""#)
+        );
         assert!(
             !admin_index(State(pool.clone()), Extension(context), Query(q))
                 .await
@@ -704,6 +885,28 @@ async fn postgres_pagination_language_and_caps() {
         "postgres_pagination_language_and_caps duration: {:?}",
         started.elapsed()
     );
+}
+
+fn news_test_peer() -> std::net::SocketAddr {
+    ([127, 0, 0, 1], 12345).into()
+}
+
+async fn get_public(app: &Router, path: &str) -> (StatusCode, String) {
+    let response = app
+        .clone()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    (
+        response.status(),
+        String::from_utf8(
+            to_bytes(response.into_body(), 100_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap(),
+    )
 }
 
 async fn save_current(

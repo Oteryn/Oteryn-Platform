@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  {% if section == "news" %}
+  <link rel="alternate" type="application/rss+xml" hreflang="{{ lang }}" title="{{ self.text("feed-title") }}" href="/{{ lang }}/news/rss.xml">
+  {% endif %}
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ title }}</h1>
+  <nav aria-label="{{ self.text("news-navigation") }}" class="op-row">
+    {% if section == "news" %}
+    <a href="/{{ lang }}/changelog">{{ self.text("changelog") }}</a>
+    <a href="/{{ lang }}/news/rss.xml" type="application/rss+xml" hreflang="{{ lang }}">{{ self.text("rss") }}</a>
+    {% else %}
+    <a href="/{{ lang }}/news">{{ self.text("news") }}</a>
+    {% endif %}
+  </nav>
+  <form method="get" action="/{{ lang }}/{{ section }}" class="op-stack">
+    {% if section == "news" %}
+    <div>
+      <label for="archive-year">{{ self.text("year") }}</label>
+      <input class="op-input" type="number" name="year" id="archive-year" min="1" max="9999"{% if let Some(year) = filters.year %} value="{{ year }}"{% endif %}>
+    </div>
+    <div>
+      <label for="archive-month">{{ self.text("month") }}</label>
+      <input class="op-input" type="number" name="month" id="archive-month" min="1" max="12"{% if let Some(month) = filters.month %} value="{{ month }}"{% endif %}>
+    </div>
+    <div>
+      <label for="archive-tag">{{ self.text("tag") }}</label>
+      <input class="op-input" name="tag" id="archive-tag" maxlength="48" value="{{ filters.tag }}">
+    </div>
+    <div class="op-row">
+      <button type="submit" class="op-button">{{ self.text("filter") }}</button>
+      <a href="/{{ lang }}/news">{{ self.text("clear-filters") }}</a>
+    </div>
+    {% else %}
+    <div>
+      <label for="changelog-search">{{ self.text("search") }}</label>
+      <input class="op-input" type="search" name="q" id="changelog-search" maxlength="120" value="{{ filters.search }}">
+    </div>
+    <div class="op-row">
+      <button type="submit" class="op-button">{{ self.text("search") }}</button>
+      <a href="/{{ lang }}/changelog">{{ self.text("clear-search") }}</a>
+    </div>
+    {% endif %}
+  </form>
+  {% if entries.is_empty() %}
+  <p>{{ self.text("no-results") }}</p>
+  {% endif %}
+  {% for entry in entries %}
+  <article class="op-panel op-stack">
+    <h2><a href="/{{ lang }}/news/{{ entry.slug }}">{{ entry.title }}</a></h2>
+    {% if let Some(day) = entry.day %}
+    <time datetime="{{ day }}">{{ entry.display_date }}</time>
+    {% endif %}
+    <p>{{ entry.excerpt }}</p>
+    {% if section == "news" && !entry.tags.is_empty() %}
+    <ul class="op-row" aria-label="{{ self.text("tags") }}">
+      {% for tag in entry.tags %}
+      <li><a href="/{{ lang }}/news?tag={{ tag }}">{{ tag }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% if previous.is_some() || next.is_some() %}
+  <nav aria-label="{{ self.text("pagination") }}" class="op-row">
+    {% if let Some(previous_url) = previous %}
+    <a href="{{ previous_url }}" rel="prev">{{ self.text("previous") }}</a>
+    {% endif %}
+    {% if let Some(next_url) = next %}
+    <a href="{{ next_url }}" rel="next">{{ self.text("next") }}</a>
+    {% endif %}
+  </nav>
+  {% endif %}
+</main>
+</body>
+</html>

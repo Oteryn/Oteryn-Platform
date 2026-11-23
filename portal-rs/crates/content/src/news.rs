@@ -11,11 +11,15 @@ use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{CheckContext, MutationAuthorization, Permission},
 };
+use oteryn_web::ratelimit::{self, PublicGameData, RateLimit, RateLimiter};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
+
+mod public;
+
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
@@ -29,9 +33,9 @@ fn escape(s: &str) -> String {
 fn label(lang: &str, key: &str) -> String {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "pl" {
-        "news = Aktualności\nempty = Brak opublikowanych aktualności.\nnew = Nowy wpis\nsave = Zapisz\ndelete = Usuń\nslug = Adres\ntitle = Tytuł\nbody = Treść\npublication = Data publikacji (UTC)\nnext = Następna strona"
+        include_str!("../../../templates/content/pl.ftl")
     } else {
-        "news = News\nempty = No news has been published yet.\nnew = New post\nsave = Save\ndelete = Delete\nslug = Slug\ntitle = Title\nbody = Body\npublication = Publication date (UTC)\nnext = Next page"
+        include_str!("../../../templates/content/en.ftl")
     };
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -69,6 +73,14 @@ const MAX_PAGE: i64 = 100000;
 struct Options {
     lang: Option<String>,
     page: Option<i64>,
+    #[serde(default)]
+    year: String,
+    #[serde(default)]
+    month: String,
+    #[serde(default)]
+    tag: String,
+    #[serde(default)]
+    q: String,
 }
 impl Options {
     fn lang(&self) -> &str {
@@ -87,8 +99,20 @@ impl Options {
         }
     }
 }
+#[derive(Clone, Copy, Debug, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum Kind {
+    #[default]
+    News,
+    Changelog,
+}
+
 #[derive(Debug, Default, Deserialize)]
 struct Input {
+    #[serde(default)]
+    kind: Option<Kind>,
+    #[serde(default)]
+    tags: Option<String>,
     #[serde(default)]
     expected_revision: String,
     slug: String,
@@ -111,6 +135,26 @@ fn slug_valid(s: &str) -> bool {
                     .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
         })
 }
+const MAX_TAGS: usize = 10;
+const MAX_TAG_LENGTH: usize = 48;
+
+fn tag_valid(tag: &str) -> bool {
+    tag.len() <= MAX_TAG_LENGTH && slug_valid(tag)
+}
+
+fn parse_tags(value: &str) -> Result<Vec<&str>, StatusCode> {
+    if value.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut tags: Vec<_> = value.split(',').take(MAX_TAGS + 1).map(str::trim).collect();
+    if tags.len() > MAX_TAGS || tags.iter().any(|tag| !tag_valid(tag)) {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    tags.sort_unstable();
+    tags.dedup();
+    Ok(tags)
+}
+
 impl Input {
     fn valid(&self) -> bool {
         slug_valid(&self.slug)
@@ -125,12 +169,31 @@ impl Input {
     }
 }
 pub fn public_router(pool: PgPool) -> Router {
-    Router::new()
-        .route("/news", get(index))
+    public_router_at(pool, "http://localhost:3000")
+}
+
+fn public_router_at(pool: PgPool, origin: &str) -> Router {
+    let archive = Router::new()
+        .route("/news", get(public::index))
+        .route("/{lang}/news", get(public::local_index))
+        .route("/{lang}/news/rss.xml", get(public::rss))
+        .route("/{lang}/changelog", get(public::changelog))
+        .route_layer(axum::middleware::from_fn(
+            |_: RateLimit<PublicGameData>, request, next: axum::middleware::Next| async move {
+                next.run(request).await
+            },
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            ratelimit::supply,
+        ));
+    archive
         .route("/news/{slug}", get(show))
-        .route("/{lang}/news", get(local_index))
         .route("/{lang}/news/{slug}", get(local_show))
         .with_state(pool)
+        .layer(Extension(public::FeedOrigin(
+            origin.trim_end_matches('/').to_owned(),
+        )))
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
@@ -148,8 +211,11 @@ pub fn admin_router(pool: PgPool) -> Router {
         .layer(axum::middleware::from_fn(headers))
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+    let origin =
+        std::env::var("OTERYN_PUBLIC_ORIGIN").unwrap_or_else(|_| "http://localhost:3000".into());
+    oteryn_web::seo::Seo::new(&origin, false)?;
     Ok(
-        public_router(pool.clone()).merge(oteryn_admin::web::configured_guard(
+        public_router_at(pool.clone(), &origin).merge(oteryn_admin::web::configured_guard(
             admin_router(pool.clone()),
             pool,
             Permission::ManageNews,
@@ -163,20 +229,6 @@ fn language(lang: &str) -> Result<(), StatusCode> {
         Err(StatusCode::NOT_FOUND)
     }
 }
-async fn index(
-    State(pool): State<PgPool>,
-    Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(), &q).await
-}
-async fn local_index(
-    State(pool): State<PgPool>,
-    Path(lang): Path<String>,
-    Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    language(&lang)?;
-    listing(&pool, &lang, &q).await
-}
 /// Newest published entries for the home page, under the same language rule
 /// as the public listing. The excerpt is plain text; templates escape it.
 pub async fn headlines(
@@ -185,7 +237,7 @@ pub async fn headlines(
     limit: i64,
 ) -> Result<Vec<oteryn_ui::HomeNews>, sqlx::Error> {
     let lang = lang.code();
-    let rows = sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,to_char(published_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT $2").bind(lang).bind(limit.clamp(0, 10)).fetch_all(pool).await?;
+    let rows = sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,to_char(published_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day FROM news WHERE NOT is_changelog AND published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT $2").bind(lang).bind(limit.clamp(0, 10)).fetch_all(pool).await?;
     let mut entries = Vec::with_capacity(rows.len());
     for row in rows {
         let slug: String = row.try_get("slug")?;
@@ -220,29 +272,6 @@ fn excerpt(body: &str, limit: usize) -> String {
     let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
     format!("{}…", cut.trim_end_matches([',', '.', ';', ':', '-', '–']))
 }
-async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>, StatusCode> {
-    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
-    let mut html = String::new();
-    let has_next = rows.len() > 10 && q.page.unwrap_or(1) < MAX_PAGE;
-    if rows.is_empty() {
-        html.push_str(&format!("<p>{}</p>", label(lang, "empty")));
-    }
-    for row in rows.into_iter().take(10) {
-        html.push_str(&format!(
-            "<p><a href=\"/{lang}/news/{}\">{}</a></p>",
-            escape(row.get("slug")),
-            escape(row.get("title"))
-        ));
-    }
-    if has_next {
-        html.push_str(&format!(
-            "<a href=\"?page={}&amp;lang={lang}\">{}</a>",
-            q.page.unwrap_or(1) + 1,
-            label(lang, "next")
-        ));
-    }
-    Ok(page(lang, &label(lang, "news"), html))
-}
 async fn show(
     State(pool): State<PgPool>,
     Path(slug): Path<String>,
@@ -261,23 +290,45 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
     if !slug_valid(slug) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let row=sqlx::query("SELECT CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) AND slug=$2").bind(lang).bind(slug).fetch_optional(pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    let row = sqlx::query(
+        "SELECT is_changelog,
+                CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,
+                CASE WHEN $1='pl' THEN body_pl ELSE body END AS body
+           FROM news
+          WHERE published_at <= now() AND slug=$2
+            AND ($1='en' OR (translation_published_at <= now()
+                 AND translation_source_updated_at >= updated_at
+                 AND length(trim(title_pl)) > 0 AND length(trim(body_pl)) > 0))",
+    )
+    .bind(lang)
+    .bind(slug)
+    .fetch_optional(pool)
+    .await
+    .map_err(unavailable)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+    let section = if row.get("is_changelog") {
+        "changelog"
+    } else {
+        "news"
+    };
     Ok(page(
         lang,
         row.get("title"),
         format!(
-            "<article><p>{}</p></article>",
+            "<p><a href=\"/{lang}/{section}\">{}</a></p><article><p>{}</p></article>",
+            label(lang, section),
             escape(row.get("body")).replace('\n', "<br>")
         ),
     ))
 }
+
 async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     let rows = sqlx::query(
-        "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
+        "SELECT id,title,is_changelog FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
     .bind(q.offset(25)?)
     .fetch_all(&pool)
@@ -291,9 +342,15 @@ async fn admin_index(
     let has_next = rows.len() > 25 && q.page.unwrap_or(1) < MAX_PAGE;
     for row in rows.into_iter().take(25) {
         let id: Uuid = row.get("id");
+        let kind = if row.get("is_changelog") {
+            "changelog"
+        } else {
+            "news"
+        };
         html.push_str(&format!(
-            "<p><a href=\"/admin/news/{id}/edit?lang={lang}\">{}</a></p>",
-            escape(row.get("title"))
+            "<p><a href=\"/admin/news/{id}/edit?lang={lang}\">{}</a> · {}</p>",
+            escape(row.get("title")),
+            label(lang, kind)
         ));
     }
     if has_next {
@@ -326,7 +383,7 @@ async fn edit(
     Query(q): Query<Options>,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
-    let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,is_changelog,tags,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     let history_lang = revisions::language(chrome.as_deref());
     let lang = q
         .lang
@@ -338,6 +395,12 @@ async fn edit(
         history_lang,
         Some(id),
         Input {
+            kind: Some(if row.get("is_changelog") {
+                Kind::Changelog
+            } else {
+                Kind::News
+            }),
+            tags: Some(row.get::<Vec<String>, _>("tags").join(", ")),
             expected_revision: row.get("expected_revision"),
             slug: row.get("slug"),
             title: row.get("title"),
@@ -375,6 +438,23 @@ fn form(
     html.push_str(&format!(
         "<input type=\"hidden\" name=\"expected_revision\" value=\"{}\">",
         escape(&input.expected_revision)
+    ));
+    let (news_selected, changelog_selected) = match input.kind.unwrap_or_default() {
+        Kind::News => (" selected", ""),
+        Kind::Changelog => ("", " selected"),
+    };
+    html.push_str(&format!(
+        "<label for=\"kind\">{}</label><select class=\"op-input\" id=\"kind\" name=\"kind\">\
+         <option value=\"news\"{news_selected}>{}</option>\
+         <option value=\"changelog\"{changelog_selected}>{}</option></select>\
+         <label for=\"tags\">{}</label><input class=\"op-input\" id=\"tags\" name=\"tags\" value=\"{}\" aria-describedby=\"tags-help\">\
+         <small id=\"tags-help\">{}</small>",
+        label(lang, "kind"),
+        label(lang, "news"),
+        label(lang, "changelog"),
+        label(lang, "tags"),
+        escape(input.tags.as_deref().unwrap_or_default()),
+        label(lang, "tags-help"),
     ));
     let expected_revision = input.expected_revision.clone();
     for (name, key, value, multi) in [
@@ -566,6 +646,19 @@ async fn save_change(
                     body: value("body"),
                     title_pl: value("title_pl"),
                     body_pl: value("body_pl"),
+                    kind: snapshot["is_changelog"].as_bool().map(|is_changelog| {
+                        if is_changelog {
+                            Kind::Changelog
+                        } else {
+                            Kind::News
+                        }
+                    }),
+                    tags: snapshot["tags"].as_array().map(|tags| {
+                        tags.iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }),
                     ..Input::default()
                 },
                 Some(source),
@@ -575,6 +668,8 @@ async fn save_change(
     if !input.valid() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let tags = input.tags.as_deref().map(parse_tags).transpose()?;
+    let is_changelog = input.kind.map(|kind| matches!(kind, Kind::Changelog));
     let action = if restored_from.is_some() {
         "cms.news_restored"
     } else if id.is_some() {
@@ -582,22 +677,75 @@ async fn save_change(
     } else {
         "cms.news_created"
     };
-    let id = if let Some(id) = id {
-        sqlx::query_scalar::<_,Uuid>("WITH revision AS MATERIALIZED (SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp FROM news WHERE id=$1) UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision) WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision) WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision) ELSE NULL END,updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(|error| {
-            if restored_from.is_some() && error.as_database_error().is_some_and(|db| db.is_unique_violation()) {
+    let (id, is_changelog, tags): (Uuid, bool, Vec<String>) = if let Some(id) = id {
+        sqlx::query_as(
+            "WITH revision AS MATERIALIZED (
+                SELECT greatest(clock_timestamp(), updated_at + interval '1 microsecond') AS stamp
+                  FROM news WHERE id=$1
+             )
+             UPDATE news SET slug=$2, title=$3, body=$4, published_at=NULLIF($5,'')::timestamptz,
+                   title_pl=NULLIF($6,''), body_pl=NULLIF($7,''),
+                   translation_published_at=NULLIF($8,'')::timestamptz,
+                   translation_source_updated_at=CASE
+                       WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz
+                           AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision)
+                       WHEN (title,body) IS DISTINCT FROM ($3,$4)
+                           AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL
+                       WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM
+                           (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision)
+                       WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision)
+                       ELSE NULL END,
+                   is_changelog=coalesce($9,is_changelog), tags=coalesce($10,tags),
+                   updated_at=(SELECT stamp FROM revision)
+             WHERE id=$1 RETURNING id,is_changelog,tags",
+        )
+        .bind(id)
+        .bind(&input.slug)
+        .bind(&input.title)
+        .bind(&input.body)
+        .bind(&input.published_at)
+        .bind(&input.title_pl)
+        .bind(&input.body_pl)
+        .bind(&input.translation_published_at)
+        .bind(is_changelog)
+        .bind(&tags)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|error| {
+            if restored_from.is_some()
+                && error.as_database_error().is_some_and(|db| db.is_unique_violation())
+            {
                 StatusCode::CONFLICT
             } else {
                 storage(error)
             }
-        })?.ok_or(StatusCode::NOT_FOUND)?
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?
     } else {
-        sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
+        sqlx::query_as(
+            "INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,
+                              translation_source_updated_at,is_changelog,tags)
+             VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),
+                    NULLIF($7,'')::timestamptz,now(),$8,$9) RETURNING id,is_changelog,tags",
+        )
+        .bind(&input.slug)
+        .bind(&input.title)
+        .bind(&input.body)
+        .bind(&input.published_at)
+        .bind(&input.title_pl)
+        .bind(&input.body_pl)
+        .bind(&input.translation_published_at)
+        .bind(is_changelog.unwrap_or_default())
+        .bind(tags.unwrap_or_default())
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(storage)?
     };
     Target::News(id)
         .append(&mut tx, context.account, restored_from)
         .await
         .map_err(unavailable)?;
-    let mut after = json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at});
+    let mut after = json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at,"is_changelog":is_changelog,"tags":tags});
     if let Some(source) = restored_from {
         after["restored_from"] = json!(source);
     }

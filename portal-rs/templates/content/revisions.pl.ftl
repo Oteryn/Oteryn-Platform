@@ -42,3 +42,7 @@ published-status = Opublikowane
 info = Informacja
 maintenance = Konserwacja
 warning = Ostrzeżenie
+news-kind = Typ
+news-tags = Tagi
+news = Aktualności
+changelog = Dziennik zmian
