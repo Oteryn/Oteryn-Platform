@@ -578,7 +578,13 @@ Each replacement recreates PostgreSQL, migrates it, installs the testing legal
 pages and seeds a disposable account through the portal CLI. The staging portal
 is reachable on `127.0.0.1:18080` on the host, including `/readyz`. The browser
 container connects through its own loopback HTTPS origin and trusts the generated
-staging CA. Mail goes to the stack's authenticated STARTTLS catcher. Game,
+staging CA. Port 18080 is served by `portal-public`, a second `serve` on the
+same database whose origin comes from `/opt/oteryn-staging/public-origin`
+(one `https://<hostname>` line; without the file it is the loopback origin).
+Put the tunnel hostname there when staging is published behind Cloudflare
+Access, so CSRF, passkeys and mail links match the address people use; the
+in-stack E2E keeps the loopback origin. Mail goes to the stack's authenticated
+STARTTLS catcher. Game,
 store and payment features are disabled. With no spec argument Playwright
 discovers the full suite, which includes specs that require the local harness's
 Game or commerce fixtures and can fail under this staging profile.

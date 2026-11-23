@@ -172,7 +172,7 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual([(name, port['host_ip'], str(port['published']))
                           for name, service in services.items() for port in service.get('ports', [])],
                          [('ingress', '127.0.0.1', '18080')])
-        core = ('portal', 'worker', 'postgres', 'mail', 'ingress')
+        core = ('portal', 'portal-public', 'worker', 'postgres', 'mail', 'ingress')
         for name, service in services.items():
             with self.subTest(service=name):
                 self.assertTrue(service['read_only'])
@@ -213,6 +213,27 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('/' + staging.TEST_DB + '\n', (self.root / 'pg-tests.env').read_text())
         self.assertNotIn('/' + staging.PORTAL_DB, (self.root / 'pg-tests.env').read_text())
 
+    def test_public_origin_defaults_to_loopback_and_rejects_bad_values(self):
+        staging = self.staging
+        staging.configure(self.root, SHA)
+        public = (self.root / 'public.env').read_text()
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n', public)
+        self.assertIn('OTERYN_WEBAUTHN_RP_ID=localhost\n', public)
+        (self.root / 'public-origin').write_text('https://staging.example.com\n')
+        staging.configure(self.root, SHA)
+        public = (self.root / 'public.env').read_text()
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
+        self.assertIn('OTERYN_WEBAUTHN_RP_ID=staging.example.com\n', public)
+        self.assertIn('OTERYN_NOTIFY_UNSUBSCRIBE_URL=https://staging.example.com/en/unsubscribe\n', public)
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n',
+                      (self.root / 'portal.env').read_text())
+        for bad in ('http://staging.example.com', 'https://staging.example.com/x',
+                    'https://user@evil.example', 'https://staging.example.com\nX=1', 'https://localhost'):
+            with self.subTest(bad=bad):
+                (self.root / 'public-origin').write_text(bad)
+                with self.assertRaises(staging.Refusal):
+                    staging.configure(self.root, SHA)
+
     def test_stack_replaces_only_exact_volumes_and_migrates_seeds_serves(self):
         staging = self.staging
         directory = self.root / 'run'
@@ -225,7 +246,7 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual(compose[0][0], 'down')
         self.assertEqual([item[-1] for item in compose[2:4]], ['migrate', 'install-legal-pages'])
         self.assertEqual(compose[4][5:7], ['seed', 'account'])
-        self.assertEqual(compose[-1], ['up', '-d', 'portal', 'worker', 'ingress'])
+        self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress'])
         removals = [item for item in commands if item[:3] == ['docker', 'volume', 'rm']]
         self.assertEqual([item[-1] for item in removals], [
             'oteryn-staging_data', 'oteryn-staging_trust', 'oteryn-staging_mail_tls',
