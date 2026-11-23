@@ -20,6 +20,7 @@
     "native-protocol-contract-audits.yml",
     "native-protocol-contract.yml",
     "oracle-operations.yml",
+    "oracle-staging.yml",
     "oteryn-public-edge-validation.yml",
     "parallel-coordinator-prompt-eval.yml",
     "phase7-production-like-validation.yml",
