@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+pub mod secret_file;
 
 /// Deployment environment. Features that touch the game or money stay off unless enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

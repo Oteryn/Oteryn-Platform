@@ -2840,7 +2840,9 @@ dependencies = [
 name = "oteryn-core"
 version = "0.1.0"
 dependencies = [
+ "rustix",
  "serde",
+ "tempfile",
  "thiserror 2.0.21",
  "uuid",
 ]
@@ -2952,6 +2954,7 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "oteryn-core",
  "oteryn-internal-api",
  "rcgen",
  "rustls",
@@ -3069,6 +3072,7 @@ dependencies = [
  "hyper-util",
  "image",
  "oteryn-atlas",
+ "oteryn-core",
  "oteryn-db",
  "oteryn-identity",
  "oteryn-playerdata",

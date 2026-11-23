@@ -85,12 +85,16 @@ impl Config {
 
     /// TLS 1.3 only, client certificate required and chained to the CA, ALPN http/1.1.
     pub fn server_config(&self) -> Result<rustls::ServerConfig, Box<dyn std::error::Error>> {
+        let key = PrivateKeyDer::from_pem_reader(oteryn_core::secret_file::open(
+            KEYS[2],
+            &self.key_file,
+        )?)
+        .map_err(|_| "invalid PEM in OTERYN_INTERNAL_TLS_KEY_FILE")?;
         let mut roots = rustls::RootCertStore::empty();
         for certificate in certificates(&self.client_ca_file)? {
             roots.add(certificate)?;
         }
         let chain = certificates(&self.cert_file)?;
-        let key = PrivateKeyDer::from_pem_file(&self.key_file)?;
         server_config(roots, chain, key)
     }
 }

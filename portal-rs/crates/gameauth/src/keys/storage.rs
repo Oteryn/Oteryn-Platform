@@ -27,6 +27,7 @@ pub trait KeyStorage: fmt::Debug {
 /// rotate the wrapping key through the deployment's secret custody process.
 pub struct EncryptedFileStorage {
     path: PathBuf,
+    custody_key: &'static str,
     wrapping_key: Zeroizing<[u8; 32]>,
     _lock: File,
 }
@@ -38,13 +39,23 @@ impl fmt::Debug for EncryptedFileStorage {
 #[cfg(unix)]
 impl EncryptedFileStorage {
     pub fn from_key_file(path: impl Into<PathBuf>, key_path: &Path) -> Result<Self, KeyError> {
+        Self::from_named_key_file(path, key_path, "custody snapshot", "custody wrapping key")
+    }
+
+    pub(crate) fn from_named_key_file(
+        path: impl Into<PathBuf>,
+        key_path: &Path,
+        custody_key: &'static str,
+        wrapping_key_config: &'static str,
+    ) -> Result<Self, KeyError> {
         let path = path.into();
         let parent = path.parent().ok_or(KeyError::BadInput)?;
         if !path.is_absolute() || path == key_path || !key_path.is_absolute() {
             return Err(KeyError::BadInput);
         }
         private_metadata(parent, true)?;
-        let mut key_file = private_file(key_path)?;
+        let mut key_file = oteryn_core::secret_file::open(wrapping_key_config, key_path)
+            .map_err(|e| KeyError::SecretFile(wrapping_key_config, e.kind()))?;
         if key_file.metadata().map_err(|e| io_error(&e))?.len() != 32 {
             return Err(KeyError::BadInput);
         }
@@ -77,6 +88,7 @@ impl EncryptedFileStorage {
         })?;
         Ok(Self {
             path,
+            custody_key,
             wrapping_key,
             _lock: lock,
         })
@@ -115,12 +127,11 @@ impl EncryptedFileStorage {
 impl KeyStorage for EncryptedFileStorage {
     fn load(&self) -> Result<Option<Zeroizing<Vec<u8>>>, KeyError> {
         private_metadata(self.path.parent().ok_or(KeyError::BadInput)?, true)?;
-        match fs::symlink_metadata(&self.path) {
+        let file = match oteryn_core::secret_file::open(self.custody_key, &self.path) {
+            Ok(file) => file,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(e) => return Err(io_error(&e)),
-            Ok(_) => {}
-        }
-        let file = private_file(&self.path)?;
+            Err(e) => return Err(KeyError::SecretFile(self.custody_key, e.kind())),
+        };
         let size = file.metadata().map_err(|e| io_error(&e))?.len();
         if !(28..=MAX_BYTES).contains(&size) {
             return Err(KeyError::InvalidState);
@@ -204,20 +215,4 @@ fn private_metadata(path: &Path, directory: bool) -> Result<fs::Metadata, KeyErr
         return Err(unavailable(CauseKind::Integrity));
     }
     Ok(metadata)
-}
-#[cfg(unix)]
-fn private_file(path: &Path) -> Result<File, KeyError> {
-    use std::os::unix::fs::MetadataExt;
-    let before = private_metadata(path, false)?;
-    let file = File::open(path).map_err(|e| io_error(&e))?;
-    let after = file.metadata().map_err(|e| io_error(&e))?;
-    if before.dev() != after.dev()
-        || before.ino() != after.ino()
-        || !after.is_file()
-        || after.mode() & 0o077 != 0
-        || after.uid() != rustix::process::geteuid().as_raw()
-    {
-        return Err(unavailable(CauseKind::Integrity));
-    }
-    Ok(file)
 }

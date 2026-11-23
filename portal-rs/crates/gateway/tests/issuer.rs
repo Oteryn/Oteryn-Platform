@@ -443,7 +443,7 @@ async fn serve_tls(app: Router, ca_cert: &Certificate, ca_key: &KeyPair) -> Serv
 async fn private_issuer_ca_verifies_chain_and_hostname_before_sending_bearer() {
     let dir = tempfile::tempdir().unwrap();
     let token_file = dir.path().join("token");
-    std::fs::write(&token_file, "synthetic-gateway-service-token\n").unwrap();
+    write_token(&token_file, "synthetic-gateway-service-token\n");
     let ca_file = dir.path().join("issuer-ca.pem");
     let wrong_ca_file = dir.path().join("unrelated-ca.pem");
     let (ca_cert, ca_key) = ca();
@@ -499,7 +499,7 @@ async fn private_issuer_ca_verifies_chain_and_hostname_before_sending_bearer() {
 fn explicit_issuer_ca_refuses_bad_input_and_plain_http() {
     let dir = tempfile::tempdir().unwrap();
     let token_file = dir.path().join("token");
-    std::fs::write(&token_file, "synthetic-gateway-service-token").unwrap();
+    write_token(&token_file, "synthetic-gateway-service-token");
     let ca_file = dir.path().join("issuer-ca.pem");
     let ca_path = Some(ca_file.to_str().unwrap());
     let https = "https://localhost:8080";
@@ -529,4 +529,16 @@ fn explicit_issuer_ca_refuses_bad_input_and_plain_http() {
         std::fs::write(&ca_file, invalid).unwrap();
         assert!(IssuerClient::from_config(&config).is_err());
     }
+}
+
+fn write_token(path: &std::path::Path, token: &str) {
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .unwrap()
+        .write_all(token.as_bytes())
+        .unwrap();
 }

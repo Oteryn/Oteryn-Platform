@@ -418,7 +418,15 @@ fn native_tls() -> NativeTls {
         .expect("server certificate");
     let dir = tempfile::tempdir().expect("TLS dir");
     std::fs::write(dir.path().join("cert.pem"), leaf.pem()).expect("write cert");
-    std::fs::write(dir.path().join("key.pem"), key.serialize_pem()).expect("write key");
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(dir.path().join("key.pem"))
+        .expect("open key")
+        .write_all(key.serialize_pem().as_bytes())
+        .expect("write key");
     let mut roots = rustls::RootCertStore::empty();
     roots
         .add(CertificateDer::from_pem_slice(ca.pem().as_bytes()).expect("CA der"))

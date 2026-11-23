@@ -30,7 +30,7 @@
 //! `existing_actor_recovery` scope of `urn:oteryn:platform:game-recovery`.
 use axum::Router;
 use oteryn_characters::{lcfa, overview};
-use oteryn_gameauth::{admission, devices::PlatformAuthority, oauth, tickets};
+use oteryn_gameauth::{admission, devices::PlatformAuthority, keys::KeyError, oauth, tickets};
 use oteryn_internal_api::guard::{Binding, Identity, IdentityMap};
 use oteryn_support::sanctions::{AdmissionAccounts, Features, GuardedAdmission, GuardedTickets};
 use sqlx::PgPool;
@@ -142,16 +142,32 @@ pub fn admission_authority(
     )
 }
 
-/// Issuance policy from the environment with its signer when permitted. A
-/// signer that fails to load leaves issuance unavailable.
-pub fn issuance(pool: PgPool, lookup: impl Fn(&str) -> Option<String>) -> admission::Issuance {
+/// Configured file admission errors refuse startup. Other signer failures leave
+/// the existing unavailable state in place.
+fn startup_signer(
+    result: Result<Option<Arc<dyn admission::GrantSigner>>, KeyError>,
+    purpose: &str,
+) -> Result<Option<Arc<dyn admission::GrantSigner>>, KeyError> {
+    match result {
+        Err(error @ KeyError::SecretFile(..)) => Err(error),
+        Err(error) => {
+            tracing::warn!(%error, %purpose, "native grant signer unavailable");
+            Ok(None)
+        }
+        Ok(signer) => Ok(signer),
+    }
+}
+
+pub fn issuance(
+    pool: PgPool,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Result<admission::Issuance, KeyError> {
     let mut issuance = admission::Issuance::configured(&lookup);
-    issuance.signer =
-        admission::configured_signer(pool, &issuance, lookup).unwrap_or_else(|error| {
-            tracing::warn!(%error, "native admission grant signer unavailable");
-            None
-        });
-    issuance
+    issuance.signer = startup_signer(
+        admission::configured_signer(pool, &issuance, lookup),
+        "admission",
+    )?;
+    Ok(issuance)
 }
 
 /// The protocol 3 policy over the issuance's runtime read model (§19.1).
@@ -163,29 +179,29 @@ pub fn protocol3(
 }
 
 /// The §19.4 recovery issuer, composed only while protocol 3 recovery handles
-/// are on (testing only, U21) and issuance is permitted. A recovery signer that
-/// fails to load leaves `native-recoveries` unavailable; it never falls back to
-/// the fresh admission key.
+/// are on (testing only, U21) and issuance is permitted. Recovery uses its own
+/// signing custody and keeps the existing unavailable state for signer state errors.
 pub fn recovery_issuer(
     pool: PgPool,
     issuance: &admission::Issuance,
     protocol3: Option<&admission::Protocol3>,
     projection: &lcfa::Settings,
     lookup: impl Fn(&str) -> Option<String>,
-) -> Option<admission::RecoveryIssuer> {
+) -> Result<Option<admission::RecoveryIssuer>, KeyError> {
     if !matches!(
         protocol3.map(|settings| settings.handles),
         Some(admission::Handles::On { .. })
     ) {
-        return None;
+        return Ok(None);
     }
-    let clock_uncertainty_seconds = admission::clock_uncertainty(&lookup).ok()?;
-    let signer =
-        admission::configured_recovery_signer(pool, issuance, lookup).unwrap_or_else(|error| {
-            tracing::warn!(%error, "native recovery grant signer unavailable");
-            None
-        });
-    Some(admission::RecoveryIssuer {
+    let Ok(clock_uncertainty_seconds) = admission::clock_uncertainty(&lookup) else {
+        return Ok(None);
+    };
+    let signer = startup_signer(
+        admission::configured_recovery_signer(pool, issuance, lookup),
+        "recovery",
+    )?;
+    Ok(Some(admission::RecoveryIssuer {
         signer,
         projection_authority: if projection.enabled {
             projection.source_authority.clone()
@@ -194,7 +210,7 @@ pub fn recovery_issuer(
         },
         ttl_seconds: issuance.ttl_seconds,
         clock_uncertainty_seconds,
-    })
+    }))
 }
 
 pub fn admission_accounts() -> AdmissionAccounts {
@@ -214,7 +230,7 @@ pub fn player_router(pool: PgPool) -> Router {
 pub async fn start_admission_listener(
     pool: PgPool,
 ) -> Result<tokio::task::JoinHandle<std::io::Result<()>>, Box<dyn std::error::Error>> {
-    let issuance = issuance(pool.clone(), |key| std::env::var(key).ok());
+    let issuance = issuance(pool.clone(), |key| std::env::var(key).ok())?;
     let signer = issuance.signer.clone();
     let protocol3 = protocol3(&issuance, |key| std::env::var(key).ok());
     let projection = overview::configured_projection();
@@ -224,7 +240,7 @@ pub async fn start_admission_listener(
         protocol3.as_ref(),
         &projection,
         |key| std::env::var(key).ok(),
-    );
+    )?;
     let app = admission::configured_router(
         pool,
         Arc::new(admission_accounts()),
@@ -232,7 +248,7 @@ pub async fn start_admission_listener(
         signer,
         protocol3,
         recovery,
-    );
+    )?;
     #[cfg(test)]
     crate::record_route_registrations("admission", &app)?;
     admission::start_private_listener(app).await

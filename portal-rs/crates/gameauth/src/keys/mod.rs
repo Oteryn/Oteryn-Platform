@@ -66,6 +66,7 @@ impl Scope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyError {
     Disabled,
+    SecretFile(&'static str, std::io::ErrorKind),
     BadInput,
     Unavailable(Cause),
     Untrusted,
@@ -74,6 +75,9 @@ pub enum KeyError {
 }
 impl fmt::Display for KeyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Self::SecretFile(key, kind) = self {
+            return write!(f, "{key}: credential file refused ({kind})");
+        }
         write!(f, "Signing-key operation refused: {self:?}")
     }
 }

@@ -319,9 +319,11 @@ pub fn configured_signer(
     let custody = lookup(KEY_CUSTODY_FILE).ok_or(keys::KeyError::BadInput)?;
     let wrapping = lookup(KEY_WRAPPING_FILE).ok_or(keys::KeyError::BadInput)?;
     let witness = lookup(WITNESS_DIRECTORY).ok_or(keys::KeyError::BadInput)?;
-    let storage = keys::EncryptedFileStorage::from_key_file(
+    let storage = keys::EncryptedFileStorage::from_named_key_file(
         std::path::PathBuf::from(custody),
         std::path::Path::new(&wrapping),
+        KEY_CUSTODY_FILE,
+        KEY_WRAPPING_FILE,
     )?;
     let ring = Keyring::open(settings.clone(), storage)?;
     let registry = PublicTrustRegistry::new(pool, settings, witness.into())?;
@@ -362,9 +364,11 @@ pub fn configured_recovery_signer(
     {
         return Err(keys::KeyError::BadInput);
     }
-    let storage = keys::EncryptedFileStorage::from_key_file(
+    let storage = keys::EncryptedFileStorage::from_named_key_file(
         std::path::PathBuf::from(custody),
         std::path::Path::new(&wrapping),
+        RECOVERY_KEY_CUSTODY_FILE,
+        RECOVERY_KEY_WRAPPING_FILE,
     )?;
     let ring = Keyring::open_scoped(settings.clone(), keys::Scope::Recovery, storage)?;
     let registry =

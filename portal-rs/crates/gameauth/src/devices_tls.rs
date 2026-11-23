@@ -33,9 +33,10 @@ pub async fn start(
         .collect::<Option<Vec<_>>>()
         .ok_or("incomplete native TLS configuration")?;
     let bind: SocketAddr = values[0].parse()?;
+    let key = PrivateKeyDer::from_pem_reader(oteryn_core::secret_file::open(keys[2], &values[2])?)
+        .map_err(|_| "invalid PEM in OTERYN_NATIVE_TLS_KEY_FILE")?;
     let chain =
         CertificateDer::pem_file_iter(PathBuf::from(&values[1]))?.collect::<Result<Vec<_>, _>>()?;
-    let key = PrivateKeyDer::from_pem_file(PathBuf::from(&values[2]))?;
     let config = server_config(chain, key)?;
     let listener = tokio::net::TcpListener::bind(bind).await?;
     Ok(Some(tokio::spawn(serve(listener, config, app))))

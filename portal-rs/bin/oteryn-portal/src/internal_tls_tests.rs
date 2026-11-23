@@ -149,25 +149,59 @@ async fn listener() -> Result<Fixture, Box<dyn std::error::Error>> {
     listener_with(app()?, None).await
 }
 
+fn write_tls_config(
+    dir: &std::path::Path,
+    ca: &Authority,
+) -> Result<Config, Box<dyn std::error::Error>> {
+    let (cert, key) = ca.issue(&["localhost"], ExtendedKeyUsagePurpose::ServerAuth)?;
+    let write = |name: &str, body: &str| -> std::io::Result<PathBuf> {
+        let path = dir.join(name);
+        std::fs::write(&path, body)?;
+        Ok(path)
+    };
+    use std::{io::Write, os::unix::fs::OpenOptionsExt};
+    let key_file = dir.join("key.pem");
+    std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(&key_file)?
+        .write_all(key.as_bytes())?;
+    let ca_pem = ca.cert.pem();
+    Ok(Config {
+        bind: "127.0.0.1:0".parse()?,
+        cert_file: write("cert.pem", &cert)?,
+        key_file,
+        client_ca_file: write("ca.pem", &ca_pem)?,
+    })
+}
+
+#[test]
+fn tls_credential_configuration() -> TestResult {
+    use std::{fs, os::unix::fs::PermissionsExt};
+    let dir = tempfile::tempdir()?;
+    let mut config = write_tls_config(dir.path(), &Authority::new()?)?;
+    assert!(config.server_config().is_ok());
+    fs::set_permissions(&config.key_file, fs::Permissions::from_mode(0o640))?;
+    config.cert_file = config.key_file.clone();
+    let error = config
+        .server_config()
+        .err()
+        .ok_or("mode was admitted")?
+        .to_string();
+    assert!(error.contains("OTERYN_INTERNAL_TLS_KEY_FILE"));
+    assert!(!error.contains(&config.key_file.display().to_string()));
+    Ok(())
+}
+
 async fn listener_with(
     app: Router,
     agents: Option<Arc<AgentIdentities>>,
 ) -> Result<Fixture, Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let ca = Authority::new()?;
-    let (cert, key) = ca.issue(&["localhost"], ExtendedKeyUsagePurpose::ServerAuth)?;
-    let write = |name: &str, body: &str| -> std::io::Result<PathBuf> {
-        let path = dir.path().join(name);
-        std::fs::write(&path, body)?;
-        Ok(path)
-    };
+    let config = write_tls_config(dir.path(), &ca)?;
     let ca_pem = ca.cert.pem();
-    let config = Config {
-        bind: "127.0.0.1:0".parse()?,
-        cert_file: write("cert.pem", &cert)?,
-        key_file: write("key.pem", &key)?,
-        client_ca_file: write("ca.pem", &ca_pem)?,
-    };
     let tls = config.server_config()?;
     let socket = tokio::net::TcpListener::bind(config.bind).await?;
     let addr = socket.local_addr()?;
