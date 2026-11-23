@@ -255,6 +255,13 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual(compose[0][0], 'down')
         self.assertEqual([item[-1] for item in compose[2:4]], ['migrate', 'install-legal-pages'])
         self.assertEqual(compose[4][5:7], ['seed', 'account'])
+        seeds = [json.loads(item[7]) for item in compose if item[5:7] == ['seed', 'account']]
+        self.assertEqual([seed['email'] for seed in seeds[1:]], list(staging.STAFF))
+        self.assertEqual(len({seed['password'] for seed in seeds}), len(seeds))
+        self.assertEqual(set(staging.STAFF.values()), set(staging.STAFF_ROLES))
+        grant = [entry for entry in command.call_args_list if entry.args[0][10:13] == ['exec', '-T', 'postgres']]
+        self.assertEqual(grant[0].kwargs['data'], staging.GRANT_STAFF)
+        self.assertEqual(staging.GRANT_STAFF.count('INSERT INTO account_roles'), len(staging.STAFF))
         self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress'])
         removals = [item for item in commands if item[:3] == ['docker', 'volume', 'rm']]
         self.assertEqual([item[-1] for item in removals], [

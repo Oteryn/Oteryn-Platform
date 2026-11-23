@@ -67,6 +67,22 @@ PUBLIC_FLAGS = (
     'OTERYN_LEAGUE_ENABLED', 'OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED', 'OTERYN_REPORTS_ENABLED',
     'OTERYN_SECURITY_WIZARD_ENABLED', 'OTERYN_WORLD_ENABLED',
 )
+# One staff account per built-in role (staff-<role>@example.invalid, plus
+# founder@example.invalid as platform_admin). Passwords are random and
+# discarded: each black-box tester takes over its own account through the
+# password-reset mail, so parallel testers never share a credential or MFA.
+STAFF_ROLES = (
+    'platform_admin', 'security_admin', 'content_editor', 'moderator', 'support', 'operations',
+    'game_admin', 'game_analyst', 'game_dba', 'game_master_senior', 'game_operator',
+    'game_release', 'game_security', 'game_support', 'game_viewer',
+)
+FOUNDER = 'founder@example.invalid'
+STAFF = {FOUNDER: 'platform_admin', **{f'staff-{role.replace("_", "-")}@example.invalid': role
+                                      for role in STAFF_ROLES}}
+GRANT_STAFF = ''.join(
+    "INSERT INTO account_roles(account_id, role_id) SELECT a.id, r.id FROM accounts a "
+    f"CROSS JOIN roles r WHERE a.email = '{email}' AND r.key = '{role}' ON CONFLICT DO NOTHING;\n"
+    for email, role in STAFF.items())
 ACCOUNT_FLAGS = (
     'LOGIN', 'MFA', 'PASSKEYS', 'PASSWORD_RESET', 'SESSIONS', 'CREDENTIALS',
     'EMAIL_CHANGE', 'RECOVERY_KEYS', 'OVERVIEW_ENABLED', 'PRIVACY_ENABLED',
@@ -406,6 +422,13 @@ def replace_stack(directory, sha, smtp_password, seed_password):
     compose(directory, *oneoff, 'install-legal-pages')
     compose(directory, *oneoff, 'seed', 'account',
             json.dumps({'email': 'player1@example.invalid', 'password': seed_password}))
+    # Staff accounts for black-box tests through Cloudflare Access (STAFF).
+    for email in STAFF:
+        compose(directory, *oneoff, 'seed', 'account',
+                json.dumps({'email': email, 'password': secrets.token_urlsafe(32)}))
+    compose(directory, 'up', '-d', '--wait', 'postgres')
+    compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
+            '-U', 'portal', '-d', PORTAL_DB, data=GRANT_STAFF)
     compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress')
     wait_ready()
 
