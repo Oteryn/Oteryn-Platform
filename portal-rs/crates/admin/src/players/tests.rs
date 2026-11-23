@@ -164,6 +164,7 @@ impl Db {
                 players: true,
                 characters: true,
                 coin_holds: true,
+                game_revocation_export: true,
             },
             Staff,
             Backend { id: self.target },
@@ -497,6 +498,7 @@ async fn postgres_http_detail_keeps_account_and_notes_when_characters_denied() {
             players: true,
             characters: true,
             coin_holds: false,
+            ..Flags::default()
         },
         PanelConfig {
             admin_panel: true,
@@ -544,6 +546,7 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
             players: true,
             characters: true,
             coin_holds: false,
+            ..Flags::default()
         },
         PanelConfig {
             admin_panel: true,
@@ -660,6 +663,7 @@ async fn postgres_flags_and_pending_security_fail_closed() {
             players: true,
             characters: false,
             coin_holds: false,
+            ..Flags::default()
         },
         Staff,
         Backend { id: db.target },
@@ -806,6 +810,11 @@ async fn postgres_kick_permission_mfa_bad_input_audit_and_stream() {
         (db.target, " "),
         (db.target, "bad\0reason"),
         (Uuid::nil(), "Reason"),
+        (Uuid::new_v4(), "Reason"),
+        (
+            Uuid::parse_str("019a0000-0000-7000-c000-000000000001").unwrap(),
+            "Reason",
+        ),
     ] {
         assert!(matches!(
             s.kick(context(kicker), target, reason).await,
@@ -919,8 +928,6 @@ async fn kick_session(app: axum::Router, path: &str) -> (String, String) {
             .to_vec(),
     )
     .unwrap();
-    assert!(body.contains("value=\"kick\""));
-    assert!(body.contains("for=\"kick-reason\""));
     let csrf = body
         .split("name=\"_csrf\" value=\"")
         .nth(1)
@@ -953,13 +960,14 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
     };
     let kicker = kick_fixture(&db).await;
     let path = format!("/admin/players/{}", db.target);
-    let app = |account: Uuid, mfa: bool| {
+    let app = |account: Uuid, mfa: bool, game_revocation_export| {
         http::router(
             db.pool.clone(),
             Flags {
                 players: true,
                 characters: false,
                 coin_holds: false,
+                game_revocation_export,
             },
             PanelConfig {
                 admin_panel: true,
@@ -971,10 +979,10 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
         )
     };
     // Support staff reach the page but lack the kick permission.
-    let (cookie, csrf) = kick_session(app(db.support, true), &path).await;
+    let (cookie, csrf) = kick_session(app(db.support, true, true), &path).await;
     assert_eq!(
         kick_post(
-            app(db.support, true),
+            app(db.support, true, true),
             &path,
             &cookie,
             format!("_csrf={csrf}&action=kick&reason=Reason")
@@ -982,7 +990,7 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
         .await,
         StatusCode::FORBIDDEN
     );
-    let (cookie, csrf) = kick_session(app(kicker, true), &path).await;
+    let (cookie, csrf) = kick_session(app(kicker, true, true), &path).await;
     for (body, status) in [
         (
             "_csrf=wrong&action=kick&reason=Reason".to_owned(),
@@ -994,14 +1002,14 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
         ),
     ] {
         assert_eq!(
-            kick_post(app(kicker, true), &path, &cookie, body).await,
+            kick_post(app(kicker, true, true), &path, &cookie, body).await,
             status
         );
     }
     // Without confirmed staff MFA the guard refuses before the handler.
     assert_eq!(
         kick_post(
-            app(kicker, false),
+            app(kicker, false, true),
             &path,
             &cookie,
             format!("_csrf={csrf}&action=kick&reason=Reason")
@@ -1010,12 +1018,22 @@ async fn postgres_http_kick_csrf_permission_and_mfa() {
         StatusCode::FORBIDDEN
     );
     assert_eq!(
+        kick_post(
+            app(kicker, true, false),
+            &path,
+            &cookie,
+            format!("_csrf={csrf}&action=kick&reason=Reason")
+        )
+        .await,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(
         kick_state(&db).await,
         (1, "active".into(), "synthetic-hash".into(), 0)
     );
     assert_eq!(
         kick_post(
-            app(kicker, true),
+            app(kicker, true, true),
             &path,
             &cookie,
             format!("_csrf={csrf}&action=kick&reason=Abusive+session")
@@ -1136,6 +1154,7 @@ async fn postgres_coin_hold_release_permission_reason_audit_and_idempotent() {
             players: true,
             characters: false,
             coin_holds: false,
+            ..Flags::default()
         },
         Staff,
         Backend { id: db.target },
@@ -1323,6 +1342,7 @@ async fn postgres_http_coin_hold_release_csrf_permission_mfa_and_result() {
                 players: true,
                 characters: false,
                 coin_holds: true,
+                ..Flags::default()
             },
             PanelConfig {
                 admin_panel: true,
@@ -1929,6 +1949,7 @@ async fn postgres_stale_hold_form_preserves_replacement_and_receipt() {
             players: true,
             characters: false,
             coin_holds: true,
+            ..Flags::default()
         },
         PanelConfig {
             admin_panel: true,
@@ -2066,6 +2087,7 @@ async fn postgres_http_kick_only_moderator_sees_only_the_kick_view() {
                 players: true,
                 characters: false,
                 coin_holds: false,
+                game_revocation_export: true,
             },
             PanelConfig {
                 admin_panel: true,

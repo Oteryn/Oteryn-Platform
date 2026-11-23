@@ -9,7 +9,10 @@ use axum::{
     routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_identity::sessions::{Actor, Outcome, Revocation, Sessions};
+use oteryn_identity::{
+    security_revocations::RecentRevocation,
+    sessions::{Actor, Outcome, Revocation, Sessions},
+};
 use oteryn_web::{
     Language,
     ratelimit::{Denial, Keys, NamedPolicy, RateLimiter},
@@ -100,7 +103,16 @@ async fn actor(session: &BrowserSession, headers: &HeaderMap) -> Result<Actor, S
     source = r##"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ self.text("sessions-title") }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><a class="op-skip" href="#main">{{ self.text("skip") }}</a><header class="op-card"><a href="/{{ lang }}/">Oteryn</a></header><main class="op-card op-stack" id="main" tabindex="-1"><h1>{{ self.text("sessions-title") }}</h1><p>{{ self.text("sessions-note") }}</p>{% if let Some(message) = message %}<p role="status">{{ self.text(message) }}</p>{% endif %}
 <ul class="op-stack">{% for entry in entries %}<li class="op-card op-stack"><h2>{{ entry.device }}</h2>{% if entry.current %}<p>{{ self.text("sessions-current") }}</p>{% endif %}<dl><dt>{{ self.text("sessions-ip") }}</dt><dd>{{ entry.ip }}</dd><dt>{{ self.text("sessions-seen") }}</dt><dd>{{ entry.time }}</dd></dl><form method="post" action="/{{ lang }}/account/sessions/{{ entry.id }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit">{{ self.text("sessions-revoke") }}</button></form></li>{% else %}<li>{{ self.text("sessions-empty") }}</li>{% endfor %}</ul>
 <form method="post" action="/{{ lang }}/account/sessions/others"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit">{{ self.text("sessions-others") }}</button></form><form method="post" action="/{{ lang }}/account/sessions/all"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit">{{ self.text("sessions-all") }}</button></form>
-<h2>{{ self.text("sessions-history") }}</h2><ul class="op-stack">{% for event in history %}<li class="op-card"><h3>{{ self.text(event.kind) }}</h3><p>{{ event.device }}</p><dl><dt>{{ self.text("sessions-ip") }}</dt><dd>{{ event.ip }}</dd><dt>{{ self.text("sessions-seen") }}</dt><dd>{{ event.time }}</dd></dl></li>{% else %}<li>{{ self.text("sessions-empty") }}</li>{% endfor %}</ul>{% if self.mfa_enabled() %}<p><a href="/{{ lang }}/mfa#remembered-devices">{{ self.text("shell-account-remembered-devices") }}</a></p>{% endif %}
+<h2>{{ self.text("sessions-history") }}</h2><ul class="op-stack">{% for event in history %}<li class="op-card"><h3>{{ self.text(event.kind) }}</h3><p>{{ event.device }}</p><dl><dt>{{ self.text("sessions-ip") }}</dt><dd>{{ event.ip }}</dd><dt>{{ self.text("sessions-seen") }}</dt><dd>{{ event.time }}</dd></dl></li>{% else %}<li>{{ self.text("sessions-empty") }}</li>{% endfor %}</ul>
+<section id="game-revocations" class="op-stack" aria-labelledby="game-revocations-title">
+<h2 id="game-revocations-title">{{ self.text("revocation-title") }}</h2>
+<h3>{{ self.text("revocation-game-status") }}</h3><p>{{ self.text("revocation-unavailable") }}</p>
+<h3>{{ self.text("revocation-history") }}</h3>
+{% if let Some(records) = game_revocations %}
+<ul class="op-stack">{% for record in records %}<li>{{ self.text(record.cause_label()) }} · {{ record.published_at }} UTC</li>{% else %}<li>{{ self.text("revocation-empty") }}</li>{% endfor %}</ul>
+{% else %}<p>{{ self.text("revocation-unavailable") }}</p>{% endif %}
+</section>
+{% if self.mfa_enabled() %}<p><a href="/{{ lang }}/mfa#remembered-devices">{{ self.text("shell-account-remembered-devices") }}</a></p>{% endif %}
 {% if self.overview_enabled() %}<p><a href="/account">{{ self.text("shell-account-overview-back") }}</a></p>{% endif %}
 </main></body></html>"##,
     ext = "html"
@@ -112,6 +124,7 @@ struct Page {
     message: Option<&'static str>,
     entries: Vec<Entry>,
     history: Vec<Event>,
+    game_revocations: Option<Vec<RecentRevocation>>,
 }
 struct Entry {
     id: uuid::Uuid,
@@ -136,7 +149,7 @@ impl Page {
     }
 
     fn text(&self, key: &str) -> String {
-        if !key.starts_with("sessions-") {
+        if !key.starts_with("sessions-") && !key.starts_with("revocation-") {
             return self.language.text(key);
         }
         let source = if self.language == Language::En {
@@ -172,7 +185,8 @@ async fn show(
         return Ok(redirect(&format!("/{}/login", language.code())));
     }
     let actor = actor(&session, &headers).await?;
-    let (entries, history) = Sessions { pool }
+    let sessions = Sessions { pool };
+    let (entries, history) = sessions
         .list(&actor)
         .await
         .map_err(|_| StatusCode::FORBIDDEN)?;
@@ -197,6 +211,7 @@ async fn show(
         message,
         entries: Vec::new(),
         history: Vec::new(),
+        game_revocations: sessions.game_revocations(&actor).await.ok(),
     };
     let unknown = page.text("sessions-unknown");
     let device = |value: String| {
