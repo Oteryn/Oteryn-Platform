@@ -1,6 +1,6 @@
 # Private item projections (T76)
 
-Authority: `OTERYN_V2_GAME_JOURNAL_ITEMS_CONTRACT_PROPOSAL.md`, revision 2.
+Authority: `OTERYN_V2_GAME_JOURNAL_ITEMS_CONTRACT_PROPOSAL.md`, revision 3.
 G-9 and G-11 remain separate families and are never interpreted as item custody.
 The Laravel application has no equivalent private item-journal route. The Game
 reference was inspected read-only at `857f15f376907c592bb28d854fccff18a15cdf87`;
@@ -23,10 +23,6 @@ admission. `Evidence` is the deliberately narrow seam for their public APIs:
   `cleanup` using the latest plausible trusted UTC. Erasure fences and removes
   payloads atomically; normal retention keeps minimal replay metadata for 31 days
   after payload expiry, then advances a durable floor before removing it.
-
-The configured adapter is `UnavailableEvidence`: even explicitly enabled reads
-return unavailable until a trusted adapter exists. No ownership counters,
-accepted baselines, clock evidence or catalogue facts are guessed.
 
 G-10 records reach the platform only through T72's journal listener
 (`crate::journal`, `journal/{records,cursor}` on the internal mTLS listener);
@@ -57,8 +53,8 @@ or held credit. Search filters the displayed rows, not the asset estimate.
   the first stored entry must prove the native ledger origin.
 - A source gap durably fences its stream without advancing its cursor. Recovery
   needs T72's verified replacement generation; no administrative cursor skipping.
-- More than 1,000 retained history records is unavailable until a separate bounded
-  pagination/coverage contract is implemented; it is never silently truncated.
+- Browser history reads use bounded pages and revalidate the cursor in the
+  current owner, world, family and retained coverage interval.
 - The optional Bazaar link is navigation only, requires a tradeable catalogue
   definition plus its independent default-off flag, and conveys no current custody,
   reservation or listing authority. Bazaar history remains owned by Bazaar;
@@ -76,3 +72,6 @@ HTTP, exact retries and concurrent publication, source gaps, retention, unpriced
 assets and erasure that preserves account bank history across character transfer.
 PostgreSQL tests use isolated schemas and `PORTAL_TEST_DATABASE_URL`; when absent,
 each prints an explicit skip notice. No sqlx query macros are added.
+
+See the [G-10 qualification record](../../../../../docs/product/G10_JOURNAL_QUALIFICATION.md)
+for operator status and remaining producer and activation gates.

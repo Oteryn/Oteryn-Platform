@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-panel">
+  <h1>{{ title }}</h1>
+  <p><a href="/{{ locale.0 }}/account/journal/items">{{ locale.text("items-journal") }}</a></p>
+  {% if history_enabled %}
+  <ul>
+    <li><a href="/{{ locale.0 }}/panel/history/{{ world }}/bank">{{ locale.text("items-bank") }}</a></li>
+    <li><a href="/{{ locale.0 }}/panel/history/{{ world }}/market/{{ character }}">{{ locale.text("items-market") }}</a></li>
+    <li><a href="/{{ locale.0 }}/panel/history/{{ world }}/trades/{{ character }}">{{ locale.text("items-trade") }}</a></li>
+  </ul>
+  {% endif %}
+  <p>{{ locale.text("items-warning") }}</p>
+  <p>{{ locale.text("items-house") }}</p>
+  <dl>
+    <dt>{{ locale.text("items-at") }}</dt><dd><time datetime="{{ at }}">{{ at }}</time></dd>
+    <dt>{{ locale.text("items-estimate") }}</dt><dd>{{ total }}</dd>
+    <dt>{{ locale.text("items-unpriced") }}</dt><dd>{{ unpriced }}</dd>
+    {% if !depots.is_empty() %}
+    <dt>{{ locale.text("items-depots") }}</dt><dd>{% for town in depots %}{% if !loop.first %}, {% endif %}{{ town }}{% endfor %}</dd>
+    {% endif %}
+  </dl>
+  <form method="get" class="op-stack" id="items-search">
+    <label for="q">{{ locale.text("items-search") }}</label>
+    <input class="op-input" id="q" name="q" maxlength="128" value="{{ query }}">
+    <label for="location">{{ locale.text("items-location") }}</label>
+    <select class="op-input" id="location" name="location">
+      {% for option in locations %}
+      <option value="{{ option.value }}"{% if option.selected %} selected{% endif %}>{{ locale.text(option.label) }}</option>
+      {% endfor %}
+    </select>
+    <button class="op-button" type="submit">{{ locale.text("items-submit") }}</button>
+  </form>
+  {% if empty %}<p>{{ locale.text("items-empty") }}</p>{% endif %}
+  {% if no_results %}<p>{{ locale.text("items-no-results") }}</p>{% endif %}
+  <ul class="op-stack">
+    {% for item in items %}
+    <li>
+      <article class="op-panel op-stack">
+        <h2>{{ item.definition }}</h2>
+        <dl>
+          <dt>{{ locale.text("items-quantity") }}</dt><dd>{{ item.quantity }}</dd>
+          <dt>{{ locale.text("items-location") }}</dt><dd>{{ item.location }}</dd>
+          <dt>{{ locale.text("items-estimate") }}</dt><dd>{{ item.estimate }}</dd>
+          <dt>{{ locale.text("items-source") }}</dt><dd>{{ item.source }}</dd>
+        </dl>
+        {% if item.bazaar %}<a href="/{{ locale.0 }}/bazaar">{{ locale.text("items-bazaar") }}</a>{% endif %}
+      </article>
+    </li>
+    {% endfor %}
+  </ul>
+  {% if let Some(page) = previous %}
+  <button class="op-button" type="submit" form="items-search" name="page" value="{{ page }}">{{ locale.text("items-previous") }}</button>
+  {% endif %}
+  {% if let Some(page) = next %}
+  <button class="op-button" type="submit" form="items-search" name="page" value="{{ page }}">{{ locale.text("items-next") }}</button>
+  {% endif %}
+</main>
+</body>
+</html>

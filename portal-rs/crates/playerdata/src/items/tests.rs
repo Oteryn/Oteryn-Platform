@@ -746,6 +746,89 @@ async fn pg_bank_chain_account_scope_and_default_off() {
 }
 
 #[tokio::test]
+async fn pg_location_filters_keep_snapshot_estimate() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let (p, _) = db.projection();
+    let equipment = item(11);
+    let mut depot = item(12);
+    depot.root = Root::Depot;
+    depot.equipment_slot = None;
+    depot.town_id = Some(10);
+    depot.depot_box = Some(2);
+    let mut inbox = item(13);
+    inbox.root = Root::Inbox;
+    inbox.equipment_slot = None;
+    for record in snapshot(vec![equipment, depot, inbox]) {
+        ingest(&p, &record).await.unwrap();
+    }
+    let all = p
+        .inventory(actor(), world(), character(), "BACKPACK")
+        .await
+        .unwrap();
+    assert_eq!(all.items.len(), 3);
+    assert_eq!(all.estimated_total, Some(30));
+    let depot = p
+        .inventory_at(actor(), world(), character(), "backpack", Location::Depot)
+        .await
+        .unwrap();
+    assert_eq!(depot.items.len(), 1);
+    assert_eq!(depot.items[0].item.town_id, Some(10));
+    assert_eq!(depot.items[0].item.depot_box, Some(2));
+    assert_eq!(depot.estimated_total, all.estimated_total);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn pg_bank_history_pages_follow_committed_entries() {
+    let Some(db) = TestDb::new().await else {
+        return;
+    };
+    let second = Uuid::parse_str(&ident(300)).unwrap();
+    let mut evidence = TestEvidence::new();
+    evidence.second_bank_account = Some(second);
+    let (p, _) = db.projection_with(evidence);
+    let mut previous = None;
+    for n in 1..=51 {
+        let mut r = bank();
+        r.record_id = ident(100 + n);
+        r.source_revision = n.to_string();
+        let Payload::Bank(entry) = &mut r.payload else {
+            panic!("expected bank entry");
+        };
+        entry.operation_occurrence_id = ident(300 + n);
+        entry.event_id = ident(400 + n);
+        entry.entry_id = ident(500 + n);
+        entry.previous_entry_id = previous.replace(entry.entry_id.clone());
+        entry.amount = "1".into();
+        entry.balance_before = (n - 1).to_string();
+        entry.balance_after = n.to_string();
+        ingest(&p, &r).await.unwrap();
+    }
+    let page = p
+        .history_page(actor(), world(), None, "BANK", None)
+        .await
+        .unwrap();
+    assert_eq!(page.records.len(), 50);
+    let cursor = page.next_cursor.as_deref().unwrap();
+    assert_eq!(cursor, ident(150));
+    let next = p
+        .history_page(actor(), world(), None, "BANK", Some(cursor))
+        .await
+        .unwrap();
+    assert_eq!(next.records.len(), 1);
+    assert!(next.next_cursor.is_none());
+    assert!(matches!(&next.records[0].payload, Payload::Bank(b) if b.balance_after == "51"));
+    assert!(matches!(
+        p.history_page(second, world(), None, "BANK", Some(cursor))
+            .await,
+        Err(Error::Invalid)
+    ));
+    db.close().await;
+}
+
+#[tokio::test]
 async fn pg_browser_owner_foreign_and_unknown_evidence() {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     use axum::{
@@ -881,6 +964,29 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         .unwrap()
     };
     let before = snapshot().await;
+    for (suffix, expected) in [
+        ("?location=equipment&q=BACKPACK", StatusCode::OK),
+        ("?location=inbox&q=backpack", StatusCode::OK),
+        ("?location=house", StatusCode::SERVICE_UNAVAILABLE),
+        ("?location=bank", StatusCode::BAD_REQUEST),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("{uri}{suffix}"))
+                    .header("cookie", &owner)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected, "{suffix}");
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let html = std::str::from_utf8(&body).unwrap();
+        if suffix.starts_with("?location=inbox") {
+            assert!(html.contains("No matching items"));
+        }
+    }
     for lang in ["en", "pl"] {
         for (path, private) in [
             (
@@ -920,6 +1026,17 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
             }
         }
         let path = format!("/{lang}/panel/history/{}/bank", world());
+        let response = app
+            .clone()
+            .oneshot(
+                Request::get(format!("{path}?cursor=invalid"))
+                    .header("cookie", &owner)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         for (cookie, own, other) in [(&owner, "73199", "84627"), (&foreign, "84627", "73199")] {
             let response = app
                 .clone()
@@ -962,7 +1079,24 @@ async fn pg_erasure_fences_character_and_preserves_account_bank() {
     let mut bank = bank();
     bank.record_id = ident(150);
     ingest(&p, &bank).await.unwrap();
+    for record in market_and_trade() {
+        ingest(&p, &record).await.unwrap();
+    }
+    for family in ["MARKET", "PLAYER_TRADE"] {
+        let history = p
+            .history_page(actor(), world(), Some(character()), family, None)
+            .await
+            .unwrap();
+        assert_eq!(history.records.len(), 1);
+    }
     p.erase(actor(), Some(character())).await.unwrap();
+    for family in ["MARKET", "PLAYER_TRADE"] {
+        assert!(matches!(
+            p.history_page(actor(), world(), Some(character()), family, None)
+                .await,
+            Err(Error::Unavailable)
+        ));
+    }
     assert!(matches!(
         p.inventory(actor(), world(), character(), "").await,
         Err(Error::Unavailable)

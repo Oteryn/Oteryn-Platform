@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -141,6 +141,7 @@ pub struct Snapshot {
 #[derive(Debug)]
 pub struct ValuedItem {
     pub item: Item,
+    pub container: Option<String>,
     pub estimate: Option<u64>,
     pub price_source: Option<String>,
     pub bazaar_shortcut: bool,
@@ -154,12 +155,38 @@ pub struct Inventory {
     /// Absent unless every row has a checked, source-labelled price.
     pub estimated_total: Option<u64>,
     pub unpriced: usize,
+    pub snapshot_empty: bool,
 }
 #[derive(Debug)]
 pub struct History {
     pub coverage_start: u64,
     pub through: u64,
     pub records: Vec<Record>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Location {
+    #[default]
+    All,
+    Equipment,
+    Depot,
+    Inbox,
+    House,
+}
+
+impl Location {
+    fn matches(&self, root: &Root) -> bool {
+        matches!(
+            (self, root),
+            (Self::All, _)
+                | (Self::Equipment, Root::Equipment)
+                | (Self::Depot, Root::Depot)
+                | (Self::Inbox, Root::Inbox)
+                | (Self::House, Root::House)
+        )
+    }
 }
 
 fn uuid(s: &str) -> Result<Uuid> {
@@ -373,6 +400,18 @@ impl Projection {
         character: Uuid,
         query: &str,
     ) -> Result<Inventory> {
+        self.inventory_at(actor, world, character, query, Location::All)
+            .await
+    }
+
+    pub async fn inventory_at(
+        &self,
+        actor: Uuid,
+        world: Uuid,
+        character: Uuid,
+        query: &str,
+        location: Location,
+    ) -> Result<Inventory> {
         if !self.flags.items {
             return Err(Error::Unavailable);
         }
@@ -389,6 +428,9 @@ impl Projection {
             .evidence
             .authorize(&mut tx, &scope, Access::Read(actor))
             .await?;
+        if location == Location::House {
+            return Err(Error::Unavailable);
+        }
         let sk = scope.stream_key()?;
         let raw: Option<Vec<u8>> = sqlx::query_scalar(
             "SELECT snapshot FROM pd_t76_streams WHERE stream_key=$1 AND NOT fenced AND staging_start IS NULL",
@@ -407,8 +449,20 @@ impl Projection {
         let mut items = Vec::new();
         let mut total = Some(0u64);
         let mut unpriced = 0;
-        for i in snapshot.items {
-            let d = self.evidence.definition(&mut tx, &i).await?;
+        let snapshot_empty = snapshot.items.is_empty();
+        let query = query.trim().to_lowercase();
+        let containers: HashMap<_, _> = snapshot
+            .items
+            .iter()
+            .map(|item| {
+                (
+                    item.item_instance_id.as_str(),
+                    item.definition_production_key.as_str(),
+                )
+            })
+            .collect();
+        for i in &snapshot.items {
+            let d = self.evidence.definition(&mut tx, i).await?;
             let estimate = d
                 .estimated_gold
                 .filter(|_| d.price_source.as_ref().is_some_and(|s| !s.is_empty()))
@@ -418,14 +472,18 @@ impl Projection {
                 unpriced += 1;
             }
             total = total.zip(estimate).and_then(|(a, b)| a.checked_add(b));
-            if i.definition_production_key
-                .to_lowercase()
-                .contains(&query.to_lowercase())
+            if location.matches(&i.root)
+                && i.definition_production_key.to_lowercase().contains(&query)
             {
                 items.push(ValuedItem {
-                    item: i,
+                    item: i.clone(),
+                    container: i
+                        .parent_item_instance_id
+                        .as_deref()
+                        .and_then(|id| containers.get(id))
+                        .map(|name| (*name).to_owned()),
                     estimate,
-                    price_source: d.price_source,
+                    price_source: d.price_source.filter(|_| estimate.is_some()),
                     bazaar_shortcut: self.flags.bazaar_shortcut && d.tradeable,
                 });
             }
@@ -438,6 +496,7 @@ impl Projection {
             items,
             estimated_total: total,
             unpriced,
+            snapshot_empty,
         })
     }
 
@@ -448,6 +507,36 @@ impl Projection {
         character: Option<Uuid>,
         family: &str,
     ) -> Result<History> {
+        let page = self
+            .history_batch(actor, world, character, family, None, 1000)
+            .await?;
+        if page.next_cursor.is_some() {
+            return Err(Error::Unavailable);
+        }
+        Ok(page)
+    }
+
+    pub async fn history_page(
+        &self,
+        actor: Uuid,
+        world: Uuid,
+        character: Option<Uuid>,
+        family: &str,
+        cursor: Option<&str>,
+    ) -> Result<History> {
+        self.history_batch(actor, world, character, family, cursor, 50)
+            .await
+    }
+
+    async fn history_batch(
+        &self,
+        actor: Uuid,
+        world: Uuid,
+        character: Option<Uuid>,
+        family: &str,
+        cursor: Option<&str>,
+        limit: u32,
+    ) -> Result<History> {
         if !self.flags.history {
             return Err(Error::Unavailable);
         }
@@ -456,6 +545,7 @@ impl Projection {
         {
             return Err(Error::Invalid);
         }
+        let cursor = cursor.map(uuid).transpose()?;
         let mut tx = self.pool.begin().await?;
         let scope = self
             .evidence
@@ -466,38 +556,75 @@ impl Projection {
             .evidence
             .authorize(&mut tx, &scope, Access::Read(actor))
             .await?;
+        let stream = scope.stream_key()?;
         let fenced: Option<bool> =
-            sqlx::query_scalar("SELECT fenced FROM pd_t76_streams WHERE stream_key=$1")
-                .bind(scope.stream_key()?)
+            sqlx::query_scalar("SELECT fenced FROM pd_t76_streams WHERE stream_key=$1 FOR SHARE")
+                .bind(&stream)
                 .fetch_optional(&mut *tx)
                 .await?;
         if fenced == Some(true) {
             return Err(Error::Unavailable);
         }
-        if proof.coverage_through < proof.coverage_start
-            || proof.coverage_through <= proof.now.saturating_sub(RETENTION)
-        {
+        let retention = proof.now.saturating_sub(RETENTION);
+        let through = proof.coverage_through.min(proof.now);
+        if through < proof.coverage_start || through <= retention {
             return Err(Error::Unavailable);
         }
-        // Returning a partial page as complete history would be misleading. Refuse
-        // oversized results until a coverage-preserving pagination contract exists.
-        let rows:Vec<Vec<u8>>=sqlx::query_scalar("SELECT canonical_bytes FROM pd_t76_records WHERE stream_key=$1 AND occurred_at>$2 AND occurred_at<=$3 AND canonical_bytes IS NOT NULL ORDER BY source_revision LIMIT 1001")
-            .bind(scope.stream_key()?).bind(integer(proof.now.saturating_sub(RETENTION))?).bind(integer(proof.coverage_through.min(proof.now))?).fetch_all(&mut *tx).await?;
-        if rows.len() > 1000 {
-            return Err(Error::Unavailable);
-        }
+        let retention = integer(retention)?;
+        let start = integer(proof.coverage_start)?;
+        let end = integer(through)?;
+        let after = if let Some(cursor) = cursor {
+            sqlx::query_scalar::<_, String>(
+                "SELECT source_revision::text FROM pd_t76_records
+                 WHERE stream_key=$1 AND record_id=$2 AND
+                       occurred_at>$3 AND occurred_at BETWEEN $4 AND $5
+                       AND canonical_bytes IS NOT NULL",
+            )
+            .bind(&stream)
+            .bind(cursor)
+            .bind(retention)
+            .bind(start)
+            .bind(end)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or(Error::Invalid)?
+        } else {
+            String::from("0")
+        };
+        let rows: Vec<Vec<u8>> = sqlx::query_scalar(
+            "SELECT canonical_bytes FROM pd_t76_records
+             WHERE stream_key=$1 AND occurred_at>$2 AND occurred_at BETWEEN $3 AND $4
+                   AND source_revision>$5::text::numeric AND canonical_bytes IS NOT NULL
+             ORDER BY source_revision LIMIT $6",
+        )
+        .bind(&stream)
+        .bind(retention)
+        .bind(start)
+        .bind(end)
+        .bind(after)
+        .bind(i64::from(limit) + 1)
+        .fetch_all(&mut *tx)
+        .await?;
+        let limit = limit as usize;
         let records = rows
             .iter()
+            .take(limit)
             .map(|b| Record::parse(b))
             .collect::<Result<Vec<_>>>()?;
+        let next_cursor = if rows.len() > limit {
+            records.last().map(|r| r.record_id.clone())
+        } else {
+            None
+        };
         // Empty history requires separately verified baseline in Evidence.
         tx.commit().await?;
         Ok(History {
             coverage_start: proof
                 .coverage_start
                 .max(proof.now.saturating_sub(RETENTION)),
-            through: proof.coverage_through.min(proof.now),
+            through,
             records,
+            next_cursor,
         })
     }
 
