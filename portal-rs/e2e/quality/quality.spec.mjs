@@ -296,6 +296,9 @@ for (const actor of actors) {
               expect.soft(reason, label).toBe('');
             }
             fs.writeFileSync(report, JSON.stringify({ actor, locale, evidence }), { mode: 0o600 });
+            if (evidence.length % 25 === 0) {
+              console.info(`[quality] ${info.project.name} ${actor} processed ${evidence.length} route samples and audited ${covered.size} documents`);
+            }
           }
         }
       } while (addedSamples);
