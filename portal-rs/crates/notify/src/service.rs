@@ -23,6 +23,7 @@ pub enum Category {
     Security,
     News,
     Support,
+    Forum,
 }
 impl Category {
     pub fn as_str(self) -> &'static str {
@@ -30,6 +31,7 @@ impl Category {
             Self::Security => "security",
             Self::News => "news",
             Self::Support => "support",
+            Self::Forum => "forum",
         }
     }
     fn parse(s: &str) -> Result<Self> {
@@ -37,6 +39,7 @@ impl Category {
             "security" => Ok(Self::Security),
             "news" => Ok(Self::News),
             "support" => Ok(Self::Support),
+            "forum" => Ok(Self::Forum),
             _ => Err(invalid()),
         }
     }
@@ -394,15 +397,19 @@ impl Notifications {
         if delivered.is_some() {
             return Ok(());
         }
+        let category_kind = Category::parse(&category)?;
+        if category_kind == Category::Forum && !crate::forum::deliverable(&self.pool, id).await? {
+            return Ok(());
+        }
         let state = self
             .accounts
-            .recipient(account, Category::parse(&category)?)
+            .recipient(account, category_kind)
             .await?
             .ok_or_else(invalid)?;
         if state.email != recipient {
             return Err(invalid());
         }
-        if Category::parse(&category)? != Category::Security {
+        if category_kind != Category::Security {
             let enabled: Option<bool> = outbox::query_scalar("SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category).fetch_optional(&self.pool).await?;
             if enabled != Some(true) {
                 return Ok(());

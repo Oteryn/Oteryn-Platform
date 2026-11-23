@@ -1,0 +1,25 @@
+{% if !staff || self.permitted("forum.profile.edit") %}
+<section class="op-panel op-stack">
+  <h2>{{ self.tr("profile") }}</h2>
+  <p id="forum-name-help">{{ self.tr("profile-help") }}</p>
+  <form class="op-stack" method="post" action="{{ base }}/actions/name{{ self.query() }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label class="op-field">{{ self.tr("public-name") }}
+      <input class="op-input" name="handle" minlength="3" maxlength="24" pattern="[A-Za-z][A-Za-z0-9_\-]{2,23}" aria-describedby="forum-name-help" required value="{% if let Some(name) = handle %}{{ name }}{% endif %}">
+    </label>
+    <button class="op-button" type="submit">{{ self.tr("save-name") }}</button>
+  </form>
+</section>
+{% endif %}
+{% if !staff || self.permitted("forum.subscription.edit") %}
+<section class="op-panel op-stack">
+  <h2>{{ self.tr("email") }}</h2>
+  <p>{{ self.tr("subscribe-help") }}</p>
+  <p>{% if email %}{{ self.tr("email-on-state") }}{% else %}{{ self.tr("email-off-state") }}{% endif %}</p>
+  <form class="op-stack" method="post" action="{{ base }}/actions/email{{ self.query() }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="enabled" value="{% if email %}false{% else %}true{% endif %}">
+    <button class="op-button" type="submit">{% if email %}{{ self.tr("email-off") }}{% else %}{{ self.tr("email-on") }}{% endif %}</button>
+  </form>
+</section>
+{% endif %}

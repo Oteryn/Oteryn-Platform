@@ -1,0 +1,30 @@
+{% if boards.is_empty() %}<p>{{ self.tr("no-boards") }}</p>{% endif %}
+{% if !boards.is_empty() %}
+<ul class="forum-list op-stack">
+{% for board_entry in boards %}
+  <li class="op-panel op-row forum-between">
+    <a href="{{ base }}/boards/{{ board_entry.id }}{{ self.query() }}">{{ board_entry.name(lang) }}</a>
+    {% if staff || board_entry.visibility != "public" %}<span class="op-badge">{{ self.tr(&board_entry.visibility) }}</span>{% endif %}
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if staff && self.permitted("forum.board.create") %}
+<section class="op-panel op-stack">
+  <h2>{{ self.tr("create-board") }}</h2>
+  <form class="op-stack" method="post" action="{{ base }}/actions/create-board{{ self.query() }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <label class="op-field">{{ self.tr("name-pl") }}<input class="op-input" name="name_pl" maxlength="100" required></label>
+    <label class="op-field">{{ self.tr("name-en") }}<input class="op-input" name="name_en" maxlength="100" required></label>
+    <label class="op-field">{{ self.tr("order") }}<input class="op-input" type="number" name="position" min="0" max="10000" value="0" required></label>
+    <label class="op-field">{{ self.tr("visibility") }}
+      <select class="op-input" name="visibility">
+        <option value="public">{{ self.tr("public") }}</option>
+        <option value="signed-in">{{ self.tr("signed-in") }}</option>
+        <option value="staff">{{ self.tr("staff") }}</option>
+      </select>
+    </label>
+    <button class="op-button" type="submit">{{ self.tr("create-board") }}</button>
+  </form>
+</section>
+{% endif %}

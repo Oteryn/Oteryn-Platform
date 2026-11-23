@@ -145,6 +145,7 @@ rankings-vocation-none = Bez profesji
 
 shell-play = Graj
 shell-community = Społeczność
+shell-forum = Forum społeczności
 shell-world = Świat
 shell-account = Konto
 shell-login = Zaloguj

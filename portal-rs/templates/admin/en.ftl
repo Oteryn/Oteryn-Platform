@@ -5,3 +5,4 @@ role = Role
 grant = Assign role
 revoke = Revoke role
 mfa = Multi-factor authentication required
+forum = Community forum

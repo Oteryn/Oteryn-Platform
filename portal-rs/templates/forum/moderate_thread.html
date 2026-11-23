@@ -1,0 +1,36 @@
+<section class="op-panel op-stack">
+<h2>{{ self.tr("moderation") }}</h2>
+{% for (command, permission, label) in [
+  ("lock", "forum.thread.lock", "lock"),
+  ("pin", "forum.thread.pin", "pin"),
+  ("move", "forum.thread.move", "move"),
+  ("thread-edit", "forum.thread.edit", "thread-edit"),
+  ("thread-delete", "forum.thread.delete", "thread-delete"),
+  ("thread-restore", "forum.thread.restore", "thread-restore")
+] %}
+  {% if self.permitted(permission) && (*command != "thread-delete" || t.deleted_at.is_none()) && (*command != "thread-restore" || t.deleted_at.is_some()) %}
+  <details>
+    <summary>{{ self.thread_command(label, t) }}</summary>
+    <form class="op-stack" method="post" action="{{ base }}/actions/{{ command }}{{ self.query() }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ t.id }}">
+      <input type="hidden" name="version" value="{{ t.version }}">
+      {% if *command == "move" %}
+      <label class="op-field">{{ self.tr("destination") }}
+        <select class="op-input" name="destination" required>
+          <option value=""></option>
+          {% for destination in boards %}{% if destination.id != t.board_id %}
+          <option value="{{ destination.id }}">{{ destination.name(lang) }}</option>
+          {% endif %}{% endfor %}
+        </select>
+      </label>
+      {% else if *command == "thread-edit" %}
+      <label class="op-field">{{ self.tr("thread-title") }}<input class="op-input" name="title" maxlength="160" value="{{ t.title }}" required></label>
+      {% endif %}
+      <label class="op-field">{{ self.tr("reason") }}<input class="op-input" name="reason" maxlength="400" required></label>
+      <button class="op-button" type="submit">{{ self.thread_command(label, t) }}</button>
+    </form>
+  </details>
+  {% endif %}
+{% endfor %}
+</section>

@@ -52,8 +52,7 @@ pub fn configured_router_from<B: Backend>(
         // Fence disabled surfaces before staff authorization and form extraction.
         let flag = match area {
             Area::Tickets => Some("OTERYN_SUPPORT_TICKETS"),
-            Area::Reports => Some("OTERYN_REPORTS_ENABLED"),
-            Area::Enforcement => None,
+            Area::Reports | Area::Enforcement => None,
         };
         if flag.is_some_and(|flag| lookup(flag).as_deref() != Some("true")) {
             continue;
@@ -219,7 +218,14 @@ async fn list<A: AccountStateReader, B: Backend>(
     } else {
         false
     };
-    let mut body = String::from("<ul>");
+    let mut body = String::new();
+    if area == Area::Reports {
+        body.push_str(&format!(
+            "<p><a href=\"/admin/forum?lang={lang}\">{}</a></p>",
+            text(lang, "forum")
+        ));
+    }
+    body.push_str("<ul>");
     if area == Area::Enforcement {
         body.push_str(&format!(
             "<li><a href=\"/admin/moderation/enforcement/create\">{}</a></li>",
@@ -276,6 +282,7 @@ async fn create_page(
         status: "active".into(),
         messages: vec![],
         next_message: None,
+        forum_post: None,
     };
     render_record(Area::Enforcement, record, session, headers, true).await
 }
@@ -296,6 +303,14 @@ async fn render_record(
         escape(&record.title),
         escape(&text(lang, &record.status))
     );
+    if area == Area::Reports
+        && let Some(post) = record.forum_post
+    {
+        body.push_str(&format!(
+            "<p><a href=\"/admin/forum/posts/{post}?lang={lang}\">{}</a></p>",
+            text(lang, "forum-post")
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",

@@ -466,6 +466,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    forum_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -539,6 +540,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        forum_label: s
+            .auth
+            .check(context, Permission::ForumModerator)
+            .await
+            .ok()
+            .map(|()| text(lang, "forum")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

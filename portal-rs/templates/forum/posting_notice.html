@@ -1,0 +1,7 @@
+{% if !signed_in %}
+<p><a href="/{{ lang }}/login">{{ self.tr("sign-in-to-post") }}</a></p>
+{% else if post_notice == "handle-required" %}
+<p><a href="{{ base }}/preferences{{ self.query() }}">{{ self.tr(post_notice) }}</a></p>
+{% else if !post_notice.is_empty() %}
+<p class="op-hint">{{ self.tr(post_notice) }}</p>
+{% endif %}
