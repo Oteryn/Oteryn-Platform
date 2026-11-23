@@ -4,13 +4,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-struct Database {
-    pool: PgPool,
+pub(super) struct Database {
+    pub(super) pool: PgPool,
     admin: PgPool,
     schema: String,
 }
 impl Database {
-    async fn new() -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub(super) async fn new() -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -46,7 +46,7 @@ impl Database {
             schema,
         }))
     }
-    async fn close(self) -> TestResult {
+    pub(super) async fn close(self) -> TestResult {
         self.pool.close().await;
         query(outbox::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",

@@ -860,10 +860,16 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     };
     // The historical down migration predates later permissions; remove their
     // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate')")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "DELETE FROM role_permissions WHERE permission IN (
+            'account.security.kick', 'payments.coin_hold.release', 'store.catalog.import',
+            'store.catalog.activate', 'store.codes.generate', 'admin.errors.view',
+            'admin.errors.resolve', 'admin.errors.ignore'
+        )",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261107140001_admin_analytics.down.sql"
     ))

@@ -8,13 +8,13 @@ use axum::{
 use tower::ServiceExt;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-struct Database {
-    pool: PgPool,
+pub(crate) struct Database {
+    pub(crate) pool: PgPool,
     admin: PgPool,
     schema: String,
 }
 impl Database {
-    async fn new() -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub(crate) async fn new() -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED session database test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -50,7 +50,7 @@ impl Database {
             schema,
         }))
     }
-    async fn close(self) -> TestResult {
+    pub(crate) async fn close(self) -> TestResult {
         self.pool.close().await;
         // The schema name was generated above and never includes external input.
         sqlx::query(sqlx::AssertSqlSafe(format!(

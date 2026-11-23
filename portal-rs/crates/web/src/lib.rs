@@ -4,6 +4,8 @@
 #[path = "../../../test-support/rate_clock.rs"]
 mod rate_clock;
 
+pub mod observability;
+
 use askama::Template;
 use axum::{
     Router,
@@ -41,7 +43,10 @@ pub fn render(template: &impl Template) -> Response {
         }
         Err(error) => {
             tracing::error!(%error, "template rendering failed");
-            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            observability::ErrorOrigin::attach(
+                "template_render",
+                StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+            )
         }
     }
 }

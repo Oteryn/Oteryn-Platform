@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("errors-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <a href="/admin">{{ self.text("errors-staff") }}</a>
+  <h1>{{ self.text("errors-title") }}</h1>
+  <form method="get" action="/admin/errors" class="op-stack">
+    <div class="op-field">
+      <label for="status">{{ self.text("errors-status") }}</label>
+      <select id="status" name="status" class="op-input">
+        <option value="all">{{ self.text("errors-all") }}</option>
+        <option value="open"{% if self.selected("open") %} selected{% endif %}>{{ self.text("errors-open") }}</option>
+        <option value="resolved"{% if self.selected("resolved") %} selected{% endif %}>{{ self.text("errors-resolved") }}</option>
+        <option value="ignored"{% if self.selected("ignored") %} selected{% endif %}>{{ self.text("errors-ignored") }}</option>
+      </select>
+    </div>
+    <div class="op-field">
+      <label for="route">{{ self.text("errors-route") }}</label>
+      <input id="route" name="route" maxlength="200" value="{{ filters.route }}" class="op-input">
+    </div>
+    <div class="op-row"><button class="op-button">{{ self.text("errors-filter") }}</button></div>
+  </form>
+  {% for group in groups %}
+  <article class="op-card op-stack">
+    <h2><a href="/admin/errors/{{ group.id }}"><code>{{ group.route }}</code> · {{ group.error_kind }}</a></h2>
+    <div class="op-row">
+      <span class="op-badge{% if group.status == "open" %} op-badge--warning{% endif %}">{{ self.status_text(group.status) }}</span>
+      <span>{{ self.text("errors-count") }}: {{ group.occurrence_count }}</span>
+    </div>
+    {% if let Some(frame) = group.top_frame %}
+    <p class="op-muted"><code>{{ frame }}</code></p>
+    {% endif %}
+    <p class="op-muted">{{ self.text("errors-last-seen") }}: <time datetime="{{ group.last_seen() }}">{{ group.last_seen() }}</time></p>
+  </article>
+  {% else %}
+  <p role="status">{{ self.text("errors-empty") }}</p>
+  {% endfor %}
+  {% if let Some(query) = next %}
+  <div class="op-pagination"><a href="/admin/errors?{{ query }}">{{ self.text("errors-next") }}</a></div>
+  {% endif %}
+</main>
+</body>
+</html>

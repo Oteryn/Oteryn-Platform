@@ -42,11 +42,14 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 69);
+    assert_eq!(Permission::ALL.len(), 72);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
             Permission::AdminAnalyticsExport,
+            Permission::ViewPortalErrors,
+            Permission::ResolvePortalErrors,
+            Permission::IgnorePortalErrors,
         ] {
             assert_eq!(
                 role.permissions().contains(&permission),
@@ -138,13 +141,13 @@ async fn guard_rejects_missing_or_unverified_identity() {
     );
 }
 
-struct Database {
-    pool: PgPool,
+pub(crate) struct Database {
+    pub(crate) pool: PgPool,
     root: PgPool,
     schema: String,
 }
 impl Database {
-    async fn open() -> Option<Self> {
+    pub(crate) async fn open() -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -178,7 +181,7 @@ impl Database {
         Some(Self { pool, root, schema })
     }
 
-    async fn close(self) {
+    pub(crate) async fn close(self) {
         self.pool.close().await;
         sqlx::query(AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",

@@ -167,8 +167,9 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
-    ))
+        PortalIdentity::configured(pool.clone()),
+    )
+    .merge(crate::errors::configured_router(pool)?))
 }
 
 /// [`guarded`] with the panel's environment configuration and the server-side
@@ -427,7 +428,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(super) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -438,7 +439,7 @@ fn language(headers: &axum::http::HeaderMap) -> &'static str {
         "pl"
     }
 }
-fn text(lang: &str, key: &str) -> String {
+pub(super) fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
     };
@@ -466,6 +467,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    errors_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -539,6 +541,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        errors_label: s
+            .auth
+            .check(context, Permission::ViewPortalErrors)
+            .await
+            .ok()
+            .map(|()| text(lang, "errors-title")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

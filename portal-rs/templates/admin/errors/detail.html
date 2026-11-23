@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("errors-detail") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <a href="/admin/errors">{{ self.text("errors-title") }}</a>
+  <h1>{{ self.text("errors-detail") }}</h1>
+  <div class="op-card op-stack">
+    <h2><code>{{ group.route }}</code> · {{ group.error_kind }}</h2>
+    <p class="op-badge{% if group.status == "open" %} op-badge--warning{% endif %}" data-error-status>{{ self.status_text(group.status) }}</p>
+    <dl>
+      <dt>{{ self.text("errors-count") }}</dt><dd>{{ group.occurrence_count }}</dd>
+      <dt>{{ self.text("errors-first-seen") }}</dt>
+      <dd><time datetime="{{ group.first_seen() }}">{{ group.first_seen() }}</time></dd>
+      <dt>{{ self.text("errors-last-seen") }}</dt>
+      <dd><time datetime="{{ group.last_seen() }}">{{ group.last_seen() }}</time></dd>
+      <dt>{{ self.text("errors-request-id") }}</dt><dd><code>{{ group.last_request_id }}</code></dd>
+      <dt>{{ self.text("errors-frame") }}</dt>
+      <dd>{% if let Some(frame) = group.top_frame %}<code>{{ frame }}</code>{% else %}{{ self.text("errors-frame-unavailable") }}{% endif %}</dd>
+    </dl>
+    {% if resolve || ignore %}
+    <div class="op-row">
+      {% if resolve %}
+      <form method="post" action="/admin/errors/{{ group.id }}/resolve">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="count" value="{{ group.occurrence_count }}">
+        <button type="submit" class="op-button">{{ self.text("errors-resolve") }}</button>
+      </form>
+      {% endif %}
+      {% if ignore %}
+      <form method="post" action="/admin/errors/{{ group.id }}/ignore">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="count" value="{{ group.occurrence_count }}">
+        <button type="submit" class="op-button op-button--secondary">{{ self.text("errors-ignore") }}</button>
+      </form>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+</main>
+</body>
+</html>

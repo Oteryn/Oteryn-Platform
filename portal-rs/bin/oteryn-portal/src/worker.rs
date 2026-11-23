@@ -2,6 +2,9 @@
 use oteryn_db::outbox::{self, Job, PgPool};
 use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
+#[path = "observability_alerts.rs"]
+mod observability_alerts;
+
 pub type HandlerFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 pub type DeliveryFuture<'a> =
     Pin<Box<dyn Future<Output = Result<DeliveryOutcome, String>> + Send + 'a>>;
@@ -390,6 +393,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         Arc::new(closure.terminations),
     )?;
     register_security_notifications(&mut registry, pool.clone())?;
+    observability_alerts::register(&mut registry, pool.clone())?;
     registry.cleanup(
         "cleanup.deaths",
         3600,
@@ -487,6 +491,8 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "email.verify",
         "email.account_exists",
         oteryn_notify::EMAIL_JOB,
+        observability_alerts::ALERT_JOB,
+        observability_alerts::MAIL_JOB,
         "bazaar.authority",
         "league.ingest",
         "identity.email-change",
