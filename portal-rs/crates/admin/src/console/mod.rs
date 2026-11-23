@@ -146,7 +146,7 @@ impl IntoResponse for Error {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::Invalid => StatusCode::BAD_REQUEST,
             Self::Read(error) => {
-                return locale::localized_error(error.status(), "en", text("en", error.key()));
+                return locale::error_page("en", error.status(), text("en", error.key()));
             }
             _ => StatusCode::SERVICE_UNAVAILABLE,
         }
@@ -568,9 +568,9 @@ async fn render<P: Permissions, C: Channel>(
             .all(|op| matches!(op, Operation::World | Operation::Node))
     {
         let error = GameReadError::InvalidTarget;
-        return Ok(locale::localized_error(
-            error.status(),
+        return Ok(locale::error_page(
             language,
+            error.status(),
             text(language, error.key()),
         ));
     }
@@ -799,9 +799,9 @@ async fn submit<P: Permissions, C: Channel>(
     if matches!(form.operation, Operation::World | Operation::Node) != target.is_some() {
         let language = if form.lang == "en" { "en" } else { "pl" };
         let error = GameReadError::InvalidTarget;
-        return Ok(locale::localized_error(
-            error.status(),
+        return Ok(locale::error_page(
             language,
+            error.status(),
             text(language, error.key()),
         ));
     }
