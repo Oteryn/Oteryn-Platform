@@ -57,11 +57,11 @@ cross_repository_tasks:
 
 ```yaml
 checkpoint_version: 1
-updated_at: 2026-11-23T07:47:00Z
-head: 3bf5a5e8b6c90027324d2f8e99c51a6a9fbbe914
+updated_at: 2026-11-23T08:40:00Z
+head: 10338ae9d805de86cccacf1ef753e2376c3afebf
 branch: codex/oracle-staging
-pr: none
-status: ready
+pr: 2050
+status: completed
 context_routes:
   - Oracle deployment and portal testing
 owned_paths:
@@ -104,15 +104,15 @@ validation:
     evidence: The legacy-token ratchet passed on the staging change.
 blockers:
   - none
-next_action: Install the reviewed staging files on Oracle and qualify one eligible branch head.
+next_action: none; delivered by PR #2050 and archived
 ```
 
 ## Source branch closeout
 
 ```yaml
-source_branch_disposition: retain
-source_branch_reason: The Platform owner needs this branch for staging review and will review retention after Oracle qualification.
-source_branch_evidence: Owner requested publication of codex/oracle-staging without a pull request.
+source_branch_disposition: auto_delete_after_merge
+source_branch_reason: Dedicated same-repository task branch for issue 2047.
+source_branch_evidence: PR #2050 carries codex/oracle-staging; the branch is deleted when it merges. The files installed on Oracle match 10338ae9 by sha256. A live redeploy passed security/auth-csrf.spec.mjs 4/4 in 48 s.
 ```
 
 ## Notes
