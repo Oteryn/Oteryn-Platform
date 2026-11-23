@@ -200,7 +200,7 @@ macro_rules! game_operations {
 }
 
 /// Oteryn-Game `crates/admin/contracts/src/catalog.rs` `Operation::ALL` at
-/// 75d6892fd6f9cb54877e79a53b552233ec9be3a2.
+/// 288ba356658363de741d90d9ddad321b34ac7e18.
 pub const GAME_OPERATIONS: &[GameOperation] = game_operations! {
     "ops.overview.get", 1, Query, R0, "game.ops.read";
     "world.list", 1, Query, R0, "game.world.read";
