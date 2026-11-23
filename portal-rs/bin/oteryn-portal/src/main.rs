@@ -297,6 +297,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::status::configured_router(db.clone())?);
+            let app = app.merge(oteryn_downloads::admin::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
@@ -353,6 +354,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 Some(runtime) => runtime.browser_router(),
                 None => oteryn_bazaar::characters::http::configured_router(),
             });
+            let app = app.merge(oteryn_bazaar::history::router(db.clone(), &origin));
             let app = app.merge(reset_http::configured_router(db.clone()));
             let app = app.merge(passkeys_http::configured_router(db.clone())?);
             let app = oteryn_wiki::entities::mount(

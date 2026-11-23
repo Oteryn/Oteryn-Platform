@@ -1,45 +1,60 @@
-# Collection PvP
+# Collection battles and fixed sets
 
-T91 owns consent, battle persistence, revision checks, standings, round-robin
-registration and fixed-content purchases. No game-server command is issued.
+The existing localized `GET|POST /{lang}/collection-pvp` handles challenges, turns,
+round-robin tournaments, rankings, deck management and fixed set purchases.
+Players reach it through Play navigation. Sessions, CSRF and value eligibility
+apply to form submissions. Account identifiers can be shared with another player
+to receive a challenge.
 
-Both `OTERYN_COLLECTION_PVP_ENABLED` and `OTERYN_COLLECTION_SETS_ENABLED` default
-to false; only the exact value `true` enables a surface. Browser mutations use
-the existing session and synchronizer-token CSRF middleware. Account identity
-comes from the session, never a submitted account field.
+## Activation
 
-## Integration seam
+- `OTERYN_COLLECTION_PVP_ENABLED=true` enables Platform battles and tournaments.
+- `OTERYN_COLLECTION_SETS_ENABLED=true` enables the fixed set catalog and coin
+  purchases. The wallet debit is classified as `card_set_purchase`.
+- Both switches default to off. Card admission needs enabled World reads and
+  published, visible T90 card definitions for the active World version.
 
-The prerequisite package is merged. The T90 branch was absent during development;
-there is no collection or PvP route implementation in the Laravel reference and
-no matching collection contract in `docs/contracts`. `Collection` therefore owns
-the narrow adapter boundary: legal owned deck snapshots, initial battle state,
-validated turn resolution, and non-transferable exact card grants. The adapter
-must pin world/content and rule versions in its snapshots and reject unknown,
-unavailable, malformed, or out-of-turn states. It must perform database writes
-through the supplied connection, without independent commits or external effects.
+Publish offers through the existing trusted `collection_pvp_sets` catalog. The
+SKU is the offer ID. Its version, coin price and card quantities are immutable
+and the offer must be published. Each content key is the canonical UUID of a
+published `collection_cards` row. Retire an offer by clearing its published flag.
+Create a new SKU to change its contents or price.
 
-The configured production router uses `Unavailable`: gameplay is denied and
-controls are hidden until an authoritative collection adapter is installed.
-The public `router` constructor accepts that adapter and a `SetPayment` adapter.
-`WalletPayment` bridges the public wallet purchase API, preserving its flags,
-identity checks and audit policy. The default payment adapter also denies.
+The wallet operation, audit entry and immutable purchase receipt commit together.
+The receipt is the account's entitlement to the exact published card quantities.
+An exact retry returns the existing receipt. A further purchase of the same SKU
+by that account is refused. Purchases can stay off while active, visible cards
+the account already owns remain usable for PvP.
 
-No random paid reward exists. Set contents are an explicit map of card keys to
-positive integral counts, bounded to 100 keys and 100 copies per key. Contents,
-version and price are immutable in PostgreSQL. Each purchase binds the previewed
-version and price to a UUIDv7 idempotency key. Debit, grants and receipt share one
-transaction. Cards cannot be transferred or redeemed by this module.
+## Match and tournament rules
 
-A tournament has 2–16 participants, no entry fee, stakes or transferable prize.
-Joining consents to all fixtures with the pinned deck. Only its organizer starts
-it. Every pair plays once. Standings award 3 points per win, 1 per draw, 0 per loss;
-UUID order only orders equal-score rows and does not break the competitive tie.
-A battle can score once. Completion is serialized per tournament.
+Players select one to three distinct owned cards in one of up to five saved
+decks. A challenge pins the initiator's deck and requires the recipient's
+acceptance. Tournament registration pins each entrant's deck and consents to
+each round-robin fixture. The organizer starts the tournament after at least two
+entrants join. Capacity is limited to 16. Tournaments have no fee, stake or prize.
+
+Each participant submits one private strike or guard per round. The server
+resolves both moves together using the versioned collection combat rules and
+private RNG state. Revisions and row locks serialize moves and score each match
+once. Standings award three points for a win, one for a draw and zero for a loss.
+The participant view shows health and submission status. It omits opponent
+choices and RNG state.
+
+## Game qualification
+
+The live startup can use published cards acquired through the Platform wallet.
+The bestiary deck path shows the existing unavailable state until the T90
+journal authority and catalogue mapping are qualified. When supplied, the T90
+adapter checks current ownership, fresh evidence and card publication inside
+the caller's transaction before a deck or turn is admitted. Game still needs a
+qualified G-11 bestiary publication and accepted creature/race/appearance mapping
+for this path. Battles, tournaments, purchases and grants issue no Game writes.
 
 ## Validation
 
-Tests use isolated schemas in `PORTAL_TEST_DATABASE_URL`; an unset variable prints
-a skip notice. Four PostgreSQL tests cover consent/replay, tournaments, fixed-set
-payment/grant atomicity, and real session/CSRF HTTP flow. Two unit tests cover
-flags and invalid fixed contents. Fixtures are synthetic, with no copied game data.
+The minigames library tests exercise the real Wallet and published-card adapters
+against a disposable schema, including an insufficient balance, invalid
+contents, an exact retry, a duplicate SKU, a foreign deck and a completed
+tournament. The `gap-62.spec.mjs` browser spec uses the local runner, the sandbox
+wallet top-up and a disposable published card and SKU.

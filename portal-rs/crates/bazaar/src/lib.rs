@@ -12,6 +12,7 @@ pub use repository::Bazaar;
 pub mod game;
 
 pub mod characters;
+pub mod history;
 pub mod items;
 /// Shared portal navigation registration.
 pub mod navigation;

@@ -146,6 +146,10 @@ fn localized_responsive_labelled_template() {
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
             reports_label: text(lang, "reports"),
+            world_catalog_link: Some((
+                text(lang, "downloads-catalog"),
+                text(lang, "world-catalog"),
+            )),
             moderate_reports: true,
             mail_link: None,
             client_build_link: Some(text(lang, "build-title")),
@@ -166,6 +170,8 @@ fn localized_responsive_labelled_template() {
             editorial_links: vec![("/admin/news", text(lang, "cms-news"))],
             enforcement_link: Some("Enforcement".into()),
             audit_link: Some(text(lang, "audit-link")),
+            downloads_link: None,
+            audit_evidence_link: Some(text(lang, "audit-evidence-title")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -194,6 +200,15 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("href=\"/admin/character-cases\""));
         assert!(html.contains(&text(lang, "character-case-title")));
         assert!(html.contains("href=\"/admin/world-operations\""));
+        assert!(html.contains("href=\"/admin/world\""));
+        assert_eq!(html.matches("href=\"/admin/world\"").count(), 1);
+        assert!(html.contains(&text(lang, "downloads-catalog")));
+        assert!(html.contains(if lang == "pl" {
+            "Katalog świata"
+        } else {
+            "World catalog"
+        }));
+        assert!(html.contains("href=\"/admin/audit-evidence\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));

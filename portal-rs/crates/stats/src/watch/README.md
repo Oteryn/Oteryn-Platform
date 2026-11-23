@@ -1,8 +1,11 @@
 # Private watches
 
 `PORTAL_STATS_WATCHES_ENABLED=true` opts into routing. Default: disabled (404).
-The configured policy denies authentication. A current T66 adapter must be
-injected using `http::router(Watches)` before this feature can be used.
+Verified players can issue a session-bound bearer at `/{lang}/account/stats-watches`.
+It is scoped to the watch API, expires within one hour, and is replaced by issue
+or invalidated by revoke or session rotation. The qualified T66 source adapter
+is still required for list, subscribe and fanout. See
+[readiness](../../../../../docs/product/GAP-36_STATISTICS_QUALIFICATION.md).
 
 Bearer-only `/api/v1/stats/watches` supports GET, POST and DELETE. Cookies do
 not authorize requests. POST and DELETE accept exactly `target_kind`
@@ -18,14 +21,16 @@ policy/storage: 503 with no details; body ceiling: 1024 bytes. GET returns only
 subscriptions passing current disclosure policy. All responses use private,
 no-store caching. Requests have a database-backed 60/minute/account budget
 (429), and subscription creation has a serialized 100/account ceiling.
-Removal remains possible after the subject becomes hidden. No SSR is mounted.
+Removal remains possible after the subject becomes hidden. The credential page
+uses the standard browser session and CSRF middleware. It displays whether the
+account has saved watches and can remove them all without resolving targets.
 
 `Policy` is the narrow integration seam for absent T66: it validates the bearer,
 active account, scope, current source and privacy generations, event-time and
 current per-field disclosure, and accepted guild identity/membership. Unknown
 state denies. The policy must hold the applicable privacy fence in the supplied
 transaction through notification commit. Guild subscription permission alone
-never authorizes a member's event. The default adapter grants nothing.
+never authorizes a member's event. The configured API supports owner-scoped removal while source qualification is unavailable.
 
 An accepted projection consumer may call `Watches::dispatch` with an immutable
 source event ID. This method is intentionally not an HTTP ingest endpoint and
@@ -50,4 +55,4 @@ acceptance and canonical guild authority remain gated by their owning contracts;
 no Game fixture or producer has been invented here.
 
 Tests: `PORTAL_TEST_DATABASE_URL` selects isolated PostgreSQL schemas. With it
-unset, the three database tests print a skip notice. No query macros were added.
+unset, the database tests print a skip notice. No query macros were added.

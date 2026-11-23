@@ -148,6 +148,119 @@ fn validation_denies_every_unsupported_authorization_parameter() -> TestResult {
     Ok(())
 }
 #[tokio::test]
+async fn postgres_token_route_preserves_grant_scope() -> TestResult {
+    let db = Database::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let account = db.account().await?;
+    let grant = code(&db, account).await?;
+    let app = token_routes(db.pool.clone(), config());
+    let send = |fields: &[(&str, &str)]| {
+        let request = Request::post("/oauth/token")
+            .header("content-type", "application/x-www-form-urlencoded")
+            .body(Body::from(
+                url::form_urlencoded::Serializer::new(String::new())
+                    .extend_pairs(fields)
+                    .finish(),
+            ))?;
+        Ok::<_, axum::http::Error>(app.clone().oneshot(request))
+    };
+    let counts = || {
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT count(DISTINCT f.id), count(t.id) FROM oauth_token_families f
+             LEFT JOIN oauth_tokens t ON t.family_id=f.id WHERE f.account_id=$1",
+        )
+        .bind(account)
+        .fetch_one(&db.pool)
+    };
+    let fields = [
+        ("grant_type", "authorization_code"),
+        ("client_id", grant.client_id.as_str()),
+        ("redirect_uri", grant.redirect_uri.as_str()),
+        ("code", grant.code.as_str()),
+    ];
+    let malformed = send(&fields)?.await?;
+    assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&to_bytes(malformed.into_body(), 4096).await?)?
+            ["error"],
+        "invalid_request"
+    );
+    assert_eq!(counts().await?, (0, 0));
+
+    let mut fields = fields.to_vec();
+    fields.push(("code_verifier", VERIFIER));
+    let (first, second) = tokio::join!(send(&fields)?, send(&fields)?);
+    let (first, second) = (first?, second?);
+    let (issued, repeated) = if first.status() == StatusCode::OK {
+        (first, second)
+    } else {
+        (second, first)
+    };
+    assert_eq!(issued.status(), StatusCode::OK);
+    assert_eq!(repeated.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&to_bytes(repeated.into_body(), 4096).await?)?
+            ["error"],
+        "invalid_grant"
+    );
+    assert_eq!(issued.headers()["cache-control"], "no-store");
+    assert_eq!(counts().await?, (1, 1));
+
+    let tokens: serde_json::Value =
+        serde_json::from_slice(&to_bytes(issued.into_body(), 4096).await?)?;
+    assert_eq!(tokens["scope"], TICKET_SCOPE);
+    let access = tokens["access_token"].as_str().ok_or("access token")?;
+    let refresh = tokens["refresh_token"].as_str().ok_or("refresh token")?;
+    assert_eq!(verify_access(&db.pool, &config(), access).await?, account);
+    assert_eq!(
+        verify_account_services(&db.pool, &config(), access)
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
+    let mut fields = [
+        ("grant_type", "refresh_token"),
+        ("client_id", grant.client_id.as_str()),
+        ("refresh_token", refresh),
+        ("scope", ACCOUNT_SERVICES_SCOPE),
+    ];
+    let refused = send(&fields)?.await?;
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&to_bytes(refused.into_body(), 4096).await?)?["error"],
+        "invalid_grant"
+    );
+    assert_eq!(counts().await?, (1, 1));
+    fields[3].1 = TICKET_SCOPE;
+    let rotated = send(&fields)?.await?;
+    assert_eq!(rotated.status(), StatusCode::OK);
+    assert_eq!(rotated.headers()["cache-control"], "no-store");
+    let tokens: serde_json::Value =
+        serde_json::from_slice(&to_bytes(rotated.into_body(), 4096).await?)?;
+    assert_eq!(tokens["scope"], TICKET_SCOPE);
+    let rotated_access = tokens["access_token"]
+        .as_str()
+        .ok_or("rotated access token")?;
+    assert!(
+        rotated_access != access,
+        "rotation should issue a fresh access token"
+    );
+    assert_eq!(
+        verify_access(&db.pool, &config(), rotated_access).await?,
+        account
+    );
+    assert_eq!(
+        verify_account_services(&db.pool, &config(), rotated_access)
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
+    assert_eq!(counts().await?, (1, 2));
+    db.close().await
+}
+
+#[tokio::test]
 async fn postgres_success_rotation_and_family_reuse_revocation() -> TestResult {
     let Some(db) = Database::open().await? else {
         return Ok(());

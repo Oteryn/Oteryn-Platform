@@ -125,6 +125,10 @@ async fn database() -> Result<Option<Database>, Box<dyn std::error::Error>> {
         include_str!("../../../migrations/20261112100005_coin_native_orders.sql"),
         include_str!("../../../migrations/20261112100010_coin_native_reversals.sql"),
         include_str!("../../../migrations/20261105160000_t27_premium_ledger.sql"),
+        include_str!("../../../migrations/20261105151420_t26_wallet.sql"),
+        include_str!("../../../migrations/20261105220208_t29_wallet_wire.sql"),
+        include_str!("../../../migrations/20261105160200_t28_catalog.sql"),
+        include_str!("../../../migrations/20261105220104_t29_purchase.sql"),
     ] {
         sqlx::raw_sql(migration).execute(&pool).await?;
     }
@@ -463,6 +467,151 @@ async fn localized_chargeback_history() -> TestResult {
         assert_eq!(response.status(), StatusCode::OK);
         let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
         assert!(html.contains(label), "missing history status {label}");
+    }
+    pool.finish().await
+}
+
+async fn settled_order(
+    pool: &PgPool,
+    owner: Uuid,
+    matching_debit: bool,
+) -> Result<(Uuid, OffsetDateTime), sqlx::Error> {
+    use sha2::{Digest, Sha256};
+    let order = Uuid::now_v7();
+    let purchase = Uuid::now_v7();
+    let wallet_operation = if matching_debit {
+        purchase
+    } else {
+        Uuid::now_v7()
+    };
+    let unit = Uuid::now_v7();
+    let line = Uuid::now_v7();
+    let revision = format!("{:x}", Sha256::digest(line.as_bytes()));
+    sqlx::query("INSERT INTO wallet_accounts(account_id) VALUES ($1)")
+        .bind(owner)
+        .execute(pool)
+        .await?;
+    sqlx::query("INSERT INTO wallet_operations(id,kind,account_id,amount) VALUES ($1,'store_purchase',$2,-25)")
+        .bind(wallet_operation).bind(owner).execute(pool).await?;
+    sqlx::query("INSERT INTO wallet_entries(id,operation_id,account_id,available_delta,reserved_delta) VALUES ($1,$2,$3,-25,0)")
+        .bind(Uuid::now_v7()).bind(wallet_operation).bind(owner).execute(pool).await?;
+    sqlx::query("INSERT INTO store_purchase_requests(purchase_request_id,account_id,request_bytes,request_digest,result,answer_bytes) VALUES ($1,$2,'{}',$3,'ACCEPTED','{}')")
+        .bind(purchase).bind(owner).bind(&revision).execute(pool).await?;
+    sqlx::query("INSERT INTO store_orders(order_id,purchase_request_id,account_id,character_id,world_id,wallet_operation_id,wallet_idempotency_key,currency,total_price) VALUES ($1,$2,$3,$4,$5,$6,$2::text,'COINS',25)")
+        .bind(order).bind(purchase).bind(owner).bind(Uuid::now_v7()).bind(Uuid::now_v7()).bind(wallet_operation).execute(pool).await?;
+    sqlx::query("INSERT INTO store_price_list_imports(catalog_revision,canonical_bytes,imported_by) VALUES ($1,'{}',$2)")
+        .bind(&revision).bind(owner).execute(pool).await?;
+    sqlx::query("INSERT INTO store_offers(catalog_revision,offer_key,currency,unit_price,max_quantity,purchasable,canonical_bytes) VALUES ($1,'premium','COINS',25,1,true,'{}')")
+        .bind(&revision).execute(pool).await?;
+    sqlx::query("INSERT INTO store_order_lines(line_id,order_id,catalog_revision,offer_key,quantity,unit_price) VALUES ($1,$2,$3,'premium',1,25)")
+        .bind(line).bind(order).bind(&revision).execute(pool).await?;
+    sqlx::query("INSERT INTO store_fulfilment_units(entitlement_id,line_id,unit_index,account_id,product_id,product_version,unit_kind,grant_key,grant_revision,quantity) VALUES ($1,$2,0,$3,'premium','1','PREMIUM_TIME','premium','1',7)")
+        .bind(unit).bind(line).bind(owner).execute(pool).await?;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES ($1)")
+        .bind(owner)
+        .execute(pool)
+        .await?;
+    let end: OffsetDateTime = sqlx::query_scalar("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until) VALUES ($1,$2,$2,'GRANT',7,decode(repeat('aa',32),'hex'),$3,1,604800,date_trunc('second',now()),date_trunc('second',now())+interval '7 days') RETURNING effective_until")
+        .bind(unit).bind(owner).bind(Uuid::now_v7()).fetch_one(pool).await?;
+
+    Ok((order, end))
+}
+
+#[tokio::test]
+async fn premium_history_and_receipt_render_from_settled_order() -> TestResult {
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    let owner = Uuid::now_v7();
+    let owner_cookie = cookie(&pool, owner).await?;
+    let other = Uuid::now_v7();
+    let other_cookie = cookie(&pool, other).await?;
+    let (order, end) = settled_order(&pool, owner, true).await?;
+
+    let path = format!("/en/panel/premium?receipt={order}");
+    let response = request(&pool, &owner_cookie, "/en/panel/premium").await?;
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(&path));
+    assert!(html.contains("Active"));
+    assert!(html.contains(&date(end).map_err(|_| "date")?));
+    let response = request(&pool, &owner_cookie, &path).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    for value in [
+        "Premium purchase receipt",
+        "<dt>Coins charged</dt><dd>25</dd>",
+        &order.to_string(),
+        &date(end).map_err(|_| "date")?,
+    ] {
+        assert!(html.contains(value));
+    }
+    assert_eq!(
+        request(&pool, &other_cookie, &path).await?.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        request(&pool, &owner_cookie, "/en/panel/premium?receipt=bad")
+            .await?
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let (order, _) = settled_order(&pool, other, false).await?;
+    assert_eq!(
+        request(
+            &pool,
+            &other_cookie,
+            &format!("/en/panel/premium?receipt={order}")
+        )
+        .await?
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    pool.finish().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn malformed_entitlement_revision_renders_unavailable() -> TestResult {
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    let owner = Uuid::now_v7();
+    let cookie = cookie(&pool, owner).await?;
+    sqlx::query("INSERT INTO premium_authority(account_id) VALUES ($1)")
+        .bind(owner)
+        .execute(&*pool)
+        .await?;
+    sqlx::query("INSERT INTO premium_ledger(request_id,account_id,actor_id,event_type,duration_days,reason_sha256,entitlement_id,lifecycle_revision,delta_seconds,effective_from,effective_until) VALUES ($1,$2,$2,'GRANT',7,decode(repeat('aa',32),'hex'),$3,2,604800,date_trunc('second',now()),date_trunc('second',now())+interval '7 days')")
+        .bind(Uuid::now_v7()).bind(owner).bind(Uuid::now_v7()).execute(&*pool).await?;
+    let response = request(&pool, &cookie, "/en/panel/premium").await?;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains("Temporarily unavailable"));
+    pool.finish().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn pending_payments_are_listed_as_payments() -> TestResult {
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    let owner = Uuid::now_v7();
+    let cookie = cookie(&pool, owner).await?;
+    let intent = Uuid::now_v7();
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES ($1,$2,'test',$1::text,1234,'PLN','pending')")
+        .bind(intent).bind(owner).execute(&*pool).await?;
+    for (lang, payment, pending) in [
+        ("en", "Payment", "Pending"),
+        ("pl", "Płatność", "Oczekująca"),
+    ] {
+        let response = request(&pool, &cookie, &format!("/{lang}/panel/payments")).await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+        assert!(html.contains(&format!("<h2>{payment}</h2>")));
+        assert!(html.contains(pending));
+        assert!(html.contains(&intent.to_string()));
+        assert!(!html.contains("/payments/receipts/"));
     }
     pool.finish().await
 }

@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ title }}</title>
+  <style>
+    body{margin:auto;padding:1rem;max-width:90rem;font:1rem/1.5 system-ui;color:#eee;background:#151b25}
+    article{min-width:0;padding:1rem;border:1px solid #708090;border-radius:.5rem;overflow-wrap:anywhere}
+    section{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}
+    table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.3rem}
+    h1{font-size:clamp(1.5rem,4vw,2.5rem)}
+    a{color:#9ad5ff}
+    fieldset{min-width:0;margin:0 0 .75rem;padding:.5rem}
+    fieldset label{display:flex;align-items:baseline;gap:.5rem;padding:.25rem}
+    button{min-height:44px;padding:.5rem .75rem;font:inherit}
+  </style>
+</head>
+<body>
+<main>
+  <h1>{{ title }}</h1>
+  <p role="status">{{ message }}</p>
+  {% if retry %}
+    <p><a href="/{{ lang }}/league">{{ back }}</a></p>
+  {% endif %}
+  {% if !events.is_empty() %}
+  <h2>{{ outcomes }}</h2>
+  <section aria-label="{{ outcomes }}">
+    {% for row in events %}
+    <article data-event="{{ row.subject }}">
+      <h3>{{ row.source }}</h3>
+      <p>{{ world }} {{ row.world }}</p>
+      <p>{{ row.state }}</p>
+      {% if let Some(value) = row.deadline %}
+        <p>{{ lock_at }} <time datetime="{{ value }}">{{ value }}</time></p>
+      {% endif %}
+      {% if let Some(value) = row.result %}
+        <p>{{ result }} {{ value }}</p>
+      {% endif %}
+      {% if let Some(value) = row.choice %}
+        <p data-prediction-choice>{{ choice_label }} {{ value }}</p>
+      {% endif %}
+      {% if let Some(value) = row.score %}
+        <p data-prediction-score>{{ score_label }} {{ value }}</p>
+      {% endif %}
+      {% if let Some(form) = row.form %}
+        <form method="post" action="/{{ lang }}/league/prediction">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <input type="hidden" name="world" value="{{ row.world }}">
+          <input type="hidden" name="event" value="{{ row.subject }}">
+          <input type="hidden" name="epoch" value="{{ form.epoch }}">
+          <input type="hidden" name="generation" value="{{ form.generation }}">
+          <input type="hidden" name="revision" value="{{ form.revision }}">
+          <fieldset>
+            <legend>{{ choose }}</legend>
+            {% for option in form.options %}
+              <label><input type="radio" name="choice" value="{{ option }}" required> <span>{{ option }}</span></label>
+            {% endfor %}
+          </fieldset>
+          <button type="submit">{{ submit }}</button>
+        </form>
+      {% else if row.sign_in %}
+        <p><a href="/{{ lang }}/login">{{ sign_in_label }}</a></p>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% if !seasons.is_empty() %}
+  <h2>{{ standings }}</h2>
+  <section aria-label="{{ standings }}">
+    {% for row in seasons %}
+    <article>
+      <h3>{{ row.subject }}</h3>
+      <p>{{ world }} {{ row.world }}</p>
+      <p>{{ row.state }}</p>
+      {% if !row.guilds.is_empty() %}
+      <table>
+        <thead><tr><th scope="col">{{ rank }}</th><th scope="col">{{ guild }}</th><th scope="col">{{ points }}</th></tr></thead>
+        <tbody>
+          {% for g in row.guilds %}
+            <tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

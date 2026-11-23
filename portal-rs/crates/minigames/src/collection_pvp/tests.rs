@@ -9,11 +9,28 @@ impl Collection for Rules {
     fn view(&self, state: &Value, _: Side) -> Result<Value> {
         Ok(json!({"turn":state["turn"]}))
     }
-    async fn deck(&self, _: &mut PgConnection, owner: Uuid, deck: Uuid) -> Result<Value> {
+    async fn deck(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        owner: Uuid,
+        deck: Uuid,
+    ) -> Result<Value> {
         if owner != deck {
             return Err(Error::Refused);
         }
         Ok(json!({"owner":owner}))
+    }
+    async fn revalidate(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        owner: Uuid,
+        snapshot: &Value,
+    ) -> Result<()> {
+        if snapshot["owner"] == json!(owner) {
+            Ok(())
+        } else {
+            Err(Error::Refused)
+        }
     }
     fn begin(&self, left: &Value, right: &Value) -> Result<Value> {
         Ok(json!({"left":left,"right":right,"turn":0}))
@@ -27,11 +44,16 @@ impl Collection for Rules {
             outcome: Some(Outcome::Left),
         })
     }
-    async fn grant(&self, conn: &mut PgConnection, owner: Uuid, cards: &Value) -> Result<()> {
+    async fn grant(
+        &self,
+        conn: &mut Transaction<'_, Postgres>,
+        owner: Uuid,
+        cards: &Value,
+    ) -> Result<()> {
         sqlx::query("INSERT INTO t91_test_grants(owner,cards) VALUES($1,$2)")
             .bind(owner)
             .bind(cards)
-            .execute(conn)
+            .execute(&mut **conn)
             .await?;
         Ok(())
     }
@@ -272,6 +294,18 @@ async fn postgres_fixed_contents_price_replay_and_atomic_refusal()
         .fetch_one(&pool)
         .await?;
     assert_eq!(grants, 1);
+    assert!(matches!(
+        s.buy_set(a, set, 1, 10, Uuid::now_v7()).await,
+        Err(Error::Refused)
+    ));
+    let unavailable_set = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO collection_pvp_sets(id,version,price,cards,published) VALUES($1,1,10,$2,true)",
+    )
+    .bind(unavailable_set)
+    .bind(json!({"monster-b":1}))
+    .execute(&pool)
+    .await?;
     let failing = Service::new(
         pool.clone(),
         Flags {
@@ -282,7 +316,9 @@ async fn postgres_fixed_contents_price_replay_and_atomic_refusal()
         Rules,
     );
     assert!(matches!(
-        failing.buy_set(a, set, 1, 10, Uuid::now_v7()).await,
+        failing
+            .buy_set(a, unavailable_set, 1, 10, Uuid::now_v7())
+            .await,
         Err(Error::Unavailable)
     ));
     let balance: i64 = sqlx::query_scalar("SELECT balance FROM t91_test_balances WHERE owner=$1")
@@ -397,6 +433,7 @@ async fn postgres_browser_success_refusal_csrf_and_bad_input()
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::REFERRER_POLICY], "same-origin");
         let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
         assert!(html.contains(title));
         assert!(html.contains(&csrf));
@@ -435,6 +472,51 @@ async fn postgres_browser_success_refusal_csrf_and_bad_input()
             .await?;
         assert_eq!(response.status(), status);
     }
+    let unsupported = app
+        .clone()
+        .oneshot(
+            Request::put("/en/collection-pvp")
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, "https://portal.example.invalid")
+                .header("x-csrf-token", &csrf)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(unsupported.status(), StatusCode::METHOD_NOT_ALLOWED);
+    assert!(
+        unsupported.headers()[header::ALLOW]
+            .to_str()?
+            .contains("POST")
+    );
+
+    use sha2::{Digest, Sha256};
+    sqlx::query(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT 'collection-pvp-action',$1,date_trunc('minute',statement_timestamp())+delta,60
+         FROM unnest(ARRAY[interval '0',interval '1 minute']) AS offsets(delta)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE SET count=60",
+    )
+    .bind(Sha256::digest(a.as_bytes()).to_vec())
+    .execute(&pool)
+    .await?;
+    let response = app
+        .oneshot(
+            Request::post("/en/collection-pvp")
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, "https://portal.example.invalid")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("op=create&capacity=2&_csrf={csrf}")))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let retry_after: u32 = response.headers()[header::RETRY_AFTER].to_str()?.parse()?;
+    assert!((1..=60).contains(&retry_after));
+    let tournaments: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM collection_pvp_tournaments WHERE organizer=$1")
+            .bind(a)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(tournaments, 1);
     let disabled = http::router(
         Service::new(pool.clone(), Flags::default(), Unavailable, Unavailable),
         CsrfConfig::default(),
@@ -675,5 +757,191 @@ async fn lock_order_challenge_prepares_all_accounts_before_waiting()
         "challenge retained the later account while waiting for the earlier one: {later_lock:?}"
     );
     outcome?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_published_cards_fund_a_qualifying_tournament()
+-> std::result::Result<(), Box<dyn std::error::Error>> {
+    use crate::collection;
+    use oteryn_wallet::{Ledger, WalletFlags, wire::DatabasePolicy};
+    use oteryn_world::{WorldOptions, WorldStore};
+
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    let left = account(&pool).await?;
+    let right = account(&pool).await?;
+    let world = Uuid::now_v7();
+    let card = Uuid::now_v7();
+    let set = Uuid::now_v7();
+    let bad_set = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO world_versions(id,source_commit,status) VALUES($1,repeat('a',40),'ready')",
+    )
+    .bind(world)
+    .execute(&pool)
+    .await?;
+    sqlx::query("UPDATE world_active_version SET version_id=$1 WHERE singleton")
+        .bind(world)
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO world_entities(version_id,kind,key,data,publishable) VALUES($1,'Creature','rat',$2,true)")
+        .bind(world).bind(json!({
+            "definition":{"identity":{"family":"Creature","key":"rat"},"client_projection":"ClientSafe"},
+            "authoring":{"profile":{"details":{"display_name":"Rat","bestiary":{}}}}
+        })).execute(&pool).await?;
+    sqlx::query("INSERT INTO world_visibility(kind,key,allowed) VALUES('Creature','rat',true)")
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO collection_cards(id,definition,sprite) VALUES($1,$2,decode('01','hex'))")
+        .bind(card).bind(json!({
+            "id":card,"world_version":world,"kind":"Creature","key":"rat","race_key":"rat",
+            "race_revision":"1","final_kill_threshold":1,"name":{"en":"Rat","pl":"Szczur"},"appearance_id":1
+        })).execute(&pool).await?;
+    for (sku, contents) in [
+        (set, json!({card.to_string():2})),
+        (bad_set, json!({"rat":1})),
+    ] {
+        sqlx::query("INSERT INTO collection_pvp_sets(id,version,price,cards,published) VALUES($1,1,10,$2,true)")
+            .bind(sku).bind(contents).execute(&pool).await?;
+    }
+    let catalogue = collection::Collection::new(
+        pool.clone(),
+        WorldStore::new(pool.clone(), WorldOptions { enabled: true }),
+        oteryn_playerdata::progress::ProgressStore::new(
+            pool.clone(),
+            Default::default(),
+            Vec::new(),
+        ),
+        collection::Flags { collection: true },
+    );
+    let collection = PlatformCollection::new(catalogue, true);
+    let service = Service::new(
+        pool.clone(),
+        Flags {
+            pvp: true,
+            sets: true,
+        },
+        collection,
+        platform::payment(pool.clone(), true),
+    );
+    let wallet = Ledger::new(
+        pool.clone(),
+        WalletFlags { enabled: true },
+        DatabasePolicy,
+        DatabasePolicy,
+        WalletAuthority,
+    );
+    assert!(matches!(
+        service.buy_set(left, set, 1, 10, Uuid::now_v7()).await,
+        Err(Error::Refused)
+    ));
+    assert!(matches!(
+        service.save_deck(left, "Rat", &[card]).await,
+        Err(Error::Refused)
+    ));
+    for actor in [left, right] {
+        wallet
+            .adjust(Uuid::now_v7(), actor, 40, actor, "Test credit")
+            .await?;
+        assert!(matches!(
+            service.buy_set(actor, bad_set, 1, 10, Uuid::now_v7()).await,
+            Err(Error::Invalid)
+        ));
+        assert_eq!(wallet.balance(actor).await?.available, 40);
+        let operation = Uuid::now_v7();
+        service.buy_set(actor, set, 1, 10, operation).await?;
+        service.buy_set(actor, set, 1, 10, operation).await?;
+        assert!(matches!(
+            service.buy_set(actor, set, 1, 10, Uuid::now_v7()).await,
+            Err(Error::Refused)
+        ));
+        assert_eq!(wallet.balance(actor).await?.available, 30);
+        let entitlement: Value = sqlx::query_scalar(
+            "SELECT cards FROM collection_pvp_purchases WHERE id=$1 AND account_id=$2",
+        )
+        .bind(operation)
+        .bind(actor)
+        .fetch_one(&pool)
+        .await?;
+        assert_eq!(entitlement, json!({card.to_string():2}));
+        assert!(matches!(
+            service.save_deck(actor, "Rat", &[card, card]).await,
+            Err(Error::Invalid)
+        ));
+        service.save_deck(actor, "Rat", &[card]).await?;
+    }
+    let deck_id = async |owner| -> std::result::Result<Uuid, sqlx::Error> {
+        sqlx::query_scalar("SELECT id FROM collection_pvp_owned_decks WHERE account_id=$1")
+            .bind(owner)
+            .fetch_one(&pool)
+            .await
+    };
+    let left_deck = deck_id(left).await?;
+    let right_deck = deck_id(right).await?;
+    assert!(matches!(
+        service.challenge(left, right, right_deck).await,
+        Err(Error::Refused)
+    ));
+    let tournament = service.create_tournament(left, 2).await?;
+    service.join(left, tournament, left_deck).await?;
+    service.join(right, tournament, right_deck).await?;
+    assert!(matches!(
+        service.start(right, tournament).await,
+        Err(Error::Refused)
+    ));
+    service.start(left, tournament).await?;
+    let id: Uuid =
+        sqlx::query_scalar("SELECT id FROM collection_pvp_battles WHERE tournament_id=$1")
+            .bind(tournament)
+            .fetch_one(&pool)
+            .await?;
+    let first = service.battle(left, id).await?;
+    assert!(matches!(
+        service
+            .play(left, id, first.revision, json!("teleport"))
+            .await,
+        Err(Error::Invalid)
+    ));
+    service
+        .play(left, id, first.revision, json!("strike"))
+        .await?;
+    let waiting = service.battle(left, id).await?;
+    assert_eq!(waiting.state["waiting"], true);
+    assert_eq!(service.battle(right, id).await?.state["waiting"], false);
+    assert!(matches!(
+        service
+            .play(left, id, waiting.revision, json!("guard"))
+            .await,
+        Err(Error::Refused)
+    ));
+    service
+        .play(right, id, waiting.revision, json!("strike"))
+        .await?;
+    for _ in 0..4 {
+        let current = service.battle(left, id).await?;
+        if current.status == "completed" {
+            break;
+        }
+        service
+            .play(left, id, current.revision, json!("strike"))
+            .await?;
+        service
+            .play(right, id, current.revision + 1, json!("strike"))
+            .await?;
+    }
+    assert_eq!(service.battle(left, id).await?.status, "completed");
+    assert_eq!(service.tournaments(left).await?[0].status, "completed");
+    assert_eq!(service.rankings(Some(tournament)).await?.len(), 2);
+    for _ in 0..9 {
+        service.create_tournament(left, 2).await?;
+    }
+    assert!(matches!(
+        service.create_tournament(left, 2).await,
+        Err(Error::Refused)
+    ));
+    service.save_deck(left, "Another deck", &[card]).await?;
+    cleanup(pool).await?;
     Ok(())
 }

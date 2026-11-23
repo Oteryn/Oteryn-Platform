@@ -415,3 +415,10 @@ shell-public-characters = Characters
 shell-account-native-devices = Native remembered devices
 
 shell-player-journal = Player journal
+
+shell-collection-pvp = Collection battles and sets
+
+shell-stats-readiness = Statistics availability
+shell-stats-watch-access = Watch API access
+
+shell-account-display = Account display settings

@@ -10,6 +10,8 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+getrandom = "0.4.3"
+oteryn-web = { path = "../web" }
 tracing = "0.1"
 oteryn-ui.workspace = true
 oteryn-db = { path = "../db" }

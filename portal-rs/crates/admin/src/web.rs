@@ -360,6 +360,10 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
                 .is_ok_and(|value| value == "true"),
         ))
         .route("/admin/public-projections", get(public_projections::page))
+        .route(
+            "/admin/audit-evidence",
+            get(crate::audit_evidence::page::<I, A>).post(crate::audit_evidence::export::<I, A>),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -518,6 +522,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             Permission::AdminAnalyticsView,
             Permission::AdminAnalyticsExport,
         ],
+        ("/admin/audit-evidence", _) => &[Permission::ViewAudit],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
@@ -623,6 +628,7 @@ struct Page {
     title: String,
     roles_label: String,
     reports_label: String,
+    world_catalog_link: Option<(String, String)>,
     moderate_reports: bool,
     mail_link: Option<String>,
     client_build_link: Option<String>,
@@ -643,6 +649,8 @@ struct Page {
     editorial_links: Vec<(&'static str, String)>,
     enforcement_link: Option<String>,
     audit_link: Option<String>,
+    downloads_link: Option<String>,
+    audit_evidence_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -822,6 +830,40 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Ok(false) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let mut can_view_world = std::env::var("OTERYN_WORLD_ADMIN").as_deref() == Ok("true");
+    if can_view_world {
+        for permission in [
+            Permission::GameCatalogAccess,
+            Permission::ViewGameCatalogSnapshots,
+        ] {
+            match s.auth.check(context, permission).await {
+                Ok(()) => continue,
+                Err(Error::Denied) => {
+                    can_view_world = false;
+                    break;
+                }
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            }
+        }
+    }
+    let world_catalog_link =
+        can_view_world.then(|| (text(lang, "downloads-catalog"), text(lang, "world-catalog")));
+    let auth = &s.auth;
+    let link = |permission, label| async move {
+        match auth.check(context, permission).await {
+            Ok(()) => Ok(Some(text(lang, label))),
+            Err(Error::Denied) => Ok(None),
+            Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    };
+    let Ok(downloads_link) = link(Permission::ManageDownloads, "downloads-title").await else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let audit_evidence_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "audit-evidence-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -829,6 +871,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         reports_label: text(lang, "reports"),
+        world_catalog_link,
         moderate_reports,
         mail_link,
         client_build_link,
@@ -871,6 +914,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .map(|()| text(lang, "forum")),
         enforcement_link,
         audit_link,
+        downloads_link,
+        audit_evidence_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

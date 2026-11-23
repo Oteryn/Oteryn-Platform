@@ -100,6 +100,15 @@ struct Version {
     status: String,
 }
 #[derive(sqlx::FromRow)]
+struct Candidate {
+    snapshot_id: String,
+    source_revision: String,
+    received: String,
+    version_id: Option<Uuid>,
+    selected: bool,
+}
+
+#[derive(sqlx::FromRow)]
 struct Row {
     kind: String,
     key: String,
@@ -122,6 +131,10 @@ struct Page {
     labels: Labels,
     csrf: String,
     versions: Vec<Version>,
+    candidates: Vec<Candidate>,
+    can_publish: bool,
+    can_change_visibility: bool,
+    can_change_names: bool,
     selected: String,
     comparison: String,
     number: u32,
@@ -129,7 +142,8 @@ struct Page {
     rows: Vec<Row>,
     differences: Vec<Difference>,
     report: String,
-    catalog: bool,
+    native: Option<NativeStatus>,
+    native_schema: &'static str,
 }
 struct Labels {
     title: String,
@@ -152,7 +166,82 @@ struct Labels {
     polish: String,
     english: String,
     page: String,
+    native_catalog: String,
+    native_unavailable: String,
+    native_digest: String,
+    native_revision: String,
+    native_scope: String,
+    native_publication: String,
+    native_shop_records: String,
+    native_quest_records: String,
+    native_pending_contract: String,
+    imports: String,
+    candidates: String,
+    snapshot: String,
+    source: String,
+    received: String,
+    verified: String,
+    selected_for_publication: String,
+    prepared: String,
+    inactive: String,
+    unavailable: String,
+    back: String,
+    activation: String,
 }
+
+impl Page {
+    fn import_status(&self, status: &str) -> String {
+        text(self.lang, status)
+    }
+}
+#[derive(sqlx::FromRow)]
+struct NativeStatus {
+    snapshot_id: String,
+    artifact_sha256: String,
+    source_revision: String,
+    authority_epoch: String,
+    ruleset_id: String,
+    content_profile_id: String,
+    capabilities: Option<Vec<String>>,
+    shop_records: i64,
+    quest_records: i64,
+}
+
+async fn native_status(
+    pool: &PgPool,
+    source: &crate::catalog::Source,
+    publication_enabled: bool,
+) -> Result<Option<NativeStatus>, sqlx::Error> {
+    let fence = &source.fence;
+    let mut status = sqlx::query_as::<_, NativeStatus>(
+        "SELECT c.snapshot_id,c.artifact_sha256,c.source_revision,c.authority_epoch,c.ruleset_id,c.content_profile_id,
+                v.capabilities,
+                (SELECT count(*) FROM world_catalog_records r WHERE r.snapshot_id=c.snapshot_id
+                     AND r.capability_id='npc_shop' AND r.record_class='relation') AS shop_records,
+                (SELECT count(*) FROM world_catalog_records r WHERE r.snapshot_id=c.snapshot_id
+                     AND r.capability_id='quest' AND r.record_class='entity') AS quest_records
+         FROM world_catalog_candidates c
+         LEFT JOIN world_catalog_publication p ON p.singleton AND p.snapshot_id=c.snapshot_id
+             AND COALESCE(p.configured_snapshot_id,p.snapshot_id)=c.snapshot_id
+             AND COALESCE(p.authority_epoch,c.authority_epoch)=c.authority_epoch
+         LEFT JOIN world_catalog_versions v ON v.snapshot_id=p.snapshot_id
+         WHERE c.snapshot_id=$1 AND c.artifact_sha256=$2 AND c.source_revision=$3
+             AND c.authority_epoch=$4 AND c.ruleset_id=$5 AND c.content_profile_id=$6",
+    )
+    .bind(&fence.snapshot_id)
+    .bind(&source.expected_sha256)
+    .bind(&fence.source_revision)
+    .bind(&fence.authority_epoch)
+    .bind(&fence.ruleset_id)
+    .bind(&fence.content_profile_id)
+    .fetch_optional(pool)
+    .await?;
+    if !publication_enabled && let Some(status) = &mut status {
+        status.capabilities = None;
+    }
+    Ok(status)
+}
+
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -185,13 +274,14 @@ async fn page<A: AccountStateReader + 'static>(
     if let Err(status) = authorize(&s, context, Permission::ViewGameCatalogSnapshots).await {
         return status.into_response();
     }
-    match load_page(&s, session, headers, q).await {
+    match load_page(&s, context, session, headers, q).await {
         Ok(page) => oteryn_web::render(&page),
         Err(status) => status.into_response(),
     }
 }
-async fn load_page<A>(
+async fn load_page<A: AccountStateReader>(
     s: &Panel<A>,
+    context: CheckContext,
     session: BrowserSession,
     headers: HeaderMap,
     q: Selection,
@@ -212,7 +302,29 @@ async fn load_page<A>(
     let catalog_active: Option<Uuid> = sqlx::query_scalar("SELECT v.version_id FROM world_catalog_publication p JOIN world_catalog_versions v USING(snapshot_id) WHERE p.singleton")
         .fetch_optional(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let active = catalog_active.or(legacy_active);
-    let selected = q.version.or(active);
+    let requested = q.version.or(active);
+    let versions: Vec<Version> = sqlx::query_as(
+        "SELECT id,source_commit,status FROM world_versions
+         ORDER BY COALESCE(id=$1,false) DESC,created_at DESC,id DESC LIMIT 100",
+    )
+    .bind(requested)
+    .fetch_all(&s.pool)
+    .await
+    .map_err(unavailable)?;
+    let candidates = sqlx::query_as(
+        "SELECT c.snapshot_id, c.source_revision,
+                to_char(c.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS received,
+                v.version_id, COALESCE(p.snapshot_id = c.snapshot_id, false) AS selected
+         FROM world_catalog_candidates c
+         LEFT JOIN world_catalog_versions v USING(snapshot_id)
+         CROSS JOIN world_catalog_publication p
+         ORDER BY (p.snapshot_id = c.snapshot_id) DESC NULLS LAST, c.received_at DESC, c.snapshot_id
+         LIMIT 20",
+    )
+    .fetch_all(&s.pool)
+    .await
+    .map_err(unavailable)?;
+    let selected = requested.or_else(|| versions.first().map(|v| v.id));
     let catalog: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM world_catalog_versions WHERE version_id=$1)",
     )
@@ -220,9 +332,9 @@ async fn load_page<A>(
     .fetch_one(&s.pool)
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let versions = sqlx::query_as("SELECT id,source_commit,status FROM world_versions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let mut rows = Vec::new();
     let mut report = String::new();
+    let mut import_ready = false;
     let mut differences = Vec::new();
     if let Some(id) = selected {
         let diagnostic = store
@@ -230,6 +342,7 @@ async fn load_page<A>(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .ok_or(StatusCode::NOT_FOUND)?;
+        import_ready = diagnostic.status == crate::VersionStatus::Ready;
         report = serde_json::to_string_pretty(&diagnostic)
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         rows = sqlx::query_as("SELECT e.kind,e.key,COALESCE(v.allowed,false) AS allowed,e.publishable,COALESCE(n.pl,'') AS pl,COALESCE(n.en,'') AS en FROM world_entities e LEFT JOIN world_visibility v USING(kind,key) LEFT JOIN world_admin_names n USING(kind,key) WHERE e.version_id=$1 AND e.kind=world_canonical_kind(e.kind) ORDER BY e.kind,e.key LIMIT 200 OFFSET $2").bind(id).bind(offset).fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
@@ -256,19 +369,91 @@ async fn load_page<A>(
     } else {
         "pl"
     };
+    let has_permission = |permission| async move {
+        match s.auth.check(context, permission).await {
+            Ok(()) => Ok(true),
+            Err(oteryn_admin::rbac::Error::Storage(_)) => Err(StatusCode::SERVICE_UNAVAILABLE),
+            Err(_) => Ok(false),
+        }
+    };
+    let current_legacy = !catalog && selected.is_some() && selected == legacy_active;
+    let current_catalog = catalog && selected.is_some() && selected == catalog_active;
+    let can_publish = import_ready
+        && !catalog
+        && !current_legacy
+        && has_permission(Permission::ActivateGameCatalogSnapshots).await?;
+    let can_change_visibility = import_ready
+        && (current_legacy || current_catalog)
+        && has_permission(Permission::ManageGameCatalogProfiles).await?;
+    let can_change_names = import_ready
+        && current_legacy
+        && has_permission(Permission::ManageGameCatalogTranslations).await?;
     macro_rules! labels { ($($key:ident),*) => { Labels { $($key: text(lang,stringify!($key))),* } }; }
     Ok(Page {
-        catalog,
+        native: match crate::catalog::Source::configured().ok().flatten() {
+            Some(source) => native_status(&s.pool, &source, crate::catalog::publication_enabled())
+                .await
+                .map_err(unavailable)?,
+            None => None,
+        },
+        native_schema: crate::catalog::SCHEMA_VERSION,
         lang,
         labels: labels!(
-            title, version, compare, inspect, active, publish, entities, allowed, names, save,
-            validation, diff, before, after, limit, yes, no, polish, english, page
+            title,
+            version,
+            compare,
+            inspect,
+            active,
+            publish,
+            entities,
+            allowed,
+            names,
+            save,
+            validation,
+            diff,
+            before,
+            after,
+            limit,
+            yes,
+            no,
+            polish,
+            english,
+            page,
+            imports,
+            candidates,
+            snapshot,
+            source,
+            received,
+            verified,
+            selected_for_publication,
+            prepared,
+            inactive,
+            unavailable,
+            back,
+            activation,
+            native_catalog,
+            native_unavailable,
+            native_digest,
+            native_revision,
+            native_scope,
+            native_publication,
+            native_shop_records,
+            native_quest_records,
+            native_pending_contract
         ),
-        csrf: session
-            .csrf_token()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        csrf: if can_publish || can_change_visibility || can_change_names {
+            session
+                .csrf_token()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        } else {
+            String::new()
+        },
         versions,
+        candidates,
+        can_publish,
+        can_change_visibility,
+        can_change_names,
         selected: selected.map(|v| v.to_string()).unwrap_or_default(),
         comparison: q.compare.map(|v| v.to_string()).unwrap_or_default(),
         number,

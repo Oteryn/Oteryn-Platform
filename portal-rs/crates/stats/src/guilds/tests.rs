@@ -108,6 +108,11 @@ async fn http_success_refusal_bad_input_and_localization() -> Result {
         (true, "/stats/guilds?compare=Rose", StatusCode::BAD_REQUEST),
         (
             true,
+            "/stats/guilds?guild=Rose&compare=Rose",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            true,
             "/stats/guilds?guild=missing",
             StatusCode::SERVICE_UNAVAILABLE,
         ),

@@ -123,11 +123,11 @@ fn season(now: OffsetDateTime) -> Season {
         ],
     }
 }
-struct Db {
+pub(super) struct Db {
     admin: PgPool,
-    pool: PgPool,
+    pub(super) pool: PgPool,
     schema: String,
-    account: Uuid,
+    pub(super) account: Uuid,
     season: Season,
 }
 impl Db {
@@ -142,7 +142,7 @@ impl Db {
         };
         Self::connect(&url).await.map(Some)
     }
-    async fn required() -> std::result::Result<Self, Box<dyn std::error::Error>> {
+    pub(super) async fn required() -> std::result::Result<Self, Box<dyn std::error::Error>> {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL").map_err(|e| {
             format!(
                 "PORTAL_TEST_DATABASE_URL is required for this PostgreSQL season pass test: {e}"
@@ -220,7 +220,7 @@ impl Db {
             occurred_at: OffsetDateTime::now_utc() - Duration::seconds(1),
         }
     }
-    async fn close(self) -> TestResult {
+    pub(super) async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -1236,5 +1236,140 @@ async fn postgres_overview_uses_one_snapshot_during_first_progress() -> TestResu
             .iter()
             .any(|view| { view.definition.id == challenge.id && view.amount == challenge.target })
     );
+    db.close().await
+}
+
+#[tokio::test]
+async fn puzzle_progress_uses_owned_season_facts_once() -> TestResult {
+    let db = Db::required().await?;
+    let service = Passes::new(
+        db.pool.clone(),
+        Flags {
+            enabled: true,
+            ..Flags::default()
+        },
+        platform::AccountAuthority,
+        Unavailable,
+        Unavailable,
+    );
+    let season = db.season.id;
+    let challenge = db.season.challenges[1].id;
+    let other = Uuid::now_v7();
+    let version = Uuid::now_v7();
+    sqlx::query("UPDATE pass_challenges SET metric=$2,target=2 WHERE id=$1")
+        .bind(challenge)
+        .bind(PUZZLES_SOLVED)
+        .execute(&db.pool)
+        .await?;
+    sqlx::query(
+        "INSERT INTO accounts (id,email,password_hash,status,email_verified_at,locale)
+         VALUES ($1,'another-player@example.invalid','unused','active',now(),'en')",
+    )
+    .bind(other)
+    .execute(&db.pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO world_versions (id,source_commit,status) VALUES ($1,repeat('a',40),'ready')",
+    )
+    .bind(version)
+    .execute(&db.pool)
+    .await?;
+
+    // A wrong answer, another player's solve and a solve outside this season
+    // cannot contribute. Two independent correct answers can.
+    let mut first = Uuid::nil();
+    for (i, owner, correct, in_season) in [
+        (1, db.account, false, true),
+        (2, db.account, true, false),
+        (3, other, true, true),
+        (4, db.account, true, true),
+        (5, db.account, true, true),
+    ] {
+        let puzzle = Uuid::now_v7();
+        let answer = Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO puzzles_daily(id,day,kind,world_version,definition)
+             VALUES ($1,CURRENT_DATE-$2,'quiz',$3,'{}')",
+        )
+        .bind(puzzle)
+        .bind(i)
+        .bind(version)
+        .execute(&db.pool)
+        .await?;
+        if i == 5 {
+            assert_eq!(
+                service
+                    .sync_puzzles(db.account, season, challenge)
+                    .await?
+                    .xp,
+                0
+            );
+            assert_eq!(service.sync_puzzles(other, season, challenge).await?.xp, 0);
+        }
+        sqlx::query(
+            "INSERT INTO puzzles_answers(id,account_id,puzzle_id,choice,correct,created_at)
+             SELECT $1,$2,$3,0,$4,CASE WHEN $5 THEN now() ELSE starts_at-interval '1 minute' END
+             FROM pass_seasons WHERE id=$6",
+        )
+        .bind(answer)
+        .bind(owner)
+        .bind(puzzle)
+        .bind(correct)
+        .bind(in_season)
+        .bind(season)
+        .execute(&db.pool)
+        .await?;
+        if i == 4 {
+            first = answer;
+        }
+    }
+    let (one, two) = tokio::join!(
+        service.sync_puzzles(db.account, season, challenge),
+        service.sync_puzzles(db.account, season, challenge)
+    );
+    assert_eq!(one?.xp, 5);
+    assert_eq!(two?.xp, 5);
+    let view = service.overview(db.account).await?;
+    assert_eq!(view.challenges[1].amount, 2);
+    assert_eq!(view.progress.xp, 5);
+    let recorded: i64 = sqlx::query_scalar("SELECT count(*) FROM pass_events WHERE account_id=$1")
+        .bind(db.account)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(recorded, 2);
+
+    assert!(matches!(
+        service
+            .sync_puzzles(db.account, Uuid::now_v7(), challenge)
+            .await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        service
+            .sync_puzzles(db.account, season, db.season.challenges[0].id)
+            .await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        service.sync_puzzles(db.account, season, Uuid::nil()).await,
+        Err(Error::Invalid)
+    ));
+    sqlx::query("UPDATE pass_events SET amount=2 WHERE event_id=$1")
+        .bind(first)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        service.sync_puzzles(db.account, season, challenge).await,
+        Err(Error::Conflict)
+    ));
+
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(db.account)
+        .execute(&db.pool)
+        .await?;
+    assert!(matches!(
+        service.sync_puzzles(db.account, season, challenge).await,
+        Err(Error::Denied)
+    ));
     db.close().await
 }

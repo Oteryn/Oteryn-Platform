@@ -82,6 +82,12 @@ impl Downloads {
         }
     }
 
+    pub(crate) fn publication_ready(&self, channel: &str) -> bool {
+        self.flags.downloads
+            && Channel::parse(channel)
+                .is_ok_and(|channel| self.trusted_roots.contains_key(&channel))
+    }
+
     fn enabled(&self) -> Result<(), Error> {
         if self.flags.downloads {
             Ok(())

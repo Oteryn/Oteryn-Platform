@@ -20,25 +20,26 @@ operation atomically, binding operation/account/reward/content revision. Returne
 IDs indicate enqueueing only; Game receipts and reconciliation remain store-owned.
 No reward is granted locally. Unknown or failed enqueueing rolls the claim back.
 
-Production remains unavailable. The Store wire and Store purchase delivery
+Game rewards remain unavailable. The Store wire and Store purchase delivery
 contracts are PROPOSED, and the Store owner amendment keeps COSMETIC disabled
 pending the cosmetic authority read. G-9 revision 3 and G-11 revision 4 accept
 the journal wires and semantics. The accepted revisions do not define a
 season-pass metric mapping. The T89 plan reference to §5.8 now points to skull observations,
 and the journal authority still refuses quest and achievement evidence pending
-catalog or custody mapping. The configured event and reward paths fail closed.
+catalog or custody mapping. The configured Game event and reward paths fail closed.
 
 `GET /{pl|en}/pass` renders account-private progress, challenges, free/paid
 tracks and cosmetic grant keys. CSRF-protected POST routes at
 `/{pl|en}/pass/{season}/buy` and `/claim` accept only operation/reward IDs; prices,
 content, account and points are always server-owned. The generic router accepts
 trusted adapters for integration. The configured router mounts only with
-`OTERYN_SEASON_PASS_ENABLED=true`. With `OTERYN_ENV=testing`, the overview checks
-account eligibility in a read-only snapshot and mutations lock the account.
-`OTERYN_SEASON_PASS_WALLET_ENABLED=true` enables
-the existing Wallet's audited pass debit. Test coins can come from the existing
-sandbox checkout. Season definitions for browser qualification are disposable
-fixtures. Outside testing, the mounted routes retain their unavailable adapters.
+`OTERYN_SEASON_PASS_ENABLED=true`. The overview checks account eligibility in
+a read-only snapshot and mutations lock the account. The `daily_puzzles.solved`
+challenge syncs persisted correct answers with an account-scoped, CSRF-protected
+POST to `/{pl|en}/pass/{season}/progress`. Configured Wallet purchases still
+require `OTERYN_ENV=testing` and `OTERYN_SEASON_PASS_WALLET_ENABLED=true`.
+The [qualification and operator handbook](../../../../../docs/product/GAP-63_SEASON_PASS.md)
+describes staff publication and the outstanding Game and Store dependencies.
 All responses are private/no-store.
 
 PostgreSQL tests use isolated schemas, the full migration chain and synthetic

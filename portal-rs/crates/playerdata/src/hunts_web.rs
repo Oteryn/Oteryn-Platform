@@ -175,19 +175,21 @@ fn now() -> Result<i64, StatusCode> {
         .as_secs();
     i64::try_from(seconds).map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
-async fn owner(state: &Web, lang: &str, session: &BrowserSession) -> Result<Uuid, Response> {
+async fn owner(state: &Web, lang: &str, session: &BrowserSession) -> Result<Uuid, Box<Response>> {
     if !state.flags.read {
-        return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+        return Err(Box::new(StatusCode::SERVICE_UNAVAILABLE.into_response()));
     }
     if !matches!(lang, "pl" | "en") {
-        return Err(StatusCode::NOT_FOUND.into_response());
+        return Err(Box::new(StatusCode::NOT_FOUND.into_response()));
     }
     session.account_id().await.ok_or_else(|| {
-        (
-            StatusCode::SEE_OTHER,
-            [(header::LOCATION, format!("/{lang}/login"))],
+        Box::new(
+            (
+                StatusCode::SEE_OTHER,
+                [(header::LOCATION, format!("/{lang}/login"))],
+            )
+                .into_response(),
         )
-            .into_response()
     })
 }
 fn text(lang: &str, id: &str) -> String {
@@ -450,7 +452,7 @@ async fn index(
 ) -> Response {
     let account = match owner(&state, &lang, &session).await {
         Ok(id) => id,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let filter = match query {
         Ok(Query(f)) => f,
@@ -495,7 +497,7 @@ async fn detail(
 ) -> Response {
     let account = match owner(&state, &lang, &session).await {
         Ok(id) => id,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let raw = match query {
         Ok(Query(q)) => q.prices.unwrap_or_default(),
@@ -572,7 +574,7 @@ async fn comparison(
 ) -> Response {
     let account = match owner(&state, &lang, &session).await {
         Ok(id) => id,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let ids = match query.ok().and_then(|Query(q)| q.ids().ok()) {
         Some(ids) => ids,
@@ -609,7 +611,7 @@ async fn private_link(
 ) -> Response {
     let account = match owner(&state, &lang, &session).await {
         Ok(id) => id,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let now = match now() {
         Ok(n) => n,

@@ -13,3 +13,4 @@ east = East
 
 controls = Map controls
 position = X: %x, Y: %y, floor: %floor, zoom: %zoom
+unavailable = World data is currently unavailable.

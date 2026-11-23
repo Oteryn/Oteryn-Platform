@@ -2,6 +2,8 @@
 //! No writes or live game calls. T84/T14b integrate through links and public views.
 pub mod estimate;
 mod http;
+mod shops;
+mod sprite;
 #[cfg(test)]
 mod tests;
 
@@ -47,6 +49,7 @@ pub struct Source {
 pub struct QuestItem {
     pub quest: String,
     pub step: String,
+    pub reward: bool,
     pub item: Option<String>,
     pub count: Option<u32>,
 }
@@ -55,11 +58,13 @@ pub struct Delivery {
     pub version: Uuid,
     pub item: String,
     pub sources: Vec<Source>,
+    pub shops: Vec<shops::ShopOffer>,
     pub requirements: Vec<QuestItem>,
 }
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filters {
+    pub version: Option<Uuid>,
     #[serde(default, deserialize_with = "empty")]
     pub item: Option<String>,
     #[serde(default, deserialize_with = "empty")]
@@ -104,7 +109,8 @@ impl Filters {
                 return Err(Error::InvalidInput);
             }
         }
-        if self.count.is_some_and(|v| v == 0 || v > 100_000)
+        if self.item.as_deref().is_some_and(|key| !item_key(key))
+            || self.count.is_some_and(|v| v == 0 || v > 100_000)
             || self.level.is_some_and(|v| v == 0)
             || self.floor.is_some_and(|v| !(-128..=127).contains(&v))
             || self.rarity.is_some_and(|v| v > 1_000_000)
@@ -119,6 +125,35 @@ impl Filters {
     }
 }
 
+fn key_segment(part: &str) -> bool {
+    part.as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
+        && part
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+
+fn content_key(key: &str) -> bool {
+    key.len() <= 256
+        && key.split_once(':').map_or_else(
+            || key_segment(key),
+            |(ns, id)| key_segment(ns) && key_segment(id),
+        )
+}
+
+fn item_key(key: &str) -> bool {
+    content_key(key)
+        && match key.split_once(':') {
+            Some(("oteryn", id)) => {
+                id.strip_prefix("item.").is_some_and(key_segment)
+                    && !id.bytes().any(|b| b.is_ascii_uppercase())
+            }
+            Some(("item", _)) | None => true,
+            Some(_) => false,
+        }
+}
+
 /// Snapshot seam for T84. Construct only from public WorldStore reads; mixed versions deny.
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -130,16 +165,13 @@ impl Snapshot {
         let mut map = BTreeMap::new();
         for mut e in entities {
             // World imports preserve the original record envelope.
-            if let Some(inner) = e
-                .data
-                .get(if e.kind == "Spawn.Source" {
-                    "declaration"
-                } else {
-                    "definition"
-                })
-                .cloned()
-            {
-                e.data = inner;
+            let envelope = if e.kind == "Spawn.Source" {
+                "declaration"
+            } else {
+                "definition"
+            };
+            if let Some(inner) = e.data.get_mut(envelope) {
+                e.data = inner.take();
             }
             if e.version_id != version || map.insert((e.kind, e.key), e.data).is_some() {
                 return Err(Error::Unavailable);
@@ -160,7 +192,11 @@ impl Snapshot {
             .map(|((_, key), v)| (key.as_str(), v))
     }
     pub fn items(&self) -> Vec<String> {
-        self.kind("Item").map(|(k, _)| k.to_owned()).collect()
+        self.kind("Item")
+            .map(|(key, _)| key)
+            .filter(|key| item_key(key))
+            .map(str::to_owned)
+            .collect()
     }
     pub fn creature_items(&self, creature: &str) -> BTreeSet<String> {
         self.get("Creature", creature)
@@ -185,47 +221,59 @@ impl Snapshot {
                 .or_else(|| v.pointer("/presentation/stages"))
                 .and_then(Value::as_array);
             for s in stages.into_iter().flatten() {
-                if !matches!(
+                if matches!(
                     s.get("kind").and_then(Value::as_str),
                     Some("collect" | "item")
                 ) {
-                    continue;
-                }
-                let targets: Vec<&Value> = s
-                    .get("target_items")
-                    .and_then(Value::as_array)
-                    .map(|items| items.iter().collect())
-                    .unwrap_or_else(|| vec![s]);
-                for target in targets {
-                    // An unresolved marker vetoes a key. Never infer from objective/name.
-                    let item = if s.get("item_resolution").is_some()
-                        || target.get("item_resolution").is_some()
-                    {
-                        None
+                    if let Some(items) = s.get("target_items").and_then(Value::as_array) {
+                        result.extend(
+                            items
+                                .iter()
+                                .map(|target| self.quest_item(quest, s, target, false)),
+                        );
                     } else {
-                        target
-                            .get("item")
-                            .and_then(reference)
-                            .filter(|key| self.get("Item", key).is_some())
-                    };
-                    result.push(QuestItem {
-                        quest: quest.into(),
-                        step: s
-                            .get("key")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default()
-                            .into(),
-                        item: item.map(str::to_owned),
-                        count: s
-                            .get("count")
-                            .and_then(Value::as_u64)
-                            .and_then(|n| u32::try_from(n).ok())
-                            .filter(|n| *n > 0),
-                    });
+                        result.push(self.quest_item(quest, s, s, false));
+                    }
+                }
+                if let Some(rewards) = s.get("reward_items").and_then(Value::as_array) {
+                    result.extend(
+                        rewards
+                            .iter()
+                            .map(|reward| self.quest_item(quest, s, reward, true)),
+                    );
                 }
             }
         }
         result
+    }
+    fn quest_item(&self, quest: &str, step: &Value, target: &Value, reward: bool) -> QuestItem {
+        // Resolution markers veto keys. Objectives and rewards cannot be inferred from names.
+        let item =
+            if step.get("item_resolution").is_some() || target.get("item_resolution").is_some() {
+                None
+            } else {
+                target
+                    .get("item")
+                    .and_then(reference)
+                    .filter(|key| item_key(key) && self.get("Item", key).is_some())
+            };
+        let count = target
+            .get("count")
+            .or_else(|| if reward { None } else { step.get("count") });
+        QuestItem {
+            quest: quest.into(),
+            step: step
+                .get("key")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .into(),
+            reward,
+            item: item.map(str::to_owned),
+            count: count
+                .and_then(Value::as_u64)
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| (1..=100_000).contains(n)),
+        }
     }
     pub fn discover(&self, options: Options, filters: &Filters) -> Result<Delivery, Error> {
         if !options.enabled {
@@ -233,7 +281,11 @@ impl Snapshot {
         }
         filters.validate()?;
         let item = filters.item.as_deref().ok_or(Error::InvalidInput)?;
-        if self.get("Item", item).is_none() {
+        if filters
+            .version
+            .is_some_and(|version| version != self.version)
+            || self.get("Item", item).is_none()
+        {
             return Err(Error::Unavailable);
         }
         let mut sources = Vec::new();
@@ -327,6 +379,9 @@ impl Snapshot {
                 };
                 let city = spawn.get("city").and_then(Value::as_str).map(str::to_owned);
                 if respawn_ms == 0
+                    || u32::try_from(x).is_err()
+                    || u32::try_from(y).is_err()
+                    || u8::try_from(floor).is_err()
                     || filters.floor.is_some_and(|n| n != floor)
                     || filters
                         .city
@@ -347,8 +402,9 @@ impl Snapshot {
                 continue;
             }
             spawns.sort_by_key(|p| (p.floor, p.x, p.y));
-            let estimate = if min == max {
-                let target = filters.count.unwrap_or(1);
+            let estimate = if min == max
+                && let Some(target) = filters.count
+            {
                 let key = (target, min, ppm);
                 estimate_cache
                     .entry(key)
@@ -403,6 +459,11 @@ impl Snapshot {
             version: self.version,
             item: item.into(),
             sources,
+            shops: if filters.tab.as_deref() == Some("creatures") || filters.creature.is_some() {
+                Vec::new()
+            } else {
+                self.shop_offers(item)
+            },
             requirements: self.requirements(),
         })
     }
@@ -411,39 +472,22 @@ fn reference(v: &Value) -> Option<&str> {
     v.as_str().or_else(|| v.get("key").and_then(Value::as_str))
 }
 
-/// Reads only allow-listed entities from a single active world. A concurrent activation denies.
+/// Read allow-listed entities using one database snapshot of the active world.
 pub async fn load(store: &WorldStore) -> Result<Snapshot, Error> {
-    let version = store
-        .active_version_id()
+    let (version, entities) = store
+        .public_snapshot(&[
+            "Item",
+            "Creature",
+            "Loot",
+            "Spawn.Source",
+            "Quest",
+            "NPC",
+            shops::KIND,
+            sprite::KIND,
+        ])
         .await
         .map_err(|_| Error::Unavailable)?
         .ok_or(Error::Unavailable)?;
-    let mut entities = Vec::new();
-    for kind in ["Item", "Creature", "Loot", "Spawn.Source", "Quest"] {
-        let mut after = None;
-        loop {
-            let page = store
-                .list_by_kind(kind, after.as_deref(), 1000)
-                .await
-                .map_err(|_| Error::Unavailable)?;
-            if page.is_empty() {
-                break;
-            }
-            after = page.last().map(|e| e.key.clone());
-            entities.extend(page);
-            if entities.len() > 200_000 {
-                return Err(Error::Unavailable);
-            }
-        }
-    }
-    if store
-        .active_version_id()
-        .await
-        .map_err(|_| Error::Unavailable)?
-        != Some(version)
-    {
-        return Err(Error::Unavailable);
-    }
     Snapshot::from_visible(version, entities)
 }
 
@@ -468,6 +512,7 @@ pub fn wiki_map_links_enabled() -> bool {
 pub fn wiki_map_link(locale: &str, kind: &str, key: &str) -> Result<String, Error> {
     if !["pl", "en"].contains(&locale)
         || !["items", "creatures"].contains(&kind)
+        || (kind == "items" && !item_key(key))
         || key.is_empty()
         || key.len() > 256
         || key.chars().any(char::is_control)

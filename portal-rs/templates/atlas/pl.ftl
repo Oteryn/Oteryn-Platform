@@ -13,3 +13,4 @@ east = Wschód
 
 controls = Sterowanie mapą
 position = X: %x, Y: %y, piętro: %floor, przybliżenie: %zoom
+unavailable = Dane świata są obecnie niedostępne.

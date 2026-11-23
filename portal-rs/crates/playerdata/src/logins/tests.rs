@@ -419,6 +419,39 @@ async fn postgres_browser_presentation_and_owner_denial() {
     assert!(body.contains("No sessions have been revoked."));
     assert!(body.contains("Unknown; this does not confirm an active session"));
     assert!(body.contains("width=device-width"));
+    let summary_path = "/en/account/game-logins?view=latest";
+    let summary = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(summary_path)
+                .header("cookie", cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(summary.status(), StatusCode::OK);
+    assert_eq!(summary.headers()["cache-control"], "private, no-store");
+    let payload: serde_json::Value =
+        serde_json::from_slice(&to_bytes(summary.into_body(), 65536).await.unwrap()).unwrap();
+    assert_eq!(
+        payload,
+        serde_json::json!({"entered_at": record.login.entered_at.parse::<i64>().unwrap()})
+    );
+
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(summary_path)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(refused.headers()["cache-control"], "private, no-store");
     let polish = app
         .oneshot(
             Request::builder()

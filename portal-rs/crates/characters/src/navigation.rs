@@ -1,6 +1,6 @@
 //! Account section navigation, using existing feature flags.
 use oteryn_ui::{Group, Registry};
-/// Register the character creation link when the browser route is mounted.
+/// Register character and account display links.
 pub fn register(registry: &mut Registry) {
     registry.section(
         crate::create_web::Settings::configured().mounted(),
@@ -15,6 +15,14 @@ pub fn register(registry: &mut Registry) {
         "account-badges",
         "shell-account-badges",
         "account/badges",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        true,
+        "account-display",
+        "shell-account-display",
+        "account/display",
         Group::Account,
         false,
     );

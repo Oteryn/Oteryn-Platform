@@ -3,7 +3,7 @@ use super::*;
 use serde_json::json;
 use sqlx::{AssertSqlSafe, PgPool, Row, postgres::PgPoolOptions};
 
-async fn database() -> Option<(PgPool, PgPool, String)> {
+pub(crate) async fn database() -> Option<(PgPool, PgPool, String)> {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
         eprintln!("Skipping PostgreSQL audit test: PORTAL_TEST_DATABASE_URL is unset");
         return None;
@@ -30,7 +30,7 @@ async fn database() -> Option<(PgPool, PgPool, String)> {
     oteryn_db::migrate(&pool).await.unwrap();
     Some((pool, root, schema))
 }
-async fn close(pool: PgPool, root: PgPool, schema: String) {
+pub(crate) async fn close(pool: PgPool, root: PgPool, schema: String) {
     pool.close().await;
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)

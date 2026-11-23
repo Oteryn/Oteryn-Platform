@@ -4,7 +4,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, State},
-    http::{Method, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -39,8 +39,10 @@ struct Page {
     csrf: String,
     operation: Uuid,
     overview: Option<Overview>,
+    show_operator: bool,
+    show_puzzles_link: bool,
 }
-fn text(lang: &str, id: &str) -> String {
+pub(super) fn text(lang: &str, id: &str) -> String {
     let source = if lang == "pl" {
         include_str!("../../../../templates/pass/pl.ftl")
     } else {
@@ -86,7 +88,13 @@ impl Page {
             csrf,
             operation: Uuid::now_v7(),
             overview,
+            show_operator: false,
+            show_puzzles_link: std::env::var("OTERYN_DAILY_PUZZLES_ENABLED").as_deref()
+                == Ok("true"),
         }
+    }
+    fn t(&self, key: &str) -> String {
+        text(&self.lang, key)
     }
     fn response(self, status: StatusCode) -> Response {
         match self.render() {
@@ -131,6 +139,10 @@ pub fn router<A: Authority + 'static, P: Payment + 'static, R: Rewards + 'static
                     "/{lang}/pass/{season}/claim",
                     axum::routing::post(claim::<A, P, R>),
                 )
+                .route(
+                    "/{lang}/pass/{season}/progress",
+                    axum::routing::post(sync_puzzles::<A, P, R>),
+                )
                 .layer(axum::middleware::from_fn_with_state(
                     sessions,
                     oteryn_web::session::middleware,
@@ -142,7 +154,8 @@ pub fn router<A: Authority + 'static, P: Payment + 'static, R: Rewards + 'static
         .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(Arc::new(passes))
 }
-/// Only the Platform account and Wallet adapters are activated in testing.
+/// Platform progress uses the account authority. Spending stays testing-only,
+/// and Game delivery stays unavailable until the Store adapter is qualified.
 pub fn configured_router(pool: PgPool) -> Router {
     let enabled = std::env::var("OTERYN_SEASON_PASS_ENABLED").as_deref() == Ok("true");
     let testing = std::env::var("OTERYN_ENV").as_deref() == Ok("testing");
@@ -160,22 +173,24 @@ pub fn configured_router(pool: PgPool) -> Router {
             .collect(),
         ..CsrfConfig::default()
     };
-    if testing {
-        let payment = platform::payment(pool.clone(), flags.paid);
-        let passes = Passes::new(
-            pool.clone(),
-            flags,
-            platform::AccountAuthority,
-            payment,
-            Unavailable,
-        );
-        router(pool, passes, flags, csrf)
+    let payment = platform::payment(pool.clone(), flags.paid);
+    let passes = Passes::new(
+        pool.clone(),
+        flags,
+        platform::AccountAuthority,
+        payment,
+        Unavailable,
+    );
+    let operator = operator::Operator::configured(pool.clone(), flags);
+    let player = router(pool, passes, flags, csrf.clone());
+    if let Some(operator) = operator {
+        let staff = operator.router(csrf);
+        player.layer(Extension(operator)).merge(staff)
     } else {
-        let passes = Passes::new(pool.clone(), flags, Unavailable, Unavailable, Unavailable);
-        router(pool, passes, flags, csrf)
+        player
     }
 }
-async fn response_policy(
+pub(super) async fn response_policy(
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> Response {
@@ -187,7 +202,11 @@ async fn response_policy(
     }
     .to_owned();
     let mut response = next.run(request).await;
-    if response.status().is_client_error() || response.status().is_server_error() {
+    let rendered = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+    if !rendered && (response.status().is_client_error() || response.status().is_server_error()) {
         response = if let Some(lang) = purchase.filter(|_| response.status().is_server_error()) {
             uncertain_purchase(lang, response.status())
         } else {
@@ -232,14 +251,14 @@ pub(crate) fn uncertain_purchase(lang: &str, status: StatusCode) -> Response {
     page.response(status)
 }
 
-fn locale(lang: &str) -> std::result::Result<(), StatusCode> {
+pub(super) fn locale(lang: &str) -> std::result::Result<(), StatusCode> {
     if matches!(lang, "pl" | "en") {
         Ok(())
     } else {
         Err(StatusCode::NOT_FOUND)
     }
 }
-fn refusal(lang: String, error: Error) -> Response {
+pub(super) fn refusal(lang: String, error: Error) -> Response {
     let status = match error {
         Error::Disabled => StatusCode::NOT_FOUND,
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
@@ -247,12 +266,22 @@ fn refusal(lang: String, error: Error) -> Response {
         Error::Conflict => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
-    Page::new(lang, String::new(), None).response(status)
+    let mut page = Page::new(lang, String::new(), None);
+    if matches!(error, Error::Conflict | Error::Invalid | Error::Denied) {
+        page.unavailable = page.t(match error {
+            Error::Conflict => "conflict",
+            Error::Invalid => "invalid",
+            _ => "denied",
+        });
+    }
+    page.response(status)
 }
 async fn page<A: Authority, P: Payment, R: Rewards>(
     Path(lang): Path<String>,
     State(passes): State<Arc<Passes<A, P, R>>>,
     session: Option<Extension<SignedInSession>>,
+    operator: Option<Extension<operator::Operator>>,
+    headers: HeaderMap,
 ) -> Response {
     if let Err(status) = locale(&lang) {
         return status.into_response();
@@ -260,10 +289,16 @@ async fn page<A: Authority, P: Payment, R: Rewards>(
     let Some(Extension(session)) = session else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    match passes.overview(session.account_id).await {
-        Ok(view) => Page::new(lang, session.csrf, Some(view)).response(StatusCode::OK),
-        Err(error) => refusal(lang, error),
+    let (overview, status) = match passes.overview(session.account_id).await {
+        Ok(view) => (Some(view), StatusCode::OK),
+        Err(Error::Unavailable) => (None, StatusCode::SERVICE_UNAVAILABLE),
+        Err(error) => return refusal(lang, error),
+    };
+    let mut page = Page::new(lang, session.csrf, overview);
+    if let Some(Extension(operator)) = operator {
+        page.show_operator = operator.show_link(&headers, session.account_id).await;
     }
+    page.response(status)
 }
 
 #[derive(Debug, Deserialize)]
@@ -295,6 +330,9 @@ async fn buy<A: Authority, P: Payment, R: Rewards>(
     };
     match passes.buy(account, season, form.operation).await {
         Ok(_) => Redirect::to(&format!("/{lang}/pass")).into_response(),
+        Err(Error::Database(_) | Error::Unavailable) => {
+            uncertain_purchase(&lang, StatusCode::SERVICE_UNAVAILABLE)
+        }
         Err(error) => refusal(lang, error),
     }
 }
@@ -318,9 +356,59 @@ async fn claim<A: Authority, P: Payment, R: Rewards>(
         Err(error) => refusal(lang, error),
     }
 }
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProgressForm {
+    #[serde(rename = "_csrf")]
+    _csrf: String,
+    challenge: Uuid,
+}
+async fn sync_puzzles<A: Authority, P: Payment, R: Rewards>(
+    Path((lang, season)): Path<(String, Uuid)>,
+    State(passes): State<Arc<Passes<A, P, R>>>,
+    Extension(session): Extension<BrowserSession>,
+    Form(form): Form<ProgressForm>,
+) -> Response {
+    if let Err(status) = locale(&lang) {
+        return status.into_response();
+    }
+    let Some(account) = session.account_id().await else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    match passes.sync_puzzles(account, season, form.challenge).await {
+        Ok(_) => Redirect::to(&format!("/{lang}/pass")).into_response(),
+        Err(error) => refusal(lang, error),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn missing_journal_progress_has_no_numeric_value() -> std::result::Result<(), askama::Error> {
+        let view = Overview {
+            can_buy: false,
+            season: Uuid::now_v7(),
+            ends_at: time::OffsetDateTime::now_utc(),
+            price: 10,
+            progress: Progress { xp: 0, paid: false },
+            challenges: vec![ChallengeView {
+                definition: Challenge {
+                    id: Uuid::now_v7(),
+                    source: Source::Journal,
+                    metric: "test.metric".into(),
+                    target: 2,
+                    xp: 5,
+                },
+                amount: 0,
+            }],
+            rewards: Vec::new(),
+        };
+        let html = Page::new("en".into(), String::new(), Some(view)).render()?;
+        assert!(html.contains("Game journal challenge"));
+        assert!(!html.contains("0 / 2"));
+        Ok(())
+    }
+
     #[test]
     fn unavailable_page_has_both_locales_and_mobile_viewport()
     -> std::result::Result<(), askama::Error> {

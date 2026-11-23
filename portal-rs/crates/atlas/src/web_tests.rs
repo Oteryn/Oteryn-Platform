@@ -190,11 +190,22 @@ async fn postgres_viewer_routes() -> TestResult {
         StatusCode::NOT_FOUND
     );
     assert_eq!(
-        app.oneshot(Request::get("/en/atlas?z=99").body(Body::empty())?)
+        app.clone()
+            .oneshot(Request::get("/en/atlas?z=99").body(Body::empty())?)
             .await?
             .status(),
         StatusCode::NOT_FOUND
     );
+    let pinned = app
+        .oneshot(
+            Request::get("/en/atlas?z=99&version=01900000-0000-7000-8000-000000000001")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(pinned.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(pinned.headers()[header::CACHE_CONTROL], "no-store");
+    let pinned_body = String::from_utf8(to_bytes(pinned.into_body(), 4096).await?.to_vec())?;
+    assert!(pinned_body.contains("World data is currently unavailable."));
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&admin)

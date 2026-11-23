@@ -1838,3 +1838,209 @@ async fn same_epoch_recovery_binds_a_legacy_nonterminal_cursor() -> TestResult {
     assert_eq!(pending, 1);
     db.close().await
 }
+
+#[test]
+fn prediction_deadline_and_final_score() -> TestResult {
+    let schema::Snapshot::Event(open) =
+        schema::Snapshot::decode(&wire("advance_schedule")?, false, NOW)?
+    else {
+        return Err("missing scheduled event".into());
+    };
+    let event = &open.event[0];
+    let deadline = schema::number(&event.lock_at, false)?;
+    assert!(predictions::open(event, deadline - 2));
+    assert!(!predictions::open(event, deadline - 1));
+    assert!(!predictions::open(event, deadline));
+    assert_eq!(predictions::final_score(event, "completed"), None);
+
+    let schema::Snapshot::Event(closed) =
+        schema::Snapshot::decode(&wire("final_freeze")?, false, NOW)?
+    else {
+        return Err("missing closed event".into());
+    };
+    let mut invalid = closed.clone();
+    invalid.event[0].outcome = vec!["unlisted".into()];
+    assert!(matches!(
+        schema::Snapshot::decode(&serde_json::to_vec(&invalid)?, false, NOW),
+        Err(Error::Invalid)
+    ));
+    let mut event = closed.event[0].clone();
+    assert_eq!(predictions::final_score(&event, "timed-out"), Some(1));
+    assert_eq!(predictions::final_score(&event, "completed"), Some(0));
+    event.state = "SETTLED".into();
+    assert_eq!(predictions::final_score(&event, "timed-out"), None);
+    event.state = "CLOSED".into();
+    event.outcome.clear();
+    assert_eq!(predictions::final_score(&event, "completed"), None);
+    Ok(())
+}
+
+#[tokio::test]
+async fn verified_prediction_and_standings_lifecycle() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let dir = tempfile::tempdir()?;
+    let c = real_config(dir.path());
+    write_recovery(&c, "1")?;
+    let league = League::new(
+        db.pool.clone(),
+        flags(),
+        runtime::GameAuthority::new(c.clone()),
+    );
+    let player: Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,email_verified_at,locale)
+         VALUES('predictor@example.invalid','unused','active',now(),'en') RETURNING id",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    let other: Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,email_verified_at,locale)
+         VALUES('other-predictor@example.invalid','unused','active',now(),'en') RETURNING id",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    let now = runtime::now()?;
+    let closing_time = now + 12;
+    let schema::Snapshot::Event(mut snapshot) =
+        schema::Snapshot::decode(&wire("advance_schedule")?, false, now)?
+    else {
+        return Err("missing event fixture".into());
+    };
+    snapshot.source_observed_at = now.to_string();
+    snapshot.event[0].lock_at = (closing_time - 2).to_string();
+    snapshot.event[0].scheduled_start = (closing_time - 1).to_string();
+    snapshot.event[0].scheduled_end = closing_time.to_string();
+    enqueue_publication(
+        &db,
+        &c,
+        &publication(&c, admission::EVENT, serde_json::to_vec(&snapshot)?)?,
+    )
+    .await?;
+    advance_watermarks(&db, &c, "3").await?;
+    assert_eq!(league.overview(Some(player)).await?.active.len(), 1);
+    let form = |revision: &str, choice: &str| {
+        serde_json::from_value::<predictions::Form>(serde_json::json!({
+            "_csrf": "",
+            "world": snapshot.world_id,
+            "event": snapshot.event_id,
+            "epoch": "3",
+            "generation": "1",
+            "revision": revision,
+            "choice": choice,
+        }))
+    };
+    assert!(matches!(
+        league
+            .predict(Uuid::now_v7(), form("1", "completed")?)
+            .await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        league.predict(player, form("2", "completed")?).await,
+        Err(Error::Conflict)
+    ));
+    assert!(matches!(
+        league.predict(player, form("01", "completed")?).await,
+        Err(Error::Invalid)
+    ));
+    assert!(matches!(
+        league.predict(player, form("1", "not-an-option")?).await,
+        Err(Error::Invalid)
+    ));
+    let (a, b) = tokio::join!(
+        league.predict(player, form("1", "completed")?),
+        league.predict(player, form("1", "completed")?),
+    );
+    assert!(matches!(
+        (a, b),
+        (Ok(()), Err(Error::Conflict)) | (Err(Error::Conflict), Ok(()))
+    ));
+    assert!(league.overview(Some(other)).await?.choices.is_empty());
+    let first = league.overview(Some(player)).await?;
+    assert_eq!(first.choices.values().collect::<Vec<_>>(), ["completed"]);
+
+    while runtime::now()? < closing_time {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+    advance_watermarks(&db, &c, "3").await?;
+    assert!(matches!(
+        league.predict(other, form("1", "completed")?).await,
+        Err(Error::Conflict)
+    ));
+
+    for state in ["LOCKED", "SETTLED", "CLOSED"] {
+        snapshot.projection_revision =
+            (schema::number(&snapshot.projection_revision, false)? + 1).to_string();
+        snapshot.source_observed_at = runtime::now()?.to_string();
+        let record = &mut snapshot.event[0];
+        record.state = state.into();
+        if state == "SETTLED" {
+            record.decided_at = vec![snapshot.source_observed_at.clone()];
+            record.evidence_sha256 = vec!["ab".repeat(32)];
+            record.outcome = vec!["completed".into()];
+            record.reason_code = "NATIVE_RESULT".into();
+        }
+        if state == "CLOSED" {
+            record.reason_code = "FINAL_FREEZE".into();
+        }
+        enqueue_publication(
+            &db,
+            &c,
+            &publication(&c, admission::EVENT, serde_json::to_vec(&snapshot)?)?,
+        )
+        .await?;
+        advance_watermarks(&db, &c, "3").await?;
+    }
+    let schema::Snapshot::Season(mut standings) =
+        schema::Snapshot::decode(&wire("tied_guilds_frozen")?, true, runtime::now()?)?
+    else {
+        return Err("missing standings fixture".into());
+    };
+    standings.source_observed_at = runtime::now()?.to_string();
+    let standings = publication(&c, admission::SEASON, serde_json::to_vec(&standings)?)?;
+    enqueue_publication(&db, &c, &standings).await?;
+    advance_watermarks(&db, &c, "3").await?;
+    for _ in 0..2 {
+        let overview = league.overview(Some(player)).await?;
+        assert!(overview.active.is_empty());
+        let mut decisions = overview.decisions.into_iter();
+        let Some(schema::Snapshot::Season(season)) = decisions.next() else {
+            return Err("expected verified standings".into());
+        };
+        assert_eq!(season.season[0].standings.len(), 2);
+        let Some(schema::Snapshot::Event(event)) = decisions.next() else {
+            return Err("expected final verified event".into());
+        };
+        let choice = overview
+            .choices
+            .values()
+            .next()
+            .ok_or("missing saved choice")?;
+        assert_eq!(predictions::final_score(&event.event[0], choice), Some(1));
+    }
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM league_predictions")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(count, 1);
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    snapshot.projection_revision = "3".into();
+    snapshot.source_observed_at = runtime::now()?.to_string();
+    snapshot.event[0].state = "SETTLED".into();
+    snapshot.event[0].reason_code = "NATIVE_RESULT".into();
+    let previous = publication(&c, admission::EVENT, serde_json::to_vec(&snapshot)?)?;
+    enqueue_publication(&db, &c, &previous).await?;
+    let worker = runtime::FeedJob {
+        pool: db.pool.clone(),
+    };
+    assert!(matches!(
+        worker.run_config(c).await,
+        Err(Error::Unavailable)
+    ));
+    assert!(matches!(
+        league.overview(Some(player)).await,
+        Err(Error::Unavailable)
+    ));
+    db.close().await
+}

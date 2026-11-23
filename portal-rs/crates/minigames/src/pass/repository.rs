@@ -36,27 +36,7 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
         self.authority.publish(&mut tx, actor).await?;
-        let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
-            .fetch_one(&mut *tx)
-            .await?;
-        if season.starts_at <= now {
-            return Err(Error::Invalid);
-        }
-        sqlx::query("INSERT INTO pass_seasons (id,starts_at,ends_at,price) VALUES ($1,$2,$3,$4)")
-            .bind(season.id)
-            .bind(season.starts_at)
-            .bind(season.ends_at)
-            .bind(season.price)
-            .execute(&mut *tx)
-            .await?;
-        for c in &season.challenges {
-            sqlx::query("INSERT INTO pass_challenges (id,season_id,source,metric,target,xp) VALUES ($1,$2,$3,$4,$5,$6)")
-                .bind(c.id).bind(season.id).bind(c.source.key()).bind(&c.metric).bind(c.target).bind(c.xp).execute(&mut *tx).await?;
-        }
-        for r in &season.rewards {
-            sqlx::query("INSERT INTO pass_rewards (id,season_id,track,xp,grant_key,grant_revision) VALUES ($1,$2,$3,$4,$5,$6)")
-                .bind(r.id).bind(season.id).bind(if r.paid {"paid"} else {"free"}).bind(r.xp).bind(&r.grant_key).bind(&r.grant_revision).execute(&mut *tx).await?;
-        }
+        publish_definition(&mut tx, season).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -164,14 +144,16 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             challenges.push(ChallengeView { definition: Challenge { id:row.try_get("id")?, source, metric:row.try_get("metric")?, target:row.try_get("target")?, xp:row.try_get("xp")? }, amount:row.try_get("amount")? });
         }
         let mut rewards = Vec::new();
-        for row in sqlx::query("SELECT r.id,r.track,r.xp,r.grant_key,r.grant_revision,c.id IS NOT NULL AS claimed FROM pass_rewards r LEFT JOIN pass_claims c ON c.reward_id=r.id AND c.season_id=r.season_id AND c.account_id=$2 WHERE r.season_id=$1 ORDER BY r.xp,r.track,r.id")
+        for row in sqlx::query("SELECT r.id,r.track,r.xp,r.grant_key,r.grant_revision,c.id AS operation,c.delivery_id AS delivery FROM pass_rewards r LEFT JOIN pass_claims c ON c.reward_id=r.id AND c.season_id=r.season_id AND c.account_id=$2 WHERE r.season_id=$1 ORDER BY r.xp,r.track,r.id")
             .bind(season).bind(account).fetch_all(&mut *tx).await? {
             let paid=match row.try_get::<String,_>("track")?.as_str() { "paid"=>true,"free"=>false,_=>return Err(Error::Denied) };
             let definition=Reward { id:row.try_get("id")?, paid, xp:row.try_get("xp")?, grant_key:row.try_get("grant_key")?, grant_revision:row.try_get("grant_revision")? };
-            let claimed: bool=row.try_get("claimed")?;
-            let eligible=self.flags.rewards && !claimed && progress.xp>=definition.xp && (!paid || (self.flags.paid && progress.paid));
+            let claim = row.try_get::<Option<Uuid>, _>("operation")?
+                .map(|operation| row.try_get("delivery").map(|delivery| Claim { operation, delivery }))
+                .transpose()?;
+            let eligible=self.flags.rewards && claim.is_none() && progress.xp>=definition.xp && (!paid || (self.flags.paid && progress.paid));
             rewards.push(RewardView {
-                operation: Uuid::now_v7(),definition,claimed,eligible});
+                operation: Uuid::now_v7(),definition,claim,eligible});
         }
         let result = Overview {
             can_buy: self.flags.paid && !progress.paid,
@@ -213,22 +195,85 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             return Ok(progress);
         }
         self.live(&mut tx, event.season).await?;
-        let target: i64 = c.try_get("target")?;
-        let prior: i64 = sqlx::query_scalar("SELECT amount FROM pass_challenge_progress WHERE account_id=$1 AND season_id=$2 AND challenge_id=$3")
-            .bind(event.account).bind(event.season).bind(event.challenge).fetch_optional(&mut *tx).await?.unwrap_or(0);
-        let next = prior.saturating_add(event.amount).min(target);
         sqlx::query("INSERT INTO pass_events (account_id,season_id,challenge_id,event_id,amount,occurred_at) VALUES ($1,$2,$3,$4,$5,$6)")
             .bind(event.account).bind(event.season).bind(event.challenge).bind(event.id).bind(event.amount).bind(event.occurred_at).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO pass_challenge_progress (account_id,season_id,challenge_id,amount) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id,season_id,challenge_id) DO UPDATE SET amount=EXCLUDED.amount")
-            .bind(event.account).bind(event.season).bind(event.challenge).bind(next).execute(&mut *tx).await?;
-        if prior < target && next == target {
-            progress.xp = progress
-                .xp
-                .checked_add(c.try_get("xp")?)
-                .ok_or(Error::Invalid)?;
-            sqlx::query("UPDATE pass_progress SET xp=$3,updated_at=clock_timestamp() WHERE account_id=$1 AND season_id=$2")
-                .bind(event.account).bind(event.season).bind(progress.xp).execute(&mut *tx).await?;
+        progress.xp = apply_challenge_progress(
+            &mut tx,
+            (event.account, event.season, event.challenge),
+            c.try_get("target")?,
+            event.amount,
+            c.try_get("xp")?,
+            progress.xp,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(progress)
+    }
+    /// Import completed Portal puzzles for this account and challenge. The
+    /// browser selects the challenge only; event identities and amounts are stored facts.
+    pub(super) async fn sync_puzzles(
+        &self,
+        account: Uuid,
+        season: Uuid,
+        challenge: Uuid,
+    ) -> Result<Progress> {
+        self.enabled()?;
+        if !valid_id(challenge) {
+            return Err(Error::Invalid);
         }
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        let (mut progress, _) = self.lock(&mut tx, account, season).await?;
+        self.live(&mut tx, season).await?;
+        let (target, xp): (i64, i64) = sqlx::query_as(
+            "SELECT target,xp FROM pass_challenges WHERE id=$1 AND season_id=$2
+               AND source='portal' AND metric=$3",
+        )
+        .bind(challenge)
+        .bind(season)
+        .bind(PUZZLES_SOLVED)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Denied)?;
+        let (added, conflict): (i64, bool) = sqlx::query_as(
+            "WITH facts AS (
+                SELECT a.id,a.created_at FROM puzzles_answers a, pass_seasons s
+                WHERE a.account_id=$1 AND a.correct AND s.id=$2
+                  AND a.created_at>=s.starts_at AND a.created_at<s.ends_at
+                  AND a.created_at<=statement_timestamp()
+             ), inserted AS (
+                INSERT INTO pass_events (account_id,season_id,challenge_id,event_id,amount,occurred_at)
+                SELECT $1,$2,$3,id,1,created_at FROM facts
+                ON CONFLICT (account_id,challenge_id,event_id) DO NOTHING
+                RETURNING 1
+             )
+             SELECT (SELECT count(*) FROM inserted), EXISTS(
+                SELECT FROM facts f JOIN pass_events e ON e.event_id=f.id
+                WHERE e.account_id=$1 AND e.challenge_id=$3
+                  AND (e.season_id<>$2 OR e.amount<>1 OR e.occurred_at<>f.created_at)
+             )",
+        )
+        .bind(account)
+        .bind(season)
+        .bind(challenge)
+        .fetch_one(&mut *tx)
+        .await?;
+        if conflict {
+            return Err(Error::Conflict);
+        }
+        if added == 0 {
+            tx.rollback().await?;
+            return Ok(progress);
+        }
+        let earned = apply_challenge_progress(
+            &mut tx,
+            (account, season, challenge),
+            target,
+            added,
+            xp,
+            progress.xp,
+        )
+        .await?;
+        progress.xp = earned;
         tx.commit().await?;
         Ok(progress)
     }
@@ -363,4 +408,64 @@ impl<A: Authority, P: Payment, R: Rewards> Passes<A, P, R> {
             delivery,
         })
     }
+}
+
+pub(super) async fn publish_definition(
+    tx: &mut Transaction<'_, Postgres>,
+    season: &Season,
+) -> Result<()> {
+    let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut **tx)
+        .await?;
+    if season.starts_at <= now {
+        return Err(Error::Invalid);
+    }
+    sqlx::query("INSERT INTO pass_seasons (id,starts_at,ends_at,price) VALUES ($1,$2,$3,$4)")
+        .bind(season.id)
+        .bind(season.starts_at)
+        .bind(season.ends_at)
+        .bind(season.price)
+        .execute(&mut **tx)
+        .await
+        .map_err(
+            |error| match error.as_database_error().and_then(|e| e.code()).as_deref() {
+                Some("23505" | "23P01") => Error::Conflict,
+                _ => Error::Database(error),
+            },
+        )?;
+    for c in &season.challenges {
+        sqlx::query("INSERT INTO pass_challenges (id,season_id,source,metric,target,xp) VALUES ($1,$2,$3,$4,$5,$6)")
+                .bind(c.id).bind(season.id).bind(c.source.key()).bind(&c.metric).bind(c.target).bind(c.xp).execute(&mut **tx).await?;
+    }
+    for r in &season.rewards {
+        sqlx::query("INSERT INTO pass_rewards (id,season_id,track,xp,grant_key,grant_revision) VALUES ($1,$2,$3,$4,$5,$6)")
+                .bind(r.id).bind(season.id).bind(if r.paid {"paid"} else {"free"}).bind(r.xp).bind(&r.grant_key).bind(&r.grant_revision).execute(&mut **tx).await?;
+    }
+    Ok(())
+}
+
+/// The caller holds the account's season progress lock.
+async fn apply_challenge_progress(
+    tx: &mut Transaction<'_, Postgres>,
+    (account, season, challenge): (Uuid, Uuid, Uuid),
+    target: i64,
+    added: i64,
+    award: i64,
+    xp: i64,
+) -> Result<i64> {
+    let prior: i64 = sqlx::query_scalar("SELECT amount FROM pass_challenge_progress WHERE account_id=$1 AND season_id=$2 AND challenge_id=$3")
+        .bind(account).bind(season).bind(challenge).fetch_optional(&mut **tx).await?.unwrap_or(0);
+    let next = prior.saturating_add(added).min(target);
+    if next == prior {
+        return Ok(xp);
+    }
+    sqlx::query("INSERT INTO pass_challenge_progress (account_id,season_id,challenge_id,amount) VALUES ($1,$2,$3,$4) ON CONFLICT (account_id,season_id,challenge_id) DO UPDATE SET amount=EXCLUDED.amount")
+        .bind(account).bind(season).bind(challenge).bind(next).execute(&mut **tx).await?;
+    if next != target {
+        return Ok(xp);
+    }
+    let xp = xp.checked_add(award).ok_or(Error::Invalid)?;
+    sqlx::query("UPDATE pass_progress SET xp=$3,updated_at=clock_timestamp() WHERE account_id=$1 AND season_id=$2")
+        .bind(account).bind(season).bind(xp).execute(&mut **tx).await?;
+    Ok(xp)
 }

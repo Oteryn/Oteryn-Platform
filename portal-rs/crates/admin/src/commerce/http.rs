@@ -198,11 +198,22 @@ struct Page {
     csrf: String,
     actions: Vec<Action>,
     pending: Vec<Pending>,
+    premium_lookup: bool,
+    premium_status: Option<PremiumStatus>,
+    locale: Locale,
 }
+struct PremiumStatus {
+    account: Uuid,
+    state: &'static str,
+    expiry: Option<String>,
+    revision: Option<i64>,
+}
+
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct QueueFilter {
     after: Option<Uuid>,
+    premium_account: Option<String>,
     // Site-wide locale switch parameter carried by admin navigation links.
     #[serde(rename = "lang")]
     _lang: Option<String>,
@@ -222,6 +233,40 @@ fn format_refund_amount(minor_units: i64, currency: &str) -> String {
         exponent,
     }
     .display()
+}
+
+async fn premium_status(pool: &PgPool, account: Uuid) -> Result<Option<PremiumStatus>, Error> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1)")
+        .bind(account)
+        .fetch_one(pool)
+        .await?;
+    if !exists {
+        return Ok(None);
+    }
+    let entitlement = oteryn_store::account::premium(pool, account)
+        .await
+        .map_err(|_| Error::Unavailable)?;
+    let (state, expiry, revision) = match entitlement {
+        Some(entitlement) => {
+            use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+            let expiry = OffsetDateTime::from_unix_timestamp(entitlement.until)
+                .map_err(|_| Error::Unavailable)?
+                .format(&Rfc3339)
+                .map_err(|_| Error::Unavailable)?;
+            (
+                entitlement.classify(OffsetDateTime::now_utc().unix_timestamp()),
+                Some(expiry),
+                Some(entitlement.revision),
+            )
+        }
+        None => ("no-premium", None, None),
+    };
+    Ok(Some(PremiumStatus {
+        account,
+        state,
+        expiry,
+        revision,
+    }))
 }
 
 async fn page<A: rbac::AccountStateReader, E: Effects>(
@@ -255,6 +300,27 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
             Err(error) => return failure(locale, error),
         }
     }
+    let premium_lookup = actions.iter().any(|action| action.key == "grant");
+    let premium_status = if let Some(input) = filter.premium_account {
+        if !premium_lookup {
+            return failure(locale, Error::Denied);
+        }
+        let Ok(account) = Uuid::parse_str(&input) else {
+            return failure(locale, Error::Invalid);
+        };
+        if account.is_nil() || account.to_string() != input {
+            return failure(locale, Error::Invalid);
+        }
+        match premium_status(&s.pool, account).await {
+            Ok(Some(status)) => Some(status),
+            Ok(None) => {
+                return (StatusCode::NOT_FOUND, locale.text("account-not-found")).into_response();
+            }
+            Err(error) => return failure(locale, error),
+        }
+    } else {
+        None
+    };
     // Apply permission predicates in SQL before exposing any queue entries.
     let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2) OR (command->>'kind'='grant' AND $4)) ORDER BY created_at,id LIMIT 101")
         .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).bind(filter.after).bind(actions.iter().any(|a| a.key=="grant")).fetch_all(&s.pool).await;
@@ -327,6 +393,9 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         csrf,
         actions,
         pending,
+        premium_lookup,
+        premium_status,
+        locale,
     })
 }
 #[derive(Deserialize)]

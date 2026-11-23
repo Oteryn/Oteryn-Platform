@@ -1,6 +1,8 @@
 //! RBAC, audit log, four-eyes approvals and the staff panel shell (design T10).
 
 pub mod audit;
+mod audit_evidence;
+pub mod downloads;
 mod errors;
 pub mod rbac;
 

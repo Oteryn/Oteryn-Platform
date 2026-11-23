@@ -35,4 +35,20 @@ pub fn register(registry: &mut Registry) {
         Group::Community,
         false,
     );
+    registry.section(
+        true,
+        "stats-readiness",
+        "shell-stats-readiness",
+        "stats",
+        Group::World,
+        false,
+    );
+    registry.section(
+        on("PORTAL_STATS_WATCHES_ENABLED"),
+        "stats-watch-access",
+        "shell-stats-watch-access",
+        "account/stats-watches",
+        Group::Account,
+        false,
+    );
 }

@@ -1,0 +1,16 @@
+# Season pass qualification (GAP-63 / T89)
+
+## Platform operation
+
+- `OTERYN_SEASON_PASS_ENABLED=true` exposes the Season pass in Play and mounts the private season view and progress, purchase and claim handlers. The flag defaults to off.
+- On the configured staff host, an operator with `admin.access`, `events.publish` and a current MFA grant can open `/{lang}/pass/operator` from the pass page. This uses the existing admin panel, host and MFA settings. The status page shows the active and next scheduled seasons and current source, Wallet and delivery availability. Publication is audited as `pass.season.published`.
+- Submit a JSON object with `id`, RFC 3339 `starts_at` and `ends_at`, positive integer `price` in coins, and arrays `challenges` and `rewards`. Each challenge has `id`, `source` (`portal` or `journal`), `metric`, positive integer `target` and positive integer `xp`. Each reward has `id`, boolean `paid`, positive integer `xp`, `grant_key` and decimal string `grant_revision`. Use distinct UUIDv7 IDs, 1–200 challenges and 1–200 rewards. The start must be in the future, the window 42–56 days, and the reward threshold within the season's total XP. The database refuses overlapping seasons. Published definitions are immutable through the service.
+- The qualified Portal metric is `daily_puzzles.solved`. Each correct persisted answer by the signed-in player within the season window contributes one solve. The target cannot exceed three puzzles per UTC date in the season window. An operator needs to schedule enough daily puzzles for the chosen target. The player selects **Sync puzzle progress** on the challenge. The transaction records answer IDs and awards XP only on first completion. The account, solve result, timestamp and XP come from Platform storage.
+- The paid track uses the existing Wallet only when `OTERYN_ENV=testing` and `OTERYN_SEASON_PASS_WALLET_ENABLED=true`. A player may earn enough XP while cosmetic delivery is still unavailable. An accepted claim shows its support reference and enqueued status. Verification of Game delivery is unavailable with the current contracts.
+
+## Remaining Game and Store qualification
+
+1. Agree which G-9/G-11 events count toward each season metric, including catalogue revision, account/character ownership at the event cut, time, stable event identity and replay semantics. The Platform adapter must verify those facts against the accepted journal authority before recording progress.
+2. Qualify the Store cosmetic authority read and atomic entitlement/DELIVER issuance. Bind the account, reward and content revision to one operation, and cover transferability and retry behavior in the accepted contract.
+3. Qualify a Game consumer and authoritative receipt that binds that operation and reward to the applied effect, including duplicate delivery, contradictory receipts, timeout and reconciliation. Wire the Platform claim adapter and receipt projection only after qualification under a default-off delivery gate. Until then claims stay unavailable in configured routes.
+4. Run cross-repository qualification for one eligible free claim and one eligible paid claim, repeat each to verify the original receipt, and confirm refusal of a foreign or unearned claim, unknown season and conflicting replay.

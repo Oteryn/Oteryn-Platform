@@ -88,7 +88,7 @@ impl Collection {
         }
         card.matches_entity(&entity)
     }
-    async fn require_locked(
+    pub(crate) async fn require_locked(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         account: Uuid,
@@ -117,16 +117,27 @@ impl Collection {
         let mut ids = ids.to_vec();
         ids.sort_unstable();
         for id in ids {
-            let sqlx::types::Json(card): sqlx::types::Json<Card> =
-                sqlx::query_scalar("SELECT definition FROM collection_cards WHERE id=$1 FOR SHARE")
-                    .bind(id)
-                    .fetch_optional(&mut **tx)
-                    .await?
-                    .ok_or(Error::Denied)?;
-            self.visible_locked(tx, &card).await?;
+            let card = self.locked_card(tx, id).await?;
             if !progress.iter().any(|p| matches!(p, Payload::Bestiary(b) if b.race_key==card.race_key && b.race_definition_revision==card.race_revision && b.final_kill_threshold==card.final_kill_threshold && b.kill_count>=b.final_kill_threshold)) { return Err(Error::Denied); }
         }
         Ok(())
+    }
+    pub(crate) async fn locked_card(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: Uuid,
+    ) -> Result<Card> {
+        let sqlx::types::Json(card): sqlx::types::Json<Card> =
+            sqlx::query_scalar("SELECT definition FROM collection_cards WHERE id=$1 FOR SHARE")
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .ok_or(Error::Denied)?;
+        if card.id != id {
+            return Err(Error::Unavailable);
+        }
+        self.visible_locked(tx, &card).await?;
+        Ok(card)
     }
     /// Trusted worker only: the caller verifies the native creature→race, revision,
     /// threshold, bilingual labels and appearance mapping. Immutable publication

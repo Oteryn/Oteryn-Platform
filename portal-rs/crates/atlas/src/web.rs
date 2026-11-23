@@ -65,6 +65,7 @@ struct Coordinates {
     y: Option<u32>,
     z: Option<u8>,
     zoom: Option<u32>,
+    version: Option<uuid::Uuid>,
 }
 
 impl Coordinates {
@@ -93,7 +94,7 @@ impl Coordinates {
     }
 }
 
-async fn version(v: &Viewer) -> Result<String, StatusCode> {
+async fn active_world(v: &Viewer) -> Result<(uuid::Uuid, String), StatusCode> {
     let id = v
         .world
         .active_version_id()
@@ -109,7 +110,7 @@ async fn version(v: &Viewer) -> Result<String, StatusCode> {
     if report.status != oteryn_world::VersionStatus::Ready {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
-    Ok(report.source_commit)
+    Ok((id, report.source_commit))
 }
 async fn manifest(v: &Viewer, version: &str, floor: u8) -> Option<Manifest> {
     let bytes = tokio::fs::read(
@@ -166,6 +167,26 @@ struct Page {
     nonce: String,
 }
 
+#[derive(Template)]
+#[template(path = "atlas/unavailable.html", config = "src/web-askama.toml")]
+struct Unavailable<'a> {
+    lang: &'a str,
+    title: String,
+    message: String,
+}
+
+fn unavailable(lang: &str) -> Result<Response, StatusCode> {
+    let template = Unavailable {
+        lang,
+        title: translate(lang, "title"),
+        message: translate(lang, "unavailable"),
+    };
+    let html = template
+        .render()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok((StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response())
+}
+
 async fn page(
     State(v): State<Arc<Viewer>>,
     Path(lang): Path<String>,
@@ -174,14 +195,22 @@ async fn page(
     if lang != "pl" && lang != "en" {
         return Err(StatusCode::NOT_FOUND);
     }
-    let version = version(&v).await?;
+    let Ok((id, version)) = active_world(&v).await else {
+        return unavailable(&lang);
+    };
+    if coords.version.is_some_and(|requested| requested != id) {
+        return unavailable(&lang);
+    }
     let mut manifests = Vec::new();
     for floor in 0..=u8::MAX {
         if let Some(m) = manifest(&v, &version, floor).await {
             manifests.push(m);
         }
     }
-    let m = manifests
+    if manifests.is_empty() {
+        return unavailable(&lang);
+    }
+    let Some(m) = manifests
         .iter()
         .find(|m| m.floor == coords.z.unwrap_or(7))
         .or_else(|| {
@@ -191,7 +220,13 @@ async fn page(
                 None
             }
         })
-        .ok_or(StatusCode::NOT_FOUND)?;
+    else {
+        return if coords.version.is_some() {
+            unavailable(&lang)
+        } else {
+            Err(StatusCode::NOT_FOUND)
+        };
+    };
     let (x, y, zoom) = coords.resolve(m)?;
     let floor = m.floor;
     let mut markers = Vec::new();
@@ -230,8 +265,8 @@ async fn page(
         }
     }
     // Reject a version switch during reads; never combine world snapshots.
-    if crate::web::version(&v).await? != version {
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    if active_world(&v).await.ok() != Some((id, version)) {
+        return unavailable(&lang);
     }
     let data = serde_json::to_string(&MapData {
         manifests,
@@ -297,7 +332,7 @@ async fn tile(
     State(v): State<Arc<Viewer>>,
     Path((requested, floor, zoom, x, y)): Path<(String, u8, u32, u32, String)>,
 ) -> Result<Response, StatusCode> {
-    let version = version(&v).await?;
+    let (id, version) = active_world(&v).await?;
     if requested != version {
         return Err(StatusCode::NOT_FOUND);
     }
@@ -325,7 +360,7 @@ async fn tile(
     if format!("{:x}", Sha256::digest(&bytes)) != t.sha256 {
         return Err(StatusCode::NOT_FOUND);
     }
-    if crate::web::version(&v).await? != version {
+    if active_world(&v).await? != (id, version) {
         return Err(StatusCode::NOT_FOUND);
     }
     Ok((

@@ -18,6 +18,14 @@ pub struct WorldStore {
     options: WorldOptions,
 }
 
+#[derive(sqlx::FromRow)]
+struct SnapshotRow {
+    version_id: Uuid,
+    kind: Option<String>,
+    key: Option<String>,
+    data: Option<serde_json::Value>,
+}
+
 impl WorldStore {
     pub fn new(pool: PgPool, options: WorldOptions) -> Self {
         Self { pool, options }
@@ -264,6 +272,49 @@ impl WorldStore {
         .bind(key)
         .fetch_optional(&mut **tx)
         .await?)
+    }
+
+    /// Read several approved families from one active version and visibility cut.
+    pub async fn public_snapshot(
+        &self,
+        kinds: &[&str],
+    ) -> Result<Option<(Uuid, Vec<Entity>)>, WorldError> {
+        self.check_enabled()?;
+        let kinds: Vec<_> = kinds.iter().map(|k| crate::canonical_kind(k)).collect();
+        let rows: Vec<SnapshotRow> = sqlx::query_as(
+            "SELECT a.version_id,e.kind,e.key,e.data FROM world_active_version a
+                 JOIN world_versions version ON version.id=a.version_id AND version.status='ready'
+                 LEFT JOIN LATERAL (
+                   SELECT w.kind,w.key,w.data FROM world_entities w
+                   JOIN world_visibility v ON v.kind=w.kind AND v.key=w.key AND v.allowed
+                   WHERE w.version_id=a.version_id AND w.kind=ANY($1) AND w.publishable
+                   LIMIT 200001
+                 ) e ON TRUE
+                 WHERE a.singleton",
+        )
+        .bind(kinds)
+        .fetch_all(&self.pool)
+        .await?;
+        if rows.len() > 200_000 {
+            return Err(WorldError::InvalidInput(
+                "world projection exceeds the read limit".into(),
+            ));
+        }
+        let Some(version_id) = rows.first().map(|row| row.version_id) else {
+            return Ok(None);
+        };
+        let entities = rows
+            .into_iter()
+            .filter_map(|row| {
+                Some(Entity {
+                    version_id,
+                    kind: row.kind?,
+                    key: row.key?,
+                    data: row.data?,
+                })
+            })
+            .collect();
+        Ok(Some((version_id, entities)))
     }
 
     /// Keyset pagination, ordered by bytewise key. Limits must be 1..=1000.
