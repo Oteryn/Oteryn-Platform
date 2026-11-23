@@ -2290,7 +2290,11 @@ async fn nwave_snapshot_stream_campaign_and_worker_retry_fresh_transactions() {
     db.campaign.accept(invitee, code).await.unwrap();
     assert_retry_lock_restarted(&db).await;
     assert_eq!(db.campaign.invitation_kind(code).await.unwrap(), Kind::New);
-    assert_retry_lock_restarted(&db).await;
+    let called: bool = sqlx::query_scalar("SELECT is_called FROM retry_lock")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert!(!called);
     Worker {
         premium_enabled: true,
         campaign: db.campaign.clone(),
@@ -3060,5 +3064,148 @@ async fn overdue_premium_retry_precedes_one_hundred_fresh_awards() {
     .await
     .unwrap();
     assert_eq!(applied, (true, 100));
+    db.close().await;
+}
+
+#[tokio::test]
+async fn emailed_invitation_expires_for_browser_and_signup() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let owner = db.account().await;
+    let invitee = db.account().await;
+    let code: Uuid = sqlx::query_scalar(
+        "INSERT INTO referral_email_invitations(inviter_id,recipient,kind,created_at)
+         SELECT $1,email,'new',now()-interval '15 days' FROM accounts WHERE id=$2
+         RETURNING id",
+    )
+    .bind(owner)
+    .bind(invitee)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        db.campaign.invitation_kind(Uuid::nil()).await,
+        Err(Error::Invalid)
+    );
+    assert_eq!(db.campaign.invitation_kind(code).await, Err(Error::Denied));
+    assert_eq!(db.campaign.accept(invitee, code).await, Err(Error::Denied));
+    let signup = || {
+        sqlx::query_scalar::<_, bool>("SELECT referral_campaign_signup($1,$2)")
+            .bind(invitee)
+            .bind(code.to_string())
+            .fetch_one(&db.pool)
+    };
+    assert!(!signup().await.unwrap());
+    sqlx::query("INSERT INTO referral_email_attempts(invitation_id,inviter_id) VALUES($1,$2)")
+        .bind(code)
+        .bind(owner)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(db.campaign.invitation_kind(code).await, Ok(Kind::New));
+    let writer = db.campaign.begin(&[owner]).await.unwrap();
+    let kind = tokio::time::timeout(Duration::from_secs(1), db.campaign.invitation_kind(code))
+        .await
+        .unwrap();
+    assert_eq!(kind, Ok(Kind::New));
+    writer.rollback().await.unwrap();
+    assert_eq!(db.campaign.accept(owner, code).await, Err(Error::Denied));
+    assert!(signup().await.unwrap());
+    db.campaign.accept(invitee, code).await.unwrap();
+    let rewards: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM referral_campaign_rewards WHERE account_id=$1 AND kind='starter'",
+    )
+    .bind(invitee)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(rewards, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn referral_operations_respect_staff_access_and_show_held_rewards() {
+    use oteryn_admin::{
+        rbac::Permission,
+        web::{PanelConfig, PortalIdentity, StaffIdentity, StaffSession, guarded},
+    };
+    use oteryn_web::session::BrowserSession;
+
+    #[derive(Clone)]
+    struct TestStaff(StaffIdentity);
+    impl StaffSession for TestStaff {
+        async fn resolve(&self, _: &BrowserSession) -> Option<StaffIdentity> {
+            Some(self.0)
+        }
+    }
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let staff = db.account().await;
+    let code = db.campaign.link(staff).await.unwrap();
+    let invitee = db.account().await;
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id)
+         SELECT $1,id FROM roles WHERE key='platform_admin'",
+    )
+    .bind(staff)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    db.campaign.accept(invitee, code).await.unwrap();
+    db.buy(invitee, 1).await;
+    let worker = Worker {
+        campaign: db.campaign.clone(),
+        sender: None,
+        premium_enabled: false,
+    };
+    let endpoint = |account, mfa_satisfied, lang: &str| {
+        guarded(
+            operations::routes(&worker),
+            db.pool.clone(),
+            PanelConfig {
+                admin_panel: true,
+                host: "staff.example.test".into(),
+            },
+            TestStaff(StaffIdentity {
+                account,
+                mfa_satisfied,
+            }),
+            PortalIdentity::configured_from(db.pool.clone(), &|_| None),
+            Permission::Access,
+        )
+        .oneshot(
+            Request::get(format!("/admin/referrals?lang={lang}"))
+                .header("host", "staff.example.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+    assert_eq!(
+        endpoint(invitee, true, "en").await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        endpoint(staff, false, "en").await.unwrap().status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        endpoint(staff, true, "fr").await.unwrap().status(),
+        StatusCode::BAD_REQUEST
+    );
+    for (lang, label) in [
+        ("pl", "Wstrzymane nagrody w grze"),
+        ("en", "Game entitlements on hold"),
+    ] {
+        let response = endpoint(staff, true, lang).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body = to_bytes(response.into_body(), 8192).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains(&format!("<dt>{label}</dt><dd>2</dd>")));
+    }
     db.close().await;
 }

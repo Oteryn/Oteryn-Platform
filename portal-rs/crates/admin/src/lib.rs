@@ -6,6 +6,7 @@ pub mod downloads;
 mod errors;
 pub mod rbac;
 
+mod hireling_status;
 pub mod web;
 
 pub mod bazaar;
@@ -15,6 +16,7 @@ pub mod commerce;
 mod mail_ops;
 mod world_operations;
 mod native_login;
+mod operational_mail;
 pub use control::controls;
 pub mod players;
 pub mod status;
@@ -72,3 +74,6 @@ async fn test_staff_authenticate(
         )
         .await
 }
+
+#[cfg(test)]
+mod operational_mail_tests;

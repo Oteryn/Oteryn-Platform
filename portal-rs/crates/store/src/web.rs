@@ -19,6 +19,8 @@ use uuid::Uuid;
 #[path = "web_backend.rs"]
 mod backend;
 pub use backend::{Access, Backend, Buy, Domain, TopUps, configured as configured_backend};
+#[path = "web_history.rs"]
+mod history_view;
 
 pub type FutureResult<'a, T> = Pin<Box<dyn Future<Output = Result<T, Error>> + Send + 'a>>;
 
@@ -390,12 +392,12 @@ struct PackageView {
 {% else if section == "coins" %}
 {% if enabled %}{% for package in packages %}<form method="post" class="op-card op-stack" action="/{{ lang }}/shop/coins"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ package.operation }}"><input type="hidden" name="package" value="{{ package.key }}"><h2>{{ package.heading }}</h2><p>{{ package.price }}</p><p>{{ top_up_hint }}</p><button class="op-button">{{ buy }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endfor %}{% else %}<p>{{ unavailable }}</p>{% endif %}
 {% else if section == "history" %}
-{% for entry in entries %}<article class="op-card op-stack"><h2>{{ operation_label }}</h2><p>{{ entry.operation_id }}</p><p>{{ date }}: {{ entry.created_at }}</p><p>{{ delta }}: {{ entry.available_delta }} / {{ entry.reserved_delta }}</p></article>{% else %}<p>{{ empty }}</p>{% endfor %}
-{% if let Some(id) = before %}<a class="op-button" href="/{{ lang }}/shop/history?before={{ id }}">{{ next }}</a>{% endif %}
+{% include "store/history.html" %}
 {% endif %}
 </main></body></html>
 "##,
-    ext = "html"
+    ext = "html",
+    config = "src/web_askama.toml"
 )]
 struct Page {
     checkout: Option<Checkout>,
@@ -446,7 +448,9 @@ struct Page {
     balance: Option<oteryn_wallet::Balance>,
     offers: Vec<OfferView>,
     revision: String,
-    entries: Vec<oteryn_wallet::HistoryEntry>,
+    entries: Vec<history_view::Entry>,
+    delivery_reference: String,
+    game_gold: String,
     packages: Vec<PackageView>,
     before: Option<Uuid>,
     csrf: String,
@@ -505,6 +509,8 @@ impl Page {
             offers: Vec::new(),
             revision: String::new(),
             entries: Vec::new(),
+            delivery_reference: l.text("delivery-reference"),
+            game_gold: l.text("game-gold"),
             packages: Vec::new(),
             before: None,
             csrf: String::new(),
@@ -658,13 +664,17 @@ async fn history(
     if query.before.is_some_and(|id| !uuid7(id)) {
         return failure(l, Error::Invalid);
     }
-    p.entries = match s.backend.history(a, query.before).await {
+    let entries = match s.backend.history(a, query.before).await {
         Ok(e) => e,
         Err(e) => return failure(l, e),
     };
-    if p.entries.len() == 25 {
-        p.before = p.entries.last().map(|e| e.id);
+    if entries.len() == 25 {
+        p.before = entries.last().map(|e| e.id);
     }
+    p.entries = match history_view::entries(&s.pool, l, a, entries).await {
+        Ok(entries) => entries,
+        Err(_) => return failure(l, Error::Unavailable),
+    };
     oteryn_web::render(&p)
 }
 async fn mutation(

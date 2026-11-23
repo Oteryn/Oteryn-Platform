@@ -1079,3 +1079,24 @@ async fn edit_form_saves_and_validates_entity_binding() {
     assert_eq!(repo.get(context, id).await.unwrap().0.entity_key, None);
     db.close().await;
 }
+
+#[tokio::test]
+async fn game_evidence_status_uses_the_wiki_staff_guard() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(mut db) = Database::open().await else {
+        return;
+    };
+    let path = "/admin/wiki/game-evidence";
+    let listed = get(db.app(), "/admin/wiki").await;
+    assert_eq!(listed.status(), StatusCode::OK);
+    assert!(body(listed).await.contains(path));
+
+    let response = get(db.app(), path).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    assert!(body(response).await.contains("Game evidence status"));
+
+    db.identity.actor = Uuid::now_v7();
+    assert_eq!(get(db.app(), path).await.status(), StatusCode::FORBIDDEN);
+    db.close().await;
+}

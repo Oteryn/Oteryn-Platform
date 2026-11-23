@@ -373,12 +373,28 @@ async fn deliver(app: &Router, body: &[u8]) -> (StatusCode, Value) {
 
 #[tokio::test]
 async fn refund_reverses_the_credit_once() -> TestResult {
-    let Some(h) = Harness::new().await? else {
-        return Ok(());
-    };
+    let h = Harness::new().await?.ok_or("PostgreSQL is required")?;
     let (payer, request, reference) = h.paid_order().await;
     let app = h.app();
     let body = event("evt_refund_1", "refund", &reference, 499);
+    let unsigned = Request::post(PATH).body(Body::from(body.clone()))?;
+    assert_eq!(send(&app, unsigned).await.0, StatusCode::UNAUTHORIZED);
+    let wrong_currency = serde_json::to_vec(&json!({
+        "version": 1, "event_id": "evt_wrong_currency", "type": "refund",
+        "order_reference": reference, "amount": {"minor_units": 499, "currency": "PLN"}
+    }))?;
+    for invalid in [
+        wrong_currency,
+        event("evt_wrong_amount", "refund", &reference, 498),
+        event("evt_wrong_order", "refund", "unknown-order", 499),
+    ] {
+        assert_eq!(
+            deliver(&app, &invalid).await.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+    assert_eq!(h.state(payer, request).await, OrderState::Paid);
+    assert_eq!(h.balance(payer).await, 500);
     let (status, reply) = deliver(&app, &body).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
@@ -386,6 +402,15 @@ async fn refund_reverses_the_credit_once() -> TestResult {
         json!({"version": 1, "event_id": "evt_refund_1", "outcome": "applied", "replay": false})
     );
     assert_eq!(h.state(payer, request).await, OrderState::Refunded);
+    let (status, replay) = deliver(&app, &body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(replay["replay"], true);
+    assert_eq!(
+        deliver(&app, &event("evt_second_refund", "refund", &reference, 499))
+            .await
+            .0,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
     assert_eq!(h.balance(payer).await, 0);
     assert_eq!(h.outcome("evt_refund_1").await.as_deref(), Some("applied"));
     assert_eq!(

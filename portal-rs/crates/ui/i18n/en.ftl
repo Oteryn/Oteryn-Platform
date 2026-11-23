@@ -444,3 +444,9 @@ world-uptime-public-view = View public status
 world-uptime-qualification = Public Game health, population and uptime are awaiting qualification.
 shell-account-dashboard = Account dashboard
 account-dashboard-unavailable = Journal data is unavailable.
+shell-sandbox-coin-checkout = Sandbox coin checkout
+
+shell-referrals = Referrals
+
+shell-atlas-bestiary = My bestiary and bosses
+shell-wiki-places = Hunting places

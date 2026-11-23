@@ -394,13 +394,8 @@ pub fn delivery(
     }
     let notifications = oteryn_identity::sessions::security_notifications(pool)
         .map_err(|_| "security notifications unavailable")?;
-    let sender = oteryn_notify::SmtpSender::new(
-        &std::env::var("OTERYN_SMTP_HOST")?,
-        std::env::var("OTERYN_SMTP_USERNAME")?,
-        std::env::var("OTERYN_SMTP_PASSWORD")?,
-        std::env::var("OTERYN_SMTP_FROM")?,
-    )
-    .map_err(|_| "SMTP configuration invalid")?;
+    let sender =
+        oteryn_notify::SmtpSender::configured().map_err(|_| "SMTP configuration invalid")?;
     Ok(Some(oteryn_notify::Delivery {
         notifications,
         sender: std::sync::Arc::new(sender),

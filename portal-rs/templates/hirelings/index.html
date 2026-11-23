@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main id="main" tabindex="-1" class="op-stack">
+  <header class="op-stack">
+    <h1>{{ title }}</h1>
+    <p class="op-alert op-alert--warning" role="status">{{ waiting }}</p>
+    <nav class="op-tabs" aria-label="{{ title }}">
+      {% for section in sections %}
+      <a href="#{{ section.id }}">{{ section.title }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+  {% for section in sections %}
+  <section id="{{ section.id }}" class="op-panel op-stack" aria-labelledby="{{ section.id }}-title">
+    <h2 id="{{ section.id }}-title">{{ section.title }}</h2>
+    {% if let Some(note) = section.note %}<p>{{ note }}</p>{% endif %}
+    <dl>
+      {% for label in section.labels %}
+      <dt>{{ label }}</dt><dd>{{ unavailable }}</dd>
+      {% endfor %}
+    </dl>
+  </section>
+  {% endfor %}
+</main>
+</body>
+</html>

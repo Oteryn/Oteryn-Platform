@@ -236,7 +236,7 @@ pub fn stream_key(s: &Scope) -> String {
         ])
     }
 }
-fn subject_key(s: &Scope) -> String {
+pub(crate) fn subject_key(s: &Scope) -> String {
     tuple(vec![
         s.character.as_deref(),
         s.world.as_deref(),

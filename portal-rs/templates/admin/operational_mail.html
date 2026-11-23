@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.tr("operational-mail-title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/admin/operational-mail.css">
+</head>
+<body class="op-theme">
+<main class="op-stack operational-mail">
+  <nav class="op-tabs" aria-label="{{ self.tr("title") }}">
+    <a href="/admin">{{ self.tr("title") }}</a>
+    <a href="/admin/operational-mail"{% if campaign.is_none() %} aria-current="page"{% endif %}>{{ self.tr("operational-mail-title") }}</a>
+  </nav>
+  <h1>{{ self.tr("operational-mail-title") }}</h1>
+  {% if !ready %}<p class="op-alert" role="status">{{ self.tr("operational-mail-unavailable") }}</p>{% endif %}
+  {% if let Some(campaign) = campaign %}
+  <section class="op-panel op-stack" aria-labelledby="preview-heading">
+    <h2 id="preview-heading">{{ self.tr("operational-mail-preview") }}</h2>
+    <p>{{ self.audience(campaign.audience) }} · <strong data-campaign-status="{{ campaign.status }}">{{ self.status(campaign.status) }}</strong></p>
+    <dl class="operational-mail-counts">
+      <div><dt>{{ self.tr("operational-mail-eligible-pl") }}</dt><dd data-count="eligible-pl">{{ counts.eligible_pl }}</dd></div>
+      <div><dt>{{ self.tr("operational-mail-eligible-en") }}</dt><dd data-count="eligible-en">{{ counts.eligible_en }}</dd></div>
+      {% if campaign.status == "approved" %}
+      <div><dt>{{ self.tr("operational-mail-waiting") }}</dt><dd data-count="waiting">{{ counts.waiting }}</dd></div>
+      <div><dt>{{ self.tr("operational-mail-delivered") }}</dt><dd data-count="delivered">{{ counts.delivered }}</dd></div>
+      <div><dt>{{ self.tr("operational-mail-skipped") }}</dt><dd data-count="skipped">{{ counts.skipped }}</dd></div>
+      <div><dt>{{ self.tr("operational-mail-failed") }}</dt><dd data-count="failed">{{ counts.failed }}</dd></div>
+      {% endif %}
+    </dl>
+    {% if campaign.audience != "en" %}
+    <article class="op-card op-stack" lang="pl">
+      <h3>{{ campaign.subject_pl }}</h3><p class="operational-mail-body">{{ campaign.body_pl }}</p>
+      <p class="op-muted">{{ footer_pl }}</p>
+    </article>
+    {% endif %}
+    {% if campaign.audience != "pl" %}
+    <article class="op-card op-stack" lang="en">
+      <h3>{{ campaign.subject_en }}</h3><p class="operational-mail-body">{{ campaign.body_en }}</p>
+      <p class="op-muted">{{ footer_en }}</p>
+    </article>
+    {% endif %}
+    {% if can_review %}
+    <p>{{ self.tr("operational-mail-review-note") }}</p>
+    <form class="op-row" method="post" action="/admin/operational-mail/{{ campaign.id }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="op-button" name="decision" value="approve"{% if !ready %} disabled{% endif %}>{{ self.tr("operational-mail-approve") }}</button>
+      <button class="op-button op-button--secondary" name="decision" value="reject">{{ self.tr("operational-mail-reject") }}</button>
+    </form>
+    {% endif %}
+  </section>
+  {% else %}
+  {% if compose %}
+  <section class="op-panel op-stack" aria-labelledby="compose-heading">
+    <h2 id="compose-heading">{{ self.tr("operational-mail-compose") }}</h2>
+    <p>{{ self.tr("operational-mail-compose-note") }} {{ self.tr("operational-mail-limit-label") }} {{ self.audience_limit() }}.</p>
+    <form class="op-stack" method="post" action="/admin/operational-mail">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="request_id" value="{{ request_id }}">
+      <label class="op-field">{{ self.tr("operational-mail-audience") }}
+        <select class="op-input" name="audience" required>
+          <option value="">{{ self.tr("operational-mail-select") }}</option>
+          <option value="all">{{ self.audience("all") }}</option>
+          <option value="pl">{{ self.audience("pl") }}</option>
+          <option value="en">{{ self.audience("en") }}</option>
+        </select>
+      </label>
+      <fieldset class="op-stack">
+        <legend>{{ self.tr("operational-mail-polish") }}</legend>
+        <label class="op-field">{{ self.tr("operational-mail-subject") }}<input class="op-input" name="subject_pl" maxlength="{{ self.subject_limit() }}" required></label>
+        <label class="op-field">{{ self.tr("operational-mail-body") }}<textarea class="op-input" name="body_pl" rows="5" maxlength="{{ self.body_limit() }}" required></textarea></label>
+      </fieldset>
+      <fieldset class="op-stack">
+        <legend>{{ self.tr("operational-mail-english") }}</legend>
+        <label class="op-field">{{ self.tr("operational-mail-subject") }}<input class="op-input" name="subject_en" maxlength="{{ self.subject_limit() }}" required></label>
+        <label class="op-field">{{ self.tr("operational-mail-body") }}<textarea class="op-input" name="body_en" rows="5" maxlength="{{ self.body_limit() }}" required></textarea></label>
+      </fieldset>
+      <div><button class="op-button" type="submit">{{ self.tr("operational-mail-create-preview") }}</button></div>
+    </form>
+  </section>
+  {% endif %}
+  <section class="op-panel op-stack" aria-labelledby="campaigns-heading">
+    <h2 id="campaigns-heading">{{ self.tr("operational-mail-campaigns") }}</h2>
+    {% if campaigns.is_empty() %}
+    <p>{{ self.tr("operational-mail-no-campaigns") }}</p>
+    {% else %}
+    <ul class="op-stack">
+      {% for row in campaigns %}
+      <li><a href="/admin/operational-mail/{{ row.id }}">{% if row.audience == "pl" || (row.audience == "all" && lang == "pl") %}{{ row.subject_pl }}{% else %}{{ row.subject_en }}{% endif %}</a> · {{ self.status(row.status) }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if let Some(next) = next %}<a rel="next" href="/admin/operational-mail?before={{ next }}">{{ self.tr("operational-mail-older") }}</a>{% endif %}
+  </section>
+  {% endif %}
+</main>
+</body>
+</html>

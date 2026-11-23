@@ -488,6 +488,24 @@ async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> Test
             .available,
         750
     );
+    let (other_cookie, _) = session(&db.pool, Uuid::now_v7()).await?;
+    let operation: Uuid = sqlx::query_scalar("SELECT operation_id FROM store_operations")
+        .fetch_one(&db.pool)
+        .await?;
+    for (cookie, visible) in [(&cookie, true), (&other_cookie, false)] {
+        let response = app
+            .clone()
+            .oneshot(
+                HttpRequest::get("/en/shop/history")
+                    .header(header::COOKIE, cookie)
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = body(response).await?;
+        assert_eq!(html.contains("Awaiting Game delivery"), visible);
+        assert_eq!(html.contains(&operation.to_string()), visible);
+    }
     let response = app
         .clone()
         .oneshot(post_request(
@@ -517,6 +535,72 @@ async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> Test
             .status(),
         StatusCode::CONFLICT
     );
+    let (entitlement, digest): (Uuid, String) = sqlx::query_as(
+        "SELECT entitlement_id, binding_digest FROM store_operations WHERE operation_id = $1",
+    )
+    .bind(operation)
+    .fetch_one(&db.pool)
+    .await?;
+    use oteryn_internal_api::canonical::{self, Value};
+    let mut receipt: Value = serde_json::from_str(include_str!(
+        "../../../../docs/contracts/fixtures/store-wire-v1/receipt.deliver-item.committed.json"
+    ))?;
+    let Value::Object(fields) = &mut receipt else {
+        panic!("expected receipt object");
+    };
+    for (key, value) in fields {
+        let replacement = match key.as_str() {
+            "operation_id" => operation.to_string(),
+            "account_id" => buyer.to_string(),
+            "entitlement_id" => entitlement.to_string(),
+            "binding_digest" => digest.clone(),
+            _ => continue,
+        };
+        *value = Value::String(replacement);
+    }
+    let receipt = canonical::encode(&receipt)?;
+    let delivery = crate::delivery::Delivery::new(
+        db.pool.clone(),
+        crate::purchase::Settings {
+            delivery_enabled: true,
+            environment: "testing".into(),
+            source_authority: "oteryn-game/store-consumer".into(),
+            peer_identity: "shop-test-peer".into(),
+            ..Default::default()
+        },
+    );
+    for _ in 0..2 {
+        delivery.receipt(&receipt).await?;
+    }
+    let history = || {
+        app.clone().oneshot(
+            HttpRequest::get("/en/shop/history")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+    assert!(
+        body(history().await?)
+            .await?
+            .contains("Awaiting Game claim")
+    );
+    let mut restore = db.pool.begin().await?;
+    assert_eq!(
+        delivery
+            .reopen_in(&mut restore, Uuid::now_v7(), 7, 8)
+            .await?,
+        1
+    );
+    restore.commit().await?;
+    assert!(matches!(
+        delivery.receipt(&receipt).await,
+        Err(crate::delivery::Error::Conflict)
+    ));
+    let reopened = body(history().await?).await?;
+    assert!(reopened.contains("Awaiting Game reconciliation after restore"));
+    assert!(reopened.contains(&operation.to_string()));
+    assert!(!reopened.contains("Awaiting Game claim"));
     let invalid = form.replace("quantity=1", "quantity=0");
     assert_eq!(
         app.oneshot(post_request("/en/shop", &cookie, invalid)?)

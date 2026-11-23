@@ -1,0 +1,21 @@
+<p>{{ remediation.intro }}</p>
+{% for profile in remediation.profiles %}
+<section class="op-panel op-stack">
+  <h2>{% if profile.detail.is_some() %}{{ profile.title }}{% else %}<a href="/admin/console/players?lang={{ lang }}&amp;remediation={{ profile.slug }}">{{ profile.title }}</a>{% endif %}</h2>
+  <p><code>{{ profile.operation }}</code> · {{ profile.risk }}</p>
+  {% if let Some(detail) = profile.detail %}
+  <p><code>{{ detail.permission }}</code></p>
+  <p>{{ detail.controls }}</p>
+  <p>{{ detail.evidence }}</p>
+  <p>{{ detail.receipt }}</p>
+  <dl>
+    {% for state in detail.states %}
+    <dt>{{ state }}</dt>
+    <dd data-state="unavailable">{{ remediation.unavailable }}</dd>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p data-state="unavailable">{{ remediation.unavailable }}</p>
+  {% endif %}
+</section>
+{% endfor %}

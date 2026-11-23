@@ -630,6 +630,14 @@ mod tests {
                 Group::Account,
                 false,
             );
+            registry.section(
+                true,
+                "sandbox-coin-checkout",
+                "shell-sandbox-coin-checkout",
+                "panel/payments/coin-checkout",
+                Group::Account,
+                false,
+            );
             let chrome = registry.chrome(
                 lang,
                 "/",
@@ -642,6 +650,7 @@ mod tests {
             assert!(html.contains(&format!("action=\"/{lang}/logout\" method=\"post\"")));
             assert!(html.contains("name=\"_csrf\" value=\"escaped&#60;&#38;token\""));
             assert!(html.contains("href=\"/account\""));
+            assert!(html.contains(&format!("href=\"/{lang}/panel/payments/coin-checkout\"")));
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
         }

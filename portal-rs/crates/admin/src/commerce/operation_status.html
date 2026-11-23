@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ locale.text("status-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <a href="/admin/commerce">{{ locale.text("back") }}</a>
+  <h1>{{ locale.text("status-title") }}</h1>
+  <form action="/admin/commerce/operation-status" method="get" class="op-stack">
+    <label class="op-field">{{ locale.text("status-source") }}
+      <select class="op-input" name="source">
+        <option value="store">{{ locale.text("status-source-store") }}</option>
+        <option value="wallet"{% if self.wallet_selected() %} selected{% endif %}>{{ locale.text("status-source-wallet") }}</option>
+      </select>
+    </label>
+    <label class="op-field">{{ locale.text("status-reference") }}
+      <input class="op-input" name="id" required minlength="36" maxlength="36"
+             value="{% if let Some((_, id)) = lookup %}{{ id }}{% endif %}">
+    </label>
+    <button class="op-button" type="submit">{{ locale.text("status-submit") }}</button>
+  </form>
+  {% if let Some(evidence) = evidence %}
+  <section class="op-stack" aria-labelledby="record-title">
+    <h2 id="record-title">{{ locale.text("status-record") }}</h2>
+    <dl>
+      {% for fact in evidence.0 %}
+      <dt>{{ locale.text(fact.label) }}</dt>
+      <dd>{{ fact.value }}</dd>
+      {% endfor %}
+    </dl>
+  </section>
+  {% else if lookup.is_some() %}
+  <p role="status">{{ locale.text("status-absent") }}</p>
+  {% endif %}
+</main>
+</body>
+</html>

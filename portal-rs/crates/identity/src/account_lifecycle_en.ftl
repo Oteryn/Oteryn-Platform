@@ -43,3 +43,5 @@ closure-operator-title = Account closure status
 closure-lookup = Look up request
 closure-not-found = No closure request matches this reference.
 closure-back-to-admin = Back to administration
+operational = Operational email
+operational-opt-in = Email me about planned downtime and events.

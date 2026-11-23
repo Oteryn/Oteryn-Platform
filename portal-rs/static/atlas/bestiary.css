@@ -1,0 +1,10 @@
+.bestiary {
+  width: min(100% - 2rem, 48rem);
+  margin: 1rem auto;
+  overflow-wrap: anywhere;
+}
+
+.bestiary .op-input {
+  max-width: 100%;
+  min-width: 0;
+}

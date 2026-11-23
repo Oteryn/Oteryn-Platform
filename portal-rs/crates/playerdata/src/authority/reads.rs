@@ -410,6 +410,10 @@ pub struct CollectionEvidence {
 }
 
 impl CollectionEvidence {
+    pub fn bestiary_mapping_accepted() -> bool {
+        !super::UNPROVEN_PROGRESS.contains(&"bestiary")
+    }
+
     pub async fn characters(
         tx: Transaction<'_, Postgres>,
         actor: Uuid,
@@ -449,6 +453,129 @@ impl CollectionEvidence {
         Ok(owned)
     }
 
+    /// Acquire the journal locks before any account row lock. They are held
+    /// through commit, including when called from a collection mutation.
+    pub async fn lock_bestiary(
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        source: &str,
+    ) -> Result<(), Error> {
+        store::lock_account(tx, &actor.to_string()).await?;
+        store::shared_authority(tx, source).await
+    }
+
+    /// Read only the latest published bestiary values from the current
+    /// custody cut. The T72 admission policy still decides which Game values
+    /// can reach this store.
+    pub async fn bestiary(
+        tx: &mut Transaction<'_, Postgres>,
+        actor: Uuid,
+        character: Uuid,
+        source: &str,
+    ) -> Result<Vec<crate::progress::Payload>, Error> {
+        if character.get_version_num() != 7 || character.get_variant() != uuid::Variant::RFC4122 {
+            return Err(Error::Invalid);
+        }
+        Self::lock_bestiary(tx, actor, source).await?;
+        collection_account(tx, actor).await?;
+        shared_fences(tx).await?;
+        let restored = restore_generation(tx).await?;
+        let feed = live_feed(tx).await?;
+        let cut = listed_collection_cut(tx, actor, character, &feed).await?;
+        let epoch = account_epoch_with_feed(tx, actor, &feed).await?;
+        if source.is_empty() {
+            return Err(Error::Unavailable);
+        }
+        let mut scope = Scope {
+            authority: source.to_owned(),
+            account: actor.to_string(),
+            world: Some(cut.world.to_string()),
+            character: Some(character.to_string()),
+            character_revision: None,
+            projection_revision: Some(cut.to_projection_revision.to_string()),
+            from_projection_revision: None,
+            epoch: Some(epoch.to_string()),
+            recovery: String::new(),
+            family: "bestiary".to_owned(),
+        };
+        let key = store::stream_key(&scope);
+        let (through, recovery, observed): (String, String, i64) = sqlx::query_as(
+            "SELECT published_through::text, watermark_recovery::text, observed_ms
+             FROM pd_streams WHERE stream_key=$1 AND progress AND NOT erased
+               AND baseline_complete AND watermark_recovery >= $2::numeric
+               AND watermark_recovery >= COALESCE(recovery_high_water, watermark_recovery)
+             FOR SHARE",
+        )
+        .bind(&key)
+        .bind(restored.max(cut.recovery).to_string())
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or(Error::Unavailable)?;
+        let now: i64 =
+            sqlx::query_scalar("SELECT (extract(epoch FROM clock_timestamp())*1000)::bigint")
+                .fetch_one(&mut **tx)
+                .await?;
+        if observed <= 0 || observed > now || now - observed > 10_000 || observed < floor_ms(&cut)?
+        {
+            return Err(Error::Unavailable);
+        }
+        scope.recovery = recovery;
+        // Retention strips the race key from expired records. A redacted row
+        // could have replaced any earlier race in this subject.
+        let rows = sqlx::query(
+            "SELECT DISTINCT ON (entity_key) entity_key,kind,payload,expires_ms,occurred_ms,ownership_revision
+             FROM pd_records WHERE stream_key=$1 AND scope_key=$2
+               AND source_revision <= $3::numeric
+               AND source_revision > COALESCE((
+                   SELECT max(source_revision) FROM pd_records
+                   WHERE stream_key=$1 AND scope_key=$2 AND entity_key=''
+                     AND source_revision <= $3::numeric
+               ),0)
+             ORDER BY entity_key,source_revision DESC LIMIT 4097",
+        )
+        .bind(&key)
+        .bind(store::subject_key(&scope))
+        .bind(through)
+        .fetch_all(&mut **tx)
+        .await?;
+        if rows.len() > 4096 {
+            return Err(Error::Unavailable);
+        }
+        let mut values = Vec::new();
+        let visible_from = floor_ms(&cut)?;
+        let ownership_revision = cut.character_revision.to_string();
+        for row in rows {
+            if row.try_get::<i64, _>("occurred_ms")? < visible_from
+                || row
+                    .try_get::<Option<String>, _>("ownership_revision")?
+                    .as_ref()
+                    != Some(&ownership_revision)
+            {
+                return Err(Error::Unavailable);
+            }
+            let kind: String = row.try_get("kind")?;
+            if kind == "REMOVE" || row.try_get::<i64, _>("expires_ms")? <= now {
+                continue;
+            }
+            if kind != "UPSERT" {
+                return Err(Error::Unavailable);
+            }
+            let bytes: Vec<u8> = row
+                .try_get::<Option<_>, _>("payload")?
+                .ok_or(Error::Unavailable)?;
+            let value = serde_json::from_slice(&bytes).map_err(|_| Error::Unavailable)?;
+            let payload = crate::progress::Payload::decode("bestiary", value, false)
+                .map_err(|_| Error::Unavailable)?;
+            if !matches!(&payload, crate::progress::Payload::Bestiary(b)
+                if b.race_key == row.try_get::<String, _>("entity_key")?)
+            {
+                return Err(Error::Unavailable);
+            }
+            values.push(payload);
+        }
+        Ok(values)
+    }
+
     pub async fn read(
         mut tx: Transaction<'_, Postgres>,
         actor: Uuid,
@@ -464,20 +591,8 @@ impl CollectionEvidence {
         shared_fences(&mut tx).await?;
         let restored = restore_generation(&mut tx).await?;
         let feed = live_feed(&mut tx).await?;
+        let cut = listed_collection_cut(&mut tx, actor, character, &feed).await?;
         let epoch = account_epoch_with_feed(&mut tx, actor, &feed).await?;
-        // Check membership in the caller's partition while the feed is locked.
-        // Unknown and foreign IDs have the same response.
-        let listed: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2)",
-        )
-        .bind(actor)
-        .bind(character)
-        .fetch_one(&mut *tx)
-        .await?;
-        if !listed {
-            return Err(Error::Denied);
-        }
-        let cut = collection_cut(&mut tx, actor, character, &feed).await?;
         let mut scope = Scope {
             authority: inventory_source.to_owned(),
             account: actor.to_string(),
@@ -534,6 +649,26 @@ async fn collection_account(db: &mut PgConnection, actor: Uuid) -> Result<(), Er
         return Err(Error::Denied);
     }
     Ok(())
+}
+
+async fn listed_collection_cut(
+    db: &mut PgConnection,
+    actor: Uuid,
+    character: Uuid,
+    feed: &LiveFeed,
+) -> Result<OwnershipCut, Error> {
+    // Unknown and foreign IDs have the same response.
+    let listed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2)",
+    )
+    .bind(actor)
+    .bind(character)
+    .fetch_one(&mut *db)
+    .await?;
+    if !listed {
+        return Err(Error::Denied);
+    }
+    collection_cut(db, actor, character, feed).await
 }
 
 async fn collection_cut(

@@ -43,3 +43,5 @@ closure-operator-title = Stan zamknięcia konta
 closure-lookup = Wyszukaj wniosek
 closure-not-found = Nie znaleziono wniosku o podanym identyfikatorze.
 closure-back-to-admin = Wróć do panelu administracyjnego
+operational = Wiadomości organizacyjne
+operational-opt-in = Chcę otrzymywać e-maile o planowanych przerwach i wydarzeniach.

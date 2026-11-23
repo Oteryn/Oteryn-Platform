@@ -179,6 +179,8 @@ fn localized_responsive_labelled_template() {
             }),
             optional_consents: lang == "pl",
             closure_link: Some(text(lang, "account-closure-status")),
+            incidents_link: Some(text(lang, "incident-title")),
+            operational_mail_link: Some(text(lang, "operational-mail-title")),
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -203,10 +205,14 @@ fn localized_responsive_labelled_template() {
             manage: true,
             next: None,
             invitations_label: None,
-        };
-        let html = page.render().unwrap();
+            hireling_status: None,
+            translations: messages(lang).unwrap(),
+        }
+        .render()
+        .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains("href=\"/admin/operational-mail\""));
         assert!(html.contains("href=\"/admin/moderation/reports\""));
         assert!(html.contains(&format!("href=\"/admin/console/audit?lang={lang}\"")));
         assert!(html.contains(if lang == "pl" {
@@ -263,6 +269,7 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));
+        assert!(html.contains(&format!(r#"href="/admin/referrals?lang={lang}""#)));
         assert!(html.contains(&format!(
             "href=\"/admin/news\">{}</a>",
             text(lang, "cms-news")
@@ -452,6 +459,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let body = String::from_utf8_lossy(&body);
     assert!(body.contains("data-state=\"blocked\""));
     assert!(body.contains("data-state=\"unavailable\""));
+    assert!(!body.contains("id=\"hireling-status\""));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),

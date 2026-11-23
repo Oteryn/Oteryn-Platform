@@ -44,11 +44,13 @@ async fn exercise(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(initial.language, "en");
     assert_eq!(initial.choices.news, (false, true));
     assert!(!initial.choices.events);
+    assert_eq!(initial.choices.operational, None);
     let choices = Choices {
         news: (true, false),
         support: (true, true),
         events: true,
         forum_digest: true,
+        operational: Some(true),
     };
     let inactive_session = MutationActor::browser(account, "absent session".into());
     assert!(
@@ -65,11 +67,13 @@ async fn exercise(pool: &PgPool) -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(saved.language, "pl");
     assert_eq!(saved.choices.news, (true, false));
     assert!(saved.choices.events && saved.choices.forum_digest);
+    assert_eq!(saved.choices.operational, Some(true));
     assert!(save(pool, &account.into(), None, Choices::default()).await?);
     let saved = current(pool, account).await?.ok_or("missing preferences")?;
     assert_eq!(saved.language, "pl");
     assert_eq!(saved.choices.news, (false, false));
     assert!(saved.choices.events && saved.choices.forum_digest);
+    assert_eq!(saved.choices.operational, Some(true));
     sqlx::query("UPDATE accounts SET status = 'suspended' WHERE id = $1")
         .bind(account)
         .execute(pool)

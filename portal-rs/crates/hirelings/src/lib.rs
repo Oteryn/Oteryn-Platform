@@ -1,9 +1,10 @@
 //! Platform hireling intents. Game outcomes remain authoritative behind G-14.
+use fluent_bundle::{FluentBundle, FluentResource};
+
 mod service;
 pub use service::*;
 
-fn text(lang: &str, key: &str) -> Result<String> {
-    use fluent_bundle::{FluentBundle, FluentResource};
+fn messages(lang: &str) -> Result<FluentBundle<FluentResource>> {
     let source = match lang {
         "pl" => include_str!("../locales/pl.ftl"),
         "en" => include_str!("../locales/en.ftl"),
@@ -15,6 +16,10 @@ fn text(lang: &str, key: &str) -> Result<String> {
     bundle
         .add_resource(resource)
         .map_err(|_| "duplicate translations")?;
+    Ok(bundle)
+}
+
+fn text(bundle: &FluentBundle<FluentResource>, key: &str) -> Result<String> {
     let pattern = bundle
         .get_message(key)
         .and_then(|m| m.value())

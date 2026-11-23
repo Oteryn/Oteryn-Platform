@@ -2,8 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    body::Bytes,
-    extract::{ConnectInfo, Query, Request, State},
+    extract::{ConnectInfo, FromRequest, Multipart, Query, Request, State},
     http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -129,19 +128,15 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
 }
 
 fn router(pool: PgPool, termination: termination::Terminations, game_enabled: bool) -> Router {
-    let key = std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY").unwrap_or_default();
-    let notifications = oteryn_notify::Unsubscribe::new(
-        key.into_bytes(),
-        std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_URL").unwrap_or_default(),
-    )
-    .ok()
-    .map(|unsubscribe| {
-        Arc::new(oteryn_notify::Notifications {
-            pool: pool.clone(),
-            accounts: Arc::new(AccountState(pool.clone())),
-            unsubscribe,
-        })
-    });
+    let notifications = oteryn_notify::Unsubscribe::configured()
+        .ok()
+        .map(|unsubscribe| {
+            Arc::new(oteryn_notify::Notifications {
+                pool: pool.clone(),
+                accounts: Arc::new(AccountState(pool.clone())),
+                unsubscribe,
+            })
+        });
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
         .ok()
@@ -343,6 +338,8 @@ struct PreferenceInput {
     events_email: Option<String>,
     forum_digest_email: Option<String>,
     mail_locale: Option<MailLanguage>,
+    operational_email: Option<String>,
+    operational_present: Option<String>,
 }
 fn boolean(v: Option<String>) -> Result<bool, StatusCode> {
     match v.as_deref() {
@@ -412,6 +409,13 @@ async fn save(
         ),
         events: boolean(input.events_email)?,
         forum_digest: boolean(input.forum_digest_email)?,
+        operational: if boolean(input.operational_present)? {
+            Some(boolean(input.operational_email)?)
+        } else if input.operational_email.is_some() {
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+        } else {
+            None
+        },
     };
     let actor = oteryn_identity::mutation_actor::MutationActor::browser(
         id,
@@ -473,13 +477,6 @@ struct UnsubscribeConfirmation {
     token: String,
 }
 
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct OneClickForm {
-    #[serde(rename = "List-Unsubscribe")]
-    action: String,
-}
-
 async fn confirm_unsubscribe(
     State(st): State<Services>,
     supplied: Option<Extension<RateLimiter>>,
@@ -492,85 +489,74 @@ async fn confirm_unsubscribe(
     unsubscribe(&st, &limiter, l, peer, &headers, &input.token).await
 }
 
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OneClick {
+    #[serde(rename = "List-Unsubscribe")]
+    action: String,
+}
+
+async fn one_click(request: Request, multipart: bool) -> Result<(), StatusCode> {
+    let invalid = StatusCode::UNPROCESSABLE_ENTITY;
+    let action = if multipart {
+        let mut fields = Multipart::from_request(request, &())
+            .await
+            .map_err(|_| invalid)?;
+        let field = fields
+            .next_field()
+            .await
+            .map_err(|_| invalid)?
+            .ok_or(invalid)?;
+        if field.name() != Some("List-Unsubscribe") || field.file_name().is_some() {
+            return Err(invalid);
+        }
+        let action = field.text().await.map_err(|_| invalid)?;
+        if fields.next_field().await.map_err(|_| invalid)?.is_some() {
+            return Err(invalid);
+        }
+        action
+    } else {
+        Form::<OneClick>::from_request(request, &())
+            .await
+            .map_err(|_| invalid)?
+            .0
+            .action
+    };
+    if action != "One-Click" {
+        return Err(invalid);
+    }
+    Ok(())
+}
+
 async fn one_click_unsubscribe(
     State(st): State<Services>,
     supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<Token>,
-    body: Bytes,
+    request: Request,
 ) -> Result<Response, StatusCode> {
-    if headers.contains_key(header::ORIGIN) || headers.contains_key("sec-fetch-site") {
+    let headers = request.headers().clone();
+    if headers.contains_key(header::ORIGIN)
+        || headers.contains_key("sec-fetch-site")
+        || headers.contains_key("sec-fetch-mode")
+    {
         return Err(StatusCode::FORBIDDEN);
     }
     let content_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .filter(|kind| {
+            kind.eq_ignore_ascii_case("application/x-www-form-urlencoded")
+                || kind.eq_ignore_ascii_case("multipart/form-data")
+        })
         .ok_or(StatusCode::UNSUPPORTED_MEDIA_TYPE)?;
-    let mut media = content_type.split(';');
-    let kind = media.next().unwrap_or_default().trim();
-    let confirmed = if kind.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
-        serde_urlencoded::from_bytes::<OneClickForm>(&body)
-            .is_ok_and(|input| input.action == "One-Click")
-    } else if kind.eq_ignore_ascii_case("multipart/form-data") {
-        let boundary = media.find_map(|parameter| mime_parameter(parameter, "boundary"));
-        boundary.is_some_and(|boundary| multipart_one_click(boundary, &body))
-    } else {
-        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    };
-    if !confirmed {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
+    let multipart = content_type.eq_ignore_ascii_case("multipart/form-data");
+    one_click(request, multipart).await?;
     let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     unsubscribe(&st, &limiter, l, peer, &headers, &q.token).await
-}
-
-fn mime_parameter<'a>(parameter: &'a str, key: &str) -> Option<&'a str> {
-    let (name, value) = parameter.split_once('=')?;
-    let value = value.trim();
-    name.trim().eq_ignore_ascii_case(key).then(|| {
-        value
-            .strip_prefix('"')
-            .and_then(|value| value.strip_suffix('"'))
-            .unwrap_or(value)
-    })
-}
-
-fn multipart_one_click(boundary: &str, body: &[u8]) -> bool {
-    // RFC 8058 defines a single ASCII form field. Match its complete MIME part.
-    if boundary.is_empty() || boundary.len() > 70 || boundary.contains(['\r', '\n']) {
-        return false;
-    }
-    let Ok(body) = std::str::from_utf8(body) else {
-        return false;
-    };
-    let opening = format!("--{boundary}\r\n");
-    let closing = format!("\r\n--{boundary}--");
-    let Some((headers, content)) = body
-        .strip_prefix(&opening)
-        .and_then(|body| body.split_once("\r\n\r\n"))
-    else {
-        return false;
-    };
-    let mut dispositions = headers.split("\r\n").filter_map(|header| {
-        let (name, value) = header.split_once(':')?;
-        name.eq_ignore_ascii_case("content-disposition")
-            .then_some(value)
-    });
-    let Some(disposition) = dispositions.next() else {
-        return false;
-    };
-    let mut parts = disposition.split(';');
-    dispositions.next().is_none()
-        && parts
-            .next()
-            .is_some_and(|value| value.trim().eq_ignore_ascii_case("form-data"))
-        && parts.find_map(|part| mime_parameter(part, "name")) == Some("List-Unsubscribe")
-        && content
-            .strip_prefix("One-Click")
-            .and_then(|content| content.strip_prefix(&closing))
-            .is_some_and(|tail| matches!(tail, "" | "\r\n"))
 }
 
 fn unsubscribe_target<'a>(

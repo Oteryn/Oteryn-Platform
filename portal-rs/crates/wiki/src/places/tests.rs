@@ -32,16 +32,15 @@ fn success_refusal_and_bad_input() {
     );
     let rendered = Page {
         locale: "en".into(),
-        title: text("en", "title").unwrap(),
-        unavailable: text("en", "unavailable").unwrap(),
-        reports: text("en", "reports").unwrap(),
+        text: Text::new("en").unwrap(),
+        filters: Filters::default(),
+        state: None,
         cards: vec![card],
-        labels: vec![String::new(); 6],
     }
     .render()
     .unwrap();
     assert!(!rendered.contains("<script>"));
-    assert!(text("de", "title").is_err());
+    assert!(Text::new("de").is_err());
 }
 
 #[derive(Debug)]
@@ -83,7 +82,7 @@ async fn http_success_disabled_and_invalid_filters() {
             assert!(
                 String::from_utf8(body.to_vec())
                     .unwrap()
-                    .contains("<main class=\"op-stack\">")
+                    .contains("<main id=\"main\" class=\"op-stack wiki-places\">")
             );
         }
     }
@@ -145,4 +144,32 @@ async fn enabled_without_qualified_source_still_denies() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(response.headers()["cache-control"], "private, no-store");
+}
+
+#[tokio::test]
+async fn unavailable_page_preserves_filter_selection() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use tower::ServiceExt;
+
+    let response = router(PlacesState {
+        enabled: false,
+        source: Arc::new(Unavailable),
+    })
+    .oneshot(
+        Request::builder()
+            .uri("/en/wiki/places?purpose=boss&party=4&sort=profit")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    for choice in ["boss", "4", "profit"] {
+        assert!(html.contains(&format!("value=\"{choice}\" selected")));
+    }
 }

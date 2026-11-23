@@ -444,3 +444,9 @@ world-uptime-public-view = Wyświetl status publiczny
 world-uptime-qualification = Publiczne dane o stanie gry, liczbie graczy i dostępności czekają na kwalifikację.
 shell-account-dashboard = Pulpit konta
 account-dashboard-unavailable = Dane dziennika są niedostępne.
+shell-sandbox-coin-checkout = Testowy zakup coinów
+
+shell-referrals = Polecenia
+
+shell-atlas-bestiary = Mój bestiariusz i bossowie
+shell-wiki-places = Miejsca polowań

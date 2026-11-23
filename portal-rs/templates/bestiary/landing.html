@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ text.get("title")? }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/atlas/bestiary.css">
+</head>
+<body class="op-theme">
+<main id="main" class="op-stack bestiary">
+  <h1>{{ text.get("title")? }}</h1>
+  {% match view %}
+  {% when LandingContent::SignIn %}
+  <p>{{ text.get("sign-in-message")? }}</p>
+  <p><a class="op-button" href="/{{ lang }}/login">{{ text.get("sign-in")? }}</a></p>
+  {% when LandingContent::Characters with (characters) %}
+    {% if characters.is_empty() %}
+    <p role="status">{{ text.get("no-characters")? }}</p>
+    {% else %}
+    <p>{{ text.get("choose-character")? }}</p>
+    <ul>
+      {% for (id, name) in characters %}
+      <li><a href="/{{ lang }}/atlas/bestiary/{{ id }}">{{ name }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  {% when LandingContent::Unavailable %}
+  <p role="status">{{ text.get("unavailable")? }}</p>
+  {% when LandingContent::JournalUnavailable %}
+  <p role="status">{{ text.get("unavailable")? }}</p>
+  <p><a href="/{{ lang }}/atlas/bestiary">{{ text.get("characters")? }}</a></p>
+  {% endmatch %}
+  <p><a href="/{{ lang }}/wiki/places">{{ text.get("places")? }}</a></p>
+</main>
+</body>
+</html>

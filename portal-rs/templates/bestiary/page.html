@@ -1,1 +1,77 @@
-<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/surface.css"><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1><p>{{ notice }}</p><p>{{ version_label }}: {{ version }}</p><form class="op-panel op-stack" method="get"><p class="op-field"><label>{{ class_label }} <input class="op-input" name="class" maxlength="128"></label></p><p class="op-field"><label>{{ difficulty_label }} <input class="op-input" name="difficulty" maxlength="128"></label></p><p class="op-field"><label>{{ stars_label }} <input class="op-input" name="stars" type="number" min="0" max="5"></label></p><button class="op-button" type="submit">{{ filter_label }}</button></form><h2>{{ recommendations_label }}</h2>{% if recommendations.is_empty() %}<p>{{ unavailable }}</p>{% endif %}<ol>{% for key in recommendations %}<li>{{ key }}</li>{% endfor %}</ol><h2>{{ locations_label }}</h2>{% if rows.is_empty() %}<p>{{ unavailable }}</p>{% endif %}<ul class="op-stack">{% for row in rows %}<li class="op-card op-stack"><h3>{{ row.key }}</h3><p>{{ row.state }}: {{ row.kills }} / {{ row.threshold }}; {{ points_label }}: {{ row.points }} / {{ row.possible }}; {{ row.cooldown }} {{ row.stage }}</p><p>{{ row.thresholds }}</p><ul>{% for point in row.points_on_map %}<li><p><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="{{ row.colour }}" stroke="black"/></svg> <a href="/{{ lang }}/atlas?x={{ point.x }}&amp;y={{ point.y }}&amp;z={{ point.floor }}">{{ point.label }}</a></p></li>{% endfor %}</ul></li>{% endfor %}</ul></main></body></html>
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ text.get("title")? }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/atlas/bestiary.css">
+</head>
+<body class="op-theme">
+<main id="main" class="op-stack bestiary">
+  <h1>{{ text.get("title")? }}</h1>
+  <p><a href="/{{ lang }}/atlas/bestiary">{{ text.get("characters")? }}</a></p>
+  <p>{{ text.get("notice")? }}</p>
+  <p>{{ text.get("version")? }} · {{ version }}</p>
+  <form class="op-panel op-stack" method="get">
+    <label class="op-field">{{ text.get("class")? }}
+      <select class="op-input" name="class">
+        <option value="">{{ text.get("any")? }}</option>
+        {% for (value, selected) in classes %}
+        <option value="{{ value }}"{% if *selected %} selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="op-field">{{ text.get("difficulty")? }}
+      <select class="op-input" name="difficulty">
+        <option value="">{{ text.get("any")? }}</option>
+        {% for (value, selected) in difficulties %}
+        <option value="{{ value }}"{% if *selected %} selected{% endif %}>{{ value }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label class="op-field">{{ text.get("stars")? }}
+      <input class="op-input" name="stars" type="number" min="0" max="5"{% if let Some(value) = stars %} value="{{ value }}"{% endif %}>
+    </label>
+    <button class="op-button" type="submit">{{ text.get("filter")? }}</button>
+  </form>
+  <section>
+    <h2>{{ text.get("recommendations")? }}</h2>
+    {% if recommendations.is_empty() %}
+    <p>{{ text.get("no-recommendations")? }}</p>
+    {% else %}
+    <ol>
+      {% for (index, creature) in recommendations %}
+      <li><a href="#creature-{{ index }}">{{ creature }}</a></li>
+      {% endfor %}
+    </ol>
+    {% endif %}
+    <p><a href="/{{ lang }}/wiki/places">{{ text.get("places")? }}</a></p>
+  </section>
+  <section class="op-stack">
+    <h2>{{ text.get("locations")? }}</h2>
+    {% if rows.is_empty() %}
+    <p>{{ text.get("empty")? }}</p>
+    {% endif %}
+    {% for row in rows %}
+    <article id="creature-{{ loop.index0 }}" class="op-card op-stack bestiary-creature">
+      <h3>{{ row.key }}</h3>
+      <p>{{ row.state }} · {{ row.kills }} / {{ row.threshold }}<br>
+        {{ text.get("points")? }} · {{ row.points }} / {{ row.possible }}
+        {% if !row.stage.is_empty() %}<br>{{ row.stage }} · {{ row.cooldown }}{% endif %}
+      </p>
+      <p>{{ row.thresholds }}</p>
+      <ul>
+        {% for point in row.points_on_map %}
+        <li><svg width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="{{ row.colour }}" stroke="black"/></svg>
+          <a href="/{{ lang }}/atlas?x={{ point.x }}&amp;y={{ point.y }}&amp;z={{ point.floor }}">{{ point.label }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </article>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>

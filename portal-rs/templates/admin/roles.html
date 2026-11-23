@@ -27,6 +27,10 @@
 {% if let Some(label) = native_login_link %}<a href="/admin/native-login">{{ label }}</a>{% endif %}
 {% if let Some(label) = pages_link %}<a href="/admin/pages">{{ label }}</a>{% endif %}
 {% if let Some(label) = closure_link %}<a href="/admin/account-closure">{{ label }}</a>{% endif %}
+{% if let Some(label) = incidents_link %}<a href="/admin/incidents">{{ label }}</a>{% endif %}
+{% if let Some(label) = operational_mail_link %}<a href="/admin/operational-mail">{{ label }}</a>{% endif %}
+<a href="/admin/referrals?lang={{ lang }}">{{ self.referral_operations() }}</a>
+{% if hireling_status.is_some() %}<a href="#hireling-status">{{ self.hireling_text("hireling-status-title") }}</a>{% endif %}
 </nav>
 {% if let Some(status) = account_reads %}
 <section class="op-panel op-stack" aria-labelledby="account-read-status">
@@ -63,4 +67,7 @@
 </form>
 </section>{% endif %}
 {% if let Some(after) = next %}<a href="/admin/roles?after={{ after }}">{% if lang == "pl" %}Następna strona{% else %}Next page{% endif %}</a>{% endif %}
+{% if let Some(hirelings) = hireling_status %}
+{% include "admin/hireling_status.html" %}
+{% endif %}
 </main></body></html>

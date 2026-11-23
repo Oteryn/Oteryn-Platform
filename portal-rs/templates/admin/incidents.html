@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.label("incident-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-wrap op-stack">
+  <h1>{{ self.label("incident-title") }}</h1>
+  <nav class="op-tabs" aria-label="{{ self.label("incident-title") }}">
+    <a href="/admin">{{ self.label("title") }}</a>
+    {% if detail.is_some() %}<a href="/admin/incidents">{{ self.label("incident-assigned-cases") }}</a>{% endif %}
+  </nav>
+  {% if let Some((case, window)) = detail %}
+  <section class="op-panel op-stack">
+    <h2>{{ self.label("incident-case") }}</h2>
+    <dl>
+      <dt>{{ self.label("incident-case-id") }}</dt><dd><code>{{ case.id }}</code></dd>
+      <dt>{{ self.label("incident-world") }}</dt><dd><code>{{ case.world_id }}</code></dd>
+      {% if let Some(node) = case.node_id %}
+      <dt>{{ self.label("incident-node") }}</dt><dd><code>{{ node }}</code></dd>
+      {% endif %}
+      {% if let Some(character) = case.character_id %}
+      <dt>{{ self.label("incident-character") }}</dt><dd><code>{{ character }}</code></dd>
+      {% endif %}
+      {% if let Some(account) = case.account_ref %}
+      <dt>{{ self.label("incident-account") }}</dt><dd><code>{{ account }}</code></dd>
+      {% endif %}
+    </dl>
+    <form class="op-stack" method="get" action="/admin/incidents/{{ case.id }}">
+      <label for="from">{{ self.label("incident-from") }}</label>
+      <input class="op-input" type="date" name="from" id="from" value="{{ window.from }}" required>
+      <label for="through">{{ self.label("incident-through") }}</label>
+      <input class="op-input" type="date" name="through" id="through" value="{{ window.through }}" required>
+      <p>{{ self.label("incident-window") }}</p>
+      <button class="op-button" type="submit">{{ self.label("incident-filter") }}</button>
+    </form>
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="incident-timeline">
+    <h2 id="incident-timeline">{{ self.label("incident-timeline") }}</h2>
+    {% if events.is_empty() %}<p>{{ self.label("incident-no-events") }}</p>{% endif %}
+    <ol class="op-stack">
+      {% for event in events %}
+      <li>
+        <strong>{{ self.event_label(event.kind) }}</strong>{% if let Some(status) = event.status %} · {{ self.status_label(status) }}{% endif %}
+        <div><time datetime="{{ event.timestamp() }}">{{ event.timestamp() }}</time></div>
+        <dl>
+          {% if let Some(operation) = event.operation %}
+          <dt>{{ self.label("incident-operation") }}</dt><dd><code>{{ operation }}</code></dd>
+          {% endif %}
+          {% if let Some(actor) = event.actor %}
+          <dt>{{ self.label("incident-actor") }}</dt><dd><code>{{ actor }}</code></dd>
+          {% endif %}
+          {% if let Some(request) = event.request_id %}
+          <dt>{{ self.label("incident-request") }}</dt><dd><code>{{ request }}</code></dd>
+          {% endif %}
+          {% if let Some(approval) = event.approval_id %}
+          <dt>{{ self.label("incident-approval") }}</dt><dd><code>{{ approval }}</code></dd>
+          {% endif %}
+        </dl>
+      </li>
+      {% endfor %}
+    </ol>
+    {% if let Some(url) = next %}
+    <a href="{{ url }}" rel="next">{{ self.label("incident-older-events") }}</a>
+    {% endif %}
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="incident-game">
+    <h2 id="incident-game">{{ self.label("incident-game") }}</h2>
+    <dl>
+      <dt>{{ self.label("incident-game-evidence") }}</dt><dd>{{ unavailable }}</dd>
+      <dt>{{ self.label("incident-game-approval") }}</dt><dd>{{ unavailable }}</dd>
+      <dt>{{ self.label("incident-game-effect") }}</dt><dd>{{ unavailable }}</dd>
+    </dl>
+    <p>{{ self.label("incident-independent-approval") }}</p>
+  </section>
+  {% else %}
+  <section class="op-panel op-stack">
+    <h2>{{ self.label("incident-assigned-cases") }}</h2>
+    {% if let Some(id) = receipt %}
+    <p role="status">{{ self.label("incident-assignment-saved") }} <code>{{ id }}</code></p>
+    {% endif %}
+    <form class="op-stack" method="get" action="/admin/incidents">
+      <label for="case-id">{{ self.label("incident-case-id") }}</label>
+      <input class="op-input" id="case-id" name="case_id" maxlength="36" required>
+      <button class="op-button" type="submit">{{ self.label("incident-find") }}</button>
+    </form>
+    {% if cases.is_empty() %}<p>{{ self.label("incident-no-cases") }}</p>{% endif %}
+    {% if more %}<p>{{ self.label("incident-case-limit") }}</p>{% endif %}
+    <ul class="op-stack">
+      {% for case in cases %}
+      <li><a href="/admin/incidents/{{ case.id }}"><code>{{ case.id }}</code> · {{ case.world_id }}</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% if let Some(token) = csrf %}
+  <section class="op-panel op-stack">
+    <h2>{{ self.label("incident-create") }}</h2>
+    <form class="op-stack" method="post" action="/admin/incidents">
+      <input name="_csrf" type="hidden" value="{{ token }}">
+      <label for="investigator">{{ self.label("incident-investigator") }}</label>
+      <input class="op-input" id="investigator" name="investigator" maxlength="36" required>
+      <label for="world-id">{{ self.label("incident-world") }}</label>
+      <input class="op-input" id="world-id" name="world_id" maxlength="128" required>
+      <label for="node-id">{{ self.label("incident-node") }}</label>
+      <input class="op-input" id="node-id" name="node_id" maxlength="128">
+      <label for="character-id">{{ self.label("incident-character") }}</label>
+      <input class="op-input" id="character-id" name="character_id" maxlength="128">
+      <label for="account-ref">{{ self.label("incident-account") }}</label>
+      <input class="op-input" id="account-ref" name="account_ref" maxlength="36">
+      <label for="alarm-id">{{ self.label("incident-alarm") }}</label>
+      <input class="op-input" id="alarm-id" name="alarm_id" maxlength="36">
+      <p>{{ self.label("incident-case-scope") }}</p>
+      <button class="op-button" type="submit">{{ self.label("incident-create") }}</button>
+    </form>
+  </section>
+  <section class="op-panel op-stack">
+    <h2>{{ self.label("incident-reassign") }}</h2>
+    <form class="op-stack" method="post" action="/admin/incidents/assign">
+      <input name="_csrf" type="hidden" value="{{ token }}">
+      <label for="assign-case-id">{{ self.label("incident-case-id") }}</label>
+      <input class="op-input" id="assign-case-id" name="case_id" maxlength="36" required>
+      <label for="assign-investigator">{{ self.label("incident-investigator") }}</label>
+      <input class="op-input" id="assign-investigator" name="investigator" maxlength="36" required>
+      <button class="op-button" type="submit">{{ self.label("incident-reassign") }}</button>
+    </form>
+  </section>
+  {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

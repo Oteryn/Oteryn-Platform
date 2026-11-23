@@ -287,3 +287,17 @@ public P /admin/console/sanctions
 public P /admin/console/sanctions/{id}
 public G /admin/{lang}/world-directories
 public G /admin/account-closure
+public G /{lang}/panel/payments/coin-checkout
+public P /{lang}/panel/payments/coin-checkout
+public G /admin/commerce/operation-status
+public G /admin/incidents
+public G /admin/incidents/{id}
+public P /admin/incidents
+public P /admin/incidents/assign
+public G /admin/operational-mail
+public G /admin/operational-mail/{id}
+public P /admin/operational-mail
+public P /admin/operational-mail/{id}
+public G /admin/referrals
+public G /admin/wiki/game-evidence
+public G /{lang}/atlas/bestiary

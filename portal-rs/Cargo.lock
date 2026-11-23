@@ -333,6 +333,7 @@ dependencies = [
  "matchit",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "serde_core",
@@ -2657,6 +2658,7 @@ dependencies = [
  "oteryn-db",
  "oteryn-identity",
  "oteryn-internal-api",
+ "oteryn-notify",
  "oteryn-payments",
  "oteryn-store",
  "oteryn-wallet",
@@ -3108,6 +3110,7 @@ dependencies = [
  "sha2 0.10.9",
  "tokio",
  "unic-langid",
+ "url",
 ]
 
 [[package]]

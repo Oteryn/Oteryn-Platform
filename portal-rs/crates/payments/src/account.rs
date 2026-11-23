@@ -61,16 +61,16 @@ pub fn configured_router(pool: PgPool) -> Router {
 }
 
 #[derive(Clone, Copy)]
-struct Locale(&'static str);
+pub(crate) struct Locale(pub(crate) &'static str);
 impl Locale {
-    fn parse(lang: &str) -> Result<Self, StatusCode> {
+    pub(crate) fn parse(lang: &str) -> Result<Self, StatusCode> {
         match lang {
             "pl" => Ok(Self("pl")),
             "en" => Ok(Self("en")),
             _ => Err(StatusCode::NOT_FOUND),
         }
     }
-    fn text(self, key: &str) -> String {
+    pub(crate) fn text(self, key: &str) -> String {
         let source = if self.0 == "pl" {
             include_str!("../templates/account/pl.ftl")
         } else {
@@ -97,11 +97,11 @@ impl Locale {
             .unwrap_or_default()
     }
 }
-async fn identity(session: &impl CurrentAccount, locale: Locale) -> Result<Uuid, Response> {
+async fn identity(session: &impl CurrentAccount, locale: Locale) -> Result<Uuid, Redirect> {
     session
         .current_account()
         .await
-        .ok_or_else(|| Redirect::to(&format!("/{}/login", locale.0)).into_response())
+        .ok_or_else(|| Redirect::to(&format!("/{}/login", locale.0)))
 }
 
 #[derive(Template)]
@@ -111,6 +111,7 @@ struct Page {
     title: String,
     premium_label: String,
     payments_label: String,
+    sandbox_label: Option<String>,
     status_label: String,
     amount_label: String,
     date_label: String,
@@ -134,6 +135,7 @@ impl Page {
             title: locale.text(title),
             premium_label: locale.text("premium"),
             payments_label: locale.text("payments"),
+            sandbox_label: None,
             status_label: locale.text("status"),
             amount_label: locale.text("amount"),
             date_label: locale.text("date"),
@@ -253,7 +255,7 @@ async fn premium(
     let locale = Locale::parse(&lang)?;
     let account = match identity(&session, locale).await {
         Ok(id) => id,
-        Err(response) => return Ok(response),
+        Err(redirect) => return Ok(redirect.into_response()),
     };
     let query = premium_query(query.as_deref())?;
     let mut page = PremiumPage {
@@ -378,10 +380,11 @@ async fn history(
     let locale = Locale::parse(&lang)?;
     let account = match identity(&session, locale).await {
         Ok(id) => id,
-        Err(response) => return Ok(response),
+        Err(redirect) => return Ok(redirect.into_response()),
     };
     let number = paging(query.as_deref())?;
     let mut page = Page::new(locale, "payments");
+    page.sandbox_label = crate::coin_http::browser::enabled().then(|| locale.text("sandbox-title"));
     page.rows = entries(&pool, account, number, locale)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -433,7 +436,7 @@ async fn receipt(
     let locale = Locale::parse(&lang)?;
     let account = match identity(&session, locale).await {
         Ok(id) => id,
-        Err(response) => return Ok(response),
+        Err(redirect) => return Ok(redirect.into_response()),
     };
     let id = Uuid::parse_str(&id).map_err(|_| StatusCode::NOT_FOUND)?;
     let entry = receipt_entry(&pool, account, id, locale)

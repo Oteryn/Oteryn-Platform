@@ -53,6 +53,10 @@ fn routes<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     Router::new()
         .route("/admin/commerce", get(page::<A, E>))
         .route("/admin/commerce/{action}", post(submit::<A, E>))
+        .route(
+            "/admin/commerce/operation-status",
+            get(super::operation_status::page::<A, E>),
+        )
         .route("/admin/commerce/approvals/{id}", post(approve::<A, E>))
         .route("/admin/commerce/cancellations/{id}", post(cancel::<A, E>))
         .with_state(service.clone())
@@ -121,9 +125,20 @@ fn enabled(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("true")
 }
 #[derive(Clone, Copy)]
-struct Locale(&'static str);
+pub(super) struct Locale(pub(super) &'static str);
 impl Locale {
-    fn from_headers(headers: &HeaderMap) -> Self {
+    pub(super) fn from_headers(headers: &HeaderMap) -> Self {
+        for header in headers.get_all(axum::http::header::COOKIE) {
+            if let Ok(cookies) = header.to_str() {
+                for cookie in cookies.split(';') {
+                    match cookie.trim() {
+                        "portal_language=en" => return Self("en"),
+                        "portal_language=pl" => return Self("pl"),
+                        _ => {}
+                    }
+                }
+            }
+        }
         Self(
             if headers
                 .get("accept-language")
@@ -136,7 +151,7 @@ impl Locale {
             },
         )
     }
-    fn text(self, key: &str) -> String {
+    pub(super) fn text(self, key: &str) -> String {
         let source = if self.0 == "en" {
             include_str!("en.ftl")
         } else {
@@ -159,6 +174,7 @@ impl Locale {
             .unwrap_or_default()
     }
 }
+
 struct Action {
     key: &'static str,
     title: String,
@@ -178,6 +194,8 @@ struct Pending {
 #[derive(Template)]
 #[template(path = "commerce/page.html", config = "src/commerce/askama.toml")]
 struct Page {
+    locale: Locale,
+    qualification: Option<qualification::Qualification>,
     lang: &'static str,
     title: String,
     note: String,
@@ -196,6 +214,7 @@ struct Page {
     next_label: String,
     next: Option<Uuid>,
     csrf: String,
+    operation_status: Option<String>,
     actions: Vec<Action>,
     pending: Vec<Pending>,
     premium_lookup: bool,
@@ -217,8 +236,10 @@ struct QueueFilter {
     // Site-wide locale switch parameter carried by admin navigation links.
     #[serde(rename = "lang")]
     _lang: Option<String>,
+    intent: Option<String>,
+    event: Option<String>,
 }
-fn format_refund_amount(minor_units: i64, currency: &str) -> String {
+pub(super) fn format_refund_amount(minor_units: i64, currency: &str) -> String {
     // ISO 4217 currencies whose minor units differ from the usual hundredths.
     let exponent = match currency {
         "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
@@ -277,6 +298,20 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
     Query(filter): Query<QueueFilter>,
 ) -> Response {
     let locale = Locale::from_headers(&headers);
+    let intent = filter.intent.as_deref().filter(|id| !id.is_empty());
+    let event = filter.event.as_deref().filter(|id| !id.is_empty());
+    let qualification = match s
+        .auth
+        .check(context, rbac::Permission::ReconcilePayments)
+        .await
+    {
+        Ok(()) => match qualification::Qualification::load(&s.pool, locale, intent, event).await {
+            Ok(value) => Some(value),
+            Err(error) => return failure(locale, error),
+        },
+        Err(rbac::Error::Denied) if intent.is_none() && event.is_none() => None,
+        Err(error) => return failure(locale, error.into()),
+    };
     let mut actions = vec![];
     for (key, command) in [
         ("grant", Command::Grant { days: 1 }),
@@ -320,6 +355,11 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         }
     } else {
         None
+    };
+    let operation_status = match s.authorize(context, &Command::Reconcile).await {
+        Ok(()) => Some(locale.text("status-title")),
+        Err(Error::Denied) => None,
+        Err(error) => return failure(locale, error),
     };
     // Apply permission predicates in SQL before exposing any queue entries.
     let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2) OR (command->>'kind'='grant' AND $4)) ORDER BY created_at,id LIMIT 101")
@@ -373,6 +413,8 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         Err(_) => return failure(locale, Error::Unavailable),
     };
     oteryn_web::render(&Page {
+        locale,
+        qualification,
         lang: locale.0,
         title: locale.text("title"),
         note: locale.text("note"),
@@ -391,6 +433,7 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         next_label: locale.text("next"),
         next,
         csrf,
+        operation_status,
         actions,
         pending,
         premium_lookup,
@@ -536,7 +579,7 @@ async fn cancel<A: rbac::AccountStateReader, E: Effects>(
         Err(e) => failure(Locale::from_headers(&headers), e),
     }
 }
-fn failure(locale: Locale, error: Error) -> Response {
+pub(super) fn failure(locale: Locale, error: Error) -> Response {
     let (status, key) = match error {
         Error::Invalid => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
         Error::Denied => (StatusCode::FORBIDDEN, "denied"),
@@ -546,4 +589,22 @@ fn failure(locale: Locale, error: Error) -> Response {
     };
     // Only repository-owned Fluent resources are interpolated.
     (status,axum::response::Html(format!("<!doctype html><html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><main><h1>{}</h1><a href=\"/admin/commerce\">{}</a></main></html>",locale.0,locale.text(key),locale.text("back")))).into_response()
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+    use axum::http::{HeaderValue, header};
+
+    #[test]
+    fn commerce_uses_the_selected_portal_language() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("en"));
+        assert_eq!(Locale::from_headers(&headers).0, "en");
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("other=1; portal_language=pl"),
+        );
+        assert_eq!(Locale::from_headers(&headers).0, "pl");
+    }
 }

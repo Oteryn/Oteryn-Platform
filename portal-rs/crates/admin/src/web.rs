@@ -1,6 +1,7 @@
 //! Staff surface. Authentication adapters are trusted server configuration, never request data.
 use crate::{
     audit::{self, AuditContext, Entry},
+    hireling_status,
     rbac::{
         AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, Change,
         CheckContext, Error, Permission,
@@ -9,7 +10,7 @@ use crate::{
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Query, Request, State},
+    extract::{OriginalUri, Query, Request, State},
     http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -28,6 +29,9 @@ mod invitations;
 mod public_projections;
 #[path = "registration_policy.rs"]
 mod registration_policy;
+
+#[path = "incidents/mod.rs"]
+mod incidents;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
@@ -385,6 +389,13 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             "/admin/audit-evidence",
             get(crate::audit_evidence::page::<I, A>).post(crate::audit_evidence::export::<I, A>),
         )
+        .route(
+            "/admin/incidents",
+            get(incidents::index::<I, A>).post(incidents::create::<I, A>),
+        )
+        .route("/admin/incidents/{id}", get(incidents::detail::<I, A>))
+        .route("/admin/incidents/assign", post(incidents::assign::<I, A>))
+        .merge(crate::operational_mail::http::routes::<I, A>())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -545,6 +556,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             Permission::AdminAnalyticsExport,
         ],
         ("/admin/audit-evidence", _) => &[Permission::ViewAudit],
+        ("/admin/incidents/assign", _) => &[Permission::ManageRoles],
+        (path, _) if path.starts_with("/admin/incidents") => &[Permission::ViewAudit],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
@@ -605,6 +618,28 @@ fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'s
         Some("en") => "en",
         _ => language(headers),
     }
+}
+
+pub(crate) async fn charge_staff_quota(
+    pool: &PgPool,
+    actor: Uuid,
+    name: &str,
+    limit: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES($1,sha256(uuid_send($2)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$3+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(name)
+    .bind(actor)
+    .bind(limit)
+    .fetch_one(pool)
+    .await?;
+    Ok((count > limit).then_some(retry_after))
 }
 
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
@@ -672,6 +707,8 @@ struct Page {
     account_reads: Option<AccountReadStatus>,
     optional_consents: bool,
     closure_link: Option<String>,
+    incidents_link: Option<String>,
+    operational_mail_link: Option<String>,
     players_label: String,
     operations_link: Option<String>,
     players: bool,
@@ -697,14 +734,24 @@ struct Page {
     manage: bool,
     invitations_label: Option<String>,
     next: Option<Uuid>,
+    hireling_status: Option<hireling_status::Status>,
+    translations: fluent_bundle::FluentBundle<fluent_bundle::FluentResource>,
 }
 impl Page {
     fn text(&self, key: &str) -> String {
-        text(self.lang, key)
+        message(&self.translations, key)
     }
 
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
+    }
+
+    fn referral_operations(&self) -> String {
+        text(self.lang, "referral-operations")
+    }
+
+    fn hireling_text(&self, key: &str) -> String {
+        message(&self.translations, key)
     }
 }
 const ROLE_PAGE_SIZE: i64 = 50;
@@ -740,8 +787,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(session): Extension<BrowserSession>,
     navigation: Option<Extension<PortalNavigation>>,
     account_reads: Option<Extension<AccountReadStatus>>,
+    OriginalUri(uri): OriginalUri,
+    headers: axum::http::HeaderMap,
     Query(query): Query<RolePageQuery>,
-    request: Request,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {
         Ok(()) => true,
@@ -786,7 +834,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language_for(query.lang.as_deref(), request.headers());
+    let lang = language_for(query.lang.as_deref(), &headers);
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
@@ -831,6 +879,25 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let incidents_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "incident-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let operational_mail_link = match crate::operational_mail::http::visible(&s.auth, context).await
+    {
+        Ok(visible) => visible.then(|| text(lang, "operational-mail-title")),
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let hireling_status = if uri.path() == "/admin" {
+        match s.auth.check(context, Permission::AdminAnalyticsView).await {
+            Ok(()) => Some(hireling_status::Status::load(&s.pool).await),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        None
+    };
     let client_build_link = match s.auth.check(context, Permission::ManageDownloads).await {
         Ok(()) => Some(text(lang, "build-title")),
         Err(Error::Denied) => None,
@@ -920,17 +987,55 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let errors_label = s
+        .auth
+        .check(context, Permission::ViewPortalErrors)
+        .await
+        .ok()
+        .map(|()| text(lang, "errors-title"));
+    let status_label = s
+        .auth
+        .check(context, Permission::StatusView)
+        .await
+        .ok()
+        .map(|()| crate::status::text(lang, "staff-title"));
+    let can_view_charts = s
+        .auth
+        .check(context, Permission::AdminAnalyticsView)
+        .await
+        .is_ok();
+    let newsletter_label = s
+        .auth
+        .check(context, Permission::NewsletterView)
+        .await
+        .is_ok()
+        .then(|| crate::newsletter::label(lang, "title"));
+    let forum_label = s
+        .auth
+        .check(context, Permission::ForumModerator)
+        .await
+        .ok()
+        .map(|()| text(lang, "forum"));
+    let Some(translations) = messages(lang) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let tr = |key| message(&translations, key);
     oteryn_web::render(&Page {
         pages_link,
         lang,
         editorial_links,
         registration_policy_label,
-        title: text(lang, "title"),
-        roles_label: text(lang, "roles"),
-        reports_label: text(lang, "reports"),
+        title: tr("title"),
+        roles_label: tr("roles"),
+        reports_label: tr("reports"),
         world_catalog_link,
         moderate_reports,
         mail_link,
+        incidents_link,
+        operational_mail_link,
+        players_label: tr("players"),
+        players: s.players_enabled && support,
+        errors_label,
         client_build_link,
         world_daily_link,
         character_cases_link: support.then(|| text(lang, "character-case-title")),
@@ -938,51 +1043,24 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         operations_link,
         native_login_link,
         account_reads: account_reads
-            .filter(|_| request.uri().path() == "/admin")
+            .filter(|_| uri.path() == "/admin")
             .map(|Extension(status)| status),
         optional_consents: oteryn_identity::consents::OptionalConfig::configured().enabled,
         closure_link,
-        players_label: text(lang, "players"),
-        players: s.players_enabled && support,
-        errors_label: s
-            .auth
-            .check(context, Permission::ViewPortalErrors)
-            .await
-            .ok()
-            .map(|()| text(lang, "errors-title")),
         system_label,
-        status_label: s
-            .auth
-            .check(context, Permission::StatusView)
-            .await
-            .ok()
-            .map(|()| crate::status::text(lang, "staff-title")),
+        status_label,
         charts_label: crate::charts::nav_label(lang),
-        can_view_charts: s
-            .auth
-            .check(context, Permission::AdminAnalyticsView)
-            .await
-            .is_ok(),
-        newsletter_label: s
-            .auth
-            .check(context, Permission::NewsletterView)
-            .await
-            .is_ok()
-            .then(|| crate::newsletter::label(lang, "title")),
-        forum_label: s
-            .auth
-            .check(context, Permission::ForumModerator)
-            .await
-            .ok()
-            .map(|()| text(lang, "forum")),
+        can_view_charts,
+        newsletter_label,
+        forum_label,
+        account_label: tr("account"),
+        role_label: tr("role"),
+        grant: tr("grant"),
+        revoke: tr("revoke"),
         enforcement_link,
         audit_link,
         downloads_link,
         audit_evidence_link,
-        account_label: text(lang, "account"),
-        role_label: text(lang, "role"),
-        grant: text(lang, "grant"),
-        revoke: text(lang, "revoke"),
         csrf,
         next: (roles.len() == ROLE_PAGE_SIZE as usize)
             .then(|| roles.last().map(|r| r.0))
@@ -990,6 +1068,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         roles,
         manage,
         invitations_label,
+        hireling_status,
+        translations,
     })
 }
 #[derive(Deserialize)]

@@ -152,7 +152,7 @@ async fn unavailable_is_explicit_and_bad_input_refused() {
         Input {
             lang: Some("en".into()),
             q: Some("Test".into()),
-            character: None,
+            ..Input::default()
         },
     )
     .await
@@ -248,7 +248,7 @@ async fn postgres_masked_view_writes_exactly_one_read_audit()
         Input {
             lang: Some("en".into()),
             character: Some("c-1".into()),
-            q: None,
+            ..Input::default()
         },
     )
     .await
@@ -614,7 +614,7 @@ async fn a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed()
     let input = || Input {
         character: Some("c-1".into()),
         lang: Some("en".into()),
-        q: None,
+        ..Input::default()
     };
     let page = view(&state, actor, input())
         .await
@@ -646,4 +646,118 @@ async fn a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed()
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn staff_can_review_character_correction_requirements() {
+    let state = Console {
+        pool: lazy(),
+        flags: Flags { console: true },
+        backend: fake(true, false),
+    };
+    for lang in ["en", "pl"] {
+        let input =
+            serde_urlencoded::from_str(&format!("lang={lang}&remediation=overview")).unwrap();
+        let html = view(&state, actor(), input)
+            .await
+            .unwrap()
+            .render()
+            .unwrap();
+        for operation in [
+            "character.rescue.teleport",
+            "character.session.disconnect",
+            "character.outfit.correct",
+            "character.item.compensate",
+            "character.item.confiscate",
+        ] {
+            assert!(html.contains(operation), "{lang}: {operation}");
+            assert_eq!(crate::control::catalog::advertised_kind(operation, 1), None);
+        }
+        assert!(html.contains(&tr(lang, "unavailable")));
+        assert!(!html.contains("method=\"post\""));
+    }
+}
+
+#[tokio::test]
+async fn character_correction_detail_applies_players_access_and_validates_selection() {
+    let query = "lang=en&remediation=confiscate";
+    let mut state = Console {
+        pool: lazy(),
+        flags: Flags { console: true },
+        backend: fake(false, false),
+    };
+    let input = || serde_urlencoded::from_str(query).unwrap();
+    assert!(matches!(
+        view(&state, actor(), input()).await,
+        Err(Error::Denied)
+    ));
+    state.backend.allowed = true;
+    let mut without_mfa = actor();
+    without_mfa.mfa_verified = false;
+    assert!(matches!(
+        view(&state, without_mfa, input()).await,
+        Err(Error::Denied)
+    ));
+    state.flags.console = false;
+    assert!(matches!(
+        view(&state, actor(), input()).await,
+        Err(Error::Denied)
+    ));
+    state.flags.console = true;
+    let html = view(&state, actor(), input())
+        .await
+        .unwrap()
+        .render()
+        .unwrap();
+    assert!(html.contains("game.player.item.confiscate"));
+    assert!(html.contains("R4"));
+    assert!(html.contains("Independent approval bound to the preview"));
+    assert!(!html.contains("character.item.compensate"));
+    assert_eq!(html.matches("data-state=\"unavailable\"").count(), 4);
+
+    for query in [
+        "remediation=unknown",
+        "remediation=outfit&remediation=rescue",
+        "remediation=outfit&world=other-world",
+        "remediation=outfit&expected_appearance_revision=0",
+    ] {
+        assert!(
+            serde_urlencoded::from_str::<Input>(query).is_err(),
+            "{query}"
+        );
+    }
+    for query in [
+        "remediation=outfit&lang=unknown",
+        "remediation=outfit&character=c-1",
+        "remediation=outfit&q=Knight",
+    ] {
+        let input: Input = serde_urlencoded::from_str(query).unwrap();
+        assert!(input.validate().is_err(), "{query}");
+    }
+}
+
+#[test]
+fn translated_correction_details_have_labels_in_both_locales() {
+    const DETAILS: [&str; 5] = ["rescue", "disconnect", "outfit", "compensate", "confiscate"];
+    for lang in ["en", "pl"] {
+        for slug in DETAILS {
+            for suffix in ["", "-evidence", "-receipt"] {
+                let key = format!("remediation-{slug}{suffix}");
+                assert!(!tr(lang, &key).is_empty(), "{lang}: {key}");
+            }
+        }
+        for key in [
+            "remediation",
+            "remediation-blocked",
+            "remediation-target",
+            "remediation-preview",
+            "remediation-approval",
+            "remediation-receipt",
+            "remediation-controls-R2",
+            "remediation-controls-R3",
+            "remediation-controls-R4",
+        ] {
+            assert!(!tr(lang, key).is_empty(), "{lang}: {key}");
+        }
+    }
 }

@@ -3,12 +3,13 @@ use super::*;
 use askama::Template;
 use axum::{
     Extension, Router,
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     http::{StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_playerdata::authority::CollectionEvidence;
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use std::{
     future::Future,
@@ -37,6 +38,8 @@ pub struct Snapshot {
     pub character: Uuid,
     /// Oldest source observation across both proven complete family baselines.
     pub observed_at_ms: u64,
+    /// Oldest active world, spawn and pace observation used by the snapshot.
+    pub world_observed_at_ms: u64,
     pub baseline_complete: bool,
     pub level: u32,
     pub definitions: Vec<Definition>,
@@ -55,28 +58,111 @@ impl Source for Unavailable {
         Box::pin(async { Err(Error::Unavailable) })
     }
 }
-/// Default-off registration. T72 has no configured trusted browser authority yet;
-/// enablement alone cannot manufacture an ownership or freshness proof.
-pub fn configured_router(pool: sqlx::PgPool) -> Router {
-    router(
-        pool,
-        std::env::var("OTERYN_ATLAS_BESTIARY_ENABLED").as_deref() == Ok("true"),
-        Arc::new(Unavailable),
-    )
+/// Flag for Game-backed Atlas reads. The browsing entry point is always mounted.
+pub fn enabled() -> bool {
+    std::env::var("OTERYN_ATLAS_BESTIARY_ENABLED").as_deref() == Ok("true")
 }
+
+pub fn configured_router(pool: sqlx::PgPool) -> Router {
+    router(pool, enabled(), Arc::new(Unavailable))
+}
+
+#[derive(Clone)]
+struct LandingState {
+    pool: sqlx::PgPool,
+    enabled: bool,
+}
+
 pub fn router(pool: sqlx::PgPool, enabled: bool, source: Arc<dyn Source>) -> Router {
-    if !enabled {
-        return Router::new();
+    let state = LandingState {
+        pool: pool.clone(),
+        enabled,
+    };
+    let mut routes = Router::new()
+        .route("/{lang}/atlas/bestiary", get(landing))
+        .with_state(state);
+    if enabled {
+        routes = routes.merge(
+            Router::new()
+                .route("/{lang}/atlas/bestiary/{character}", get(page))
+                .with_state(source),
+        );
     }
-    Router::new()
-        .route("/{lang}/atlas/bestiary/{character}", get(page))
-        .with_state(source)
+    routes
         .layer(axum::middleware::from_fn_with_state(
             SessionLayer::new(pool),
             oteryn_web::session::middleware,
         ))
         .layer(axum::middleware::from_fn(no_cache))
 }
+
+enum LandingContent {
+    SignIn,
+    Characters(Vec<(Uuid, String)>),
+    Unavailable,
+    JournalUnavailable,
+}
+
+#[derive(Template)]
+#[template(path = "bestiary/landing.html", config = "src/bestiary/askama.toml")]
+struct Landing<'a> {
+    lang: &'a str,
+    text: Text,
+    view: LandingContent,
+}
+
+fn landing_view(lang: &str, view: LandingContent) -> Response {
+    let code = match view {
+        LandingContent::SignIn | LandingContent::Characters(_) => StatusCode::OK,
+        LandingContent::Unavailable | LandingContent::JournalUnavailable => {
+            StatusCode::SERVICE_UNAVAILABLE
+        }
+    };
+    let result = Text::new(lang).and_then(|text| {
+        Landing { lang, text, view }
+            .render()
+            .map_err(|_| Error::Unavailable)
+    });
+    match result {
+        Ok(body) => (code, Html(body)).into_response(),
+        Err(error) => status(error).into_response(),
+    }
+}
+
+async fn landing(
+    State(state): State<LandingState>,
+    Path(lang): Path<String>,
+    RawQuery(query): RawQuery,
+    Extension(session): Extension<BrowserSession>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+) -> Response {
+    if !matches!(lang.as_str(), "pl" | "en") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if query.is_some_and(|value| !value.is_empty()) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let Some(account) = session.account_id().await else {
+        let view = if chrome.is_some_and(|Extension(chrome)| chrome.login_mounted) {
+            LandingContent::SignIn
+        } else {
+            LandingContent::Unavailable
+        };
+        return landing_view(&lang, view);
+    };
+    if !state.enabled {
+        return landing_view(&lang, LandingContent::Unavailable);
+    }
+    let Ok(tx) = state.pool.begin().await else {
+        return landing_view(&lang, LandingContent::Unavailable);
+    };
+    match CollectionEvidence::characters(tx, account).await {
+        Ok(characters) => landing_view(&lang, LandingContent::Characters(characters)),
+        Err(oteryn_playerdata::store::Error::Denied) => StatusCode::FORBIDDEN.into_response(),
+        Err(_) => landing_view(&lang, LandingContent::Unavailable),
+    }
+}
+
 async fn no_cache(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
@@ -111,13 +197,19 @@ async fn page(
         .and_then(|v| u64::try_from(v.as_millis()).ok())
     {
         Some(now) => now,
-        None => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        None => return unavailable(&lang),
     };
     match show(source.as_ref(), account, character, &lang, &filters, now).await {
         Ok(body) => Html(body).into_response(),
+        Err(Error::Unavailable) => unavailable(&lang),
         Err(e) => status(e).into_response(),
     }
 }
+
+fn unavailable(lang: &str) -> Response {
+    landing_view(lang, LandingContent::JournalUnavailable)
+}
+
 /// Reusable authenticated actor-to-result path; never accepts an account from a
 /// query string. HTTP obtains it exclusively from BrowserSession.
 pub async fn show(
@@ -128,7 +220,10 @@ pub async fn show(
     filters: &Filters,
     now: u64,
 ) -> Result<String> {
-    if !matches!(lang, "pl" | "en") || character.get_version_num() != 7 {
+    if !matches!(lang, "pl" | "en")
+        || character.get_version_num() != 7
+        || character.get_variant() != uuid::Variant::RFC4122
+    {
         return Err(Error::BadInput);
     }
     filters.validate()?;
@@ -146,7 +241,8 @@ pub async fn show(
     {
         return Err(Error::Unavailable);
     }
-    if !s.baseline_complete || s.observed_at_ms > now || now - s.observed_at_ms > 10_000 {
+    if !s.baseline_complete || !fresh(s.observed_at_ms, now) || !fresh(s.world_observed_at_ms, now)
+    {
         return Err(Error::Unavailable);
     }
     let map = build(
@@ -158,25 +254,22 @@ pub async fn show(
         filters,
         now,
     )?;
-    render(lang, map, s.world_version)
+    render(lang, map, s.world_version, filters, &s.definitions)
 }
+fn fresh(observed: u64, now: u64) -> bool {
+    now.checked_sub(observed).is_some_and(|age| age <= 10_000)
+}
+
 #[derive(Template)]
 #[template(path = "bestiary/page.html", config = "src/bestiary/askama.toml")]
 struct Page {
     lang: String,
     version: String,
-    version_label: String,
-    title: String,
-    notice: String,
-    class_label: String,
-    difficulty_label: String,
-    stars_label: String,
-    filter_label: String,
-    recommendations_label: String,
-    locations_label: String,
-    points_label: String,
-    unavailable: String,
-    recommendations: Vec<String>,
+    text: Text,
+    classes: Vec<(String, bool)>,
+    difficulties: Vec<(String, bool)>,
+    stars: Option<u8>,
+    recommendations: Vec<(usize, String)>,
     rows: Vec<Row>,
 }
 struct Row {
@@ -198,48 +291,64 @@ struct Location {
     floor: u8,
     label: String,
 }
-fn wrap(s: &str) -> String {
-    s.chars()
-        .enumerate()
-        .flat_map(|(i, c)| {
-            if i > 0 && i % 16 == 0 {
-                vec!['\u{200b}', c]
-            } else {
-                vec![c]
-            }
-        })
-        .collect()
-}
-fn render(lang: &str, map: Map, version: String) -> Result<String> {
-    let locale = lang.parse().map_err(|_| Error::BadInput)?;
-    let resource = FluentResource::try_new(
-        if lang == "pl" {
-            include_str!("pl.ftl")
-        } else {
-            include_str!("en.ftl")
-        }
-        .into(),
-    )
-    .map_err(|_| Error::Unavailable)?;
-    let mut bundle = FluentBundle::new(vec![locale]);
-    bundle
-        .add_resource(resource)
-        .map_err(|_| Error::Unavailable)?;
-    let text = |key: &str| -> Result<String> {
-        let pattern = bundle
+struct Text(FluentBundle<FluentResource>);
+
+impl Text {
+    fn new(lang: &str) -> Result<Self> {
+        let source = match lang {
+            "pl" => include_str!("pl.ftl"),
+            "en" => include_str!("en.ftl"),
+            _ => return Err(Error::BadInput),
+        };
+        let locale = lang.parse().map_err(|_| Error::BadInput)?;
+        let resource = FluentResource::try_new(source.into()).map_err(|_| Error::Unavailable)?;
+        let mut bundle = FluentBundle::new(vec![locale]);
+        bundle
+            .add_resource(resource)
+            .map_err(|_| Error::Unavailable)?;
+        Ok(Self(bundle))
+    }
+
+    fn get(&self, key: &str) -> std::result::Result<String, askama::Error> {
+        self.0
             .get_message(key)
             .and_then(|m| m.value())
-            .ok_or(Error::Unavailable)?;
-        let mut errors = Vec::new();
-        let s = bundle
-            .format_pattern(pattern, None, &mut errors)
-            .into_owned();
-        if errors.is_empty() {
-            Ok(s)
-        } else {
-            Err(Error::Unavailable)
-        }
-    };
+            .map(|value| self.0.format_pattern(value, None, &mut vec![]).into_owned())
+            .ok_or(askama::Error::Fmt)
+    }
+}
+
+fn options<'a>(
+    values: impl Iterator<Item = &'a str>,
+    selected: Option<&str>,
+) -> Vec<(String, bool)> {
+    values
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|value| (value.to_owned(), selected == Some(value)))
+        .collect()
+}
+
+fn render(
+    lang: &str,
+    map: Map,
+    version: String,
+    filters: &Filters,
+    definitions: &[Definition],
+) -> Result<String> {
+    let strings = Text::new(lang)?;
+    let text = |key| strings.get(key).map_err(|_| Error::Unavailable);
+    let row_index: BTreeMap<_, _> = map
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(index, row)| (row.creature.as_str(), index))
+        .collect();
+    let recommendations = map
+        .recommendations
+        .iter()
+        .filter_map(|key| Some((*row_index.get(key.as_str())?, key.clone())))
+        .collect();
     let mut rows = Vec::new();
     for e in map.entries {
         let state = text(match e.state {
@@ -267,16 +376,12 @@ fn render(lang: &str, map: Map, version: String) -> Result<String> {
                 floor: p.cell.floor,
                 label: format!(
                     "{} ({}, {}, {}){}",
-                    wrap(&p.spawn),
-                    p.cell.x,
-                    p.cell.y,
-                    p.cell.floor,
-                    chance
+                    p.spawn, p.cell.x, p.cell.y, p.cell.floor, chance
                 ),
             });
         }
         rows.push(Row {
-            key: wrap(&e.creature),
+            key: e.creature,
             state,
             kills: e.kills,
             threshold: e.thresholds[2],
@@ -310,19 +415,18 @@ fn render(lang: &str, map: Map, version: String) -> Result<String> {
     }
     Page {
         lang: lang.into(),
-        version: wrap(&version),
-        version_label: text("version")?,
-        title: text("title")?,
-        notice: text("notice")?,
-        class_label: text("class")?,
-        difficulty_label: text("difficulty")?,
-        stars_label: text("stars")?,
-        filter_label: text("filter")?,
-        recommendations_label: text("recommendations")?,
-        locations_label: text("locations")?,
-        points_label: text("points")?,
-        unavailable: text("unavailable")?,
-        recommendations: map.recommendations.iter().map(|k| wrap(k)).collect(),
+        version,
+        text: strings,
+        classes: options(
+            definitions.iter().map(|d| d.class.as_str()),
+            filters.class.as_deref(),
+        ),
+        difficulties: options(
+            definitions.iter().map(|d| d.difficulty.as_str()),
+            filters.difficulty.as_deref(),
+        ),
+        stars: filters.stars,
+        recommendations,
         rows,
     }
     .render()

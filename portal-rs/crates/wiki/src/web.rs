@@ -84,11 +84,12 @@ fn staff_routes<A: AccountStateReader + 'static>(pool: PgPool, accounts: A) -> R
             "/admin/wiki/articles/{id}/{action}",
             axum::routing::post(transition::<A>),
         )
+        .route("/admin/wiki/game-evidence", get(crate::places::operator))
         .layer(DefaultBodyLimit::max(900_000))
         .layer(middleware::from_fn(response_policy))
         .with_state(state)
 }
-fn language(headers: &HeaderMap) -> &'static str {
+pub(crate) fn language(headers: &HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
