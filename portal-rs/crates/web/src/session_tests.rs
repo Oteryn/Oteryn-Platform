@@ -606,7 +606,9 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
     assert!(same_host.contains(r#"href="/admin" data-staff-dashboard>Staff dashboard</a>"#));
     let public_host = render(panel.clone(), "public.test", id.clone()).await?;
     assert!(
-        public_host.contains(r#"href="https://staff.test/admin" data-staff-dashboard>Staff dashboard</a>"#)
+        public_host.contains(
+            r#"href="https://staff.test/admin" data-staff-dashboard>Staff dashboard</a>"#
+        )
     );
     assert!(
         !render(None, "staff.test", id)
