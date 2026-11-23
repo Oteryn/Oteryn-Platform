@@ -5,7 +5,7 @@ CREATE INDEX audit_log_evidence_day_idx
     ON audit_log ((coalesce(evidence_day, (created_at AT TIME ZONE 'UTC')::date)), id);
 
 CREATE TABLE audit_evidence_records (
-    id uuid PRIMARY KEY REFERENCES audit_log(id),
+    id uuid PRIMARY KEY,
     day date NOT NULL,
     digest bytea NOT NULL CHECK (octet_length(digest) = 32)
 );
@@ -24,6 +24,20 @@ CREATE TRIGGER audit_evidence_records_append_only
 CREATE TRIGGER audit_evidence_seals_append_only
     BEFORE UPDATE OR DELETE OR TRUNCATE ON audit_evidence_seals
     FOR EACH STATEMENT EXECUTE FUNCTION reject_audit_log_mutation();
+
+-- Both tables are append-only. Check the parent on insert and let audit_log
+-- retain its existing statement-level refusal.
+CREATE FUNCTION require_audit_evidence_entry() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM audit_log WHERE id = NEW.id) THEN
+        RAISE EXCEPTION 'audit evidence entry is missing' USING ERRCODE = '23503';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE CONSTRAINT TRIGGER audit_evidence_records_require_entry
+    AFTER INSERT ON audit_evidence_records
+    FOR EACH ROW EXECUTE FUNCTION require_audit_evidence_entry();
 
 -- Keep the v1 encoding stable across schema changes and server session time zones.
 CREATE FUNCTION audit_evidence_digest(entry audit_log) RETURNS bytea

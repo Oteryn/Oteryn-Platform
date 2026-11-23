@@ -59,6 +59,21 @@ async fn daily_evidence_lifecycle() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    let missing_entry = sqlx::query(
+        "INSERT INTO audit_evidence_records (id, day, digest)
+         VALUES (uuidv7(), $1::text::date, sha256('fixture'::bytea))",
+    )
+    .bind(&day)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        missing_entry
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("23503")
+    );
     let account = Uuid::now_v7();
     let actor = CheckContext::new(account);
     let request = Uuid::now_v7();
