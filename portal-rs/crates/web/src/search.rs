@@ -217,12 +217,15 @@ async fn show(
     let malformed = character_search
         && raw.as_deref().is_some_and(|query| {
             let bytes = query.as_bytes();
-            bytes.iter().enumerate().any(|(index, byte)| {
-                *byte == b'%'
-                    && !bytes
-                        .get(index + 1..index + 3)
-                        .is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
-            })
+            percent_encoding::percent_decode(bytes)
+                .decode_utf8()
+                .is_err()
+                || bytes.iter().enumerate().any(|(index, byte)| {
+                    *byte == b'%'
+                        && !bytes
+                            .get(index + 1..index + 3)
+                            .is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
+                })
         });
     if malformed || filters.validate().is_err() {
         return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, invalid)).into_response();

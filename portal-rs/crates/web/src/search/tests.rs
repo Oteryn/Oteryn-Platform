@@ -282,6 +282,13 @@ async fn postgres_http_success_refusal_bad_input_and_escaping() -> TestResult {
             .0,
         StatusCode::SERVICE_UNAVAILABLE
     );
+    for malformed in ["%FF", "%C3%28", "%XZ"] {
+        let path = format!("/en/search?q={malformed}&kind=characters");
+        assert_eq!(
+            get(app.clone(), &path).await?.0,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
     assert_eq!(
         get(app.clone(), "/en/search?q=dragon&kind=world").await?.0,
         StatusCode::SERVICE_UNAVAILABLE
