@@ -227,14 +227,16 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
   const warm = await warmPlayerContext.newPage();
   try {
     const { id: character, account, world, epoch, revision } = await publishWarmPortfolio(warm, locale);
-    // As in the collection suite, supply the pre-existing custody cut through
-    // the T72 baseline fixture. The producer still publishes the portfolio.
-    await query(
-      `INSERT INTO pd_ownership_baselines(character_id, account_id, world_id, character_revision,
-        from_projection_revision, to_projection_revision, projection_epoch, recovery_generation, accepted_at)
-       VALUES ($1, $2, $3, 1, $4, $4, $5, 1, now()-interval '1 hour')`,
-      [character, account, world, revision, epoch],
-    );
+    // The existing-character fixture supplies the accepted custody cut as part of publication.
+    expect(await query(
+      `SELECT account_id, world_id, character_revision::text, from_projection_revision::text,
+        to_projection_revision::text, projection_epoch::text, recovery_generation::text
+       FROM pd_ownership_baselines WHERE character_id=$1`, [character],
+    )).toEqual([{
+      account_id: account, world_id: world, character_revision: '1',
+      from_projection_revision: String(revision), to_projection_revision: String(revision),
+      projection_epoch: String(epoch), recovery_generation: '3',
+    }]);
     for (const { route, warmStatus } of collectionRoutes) {
       const path = targetFor(route.replace('{character}', character), locale);
       const coldExpected = expectations.get(route);

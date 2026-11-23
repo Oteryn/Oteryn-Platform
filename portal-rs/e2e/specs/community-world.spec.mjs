@@ -139,7 +139,7 @@ test('wiki, atlas and Today refuse unsupported Game reads', async ({page}, info)
   await open(page, '/wiki/articles/community-e2e-missing', 404);
   await open(page, `${base}/wiki/articles/community-e2e-missing`, 404);
   await expect(page.locator('main h1')).toHaveText(strings('crates/wiki/src/i18n', lang).missing);
-  await open(page, `${base}/wiki/search?q=x`, 422);
+  await open(page, `${base}/wiki/search?q=x`, 400);
   await expect(page.locator('main h1')).toHaveText(entities.invalid);
   await open(page, `${base}/atlas/delivery?tab=invalid`, 400);
   const css = await page.request.get('/atlas/delivery.css');

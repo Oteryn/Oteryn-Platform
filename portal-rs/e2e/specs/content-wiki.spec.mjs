@@ -129,7 +129,7 @@ test('wiki draft, preview, review, search, publish, revision restore and archive
   await visit(anonymous.page, `/wiki/search?q=${slug}`);
   await link(anonymous.page, `/${lang}/wiki/articles/${slug}`, values[`${lang}_title`]);
  }
- await visit(anonymous.page, '/wiki/search?q=x', 422);
+ await visit(anonymous.page, '/wiki/search?q=x', 400);
  await visit(anonymous.page, `/wiki/articles/${slug}`);
  await title(anonymous.page, values[`${lang}_title`], lang);
  await send(transition('unpublish'), { lock_version: 'bad' }, 422);
