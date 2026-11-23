@@ -49,6 +49,8 @@ impl Status {
     }
 }
 
+pub(super) const MAX_ADVERTISED_OPERATIONS: usize = 1024;
+
 /// This flag is off unless explicitly enabled. Unknown environment values deny.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Config {
@@ -251,7 +253,7 @@ impl Store {
             || !bounded(&hello.build, 256)
             || hello.catalog_digest.len() != 32
             || hello.owner_epoch <= 0
-            || hello.advertised_operations.len() > 1024
+            || hello.advertised_operations.len() > MAX_ADVERTISED_OPERATIONS
             || hello.served_worlds.len() + hello.served_nodes.len() == 0
             || hello.served_worlds.len() + hello.served_nodes.len() > 1024
             || !hello

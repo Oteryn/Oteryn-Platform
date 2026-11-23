@@ -296,21 +296,29 @@ struct HelloOperation {
 fn advertised(
     operations: Vec<HelloOperation>,
 ) -> Result<Vec<store::AdvertisedOperation>, HttpError> {
-    operations
-        .into_iter()
-        .map(|op| {
-            let kind = match catalog::advertised_kind(&op.operation, op.version) {
-                Some(signer::Kind::Command) => store::Kind::Command,
-                Some(signer::Kind::Query) => store::Kind::Query,
-                None => return Err(HttpError::unknown_operation()),
-            };
-            Ok(store::AdvertisedOperation {
-                operation: op.operation,
-                operation_version: op.version,
-                kind,
-            })
-        })
-        .collect()
+    if operations.len() > store::MAX_ADVERTISED_OPERATIONS {
+        return Err(HttpError::invalid());
+    }
+    let mut accepted = Vec::with_capacity(operations.len());
+    for op in operations {
+        if catalog::GAME_OPERATIONS
+            .iter()
+            .any(|entry| entry.phase == 2 && entry.name == op.operation)
+        {
+            continue;
+        }
+        let kind = match catalog::advertised_kind(&op.operation, op.version) {
+            Some(signer::Kind::Command) => store::Kind::Command,
+            Some(signer::Kind::Query) => store::Kind::Query,
+            None => return Err(HttpError::unknown_operation()),
+        };
+        accepted.push(store::AdvertisedOperation {
+            operation: op.operation,
+            operation_version: op.version,
+            kind,
+        });
+    }
+    Ok(accepted)
 }
 fn valid_clock(clock: &str) -> Result<(), HttpError> {
     time::OffsetDateTime::parse(clock, &time::format_description::well_known::Rfc3339)
@@ -393,7 +401,7 @@ async fn channel(
     let mut tx = ctx.pool.begin().await?;
     crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
-    session(&mut tx, &p.agent_id, p.owner_epoch).await?;
+    session(&mut tx, &ctx.binding, p.owner_epoch).await?;
     tx.commit().await?;
     ctx.store.heartbeat(&p.agent_id, p.owner_epoch).await?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(u64::from(p.wait_seconds));
@@ -460,7 +468,7 @@ async fn results(
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, e.request_id).await?;
     let epoch = delivery_epoch(&mut tx, &e.agent_id, e.request_id).await?;
-    owns_request(&mut tx, &e.agent_id, epoch, e.request_id).await?;
+    owns_request(&mut tx, &ctx.binding, epoch, e.request_id).await?;
     let (operation_id, operation, version, target): (Uuid, String, i32, sqlx::types::Json<store::Target>) = sqlx::query_as(
         "SELECT admin_operation_id,operation,operation_version,target FROM admin_control_requests WHERE request_id=$1",
     )
@@ -521,12 +529,12 @@ async fn lock_request(tx: &mut Transaction<'_, Postgres>, id: Uuid) -> Result<()
 }
 async fn owns_request(
     tx: &mut Transaction<'_, Postgres>,
-    agent: &str,
+    binding: &AgentBinding,
     epoch: i64,
     id: Uuid,
 ) -> Result<(), HttpError> {
-    let owns:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_requests r JOIN admin_control_agents a ON a.agent_id=r.agent_id WHERE r.request_id=$1 AND a.agent_id=$2 AND a.owner_epoch=$3 AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(a.served_worlds)) AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(a.served_nodes)) AND NOT EXISTS(SELECT 1 FROM admin_control_agents b WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch AND (r.target->>'world_id'=ANY(b.served_worlds) OR r.target->>'node_id'=ANY(b.served_nodes))))")
-        .bind(id).bind(agent).bind(epoch).fetch_one(&mut **tx).await?;
+    let owns:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_requests r JOIN admin_control_agents a ON a.agent_id=r.agent_id WHERE r.request_id=$1 AND a.agent_id=$2 AND a.owner_epoch=$3 AND a.served_worlds <@ $4 AND a.served_nodes <@ $5 AND (r.target->>'world_id' IS NULL OR r.target->>'world_id'=ANY(a.served_worlds)) AND (r.target->>'node_id' IS NULL OR r.target->>'node_id'=ANY(a.served_nodes)) AND NOT EXISTS(SELECT 1 FROM admin_control_agents b WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch AND (r.target->>'world_id'=ANY(b.served_worlds) OR r.target->>'node_id'=ANY(b.served_nodes))))")
+        .bind(id).bind(&binding.agent_id).bind(epoch).bind(&binding.allowed_worlds).bind(&binding.allowed_nodes).fetch_one(&mut **tx).await?;
     if !owns {
         return Err(store::Error::Unavailable.into());
     }
@@ -572,7 +580,7 @@ async fn stream(
     crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
     lock_request(&mut tx, p.request_id).await?;
-    owns_request(&mut tx, &p.agent_id, p.owner_epoch, p.request_id).await?;
+    owns_request(&mut tx, &ctx.binding, p.owner_epoch, p.request_id).await?;
     for (index, bytes) in chunks {
         let existing:Option<Vec<u8>>=sqlx::query_scalar("SELECT payload FROM admin_control_stream_chunks WHERE request_id=$1 AND chunk_index=$2").bind(p.request_id).bind(i32::from(index)).fetch_optional(&mut *tx).await?;
         if let Some(old) = existing {
@@ -618,7 +626,7 @@ async fn heartbeat(
     let mut tx = ctx.pool.begin().await?;
     crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
-    session(&mut tx, &p.agent_id, p.owner_epoch).await?;
+    session(&mut tx, &ctx.binding, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
     if let Some(health) = p.health {
         sqlx::query("INSERT INTO admin_control_health(agent_id,owner_epoch,payload) VALUES($1,$2,$3) ON CONFLICT(agent_id) DO UPDATE SET owner_epoch=EXCLUDED.owner_epoch,payload=EXCLUDED.payload,updated_at=clock_timestamp() WHERE admin_control_health.owner_epoch<=EXCLUDED.owner_epoch")
@@ -640,7 +648,7 @@ async fn rollups(
     let mut tx = ctx.pool.begin().await?;
     crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
-    session(&mut tx, &p.agent_id, p.owner_epoch).await?;
+    session(&mut tx, &ctx.binding, p.owner_epoch).await?;
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp(),updated_at=clock_timestamp() WHERE agent_id=$1 AND owner_epoch=$2").bind(&p.agent_id).bind(p.owner_epoch).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO analytics_cache(agent_id,cache_key,owner_epoch,payload) VALUES($1,$2,$3,$4) ON CONFLICT(agent_id,cache_key) DO UPDATE SET owner_epoch=EXCLUDED.owner_epoch,payload=EXCLUDED.payload,updated_at=clock_timestamp() WHERE analytics_cache.owner_epoch<=EXCLUDED.owner_epoch")
         .bind(p.agent_id).bind(p.key).bind(p.owner_epoch).bind(p.payload.0).execute(&mut *tx).await?;
@@ -755,11 +763,11 @@ async fn ingress_lock(tx: &mut Transaction<'_, Postgres>, shared: bool) -> Resul
 }
 async fn session(
     tx: &mut Transaction<'_, Postgres>,
-    agent: &str,
+    binding: &AgentBinding,
     epoch: i64,
 ) -> Result<(), HttpError> {
-    let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents a WHERE a.agent_id=$1 AND a.owner_epoch=$2 AND NOT EXISTS(SELECT 1 FROM admin_control_agents b WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch AND (a.served_worlds && b.served_worlds OR a.served_nodes && b.served_nodes)))")
-        .bind(agent).bind(epoch).fetch_one(&mut **tx).await?;
+    let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents a WHERE a.agent_id=$1 AND a.owner_epoch=$2 AND a.served_worlds <@ $3 AND a.served_nodes <@ $4 AND NOT EXISTS(SELECT 1 FROM admin_control_agents b WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch AND (a.served_worlds && b.served_worlds OR a.served_nodes && b.served_nodes)))")
+        .bind(&binding.agent_id).bind(epoch).bind(&binding.allowed_worlds).bind(&binding.allowed_nodes).fetch_one(&mut **tx).await?;
     if !valid {
         return Err(store::Error::Unavailable.into());
     }

@@ -136,12 +136,21 @@ fn request_for(operation: &str, kind: Kind) -> NewRequest {
 }
 
 fn app(pool: PgPool, enabled: bool) -> Router {
+    app_with_scope(pool, enabled, vec!["world-a".into()], vec![])
+}
+
+fn app_with_scope(
+    pool: PgPool,
+    enabled: bool,
+    allowed_worlds: Vec<String>,
+    allowed_nodes: Vec<String>,
+) -> Router {
     router(
         pool,
         enabled,
         vec![AgentBinding {
-            allowed_worlds: vec!["world-a".into()],
-            allowed_nodes: vec![],
+            allowed_worlds,
+            allowed_nodes,
             agent_id: "agent-a".into(),
             identity: Identity::san("urn:test:agent-a").unwrap(),
             result_key: Some((
@@ -176,8 +185,8 @@ async fn post(app: Router, path: &str, value: Value, identity: bool) -> Response
     app.oneshot(request).await.unwrap()
 }
 /// Game agent hello framing, transcribed from Oteryn-Game
-/// `crates/admin/agent/src/channel.rs` L114-118 at
-/// 3732e96aa2874204dcc97504f13681cf04a65c6e (ratified 2026-11-19).
+/// `crates/admin/agent/src/channel.rs` L110-119 at
+/// b37a0c690264598f0d4d6659bcc6cf41fa6a98b9 (framing ratified 2026-11-19).
 fn game_hello(epoch: i64, operations: Value) -> Value {
     json!({"agent_id":"agent-a","build_revision":"test-build","catalog_digest":URL_SAFE_NO_PAD.encode([1;32]),"operations":operations,"worlds":["world-a"],"nodes":[],"owner_epoch":epoch,"clock":"2026-11-05T23:00:00Z"})
 }
@@ -187,11 +196,11 @@ fn hello_body(epoch: i64) -> Value {
         json!([{"operation":"staff.warning","version":1},{"operation":"admin.policy.get","version":1}]),
     )
 }
-/// Game poll framing (`channel.rs` L259 at the same commit).
+/// Game poll framing (`channel.rs` L287 at the same commit).
 fn game_poll(epoch: i64, wait_seconds: u8) -> Value {
     json!({"agent_id":"agent-a","owner_epoch":epoch,"wait_seconds":wait_seconds,"limit":32})
 }
-/// Game heartbeat framing (`channel.rs` L123 and L252 at the same commit).
+/// Game heartbeat framing (`channel.rs` L121 and L280 at the same commit).
 fn game_heartbeat(epoch: i64) -> Value {
     json!({"agent_id":"agent-a","owner_epoch":epoch,"clock":"2026-11-05T23:00:10Z"})
 }
@@ -777,7 +786,7 @@ async fn game_wire_bad_input_is_refused_before_storage() {
         StatusCode::BAD_REQUEST
     );
     for operations in [
-        json!([{"operation":"world.save_now","version":1}]),
+        json!([{"operation":"unknown.operation","version":1}]),
         json!([{"operation":"admin.policy.get","version":2}]),
         json!([{"operation":"staff.warning","version":0}]),
     ] {
@@ -855,7 +864,7 @@ async fn postgres_game_hello_registers_catalogue_kinds() {
     let app = app(db.pool.clone(), true);
     let unknown = game_hello(
         2,
-        json!([{"operation":"admin.policy.get","version":1},{"operation":"world.save_now","version":1}]),
+        json!([{"operation":"admin.policy.get","version":1},{"operation":"unknown.operation","version":1}]),
     );
     assert_eq!(
         post(app.clone(), "hello", unknown, true).await.status(),
@@ -868,13 +877,25 @@ async fn postgres_game_hello_registers_catalogue_kinds() {
             .unwrap()
     };
     assert_eq!(count().await, 0);
-    let response = post(
-        app.clone(),
-        "hello",
-        game_hello(2, json!([{"operation":"admin.policy.get","version":1}])),
-        true,
+    let operations: Vec<_> = catalog::GAME_OPERATIONS
+        .iter()
+        .filter(|op| op.phase == 2)
+        .map(|op| json!({"operation":op.name,"version":1}))
+        .collect();
+    assert!(!operations.is_empty());
+    let response = post(app.clone(), "hello", game_hello(2, json!(operations)), true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let advertised: Value = sqlx::query_scalar(
+        "SELECT advertised_operations FROM admin_control_agents WHERE agent_id='agent-a'",
     )
-    .await;
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(advertised, json!([]));
+
+    let mut operations = operations;
+    operations.push(json!({"operation":"admin.policy.get","version":1}));
+    let response = post(app.clone(), "hello", game_hello(2, json!(operations)), true).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(json_body(response).await, json!({"status":"registered"}));
     let row = sqlx::query("SELECT build,catalog_digest,advertised_operations,served_worlds,served_nodes,owner_epoch FROM admin_control_agents WHERE agent_id='agent-a'")
@@ -906,6 +927,80 @@ async fn postgres_game_hello_registers_catalogue_kinds() {
         .unwrap();
     assert_eq!(epoch, 2);
     assert_eq!(count().await, 1);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_agent_channel_follows_configured_scope() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let world_router = app(db.pool.clone(), true);
+    let node_router = app_with_scope(db.pool.clone(), true, vec![], vec!["node-a".into()]);
+    let mut node_hello = hello_body(1);
+    node_hello["nodes"] = json!(["node-a"]);
+    assert_eq!(
+        post(node_router.clone(), "hello", node_hello.clone(), true)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(world_router.clone(), "hello", hello_body(1), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+
+    let delivered = request_for("admin.policy.get", Kind::Query);
+    db.store().enqueue(&delivered).await.unwrap();
+    let response = post(world_router, "channel", game_poll(1, 0), true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(response).await[0]["request_id"],
+        json!(delivered.request_id)
+    );
+
+    let queued = request_for("admin.policy.get", Kind::Query);
+    db.store().enqueue(&queued).await.unwrap();
+    assert_eq!(
+        post(node_router.clone(), "channel", game_poll(1, 0), true)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let result = signed_result(
+        &delivered,
+        "succeeded",
+        json!({"operations":[]}),
+        Value::Null,
+    );
+    assert_eq!(
+        post(node_router.clone(), "results", result, true)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+
+    node_hello["owner_epoch"] = json!(2);
+    node_hello["worlds"] = json!([]);
+    assert_eq!(
+        post(node_router.clone(), "hello", node_hello, true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let response = post(node_router, "channel", game_poll(2, 0), true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_body(response).await, json!([]));
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM admin_control_requests WHERE request_id=$1")
+            .bind(queued.request_id)
+            .fetch_one(&db.pool)
+            .await
+            .unwrap();
+    assert_eq!(status, "queued");
     db.close().await;
 }
 

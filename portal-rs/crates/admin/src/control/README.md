@@ -1,18 +1,21 @@
 # Agent HTTP transport
 
 ADM-01 `oteryn.admin-control.v1`, pinned Game contract commit
-`288ba356658363de741d90d9ddad321b34ac7e18`. Platform only accepts incoming
+`b37a0c690264598f0d4d6659bcc6cf41fa6a98b9`. Platform only accepts incoming
 agent requests; it never connects to Game. No operation is emulated.
-The pinned Game agent advertises `admin.policy.get`. Phase-2 entries and the
-named `analytics.query` forms are contract metadata. See
+The pin includes the Game ADM-G3 read contract. Portal agent transport and
+console query submission require their existing opt-in flags, which default
+to false. Phase-2 entries and the named `analytics.query` forms are contract metadata. See
 [fixture provenance](fixtures/admin-control-v1/SOURCE.md).
 
 `PORTAL_ADMIN_CONTROL_ENABLED` defaults to false (all six routes return 404).
 When enabled, `PORTAL_ADMIN_CONTROL_AGENTS_JSON` must be a nonempty array of
 closed objects: `cn`, `identity`, `allowed_worlds`, `allowed_nodes`, optional `result_key`.
 Both scope arrays are required, with at least one identifier between them.
-Each contains exact identifiers the peer can
-claim in hello, for example `"allowed_worlds":["world-a"],"allowed_nodes":[]`. CN has the form
+Each contains exact identifiers the peer can claim in hello or continue using
+from a stored registration. An empty array grants no scope of that type.
+For example, `"allowed_worlds":["world-a"],"allowed_nodes":[]` grants only
+`world-a`. CN has the form
 `oteryn-admin-agent/<agent_id>`. Identity is exactly one of
 `{"san":"exact verified SAN"}` or `{"spki":"base64url SHA-256"}`. A result
 key has `public_key` (base64url Ed25519), `not_before`, `not_after` (Unix seconds).
@@ -53,9 +56,10 @@ framing ratified by the owner on 2026-11-19
 
 - `hello`: `agent_id`, `build_revision`, `catalog_digest` (32 bytes, unpadded
   base64url), `operations` (`operation`, `version`), `worlds`, `nodes`, positive
-  `owner_epoch`, RFC3339 `clock`. Each operation's kind comes from the trusted
-  catalogue (`catalog::advertised_kind`); an unknown operation or version is
-  refused with 400 `ADM_UNKNOWN_OPERATION`.
+  `owner_epoch`, RFC3339 `clock`. Phase-2 catalog entries are omitted from the
+  registered capabilities. Each accepted operation's kind comes from the
+  trusted catalog (`catalog::advertised_kind`). Other unknown operations or
+  versions are refused with 400 `ADM_UNKNOWN_OPERATION`.
 - `channel`: `agent_id`, `owner_epoch`, optional `wait_seconds` (0–25, default 0),
   optional `limit` (1–32, default 32). Returns a JSON array of at most `limit`
   signed request envelopes. Delivery is claimed once and records the owner epoch;

@@ -1,10 +1,10 @@
 # Admin control v1 golden fixtures
 
 Repository: `Oteryn/Oteryn-Game` (read-only).
-Commit: `288ba356658363de741d90d9ddad321b34ac7e18`.
+Commit: `b37a0c690264598f0d4d6659bcc6cf41fa6a98b9`.
 Source root: `docs/contracts/admin-control/v1/`.
 Fixture bytes verified against the pinned commit. Upstream files are available at
-`https://raw.githubusercontent.com/Oteryn/Oteryn-Game/288ba356658363de741d90d9ddad321b34ac7e18/<path>`.
+`https://raw.githubusercontent.com/Oteryn/Oteryn-Game/b37a0c690264598f0d4d6659bcc6cf41fa6a98b9/<path>`.
 
 The pin includes the upstream README, 86 schemas, 35 Phase-1 vectors and 52 Phase-2 vectors.
 
@@ -14,7 +14,7 @@ Paths below are relative to the source root and this directory.
 
 | Path | SHA-256 |
 | --- | --- |
-| `README.md` | `edac4b7b9f0956e65a8e3731820d28dec7c19823563a63e06be0553f78eff207` |
+| `README.md` | `0011c8f6c296b0f33f462a185587f4e2f7188cdede9bdd54c6066909568b4232` |
 | `admin.agent.list.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` |
 | `admin.agent.list.result.schema.json` | `c2696a3da5f45a138a0f36175416bf351beb2f8d94c31f8f9d013aad06804435` |
 | `admin.ledger.query.params.schema.json` | `efaf06f999e689640f71940385d253a8e277d486a26011cfdd3ab9d855a7efec` |
