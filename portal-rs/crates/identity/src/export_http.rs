@@ -1,12 +1,14 @@
 //! Browser adapter for personal-data exports.
-use crate::export::{ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until};
+use crate::export::{
+    EXPORT_REAUTH_QUERY, ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until,
+};
 use askama::Template;
 use axum::{
     Extension, Router,
     extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     middleware,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use oteryn_web::{
@@ -54,11 +56,29 @@ async fn confirmation(
     State(state): State<ExportState>,
     Extension(language): Extension<Language>,
     Extension(browser): Extension<BrowserSession>,
+    method: Method,
     headers: HeaderMap,
 ) -> Response {
     let session = session_cookie(&headers).unwrap_or_default();
     let result = async {
-        export_account(&state.pool, &state.config, session).await?;
+        if let Err(status) = export_account(&state.pool, &state.config, session).await {
+            if status == StatusCode::FORBIDDEN
+                && method == Method::GET
+                && headers
+                    .get(header::ACCEPT)
+                    .and_then(|accept| accept.to_str().ok())
+                    .is_some_and(|accept| accept.contains("text/html"))
+                && std::env::var("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Ok("true")
+                && browser.account_id().await.is_some()
+            {
+                return Ok(Redirect::to(&format!(
+                    "/{}/account/sudo?{EXPORT_REAUTH_QUERY}",
+                    language.code()
+                ))
+                .into_response());
+            }
+            return Err(status);
+        }
         let csrf = browser
             .csrf_token()
             .await

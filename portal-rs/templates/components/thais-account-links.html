@@ -1,9 +1,11 @@
-<a class="account-overview" href="/account"{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("shell-account-overview") }}</a>
+{% if let Some(link) = chrome.link("account-overview") %}
+<a class="account-overview" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ link.label }}</a>
+{% endif %}
 <nav class="account-grid" aria-label="{{ chrome.text("thais-account-nav") }}">
   {% for (title, keys) in [
-    ("thais-account-play", "create-character,hirelings,hunts,reports,account-bazaar"),
-    ("thais-account-security", "account-security,account-wizard,account-passkeys,account-recovery-key,account-sessions,logins"),
-    ("thais-account-settings", "account-privacy,account-notifications,premium,payments"),
+    ("thais-account-play", "create-character,account-badges,hirelings,hunts,reports,logins,account-bazaar"),
+    ("thais-account-security", "account-security,account-mfa,account-email,account-wizard,account-passkeys,account-recovery-key,account-sessions"),
+    ("thais-account-settings", "account-privacy,account-consents,account-export,account-notifications,premium,payments"),
     ("thais-account-requests", "tickets,abuse-reports")
   ] %}
   {% if chrome.first_link(keys).is_some() %}

@@ -2,6 +2,7 @@
 use oteryn_ui::{Group, Registry};
 /// Register enabled account sections; no route or authentication behavior changes.
 pub fn register(registry: &mut Registry) {
+    let flag = |key| std::env::var(key).as_deref() == Ok("true");
     registry.section(
         std::env::var("OTERYN_ACCOUNT_OVERVIEW_ENABLED").as_deref() == Ok("true"),
         "account-overview",
@@ -63,6 +64,41 @@ pub fn register(registry: &mut Registry) {
         "account-notifications",
         "shell-account-notifications",
         "account/notifications",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        registry.login && flag("OTERYN_ACCOUNT_MFA"),
+        "account-mfa",
+        "shell-account-mfa",
+        "mfa",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        flag("OTERYN_ACCOUNT_EMAIL_CHANGE")
+            && std::env::var("OTERYN_PUBLIC_ORIGIN")
+                .is_ok_and(|origin| crate::email_change::valid_origin(&origin))
+            && std::env::var("OTERYN_MFA_KEY").is_ok_and(|key| crate::mfa::valid_token(&key)),
+        "account-email",
+        "shell-account-email",
+        "account/security/email",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        crate::consents::OptionalConfig::configured().enabled,
+        "account-consents",
+        "shell-account-consents",
+        "account/consents",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        flag("OTERYN_ACCOUNT_CREDENTIALS") && crate::export::ExportConfig::configured().enabled,
+        "account-export",
+        "shell-account-export",
+        "account/privacy/export",
         Group::Account,
         false,
     );

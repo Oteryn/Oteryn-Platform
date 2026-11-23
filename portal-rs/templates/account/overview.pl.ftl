@@ -26,3 +26,7 @@ available = Dostępna
 
 main-character = Główna postać
 profile-preferences = Preferencje profilu
+character-services = Usługi postaci
+character-items = Ekwipunek postaci
+market-history = Historia rynku
+trade-history = Historia wymian

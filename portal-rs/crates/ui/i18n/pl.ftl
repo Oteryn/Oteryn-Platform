@@ -336,3 +336,13 @@ thais-foot-player-help = Pomoc dla graczy
 thais-foot-legal = Informacje prawne
 thais-foot-report = Zgłoś błąd
 thais-foot-language = Język portalu
+
+shell-downloads = Pobierz klienta
+download-stable = Kanał stabilny
+download-beta = Kanał beta
+download-all-channels = Wszystkie kanały wydań
+shell-account-mfa = Weryfikacja dwuetapowa
+shell-account-email = Zmień adres e-mail
+shell-account-consents = Zgody opcjonalne
+shell-account-export = Eksport danych konta
+shell-account-badges = Odznaki profilu

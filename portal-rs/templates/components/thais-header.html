@@ -105,14 +105,24 @@
         {% else %}
           <a class="om-top-link om-mobile-only" href="#status"><span class="om-label">{{ chrome.text("worlds-title") }}</span></a>
         {% endif %}
-        <a class="om-top-link" href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
+        {% if let Some(link) = chrome.link("start") %}
+        <a class="om-top-link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="om-label">{{ link.label }}</span></a>
+        {% else %}
+        <a class="om-top-link" href="{{ chrome.home_url() }}#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
+        {% endif %}
       </div>
       <div class="om-tools">
         {% if chrome.signed_in() %}
           {% if chrome.account_mounted %}
-          <a class="om-login" href="/account" data-account-link{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}>
+          {% if let Some(link) = chrome.link("account-overview") %}
+          <a class="om-login" href="{{ link.url }}" data-account-link{% if link.current %} aria-current="page"{% endif %}>
             <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("stage-my-account") }}
           </a>
+          {% else if !interior %}
+          <a class="om-login" href="#podglad-konta" data-account-link aria-haspopup="dialog">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("stage-my-account") }}
+          </a>
+          {% endif %}
           {% if interior %}
           <details class="om-fallback-account">
             <summary>{{ chrome.text("stage-my-account") }}</summary>
@@ -129,9 +139,11 @@
           </a>
           {% endif %}
         {% endif %}
-        <a class="om-shop" href="{% if let Some(link) = chrome.link("shop") %}{% if chrome.signed_in() %}{{ link.url }}{% else if chrome.login_mounted %}/{{ chrome.lang }}/login{% else %}/static/thais/shop-{{ chrome.lang }}.html{% endif %}{% else %}/static/thais/shop-{{ chrome.lang }}.html{% endif %}"{% if chrome.current_section == "shop" %} aria-current="page"{% endif %}>
-          <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>{{ chrome.text("shell-shop") }}
+        {% if let Some(link) = chrome.link("shop") && (chrome.signed_in() || chrome.login_mounted) %}
+        <a class="om-shop" href="{% if chrome.signed_in() %}{{ link.url }}{% else %}/{{ chrome.lang }}/login{% endif %}"{% if link.current %} aria-current="page"{% endif %}>
+          <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>{{ link.label }}
         </a>
+        {% endif %}
       </div>
     </nav>
   </div>

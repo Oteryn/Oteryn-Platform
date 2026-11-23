@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
+pub const EXPORT_REAUTH_QUERY: &str = "continue=account-export";
+
 pub const PRODUCER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, Default)]

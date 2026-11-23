@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::State,
+    extract::{OriginalUri, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -11,6 +11,7 @@ use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
     accounts::Accounts,
     credentials::{self, Credentials, Outcome, PasswordChange},
+    export::{EXPORT_REAUTH_QUERY, ExportConfig},
 };
 use oteryn_web::{
     Language,
@@ -326,7 +327,7 @@ async fn sudo(
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
     oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
-    headers: HeaderMap,
+    (OriginalUri(uri), headers): (OriginalUri, HeaderMap),
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
     if let Err(response) = check(
@@ -340,6 +341,7 @@ async fn sudo(
     {
         return Ok(*response);
     }
+    let export = ExportConfig::configured().enabled && uri.query() == Some(EXPORT_REAUTH_QUERY);
     let hash = session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let mut tx = service
         .pool
@@ -359,7 +361,12 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(lang, &session, "account/sudo").await;
+        let path = if export {
+            format!("account/sudo?{EXPORT_REAUTH_QUERY}")
+        } else {
+            "account/sudo".to_owned()
+        };
+        return refuse(lang, &session, &path).await;
     }
     let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
     sqlx::query(
@@ -376,7 +383,12 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&format!("/{}/account/security", lang.code())))
+    let destination = if export {
+        "account/privacy/export"
+    } else {
+        "account/security"
+    };
+    Ok(redirect(&format!("/{}/{destination}", lang.code())))
 }
 
 #[cfg(test)]

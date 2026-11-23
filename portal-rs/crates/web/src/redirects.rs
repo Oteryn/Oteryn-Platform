@@ -45,6 +45,7 @@ pub const MAPPINGS: &[(&str, &str)] = &[
     ("/online", "/online"),
     ("/servers", "/worlds"),
     ("/getting-started", "/start"),
+    ("/start", "/start"),
     ("/wiki/{slug}", "/wiki/articles/{slug}"),
     ("/wiki/items/{slug}", "/wiki/items/{slug}"),
     ("/wiki/creatures/{slug}", "/wiki/creatures/{slug}"),

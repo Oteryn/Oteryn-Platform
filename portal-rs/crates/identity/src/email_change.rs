@@ -162,13 +162,16 @@ struct Change {
     expires_at: OffsetDateTime,
     revert_until: OffsetDateTime,
 }
+pub(crate) fn valid_origin(origin: &str) -> bool {
+    origin.starts_with("https://")
+        && origin.len() <= 2048
+        && !origin[8..].is_empty()
+        && !origin[8..].contains(['/', '?', '#', '<', '>', '"', '\'', ' ', '\r', '\n'])
+}
+
 impl Service {
     pub fn ready(&self) -> bool {
-        self.enabled
-            && self.origin.starts_with("https://")
-            && self.origin.len() <= 2048
-            && !self.origin[8..].is_empty()
-            && !self.origin[8..].contains(['/', '?', '#', '<', '>', '"', '\'', ' ', '\r', '\n'])
+        self.enabled && valid_origin(&self.origin)
     }
     pub async fn request(
         &self,

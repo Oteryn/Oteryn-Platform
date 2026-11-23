@@ -26,3 +26,7 @@ available = Available
 
 main-character = Main character
 profile-preferences = Profile preferences
+character-services = Character services
+character-items = Character inventory
+market-history = Market history
+trade-history = Trade history

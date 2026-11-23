@@ -5,7 +5,11 @@
   </picture>
   <div class="wrap">
     <p class="eyebrow">{{ chrome.text("thais-home-guide") }}</p>
+    {% if standalone_guide %}
+    <h1 id="start-title">{{ chrome.text("thais-home-start") }}</h1>
+    {% else %}
     <h2 id="start-title">{{ chrome.text("thais-home-start") }}</h2>
+    {% endif %}
     <ol class="steps">
       <li><span class="number" aria-hidden="true">1</span><div>
         {% if chrome.signed_in() %}
@@ -30,9 +34,8 @@
         {% endif %}
       </div></li>
       <li><span class="number" aria-hidden="true">3</span><div>
-        {% if let Some(link) = chrome.link("server") %}
-          <strong>{{ chrome.text("stage-btn-download") }}</strong>
-          <p><a class="step-rules" href="{{ link.url }}">{{ link.label }}</a></p>
+        {% if let Some(link) = chrome.link("downloads") %}
+          <a href="{{ link.url }}">{{ chrome.text("stage-btn-download") }}</a>
         {% else %}
           <strong>{{ chrome.text("stage-btn-download") }}</strong>
           <p>{{ chrome.text("thais-home-client-unavailable") }}</p>

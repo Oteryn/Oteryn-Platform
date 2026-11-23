@@ -44,19 +44,30 @@ struct Page {
     facts: Vec<(String, String)>,
     characters_label: String,
     main_label: String,
-    preferences_label: String,
     state: String,
-    characters: Vec<(String, String, String, String, bool)>,
+    characters: Vec<Character>,
     world: String,
     availability: String,
     level: String,
     profession: String,
     unavailable: String,
     shortcuts: String,
-    security: String,
-    premium: String,
-    balance: String,
+    links: Vec<Link>,
 }
+struct Character {
+    name: String,
+    world: String,
+    availability: String,
+    main: bool,
+    profile: Option<String>,
+    links: Vec<Link>,
+}
+
+struct Link {
+    url: String,
+    label: String,
+}
+
 fn text(lang: &str, key: &str) -> String {
     let source = if lang == "en" {
         include_str!("../../../../templates/account/overview.en.ftl")
@@ -140,11 +151,9 @@ async fn load(
         Ok(_) => return StatusCode::FORBIDDEN.into_response(),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let profiles = crate::profile::Service::new(
-        pool.clone(),
-        settings.clone(),
-        std::env::var("OTERYN_CHARACTER_PROFILES_ENABLED").as_deref() == Ok("true"),
-    );
+    let enabled = |key| std::env::var(key).as_deref() == Ok("true");
+    let profiles_enabled = enabled("OTERYN_CHARACTER_PROFILES_ENABLED");
+    let profiles = crate::profile::Service::new(pool.clone(), settings.clone(), profiles_enabled);
     let projection = Projection::new(pool.clone(), settings, Arc::new(Accounts(pool.clone())));
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -181,36 +190,87 @@ async fn load(
         Some(now) => profiles.main_character(account, now).await,
         None => None,
     };
-    let characters = view
-        .filter(|v| v.state == ReadState::Ready)
-        .map(|v| {
-            v.characters
-                .into_iter()
-                .map(|c| {
-                    let availability =
-                        t(if c.availability == crate::lcfa::Availability::Available {
-                            "available"
-                        } else {
-                            "unavailable"
-                        });
-                    (
-                        segment(&c.name),
-                        c.name,
-                        c.world_id.to_string(),
-                        availability,
-                        main == Some(c.character_id.as_uuid()),
-                    )
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut characters = Vec::new();
+    let services = crate::services::Services::new(pool.clone(), crate::services::configured());
+    let public_profiles = enabled("PORTAL_PUBLIC_PROFILES_ENABLED");
+    let items_source = std::env::var("PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY")
+        .is_ok_and(|source| !source.is_empty());
+    let items = items_source && enabled("PLAYERDATA_G10_ITEMS_ENABLED");
+    let history = items_source && enabled("PLAYERDATA_G10_HISTORY_ENABLED");
+    if let Some(view) = view.filter(|v| v.state == ReadState::Ready) {
+        for c in view.characters {
+            let name = segment(&c.name);
+            let character = c.character_id.as_uuid();
+            let world = c.world_id.to_string();
+            let available = c.availability == crate::lcfa::Availability::Available;
+            let mut links = Vec::new();
+            if profiles_enabled && available {
+                links.push(Link {
+                    url: format!("/{lang}/account/characters/{name}/profile"),
+                    label: t("profile-preferences"),
+                });
+            }
+            if services.has_owner_view(account, character).await {
+                links.push(Link {
+                    url: format!("/{lang}/account/characters/{character}/services"),
+                    label: t("character-services"),
+                });
+            }
+            if items && available {
+                links.push(Link {
+                    url: format!("/{lang}/panel/items/{world}/{character}"),
+                    label: t("character-items"),
+                });
+            }
+            if history && available {
+                for (family, label) in [("market", "market-history"), ("trades", "trade-history")] {
+                    links.push(Link {
+                        url: format!("/{lang}/panel/history/{world}/{family}/{character}"),
+                        label: t(label),
+                    });
+                }
+            }
+            characters.push(Character {
+                name: c.name,
+                world,
+                availability: t(if available {
+                    "available"
+                } else {
+                    "unavailable"
+                }),
+                main: main == Some(character),
+                profile: (public_profiles && available)
+                    .then(|| format!("/{lang}/characters/{name}")),
+                links,
+            });
+        }
+    }
+    let links = [
+        (
+            enabled("OTERYN_ACCOUNT_CREDENTIALS"),
+            "account/security",
+            "security",
+        ),
+        (
+            enabled("PANEL_PREMIUM_PAYMENTS"),
+            "panel/premium",
+            "premium",
+        ),
+        (enabled("OTERYN_SHOP_ENABLED"), "shop/history", "balance"),
+    ]
+    .into_iter()
+    .filter(|(mounted, _, _)| *mounted)
+    .map(|(_, path, label)| Link {
+        url: format!("/{lang}/{path}"),
+        label: t(label),
+    })
+    .collect();
     let page = Page {
         lang,
         title: t("overview"),
         facts,
         characters_label: t("characters"),
         main_label: t("main-character"),
-        preferences_label: t("profile-preferences"),
         state: t(match read_state {
             Some(ReadState::Ready) => "linked",
             Some(ReadState::Missing) => "missing",
@@ -225,9 +285,7 @@ async fn load(
         profession: t("profession"),
         unavailable: t("unavailable"),
         shortcuts: t("shortcuts"),
-        security: t("security"),
-        premium: t("premium"),
-        balance: t("balance"),
+        links,
     };
     match page.render() {
         Ok(html) => Html(html).into_response(),
