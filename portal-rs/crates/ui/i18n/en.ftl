@@ -347,3 +347,6 @@ shell-account-closure-pending = Pending account closure
 shell-account-overview-back = Back to account overview
 shell-account-sudo = Confirm your password
 shell-account-export-sudo = Confirm your password to download your account data.
+shell-account-dashboard = Account dashboard
+account-dashboard-unavailable = Journal data is unavailable.
+shell-account-consents = Optional consents

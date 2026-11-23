@@ -511,6 +511,12 @@ pub(crate) fn message(
         .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
+/// Account-read composition status supplied by portal startup.
+#[derive(Debug, Clone, Copy)]
+pub struct AccountReadStatus {
+    pub configured: bool,
+}
+
 #[derive(Template)]
 #[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
@@ -520,6 +526,8 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    account_reads: Option<AccountReadStatus>,
+    optional_consents: bool,
     players_label: String,
     players: bool,
     account_label: String,
@@ -532,6 +540,10 @@ struct Page {
     next: Option<Uuid>,
 }
 impl Page {
+    fn text(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
     }
@@ -567,8 +579,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     reports_navigation: Option<Extension<ReportsNavigation>>,
-    headers: axum::http::HeaderMap,
+    account_reads: Option<Extension<AccountReadStatus>>,
     Query(query): Query<RolePageQuery>,
+    request: Request,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {
         Ok(()) => true,
@@ -617,7 +630,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = language(request.headers());
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
@@ -630,6 +643,10 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        account_reads: account_reads
+            .filter(|_| request.uri().path() == "/admin")
+            .map(|Extension(status)| status),
+        optional_consents: oteryn_identity::consents::OptionalConfig::configured().enabled,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

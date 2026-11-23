@@ -372,11 +372,32 @@ impl Notifications {
         unread_only: bool,
         limit: i64,
     ) -> Result<Vec<Notification>> {
-        self.account(account).await?;
+        Self::list_for(
+            &self.pool,
+            self.accounts.as_ref(),
+            account,
+            unread_only,
+            limit,
+        )
+        .await
+    }
+
+    /// Read portal notifications without configuring email delivery or unsubscribe links.
+    pub async fn list_for(
+        pool: &PgPool,
+        accounts: &dyn AccountState,
+        account: Uuid,
+        unread_only: bool,
+        limit: i64,
+    ) -> Result<Vec<Notification>> {
+        accounts
+            .active_verified(account)
+            .await?
+            .ok_or_else(invalid)?;
         if !(1..=100).contains(&limit) {
             return Err(invalid());
         }
-        let rows: Vec<(Uuid,String,String,Option<OffsetDateTime>)> = outbox::query_as("SELECT id,subject,body,read_at FROM notifications WHERE account_id=$1 AND (NOT $2 OR read_at IS NULL) ORDER BY created_at DESC,id DESC LIMIT $3").bind(account).bind(unread_only).bind(limit).fetch_all(&self.pool).await?;
+        let rows: Vec<(Uuid,String,String,Option<OffsetDateTime>)> = outbox::query_as("SELECT id,subject,body,read_at FROM notifications WHERE account_id=$1 AND (NOT $2 OR read_at IS NULL) ORDER BY created_at DESC,id DESC LIMIT $3").bind(account).bind(unread_only).bind(limit).fetch_all(pool).await?;
         Ok(rows
             .into_iter()
             .map(|(id, subject, body, read_at)| Notification {

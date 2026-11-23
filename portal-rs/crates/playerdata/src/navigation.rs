@@ -37,4 +37,12 @@ pub fn register(registry: &mut Registry) {
         Group::World,
         false,
     );
+    registry.section(
+        true,
+        "account-dashboard",
+        "shell-account-dashboard",
+        "account/dashboard",
+        Group::Account,
+        false,
+    );
 }
