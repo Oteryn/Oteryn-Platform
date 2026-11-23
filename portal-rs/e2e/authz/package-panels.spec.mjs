@@ -35,7 +35,7 @@ const staffWrites = [
 const ownerWrites = [
   ['POST', '/en/account/privacy/export', 403, {}],
   ['POST', '/pl/account/privacy/export', 403, {}],
-  ['POST', '/{lang}/support/appeals/{id}', 404, { message: 'Review this decision' }],
+  ['POST', '/{lang}/support/appeals/{id}', 404, { version: '1', message: 'Review this decision' }],
 ];
 
 const targetFor = (path, locale) => path.replace('{lang}', locale).replace('{id}', missingId);
