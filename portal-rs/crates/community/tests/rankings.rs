@@ -108,7 +108,7 @@ async fn seeded() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error
         for category in 1..=9 {
             for filter in [0, 1] {
                 let rows: Vec<_> = (1..=102).map(|i| serde_json::json!({"rank":if i==3 { "2".into() } else {i.to_string()},"character_id":format!("01900000-0000-7000-8000-{i:012}"),"name":if i==1 { "HiddenSecret".into() } else if world==OTHER { format!("Other{i}") } else if filter==1 { format!("Druid{i}") } else if i==2 { "<script>alert(1)</script>".into() } else { format!("Player{i}") },"vocation":filter,"level":"200","value":(10000-if i==3 {2} else {i}).to_string()})).collect();
-                let payload = serde_json::json!({"world_id":world,"category":category,"filter":filter,"computed_at":now.to_string(),"rows":rows});
+                let payload = serde_json::json!({"world_id":world,"category":category,"filter":filter,"computed_at":(now-5).to_string(),"rows":rows});
                 sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('highscores',$1,false,1,1,$2,$3)").bind(format!("{world}:{category}:{filter}")).bind(now).bind(payload).execute(&db).await?;
             }
         }
@@ -123,12 +123,26 @@ async fn cleanup(pool: PgPool, db: PgPool, schema: String) -> TestResult {
     pool.close().await;
     Ok(())
 }
+async fn fixture_computed_at(
+    db: &PgPool,
+) -> Result<time::OffsetDateTime, Box<dyn std::error::Error>> {
+    let seconds: i64 = sqlx::query_scalar(
+        "SELECT watermark - 5 FROM public_snapshots WHERE family='highscores' AND is_watermark",
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(time::OffsetDateTime::from_unix_timestamp(seconds)?)
+}
+
 #[tokio::test]
 async fn database_categories_locales_privacy_and_escaping() -> TestResult {
     let Some((pool, db, schema)) = seeded().await? else {
         return Ok(());
     };
     let app = rankings::router(db.clone(), true, Arc::new(Visible));
+    let computed_at = fixture_computed_at(&db)
+        .await?
+        .format(&time::format_description::well_known::Rfc3339)?;
     for locale in ["pl", "en"] {
         for kind in [
             "level",
@@ -156,7 +170,7 @@ async fn database_categories_locales_privacy_and_escaping() -> TestResult {
             assert!(html.contains("&#60;script&#62;"));
             assert!(!html.contains("<script>"));
             assert!(!html.contains("character_id"));
-            assert!(html.contains("<time datetime="));
+            assert!(html.contains(&format!(r#"<time datetime="{computed_at}""#)));
         }
     }
     cleanup(pool, db, schema).await
@@ -281,7 +295,14 @@ async fn home_top_skips_hidden_and_fails_closed() -> TestResult {
     );
     assert_eq!(rows[1].rank, "2");
     assert_eq!(rows[1].url.as_deref(), Some("/pl/characters/Player3"));
-    assert_eq!(as_of.len(), 16);
+    assert_eq!(
+        as_of,
+        fixture_computed_at(&db)
+            .await?
+            .format(time::macros::format_description!(
+                "[year]-[month]-[day] [hour]:[minute]"
+            ))?
+    );
     let (rows, _) = rankings::home_top(&db, &Visible, oteryn_web::Language::En, 5, false)
         .await
         .map_err(|_| "home ranking unavailable")?;
