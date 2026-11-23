@@ -1,8 +1,8 @@
 //! Oteryn portal binary with server roles and one-off operator commands.
 
-use std::process::ExitCode;
+use std::{collections::HashMap, ffi::OsString, fs::File, io::Read, process::ExitCode};
 
-use oteryn_content::pages::legal;
+use oteryn_content::pages::{LegalEdition, legal, publish_legal_edition};
 use oteryn_core::Config;
 use oteryn_identity::export;
 use oteryn_web::AppState;
@@ -13,6 +13,7 @@ enum Role {
     Serve,
     Migrate,
     InstallLegalPages,
+    PublishLegalEdition,
     CheckSignupLegal,
     CheckSignupLegalUpgrade,
     Worker,
@@ -23,6 +24,7 @@ fn parse_role(arg: Option<&str>) -> Option<Role> {
         Some("serve") | None => Some(Role::Serve),
         Some("migrate") => Some(Role::Migrate),
         Some("install-legal-pages") => Some(Role::InstallLegalPages),
+        Some("publish-legal-edition") => Some(Role::PublishLegalEdition),
         Some("check-signup-legal") => Some(Role::CheckSignupLegal),
         Some("check-signup-legal-upgrade") => Some(Role::CheckSignupLegalUpgrade),
         Some("worker") => Some(Role::Worker),
@@ -99,7 +101,7 @@ async fn main() -> ExitCode {
         };
     }
     let Some(role) = parse_role(arg.as_deref()) else {
-        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages, check-signup-legal, check-signup-legal-upgrade or worker");
+        tracing::error!(role = ?arg, "unknown role; expected serve, migrate, install-legal-pages, publish-legal-edition, check-signup-legal, check-signup-legal-upgrade or worker");
         return ExitCode::from(2);
     };
     match run(role).await {
@@ -109,6 +111,59 @@ async fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+const PUBLISH_LEGAL_USAGE: &str = "usage: oteryn-portal publish-legal-edition --actor <account uuid> --slug <terms-of-service|privacy-policy|cookie-policy> --locale <en|pl> --title <text> --body-file <path> --version <v> --effective <YYYY-MM-DD> --final-approved";
+
+fn parse_legal_edition_args(
+    mut args: impl Iterator<Item = OsString>,
+) -> Result<(uuid::Uuid, LegalEdition), Box<dyn std::error::Error>> {
+    let mut values = HashMap::new();
+    let mut final_approved = false;
+    while let Some(flag) = args.next() {
+        match flag.to_str() {
+            Some("--final-approved") if !final_approved => final_approved = true,
+            Some(
+                "--actor" | "--slug" | "--locale" | "--title" | "--body-file" | "--version"
+                | "--effective",
+            ) => {
+                let value = args.next().ok_or(PUBLISH_LEGAL_USAGE)?;
+                if values.insert(flag, value).is_some() {
+                    return Err(PUBLISH_LEGAL_USAGE.into());
+                }
+            }
+            _ => return Err(PUBLISH_LEGAL_USAGE.into()),
+        }
+    }
+    if !final_approved {
+        return Err(PUBLISH_LEGAL_USAGE.into());
+    }
+    let body_file = values
+        .remove(std::ffi::OsStr::new("--body-file"))
+        .ok_or(PUBLISH_LEGAL_USAGE)?;
+    let mut value = |key: &str| {
+        values
+            .remove(std::ffi::OsStr::new(key))
+            .and_then(|value| value.into_string().ok())
+            .ok_or(PUBLISH_LEGAL_USAGE)
+    };
+    let actor = uuid::Uuid::parse_str(&value("--actor")?)?;
+    let mut edition = LegalEdition {
+        slug: value("--slug")?,
+        locale: value("--locale")?,
+        title: value("--title")?,
+        body: String::new(),
+        version: value("--version")?,
+        effective: value("--effective")?,
+    };
+    // 100,000 Unicode scalar values can occupy at most 400,000 UTF-8 bytes.
+    File::open(body_file)?
+        .take(400_001)
+        .read_to_string(&mut edition.body)?;
+    if edition.body.len() > 400_000 {
+        return Err("--body-file exceeds the CMS body limit".into());
+    }
+    Ok((actor, edition))
 }
 
 async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
@@ -135,6 +190,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
         Role::InstallLegalPages => {
             let installed = legal::install(&db, legal_profile.as_deref()).await?;
             tracing::info!(installed, "default legal document pairs installed");
+        }
+        Role::PublishLegalEdition => {
+            let (actor, edition) = parse_legal_edition_args(std::env::args_os().skip(2))?;
+            publish_legal_edition(&db, actor, edition).await?;
+            tracing::info!(%actor, "legal edition published");
         }
         Role::CheckSignupLegal | Role::CheckSignupLegalUpgrade => {
             if role == Role::CheckSignupLegalUpgrade
@@ -630,8 +690,54 @@ mod tests {
             parse_role(Some("install-legal-pages")),
             Some(Role::InstallLegalPages)
         );
+        assert_eq!(
+            parse_role(Some("publish-legal-edition")),
+            Some(Role::PublishLegalEdition)
+        );
         assert_eq!(parse_role(Some("worker")), Some(Role::Worker));
         assert_eq!(parse_role(Some("drop-database")), None);
+    }
+
+    #[test]
+    fn publish_legal_edition_requires_explicit_approval_and_reads_markdown()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use std::io::Write;
+
+        let mut body = tempfile::NamedTempFile::new()?;
+        let markdown = "# Regulamin Oteryn\n\nWarunki świadczenia usług.";
+        body.write_all(markdown.as_bytes())?;
+        let actor = uuid::Uuid::now_v7();
+        let mut args: Vec<OsString> = [
+            "--slug",
+            "terms-of-service",
+            "--locale",
+            "pl",
+            "--title",
+            "Regulamin Oteryn",
+            "--version",
+            "test-v1",
+            "--effective",
+            "2026-11-23",
+            "--body-file",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+        args.push(body.path().into());
+        args.extend(["--actor".into(), actor.to_string().into()]);
+        assert!(parse_legal_edition_args(args.iter().cloned()).is_err());
+        args.push("--final-approved".into());
+        let (parsed_actor, edition) = parse_legal_edition_args(args.iter().cloned())?;
+        assert_eq!(parsed_actor, actor);
+        assert_eq!(edition.body, markdown);
+        assert_eq!(edition.slug, "terms-of-service");
+        assert_eq!(edition.locale, "pl");
+        assert_eq!(edition.title, "Regulamin Oteryn");
+        assert_eq!(edition.version, "test-v1");
+        assert_eq!(edition.effective, "2026-11-23");
+        args.push("--final-approved".into());
+        assert!(parse_legal_edition_args(args.into_iter()).is_err());
+        Ok(())
     }
 }
 

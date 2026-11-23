@@ -376,18 +376,67 @@ journal, stop, migrate, image swap and supervisor start.
 - Preflight: the running release must already pass the container and
   `/readyz` checks below, so a host the probe cannot reach is refused before
   any effect instead of rolling back a good release after migration.
-- Signup staging for the first release that enforces explicit approval:
-  use the reviewed candidate's staff CMS through restricted staff ingress
-  against the retained CMS database. Run only the candidate web role for this
-  step with the usual staff authentication and page-management permissions.
-  Publish the real approved terms and privacy editions in English and then in
-  Polish under new versions. The predecessor's snapshots remain immutable.
-  Set `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION` in the candidate
-  portal environment to the exact published versions. Pause predecessor signup
-  during the publication window if it still submits the old versions.
-  The host helper runs `portal check-signup-legal` from the candidate image
-  against that same configuration before backup, migration or service
-  replacement, and again after migration before service replacement.
+- Signup staging for the first release that enforces explicit approval.
+  Build or load the reviewed candidate image before staging. As host root,
+  use that image with the live portal service configuration. Select an active, email-verified staff account with
+  `admin.access` and `cms.pages.manage`. The CLI records that account as the
+  audit actor. Browser MFA cannot apply to a host-root CLI. Prepare the four
+  approved UTF-8 Markdown files with real operator details, and choose new
+  versions. Pause predecessor signup during publication if it still submits
+  the old versions. Substitute the actual image tag, account UUID, date,
+  versions and file paths in this sequence. Each Markdown file is redirected into
+  the candidate container, so it can stay readable only by host root.
+
+  ```sh
+  (
+    set -eu
+    export CANDIDATE_IMAGE='oteryn-portal:<sha8>-arm64'
+    actor='<staff-account-uuid>'
+    effective='<YYYY-MM-DD>'
+    terms_version='<new-terms-version>'
+    privacy_version='<new-privacy-version>'
+    candidate_compose=$(mktemp)
+    trap 'rm -f -- "$candidate_compose"' EXIT
+    cat > "$candidate_compose" <<'YAML'
+  services:
+    portal:
+      image: ${CANDIDATE_IMAGE:?set the reviewed candidate image tag}
+  YAML
+
+    publish_edition() {
+      docker compose -p oteryn-portal -f /opt/oteryn-portal/compose.yml \
+        -f "$candidate_compose" run --rm -T --no-deps -e OTERYN_ENV=production \
+        portal publish-legal-edition --actor "$actor" --slug "$1" --locale "$2" \
+        --title "$3" --body-file /dev/stdin --version "$4" \
+        --effective "$effective" --final-approved < "$5"
+    }
+    publish_edition terms-of-service en 'Terms of Service' "$terms_version" /root/legal/terms.en.md
+    publish_edition terms-of-service pl 'Regulamin Oteryn' "$terms_version" /root/legal/terms.pl.md
+    publish_edition privacy-policy en 'Privacy Policy' "$privacy_version" /root/legal/privacy.en.md
+    publish_edition privacy-policy pl 'Polityka prywatności' "$privacy_version" /root/legal/privacy.pl.md
+  )
+  ```
+
+  After all four commands succeed, set these entries in the live portal's
+  Compose environment to the exact versions used above.
+
+  ```dotenv
+  OTERYN_TERMS_VERSION=<new-terms-version>
+  OTERYN_PRIVACY_VERSION=<new-privacy-version>
+  ```
+
+  Then dispatch Oracle Operations with the candidate's full protected-main
+  source SHA.
+
+  ```sh
+  candidate_sha='<full-protected-main-source-sha>'
+  gh workflow run oracle-operations.yml --repo Oteryn/Oteryn-Platform --ref main \
+    -f action=deploy -f source_sha="$candidate_sha"
+  ```
+
+  The host helper runs `portal check-signup-legal` against that configuration
+  before backup, migration or service replacement, and again after migration
+  before service replacement.
 - Release: recheck authority, `pg_dump -Fc` inside `oteryn-portal-portal-pg-1`
   to a staged file checked with `pg_restore --list` and published as
   `state/actions/<sha>-platform.dump` (0600), recheck, journal `prepared` with the
