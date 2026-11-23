@@ -28,10 +28,11 @@ export async function exerciseCommerce(request, locale, token, definition, route
     const allowed = guard.all.every(permitted) && hasPanelAccess && permitted(guard.actions.grant);
     const id = index === 0 ? proposal : approvals[index - 1].id;
     const targetPath = path.replace('{action}', 'grant').replace('{id}', id);
+    const reason = ['Local authorization fixture', 'value_verified', 'value_withdrawn'][index];
     await test.step(`${method} ${path}`, async () => {
       const before = allowed ? null : await snapshot();
       const response = await request.post(targetPath, {
-        form: { _csrf: token, ...(index === 0 && { request_id: id, target, days: '7', reason: 'Local authorization fixture' }) },
+        form: { _csrf: token, reason, ...(index === 0 && { request_id: id, target, days: '7' }) },
         headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
       });
       try {

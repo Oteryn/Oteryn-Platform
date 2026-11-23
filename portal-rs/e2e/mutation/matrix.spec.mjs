@@ -4565,6 +4565,10 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
     );
     const error = lang === 'pl' ? 'Nieprawidłowe dane. Sprawdź identyfikatory, kwotę i powód.'
       : 'Invalid input. Check the identifiers, amount and reason.';
+    const reasonError = lang === 'pl' ? 'Wybierz zatwierdzony powód.' : 'Choose an approved reason.';
+    const inputError = lang === 'pl'
+      ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
+      : 'Some information could not be accepted. Check your input and try again.';
     const noMutation = async (screen, offer, snapshot, baseline) => {
       await rejected({ page: screen, ...offer, snapshot, baseline });
       for (const actor of wrongActors) {
@@ -4576,25 +4580,36 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
     const submitOrder = async (kind, target, extra, success = true) => {
       expect((await proposer.goto(panel)).status()).toBe(200);
       const selector = `main form[action="${panel}/${kind}"]`;
-      const values = { target, reason: 'Authorized local browser mutation matrix qualification.', ...extra };
+      const refund = kind === 'refund';
+      const reason = refund ? 'refund_requested' : 'Authorized local browser mutation matrix qualification.';
+      const values = { target, reason, ...extra };
       const offer = await prepare(proposer, selector, values);
       const id = offer.fields.request_id;
       const snapshot = () => digest(id, target);
       await noMutation(proposer, offer, snapshot, []);
       const boundary = kind === 'grant' ? { days: '367' } : kind === 'adjust' ? { amount: '0' } : { reason: 'x'.repeat(9) };
       await invalid({
-        page: proposer, ...offer, message: error, snapshot, baseline: [],
+        page: proposer, ...offer, message: refund ? reasonError : error, snapshot, baseline: [],
         samples: [
           { name: 'empty reason', patch: { reason: '' } },
           { name: 'overlong reason', patch: { reason: 'x'.repeat(501) } },
-          { name: 'wrong target identifier type', patch: { target: 'not-a-uuid' } },
           { name: 'outside the allowed range', patch: boundary },
         ],
       });
-      await submit(proposer, selector, values);
+      await invalid({
+        page: proposer, ...offer, message: error, snapshot, baseline: [],
+        samples: [{ name: 'wrong target identifier type', patch: { target: 'not-a-uuid' } }],
+      });
+      if (refund) {
+        await proposer.locator(selector).locator('select[name=reason]').selectOption(reason);
+        await submit(proposer, selector, { target, ...extra });
+      } else {
+        await submit(proposer, selector, values);
+      }
       if (!success) {
-        await expect(proposer.locator('main h1')).toHaveText(lang === 'pl'
-          ? 'Żądanie jest sprzeczne z bieżącym stanem.' : 'The request conflicts with the current state.');
+        await expect(proposer.locator('main h1')).toHaveText(lang === 'pl' ? 'Konflikt zmian' : 'Update conflict');
+        await expect(proposer.locator('main')).toContainText(lang === 'pl'
+          ? 'Ta akcja jest sprzeczna z bieżącym stanem.' : 'This action conflicts with the current state.');
         expect(await snapshot()).toEqual([]);
         return;
       }
@@ -4614,7 +4629,8 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
       const selector = `main form[action="${panel}/approvals/${id}"]`;
       await expect(proposer.locator(`${selector} button`)).toHaveCount(0);
       expect((await reviewer.screen.goto(panel)).status()).toBe(200);
-      const prepared = await prepare(reviewer.screen, selector);
+      const reason = cancel ? 'value_withdrawn' : 'value_verified';
+      const prepared = await prepare(reviewer.screen, selector, { reason });
       const url = cancel ? new URL(`${panel}/cancellations/${id}`, prepared.url).href : prepared.url;
       await noMutation(reviewer.screen, { ...prepared, url }, snapshot, submitted);
       const self = (await prepare(proposer, selector)).fields._csrf;
@@ -4627,12 +4643,19 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
         expect(await response.text()).toContain(error);
         expect(await snapshot()).toEqual(submitted);
       }
+      await invalid({
+        page: reviewer.screen, ...prepared, url, snapshot, baseline: submitted, message: reasonError,
+        samples: [{ name: 'missing approval or cancellation reason', patch: { reason: '' } }],
+      });
+      await reviewer.screen.locator(selector).locator('select[name=reason]').selectOption(reason);
       if (cancel) await reviewer.screen.locator(`${selector} button[formaction$="/${id}"]`).click();
       else await submit(reviewer.screen, selector);
       await expect(reviewer.screen).toHaveURL(/\/admin\/commerce$/);
       await expect(reviewer.screen.locator(selector)).toHaveCount(0);
       const after = await snapshot();
       expect(after[0].approved_by).toBe(reviewer.account.id);
+      expect(await query('SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action=$2',
+        [id, cancel ? 'commerce.cancelled' : 'commerce.approved'])).toEqual([{ staff_reason: reason }]);
       expect((await sendForm(reviewer.screen, url, prepared.fields)).status()).toBe(303);
       expect(await snapshot()).toEqual(after);
       return after[0];
@@ -4661,10 +4684,45 @@ test('staff commerce separates submission, approval, cancellation and wallet eff
     expect(cancelled.result).toEqual({ status: 'cancelled' });
     expect(cancelled.ledger_adjustments).toBe(0);
 
-    const check = await submitOrder('reconcile', topup.payment_intent_id, {});
-    expect((await check.snapshot())[0].result).toEqual({
-      resolution_code: 'reviewed_no_payment_state_change', state: 'succeeded', intent: topup.payment_intent_id,
+    const payments = `${panel}/reconcile`;
+    const paymentId = topup.payment_intent_id;
+    expect((await proposer.goto(`${payments}?lang=${lang}&id=${paymentId}`)).status()).toBe(200);
+    const paymentForm = `main form[action^="${payments}?"]`;
+    const offer = await prepare(proposer, paymentForm, { reason: 'evidence_reviewed' });
+    const snapshot = () => digest(offer.fields.request_id, paymentId);
+    await noMutation(proposer, offer, snapshot, []);
+    await invalid({
+      page: proposer, ...offer, message: inputError, snapshot, baseline: [],
+      samples: [
+        { name: 'wrong payment identifier type', patch: { id: 'not-a-uuid' } },
+        { name: 'invalid review version', patch: { version: 'invalid' } },
+      ],
     });
+    await invalid({
+      page: proposer, ...offer, message: reasonError, snapshot, baseline: [],
+      samples: [
+        { name: 'empty reason', patch: { reason: '' } },
+        { name: 'overlong reason', patch: { reason: 'x'.repeat(501) } },
+        { name: 'unknown short reason', patch: { reason: 'x'.repeat(9) } },
+      ],
+    });
+    await proposer.locator(paymentForm).locator('select[name=reason]').selectOption(offer.fields.reason);
+    await submit(proposer, paymentForm);
+    const reviewUrl = new URL(`${payments}?lang=${lang}&id=${paymentId}`, info.project.use.baseURL);
+    await expect(proposer).toHaveURL(reviewUrl.href);
+    const reviewed = [{
+      target_id: paymentId, command: { kind: 'reconcile' }, requires_approval: false, approved_by: null,
+      result: {
+        resolution_code: 'reviewed_no_payment_state_change', state: 'succeeded',
+        intent: paymentId, review_version: offer.fields.version,
+      },
+      ledger_adjustments: 0, premium_changes: 0, refunds: 0,
+    }];
+    expect(await snapshot()).toEqual(reviewed);
+    expect((await sendForm(proposer, offer.url, offer.fields)).status()).toBe(303);
+    expect(await snapshot()).toEqual(reviewed);
+    expect(await query("SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action='commerce.payment.reviewed'",
+      [offer.fields.request_id])).toEqual([{ staff_reason: offer.fields.reason }]);
     await submitOrder('refund', topup.payment_intent_id, {}, false);
     expect(await query('SELECT state FROM payment_intents WHERE id=$1', [topup.payment_intent_id]))
       .toEqual([{ state: 'succeeded' }]);
