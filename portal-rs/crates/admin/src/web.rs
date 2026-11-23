@@ -479,12 +479,22 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         ("/admin/mail-outbox/retry-kind", _) => &[Permission::MailRetryBatch],
         ("/admin/mail-outbox/cancel", _) => &[Permission::MailCancel],
         (invitations::PATH, &Method::POST) => &[Permission::CreateStaffInvite],
-        (path, &Method::POST) if path.starts_with("/admin/roles/invitations/") => &[Permission::RevokeStaffInvite],
-        (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => &[Permission::ViewRegistrationPolicy],
-        (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => &[Permission::ManageRegistrationPolicy, Permission::ViewRegistrationPolicy],
+        (path, &Method::POST) if path.starts_with("/admin/roles/invitations/") => {
+            &[Permission::RevokeStaffInvite]
+        }
+        (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => {
+            &[Permission::ViewRegistrationPolicy]
+        }
+        (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => &[
+            Permission::ManageRegistrationPolicy,
+            Permission::ViewRegistrationPolicy,
+        ],
         ("/admin/system" | "/admin/system/data", _) => &[Permission::ViewSystem],
         (crate::charts::PAGE | crate::charts::STYLESHEET, _) => &[Permission::AdminAnalyticsView],
-        (path, _) if path.starts_with("/admin/charts/") => &[Permission::AdminAnalyticsView, Permission::AdminAnalyticsExport],
+        (path, _) if path.starts_with("/admin/charts/") => &[
+            Permission::AdminAnalyticsView,
+            Permission::AdminAnalyticsExport,
+        ],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
