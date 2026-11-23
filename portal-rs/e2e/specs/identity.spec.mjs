@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
-import { register, login, logout, submit, csrfRejected, mailLink, password, seedPasswordRange } from '../helpers.mjs';
+import { register, login, logout, submit, csrfRejected, mailLink, seedPasswordRange } from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('registration, mail verification, wrong password, login, logout, reset and single-use link',async({page},info)=>{
@@ -24,16 +24,14 @@ test('registration, mail verification, wrong password, login, logout, reset and 
  await submit(page,'main form',{email:account.email});
  const link=await mailLink(page,account.email,/https:\/\/localhost:18443\/(?:pl|en)\/reset-password\/[a-f0-9]+/);
  await page.goto(link);
- const next=password();
- await seedPasswordRange(next);
+ const next = await seedPasswordRange();
  await submit(page,'main form',{email:account.email,password:next,password_confirmation:next});
  await expect(page).toHaveURL(/login/);
  await login(page,lang,{...account,password:next});
  await expect(page).not.toHaveURL(/login/);
  await logout(page,lang);
  await page.goto(link);
- const replay=password();
- await seedPasswordRange(replay);
+ const replay = await seedPasswordRange('alternate');
  await submit(page,'main form',{email:account.email,password:replay,password_confirmation:replay});
  await expect(page.locator('[role=alert]')).toBeVisible();
 });

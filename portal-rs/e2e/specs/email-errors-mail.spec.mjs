@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { request as playwrightRequest } from '@playwright/test';
 import { test, expect } from '../fixtures.mjs';
-import { login, logout, password, register, seedPasswordRange, submit } from '../helpers.mjs';
+import { login, logout, register, seedPasswordRange, submit } from '../helpers.mjs';
 import { action, enrollMfa, loginWithRecoveryCode, player, query, unique } from '../staff-rbac-helpers.mjs';
 
 const copy = {
@@ -136,16 +136,14 @@ test('verification and reset mail have localized copy and single-use links', asy
   await submit(page, 'main form', { email: account.email });
   const reset = bearerLink(page, await securityMail(page, account.email, lang, 'reset'), lang, 'reset');
   expect((await page.goto(reset)).status()).toBe(200);
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   await submit(page, 'main form', { email: account.email, password: next, password_confirmation: next });
   await expect(page).toHaveURL(/\/login$/);
   await login(page, lang, { ...account, password: next });
   await expect(page).not.toHaveURL(/\/login$/);
   await logout(page, lang);
   await page.goto(reset);
-  const replay = password();
-  await seedPasswordRange(replay);
+  const replay = await seedPasswordRange('alternate');
   await submit(page, 'main form', { email: account.email, password: replay, password_confirmation: replay });
   await expect(page.locator('[role=alert]')).toBeVisible();
 });
@@ -197,8 +195,7 @@ test('security notices use the account language and the existing MFA fallback re
   await page.goto(`/${other}/account/sudo`);
   await submit(page, 'main form', { current_password: account.password });
   await page.goto(`/${other}/password/change`);
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   await submit(page, 'main form', {
     current_password: account.password, password: next, password_confirmation: next,
   });
@@ -640,8 +637,7 @@ test('duplicate registration and referral invitations deliver localized, absolut
   const lang = info.project.metadata.locale;
   const other = lang === 'pl' ? 'en' : 'pl';
   const account = await register(page, lang);
-  const attempt = password();
-  await seedPasswordRange(attempt);
+  const attempt = await seedPasswordRange();
   await page.goto(`/${other}/register`);
   await page.locator('[name=work_token]').waitFor({ state: 'attached' });
   await submit(page, 'main form', {

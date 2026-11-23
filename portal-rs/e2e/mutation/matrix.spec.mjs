@@ -2321,8 +2321,7 @@ for (const [prefix, changeMethod] of [
       expect((await sendForm(page, sudoInput.url, sudoInput.form.fields)).status()).toBe(403);
       expect(await snapshot()).toEqual(elevated);
 
-      const next = password();
-      await seedPasswordRange(next);
+      const next = await seedPasswordRange();
       const passwordFields = { current_password: owner.password, password: next, password_confirmation: next };
       const changeInput = await verifyRefusals({
         path: change, alias: `${prefixPath}/password/change`, method: changeMethod,
@@ -2914,8 +2913,7 @@ for (const prefix of ['locale', 'unprefixed']) {
       expect(await snapshot()).toEqual(pending);
       const mail = await mailLink(page, owner.email, /https:\/\/localhost:\d+\/(?:pl|en)\/reset-password\/[a-f0-9]{64}/, 120_000);
       expect((await page.goto(mail)).status()).toBe(200);
-      const newPassword = password();
-      await seedPasswordRange(newPassword);
+      const newPassword = await seedPasswordRange();
       const values = { email: owner.email, password: newPassword, password_confirmation: newPassword };
       const change = await prepare(page, formSelector, values);
       const reset = new URL(`${routes}/reset-password`, change.url).href;
@@ -3394,8 +3392,7 @@ for (const prefix of ['locale', 'unprefixed']) {
         }, { timeout: 65_000, intervals: [1000] }).toBeLessThanOrEqual(remaining);
       };
       const email = `matrix-registration-${randomUUID()}@local.test`;
-      const secret = password();
-      await seedPasswordRange(secret);
+      const secret = await seedPasswordRange('registration');
       const state = () => query(
         'SELECT id,status,email_verified_at IS NOT NULL AS verified FROM accounts WHERE lower(email)=$1',
         [email],
@@ -4318,8 +4315,7 @@ for (const [prefix, revokeMethod] of [
 
       await logout(page, lang);
       await page.goto(recoverPath);
-      const next = password();
-      await seedPasswordRange(next);
+      const next = await seedPasswordRange();
       const values = { email: owner.email, recovery_key: key, password: next, password_confirmation: next };
       const recovery = await prepare(page, formSelector, values);
       const target = new URL(recoveryAlias, recovery.url).href;

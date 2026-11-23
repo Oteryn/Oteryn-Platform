@@ -1,6 +1,6 @@
 import {createHash, createHmac, randomBytes, randomUUID} from 'node:crypto';
 import {test, expect} from '../fixtures.mjs';
-import {login, logout, mailLink, password, register, seedPasswordRange, submit, waitForLoginBudget} from '../helpers.mjs';
+import {login, logout, mailLink, register, seedPasswordRange, submit, waitForLoginBudget} from '../helpers.mjs';
 import {enrollMfa, query} from '../staff-rbac-helpers.mjs';
 
 test('MFA aliases accept a real challenge and revoke its remembered device', async ({page}, info) => {
@@ -165,8 +165,7 @@ test('mail reset token works through the unprefixed reset endpoint', async ({pag
   const link = await mailLink(page, account.email, new RegExp(resetPath + '[a-f0-9]+'));
   expect((await page.goto(link)).status()).toBe(200);
   const form = await page.locator('main form').evaluate(f => Object.fromEntries(new FormData(f)));
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   const response = await page.request.post('/reset-password', {
     form: {...form, email: account.email, password: next, password_confirmation: next},
     headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
@@ -236,8 +235,7 @@ for (const localized of [false, true]) {
       await logout(page, lang);
       expect((await page.goto(`/${lang}/recovery-key`)).status()).toBe(200);
       const anonymousCsrf = await page.locator('main form [name=_csrf]').inputValue();
-      const next = password();
-      await seedPasswordRange(next);
+      const next = await seedPasswordRange();
       const denied = await page.request.post('/recovery-key', {
         form: {_csrf: anonymousCsrf, email: account.email, recovery_key: key, password: next, password_confirmation: next},
         headers, maxRedirects: 0,
@@ -255,13 +253,14 @@ test('player changes the password through both PUT routes after sudo', async ({p
   const lang = info.project.metadata.locale;
   const account = await register(page, lang);
   await login(page, lang, account);
-  for (const path of ['/password/change', `/${lang}/password/change`]) {
+  for (const [path, fixture] of [
+    ['/password/change', 'replacement'], [`/${lang}/password/change`, 'alternate'],
+  ]) {
     expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
     await submit(page, 'main form', {current_password: account.password});
     expect((await page.goto(`/${lang}/password/change`)).status()).toBe(200);
     const csrf = await page.locator('main form [name=_csrf]').inputValue();
-    const next = password();
-    await seedPasswordRange(next);
+    const next = await seedPasswordRange(fixture);
     const response = await page.request.put(path, {
       form: {_csrf: csrf, current_password: account.password, password: next, password_confirmation: next},
       headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
@@ -303,9 +302,8 @@ test('signed unsubscribe form disables optional mail for its account', async ({p
 
 test('unprefixed registration enforces proof of work before creating the account', async ({page}, info) => {
   const lang = info.project.metadata.locale;
-  const secret = password();
   const email = `ledger-${randomUUID()}@local.test`;
-  await seedPasswordRange(secret);
+  const secret = await seedPasswordRange('registration');
   expect((await page.goto(`/${lang}/register`)).status()).toBe(200);
   const fields = await page.locator('main form').evaluate(form => {
     const data = Object.fromEntries(new FormData(form));

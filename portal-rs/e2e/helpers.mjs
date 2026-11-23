@@ -80,20 +80,26 @@ export async function mailLink(page,email,pattern,timeout=30_000) {
   },{timeout}).toBe(true);
   return found;
 }
-export async function seedPasswordRange(value) {
+// Public test inputs and their precomputed breach-provider range prefixes.
+const passwordExamples = {
+  registration: ['RegistrationExampleOnly!2026', '98E4F'],
+  replacement: ['ReplacementExampleOnly!2026', '5D930'],
+  alternate: ['AlternateExampleOnly!2026', '34B96'],
+};
+
+export async function seedPasswordRange(fixture = 'replacement') {
+  const [example, prefix] = passwordExamples[fixture];
   const db=pool();
   try {
     await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-registration' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThan(5);
     await db.query('UPDATE registration_abuse_policy SET enabled=true WHERE singleton=true');
     await db.query("INSERT INTO world_status(id,name) SELECT uuidv7(),'Local Browser World' WHERE NOT EXISTS(SELECT 1 FROM world_status)");
-    // Synthetic local corpus, matching the identity crate's registration fixtures.
-    const prefix=crypto.createHash('sha1').update(value).digest('hex').toUpperCase().slice(0,5);
     await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
   } finally { await db.end(); }
+  return example;
 }
 export async function register(page,lang) {
-  const email=`browser-${crypto.randomUUID()}@local.test`, pass=password();
-  await seedPasswordRange(pass);
+  const email=`browser-${crypto.randomUUID()}@local.test`, pass=await seedPasswordRange('registration');
   const registration=await page.goto(`/${lang}/register`);
   expect(registration.status()).toBe(200);
   await page.locator('[name=work_token]').waitFor({state:'attached'});

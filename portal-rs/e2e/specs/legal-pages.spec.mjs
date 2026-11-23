@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { password, pool, register, seedPasswordRange } from '../helpers.mjs';
+import { pool, register, seedPasswordRange } from '../helpers.mjs';
 
 const editions = {
   pl: {
@@ -42,7 +42,7 @@ for (const [index, slug] of ['terms', 'privacy', 'cookies'].entries()) {
 
 test('signup records the versions shown on the linked legal pages', async ({ page }, testInfo) => {
   const lang = testInfo.project.metadata.locale;
-  await seedPasswordRange(password());
+  await seedPasswordRange('registration');
   const versions = {};
   for (const kind of ['terms', 'privacy']) {
     const path = `/${lang}/legal/${kind}`;

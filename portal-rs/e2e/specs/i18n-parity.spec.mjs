@@ -3,7 +3,7 @@ import https from 'node:https';
 import path from 'node:path';
 import * as OTPAuth from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
-import { login, password, pool, register, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, pool, register, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { catalogCommand, importGameCatalog, uuid7 } from '../staff-commerce-helpers.mjs';
 import { action, isolatedAdmin, loginWithRecoveryCode, player, query, unique } from '../staff-rbac-helpers.mjs';
 
@@ -1173,7 +1173,7 @@ for (const { actor, group } of crawls) {
       if (group === 'account') await publishOwnership(account.email);
     }
     if (actor === 'anonymous') {
-      await seedPasswordRange(password());
+      await seedPasswordRange('registration');
       await assertAnonymousCheckoutRedirects(page, locale);
     }
     const origin = new URL(`/${locale}/`, portalOrigin);

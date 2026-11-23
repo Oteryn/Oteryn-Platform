@@ -130,8 +130,7 @@ test.describe('authenticated password changes', () => {
         ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
         : undefined;
       const anonymous = definition.key === 'anonymous';
-      const replacement = password();
-      if (!anonymous) await seedPasswordRange(replacement);
+      const replacement = anonymous ? password() : await seedPasswordRange();
       const db = database();
       try {
         for (const [method, path] of passwordCases) {
