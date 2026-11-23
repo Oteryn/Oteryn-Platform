@@ -409,3 +409,6 @@ discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
 
 shell-collection-pvp = Collection battles and sets
+
+shell-stats-readiness = Statistics availability
+shell-stats-watch-access = Watch API access

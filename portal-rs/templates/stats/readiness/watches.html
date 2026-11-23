@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ text.label("access") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ text.label("access") }}</h1>
+  <p><a href="/{{ lang }}/stats">{{ text.label("title") }}</a></p>
+  <section class="op-card op-stack">
+    <h2>{{ text.label("watches") }}</h2>
+    <p>{{ text.label("unavailable") }} · {{ text.label("watch-source") }}</p>
+    <p>{{ text.label("api-scope") }}</p>
+    <p role="status">{% if active %}{{ text.label("active") }}{% else %}{{ text.label("inactive") }}{% endif %}</p>
+    {% if let Some(value) = token %}
+    <label for="watch-token">{{ text.label("token") }}</label>
+    <input class="op-input" id="watch-token" type="text" value="{{ value }}" readonly autocomplete="off" spellcheck="false">
+    {% endif %}
+    <form action="/{{ lang }}/account/stats-watches" method="post" class="op-stack">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="op-button" type="submit" name="action" value="issue">{% if active %}{{ text.label("replace") }}{% else %}{{ text.label("issue") }}{% endif %}</button>
+      {% if active %}<button class="op-button" type="submit" name="action" value="revoke">{{ text.label("revoke") }}</button>{% endif %}
+    </form>
+  </section>
+  <section class="op-card op-stack">
+    <h2>{{ text.label("saved-watches") }}</h2>
+    <p role="status">{% if has_watches %}{{ text.label("watches-saved") }}{% else %}{{ text.label("watches-empty") }}{% endif %}</p>
+    {% if has_watches %}
+    <form action="/{{ lang }}/account/stats-watches" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="op-button" type="submit" name="action" value="remove_all">{{ text.label("remove-all") }}</button>
+    </form>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>

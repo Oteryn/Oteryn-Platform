@@ -78,6 +78,9 @@ async fn database() -> Result<Option<PgPool>> {
     ))
     .execute(&pool)
     .await?;
+    // The mail operations migration also depends on the admin and identity schemas.
+    sqlx::query("ALTER TABLE email_outbox ADD COLUMN template_kind text CHECK (template_kind IN ('new-device', 'password-changed', 'news', 'support'))")
+        .execute(&pool).await?;
     Ok(Some(pool))
 }
 async fn dispose(pool: PgPool) -> Result<()> {
@@ -327,4 +330,238 @@ fn localized_messages_and_bad_input() -> Result<()> {
     assert!(serde_json::from_str::<Subscription>("{}").is_err());
     assert!(serde_json::from_str::<EventKind>("\"unknown\"").is_err());
     Ok(())
+}
+
+#[tokio::test]
+async fn readiness_shows_localized_source_states() -> Result<()> {
+    let db = PgPool::connect_lazy("postgres://unused@localhost:1/unused")?;
+    let app = http::configured_with(db, web::Readiness::default());
+    for (lang, title, unavailable) in [
+        ("en", "Statistics availability", "Unavailable"),
+        ("pl", "Dostępność statystyk", "Niedostępne"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(format!("/{lang}/stats")).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["cache-control"], "private, no-store");
+        let body = axum::body::to_bytes(response.into_body(), 64_000).await?;
+        let html = std::str::from_utf8(&body)?;
+        assert!(html.contains(title));
+        assert!(html.contains(unavailable));
+        assert!(!html.contains("/account/stats-watches"));
+    }
+    let invalid = app
+        .oneshot(Request::get("/fr/stats").body(Body::empty())?)
+        .await?;
+    assert_eq!(invalid.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}
+
+#[tokio::test]
+async fn postgres_configured_watch_access_lifecycle() -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let Some(pool) = database().await? else {
+        return Ok(());
+    };
+    for sql in [
+        include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
+        include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../../migrations/20261105220221_t08_sessions.sql"),
+        include_str!("../../../../migrations/20261125100019_gap-36_watch_access.sql"),
+    ] {
+        sqlx::raw_sql(sql).execute(&pool).await?;
+    }
+    let account: Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,locale,status,email_verified_at) VALUES ('watch@example.invalid','fixture','en','active',now()) RETURNING id")
+        .fetch_one(&pool).await?;
+    let session = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    let session_hash = Sha256::digest(&session).to_vec();
+    sqlx::query("INSERT INTO web_sessions(id_hash, account_id, csrf_token, user_agent_summary, idle_expires_at, absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '30 minutes',now()+interval '1 hour')")
+        .bind(&session_hash).bind(account).bind(&csrf).execute(&pool).await?;
+    let mut config = web::Readiness::default();
+    config.watches = true;
+    let app = http::configured_with(pool.clone(), config);
+    let settings = "/en/account/stats-watches";
+    let cookie = format!("{}={session}", oteryn_web::session::COOKIE_NAME);
+    for (body, expected) in [
+        ("action=issue".to_owned(), StatusCode::FORBIDDEN),
+        (
+            format!("action=invalid&_csrf={csrf}"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(settings)
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(body))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let issued = app
+        .clone()
+        .oneshot(
+            Request::post(settings)
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("action=issue&_csrf={csrf}")))?,
+        )
+        .await?;
+    assert_eq!(issued.status(), StatusCode::OK);
+    assert_eq!(issued.headers()["cache-control"], "private, no-store");
+    let body = axum::body::to_bytes(issued.into_body(), 64_000).await?;
+    let (_, rest) = std::str::from_utf8(&body)?
+        .split_once("id=\"watch-token\" type=\"text\" value=\"")
+        .ok_or("missing token field")?;
+    let (token, _) = rest.split_once('"').ok_or("missing token field end")?;
+    let watch = Subscription {
+        target_kind: TargetKind::Guild,
+        target_id: Uuid::now_v7(),
+        event_kind: EventKind::GuildChange,
+    };
+    let other = Uuid::now_v7();
+    sqlx::query("INSERT INTO stats_watches(account_id,target_kind,target_id,event_kind) VALUES($1,'guild',$3,'guild_change'),($2,'guild',$3,'guild_change')")
+        .bind(account).bind(other).bind(watch.target_id).execute(&pool).await?;
+    let path = "/api/v1/stats/watches";
+    for (method, data, expected) in [
+        ("GET", String::new(), StatusCode::SERVICE_UNAVAILABLE),
+        (
+            "POST",
+            serde_json::to_string(&watch)?,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        ("DELETE", "{}".into(), StatusCode::UNPROCESSABLE_ENTITY),
+        (
+            "DELETE",
+            serde_json::to_string(&watch)?,
+            StatusCode::NO_CONTENT,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .header("authorization", format!("Bearer {token}"))
+                    .body(Body::from(data))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT account_id FROM stats_watches")
+        .fetch_all(&pool)
+        .await?;
+    assert_eq!(remaining, vec![other]);
+    sqlx::query("INSERT INTO stats_watches(account_id,target_kind,target_id,event_kind) VALUES($1,'guild',$2,'guild_change')")
+        .bind(account).bind(watch.target_id).execute(&pool).await?;
+    for (body, expected) in [
+        ("action=remove_all".to_owned(), StatusCode::FORBIDDEN),
+        (
+            format!("action=remove_all&_csrf={csrf}"),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(settings)
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(body))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT account_id FROM stats_watches")
+        .fetch_all(&pool)
+        .await?;
+    assert_eq!(remaining, vec![other]);
+    let authorization = format!("Bearer {token}");
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await?;
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::get(path)
+                .header("authorization", &authorization)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await?;
+    sqlx::query("UPDATE stats_watch_access SET expires_at=now() WHERE token_hash=$1")
+        .bind(Sha256::digest(token).to_vec())
+        .execute(&pool)
+        .await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(path)
+                .header("authorization", &authorization)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    let revoked = app
+        .oneshot(
+            Request::post(settings)
+                .header("cookie", &cookie)
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("action=revoke&_csrf={csrf}")))?,
+        )
+        .await?;
+    assert_eq!(revoked.status(), StatusCode::SEE_OTHER);
+    let remaining_tokens: i64 = sqlx::query_scalar("SELECT count(*) FROM stats_watch_access")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(remaining_tokens, 0);
+    let (previous, _) = access::update(&pool, account, &session_hash, access::Action::Issue)
+        .await
+        .map_err(|code| code.to_string())?
+        .ok_or("credential was not issued")?;
+    assert_eq!(
+        access::owner(&pool, &previous)
+            .await
+            .map_err(|code| code.to_string())?,
+        Some(account)
+    );
+    let (replacement, _) = access::update(&pool, account, &session_hash, access::Action::Issue)
+        .await
+        .map_err(|code| code.to_string())?
+        .ok_or("credential was not replaced")?;
+    assert!(
+        access::owner(&pool, &previous)
+            .await
+            .map_err(|code| code.to_string())?
+            .is_none()
+    );
+    assert_eq!(
+        access::owner(&pool, &replacement)
+            .await
+            .map_err(|code| code.to_string())?,
+        Some(account)
+    );
+    sqlx::query("UPDATE web_sessions SET id_hash=$1 WHERE id_hash=$2")
+        .bind(Sha256::digest("c".repeat(64)).to_vec())
+        .bind(session_hash)
+        .execute(&pool)
+        .await?;
+    assert!(
+        access::owner(&pool, &replacement)
+            .await
+            .map_err(|code| code.to_string())?
+            .is_none()
+    );
+    dispose(pool).await
 }

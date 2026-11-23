@@ -47,6 +47,7 @@
                   {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                   {% endfor %}
                 {% endif %}
+                {% if let Some(link) = chrome.link("stats-readiness") %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
               </ul>
             </div>
             {% if chrome.first_link("league,puzzles,collection,collection-pvp,pass").is_some() %}

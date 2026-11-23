@@ -409,3 +409,6 @@ discovery-duplicate = Klucz lub pozycja w menu są już zajęte.
 discovery-navigation = Odnośniki redakcyjne
 
 shell-collection-pvp = Walki i zestawy kolekcji
+
+shell-stats-readiness = Dostępność statystyk
+shell-stats-watch-access = Dostęp do API obserwacji

@@ -212,3 +212,6 @@ public P /{lang}/pass/operator
 public P /{lang}/pass/{season}/progress
 # League prediction registration. The router mounts it only with OTERYN_LEAGUE_ENABLED.
 public P /{lang}/league/prediction
+public G /{lang}/stats
+public G /{lang}/account/stats-watches
+public P /{lang}/account/stats-watches
