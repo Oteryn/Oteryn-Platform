@@ -281,6 +281,10 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     });
     Router::new()
         .route("/admin", get(page::<I, A>))
+        .route(
+            crate::client_build::PATH,
+            get(crate::client_build::page::<I, A>),
+        )
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
@@ -432,6 +436,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         "/admin/mail-outbox/retry" => Permission::MailRetry,
         "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
         "/admin/mail-outbox/cancel" => Permission::MailCancel,
+        crate::client_build::PATH => Permission::ManageDownloads,
         _ => Permission::Access,
     });
     for required in [Permission::Access, permission] {
@@ -520,6 +525,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    client_build_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -623,6 +629,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let client_build_link = match s.auth.check(context, Permission::ManageDownloads).await {
+        Ok(()) => Some(text(lang, "build-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +641,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        client_build_link,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

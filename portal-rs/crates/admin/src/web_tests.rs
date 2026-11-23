@@ -128,6 +128,16 @@ async fn host_flag_session_and_mfa_boundaries() {
     .unwrap();
     assert!(body.contains("wieloskładnikowe"));
 }
+#[tokio::test]
+async fn client_build_qualification_uses_the_staff_session() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+        .unwrap();
+    let response = request(app(pool, None, true), "/admin/client-build", "staff.test").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/login");
+}
+
 #[test]
 fn localized_responsive_labelled_template() {
     for lang in ["pl", "en"] {
@@ -138,6 +148,7 @@ fn localized_responsive_labelled_template() {
             reports_label: text(lang, "reports"),
             moderate_reports: true,
             mail_link: None,
+            client_build_link: Some(text(lang, "build-title")),
             players_label: text(lang, "players"),
             players: true,
             account_label: text(lang, "account"),
@@ -167,6 +178,91 @@ fn localized_responsive_labelled_template() {
         assert!(!text(lang, "mfa").is_empty());
     }
 }
+async fn exercise_client_build(pool: &PgPool, identity: Option<StaffIdentity>, role: Uuid) {
+    let path = "/admin/client-build";
+    assert_eq!(
+        request(app(pool.clone(), identity, true), path, "staff.test")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'downloads.manage')")
+        .bind(role)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    let channel = Uuid::now_v7();
+    let publication = Uuid::now_v7();
+    sqlx::query("INSERT INTO client_channels(id,name) VALUES ($1,'stable')")
+        .bind(channel)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO client_releases(
+            id,channel_id,policy_revision,release_id,release_sequence,version_display,
+            policy,policy_file,metadata,versions,artifacts,expires_at,published_by)
+         VALUES ($1,$2,1,'rel-a',1,'1.0.0',$3,'policy-v1.json',
+                 '{}','{}','{}',now()+interval '1 day',$4)",
+    )
+    .bind(publication)
+    .bind(channel)
+    .bind(
+        include_bytes!("../../downloads/tests/fixtures/origin-v1/stable/policy-v1.json").as_slice(),
+    )
+    .bind(identity.unwrap().account)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE client_channels SET active_publication_id=$1 WHERE id=$2")
+        .bind(publication)
+        .bind(channel)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    for (query, status, result) in [
+        ("lang=en", StatusCode::OK, "<html lang=\"en\">"),
+        (
+            "channel=stable&release=rel-a&sequence=1",
+            StatusCode::OK,
+            "data-preview-result=\"build-eligible\"",
+        ),
+        (
+            "channel=stable&release=rel-a&sequence=1&minimum=2",
+            StatusCode::OK,
+            "NATIVE_LOGIN_CLIENT_UPDATE_REQUIRED",
+        ),
+        (
+            "channel=stable&release=rel-a&sequence=2",
+            StatusCode::OK,
+            "data-preview-result=\"build-unverified\"",
+        ),
+        (
+            "channel=beta&release=rel-a&sequence=1",
+            StatusCode::OK,
+            "data-preview-result=\"build-unavailable\"",
+        ),
+        (
+            "channel=stable&release=rel-a&sequence=0",
+            StatusCode::BAD_REQUEST,
+            "Sprawdź kanał",
+        ),
+    ] {
+        let response = request(
+            app(pool.clone(), identity, true),
+            &format!("{path}?{query}"),
+            "staff.test",
+        )
+        .await;
+        assert_eq!(response.status(), status);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).contains(result));
+    }
+}
+
 #[tokio::test]
 async fn database_navigation_authorization_csrf_and_owner() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -233,6 +329,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     )
     .unwrap();
     assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("href=\"/admin/client-build\""));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),
@@ -251,6 +348,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+    exercise_client_build(&pool, identity, role).await;
     // Feature routes require their own permission on top of panel access.
     assert_eq!(
         request(
