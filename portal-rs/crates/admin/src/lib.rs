@@ -9,6 +9,7 @@ pub mod bazaar;
 pub mod commerce;
 pub use control::controls;
 pub mod players;
+pub mod status;
 pub mod support;
 
 pub mod console;

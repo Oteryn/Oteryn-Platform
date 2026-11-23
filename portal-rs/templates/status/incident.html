@@ -1,0 +1,37 @@
+{% import "status/macros.html" as status %}
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ incident.title }} · {{ labels.get("title") }}</title>
+  <link rel="stylesheet" href="/static/status/status.css">
+</head>
+<body>
+<main id="main" class="status-page">
+  <a href="/{{ lang }}/status">{{ labels.get("back") }}</a>
+  <header class="status-heading">
+    <div>
+      <h1>{{ incident.title }}</h1>
+      <p>{% call status::scope(incident.world, "portal") %}{% endcall %} · {{ labels.get(incident.severity.as_str()) }}</p>
+      <p class="status-meta">
+        {{ labels.get("opened") }} · {% call status::time(incident.opened_at) %}{% endcall %}
+        {% if let Some(resolved) = incident.resolved_at %}<br>{{ labels.get("resolved") }} · {% call status::time(resolved) %}{% endcall %}{% endif %}
+      </p>
+    </div>
+  </header>
+  <section aria-labelledby="timeline-title">
+    <h2 id="timeline-title">{{ labels.get("timeline") }}</h2>
+    <ol class="status-timeline">
+      {% for update in timeline %}
+      <li class="op-panel status-card">
+        <h3>{{ labels.get(update.kind.as_str()) }}</h3>
+        <p class="status-meta">{% call status::time(update.posted_at) %}{% endcall %}</p>
+        <p class="status-message">{{ update.message }}</p>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+</main>
+</body>
+</html>

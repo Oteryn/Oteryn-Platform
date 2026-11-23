@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="{{ lang }}">
+  <title>{{ labels.get("feed") }} · Oteryn</title>
+  <id>urn:oteryn:status:incidents:{{ lang }}</id>
+  <link rel="self" href="{{ origin }}/{{ lang }}/status/incidents.atom"/>
+  <link rel="alternate" href="{{ origin }}/{{ lang }}/status"/>
+  <updated>{{ updated }}</updated>
+  <author><name>Oteryn</name></author>
+  {% for incident in incidents %}
+  <entry>
+    <id>urn:uuid:{{ incident.id }}</id>
+    <title>{{ incident.title }}</title>
+    <link href="{{ origin }}/{{ lang }}/status/incidents/{{ incident.id }}"/>
+    <published>{{ crate::status::store::iso(incident.opened_at) }}</published>
+    <updated>{{ crate::status::store::iso(incident.posted_at) }}</updated>
+    <category term="{{ incident.kind }}" label="{{ labels.get(incident.kind.as_str()) }}"/>
+    <summary type="text">{{ incident.message }}</summary>
+  </entry>
+  {% endfor %}
+</feed>

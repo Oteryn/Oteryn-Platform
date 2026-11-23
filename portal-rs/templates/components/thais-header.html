@@ -41,6 +41,7 @@
                 {% for key in ["places", "wiki", "calculators", "atlas", "houses", "delivery"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
+                <li><a href="/{{ chrome.lang }}/status">{{ chrome.text("service-status") }}</a></li>
                 {% if interior %}
                   {% for key in ["worlds", "world-stats"] %}
                   {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
@@ -136,6 +137,7 @@
     </nav>
   </div>
 </header>
+{% include "status/shell.html" %}
 
 {% if chrome.signed_in() && chrome.account_mounted %}
 <dialog class="account-sheet" id="podglad-konta" aria-labelledby="account-heading">

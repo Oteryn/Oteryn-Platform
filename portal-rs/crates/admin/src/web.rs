@@ -427,7 +427,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -466,6 +466,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    status_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -539,6 +540,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        status_label: s
+            .auth
+            .check(context, Permission::StatusView)
+            .await
+            .ok()
+            .map(|()| crate::status::text(lang, "staff-title")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

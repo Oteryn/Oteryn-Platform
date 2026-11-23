@@ -336,3 +336,5 @@ thais-foot-player-help = Player support
 thais-foot-legal = Legal information
 thais-foot-report = Report a bug
 thais-foot-language = Portal language
+
+service-status = Service status

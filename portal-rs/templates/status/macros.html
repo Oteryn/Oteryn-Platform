@@ -1,0 +1,40 @@
+{% macro time(value) %}
+<time datetime="{{ crate::status::store::iso(*value) }}" data-local-time>{{ crate::status::store::iso(*value) }} UTC</time>
+{% endmacro %}
+{% macro scope(world, fallback) %}
+{% match world %}{% when Some with (name) %}{{ name }}{% when None %}{{ labels.get(fallback) }}{% endmatch %}
+{% endmacro %}
+{% macro messages() %}
+<label class="op-field">{{ labels.get("message-pl") }}<textarea class="op-input" name="message_pl" maxlength="2000" rows="3" required></textarea></label>
+<label class="op-field">{{ labels.get("message-en") }}<textarea class="op-input" name="message_en" maxlength="2000" rows="3" required></textarea></label>
+{% endmacro %}
+{% macro world_options(fallback) %}
+<label class="op-field">{{ labels.get("scope") }}
+  <select class="op-input" name="scope">
+    <option value="">{{ labels.get(fallback) }}</option>
+    {% for world in worlds %}{% if let Some(id) = world.id %}
+    <option value="{{ id }}">{% call scope(world.name, "portal") %}{% endcall %}</option>
+    {% endif %}{% endfor %}
+  </select>
+</label>
+{% endmacro %}
+{% macro notice(window) %}
+<article class="op-panel status-card" id="maintenance-{{ window.id }}">
+  <h3>{% call scope(window.world, "all-worlds") %}{% endcall %}</h3>
+  <p class="status-meta">
+    {% if window.active %}{{ labels.get("maintenance-active") }}{% else %}{{ labels.get("maintenance-scheduled") }}{% endif %}
+    · {% call time(window.starts_at) %}{% endcall %} – {% call time(window.ends_at) %}{% endcall %}
+  </p>
+  <p class="status-message">{{ window.message }}</p>
+</article>
+{% endmacro %}
+{% macro incident_row(incident, history) %}
+<article class="op-panel status-card">
+  <h3><a href="/{{ lang }}/status/incidents/{{ incident.id }}">{{ incident.title }}</a></h3>
+  <p class="status-meta">
+    {% call scope(incident.world, "portal") %}{% endcall %} · {{ labels.get(incident.severity.as_str()) }}
+    · {{ labels.get(incident.kind.as_str()) }} · {% call time(incident.posted_at) %}{% endcall %}
+  </p>
+  {% if !history %}<p class="status-message">{{ incident.message }}</p>{% endif %}
+</article>
+{% endmacro %}

@@ -571,8 +571,9 @@ mod tests {
                 assert_eq!(html.contains("/register\""), enabled);
                 assert!(!html.contains("/logout\""));
                 assert!(!html.contains("style="));
-                assert_eq!(html.matches("<script").count(), 1);
+                assert_eq!(html.matches("<script").count(), 2);
                 assert!(html.contains("src=\"/static/thais/home.js\""));
+                assert!(html.contains("src=\"/static/status/status.js\""));
             }
             let chrome = registry().chrome(
                 lang,

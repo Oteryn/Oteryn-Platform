@@ -336,3 +336,5 @@ thais-foot-player-help = Pomoc dla graczy
 thais-foot-legal = Informacje prawne
 thais-foot-report = Zgłoś błąd
 thais-foot-language = Język portalu
+
+service-status = Status usług

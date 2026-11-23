@@ -135,6 +135,7 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            status_label: Some(crate::status::text(lang, "staff-title")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,6 +149,7 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains(&format!(r#"href="/admin/status?lang={lang}""#)));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));
