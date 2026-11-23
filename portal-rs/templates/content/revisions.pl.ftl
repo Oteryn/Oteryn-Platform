@@ -1,5 +1,7 @@
 history = Historia zmian
 back = Wróć do edytora
+back-list = Wróć do listy treści
+missing-source = Zapisz wersję angielską przed przywróceniem tłumaczenia.
 locale = Język treści
 from = Numer wcześniejszej wersji
 to = Numer późniejszej wersji

@@ -1,9 +1,6 @@
 //! Append-only editorial snapshots shared by the staff CMS editors.
 use askama::Template;
-use axum::{
-    http::{HeaderMap, StatusCode, header},
-    response::Response,
-};
+use axum::{http::StatusCode, response::Response};
 use serde::Deserialize;
 use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
@@ -50,7 +47,6 @@ pub(crate) struct Restore<V> {
 #[derive(sqlx::FromRow)]
 struct Current {
     token: String,
-    snapshot: Value,
     source_revision: i64,
 }
 
@@ -71,6 +67,29 @@ impl Target<'_> {
         }
     }
 
+    fn index_path(&self) -> &'static str {
+        match self {
+            Self::News(_) => "/admin/news",
+            Self::Page { .. } => "/admin/pages",
+            Self::Announcement(_) => "/admin/announcements",
+        }
+    }
+
+    pub(crate) async fn has_history(
+        &self,
+        connection: &mut PgConnection,
+    ) -> Result<bool, sqlx::Error> {
+        let (kind, key, locale) = self.scope();
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM editorial_revisions WHERE kind=$1 AND object_key=$2 AND locale=$3)",
+        )
+        .bind(kind)
+        .bind(key)
+        .bind(locale)
+        .fetch_one(connection)
+        .await
+    }
+
     pub(crate) fn history_path(&self) -> String {
         let edit = self.edit_path();
         format!("{}/revisions", edit.strip_suffix("/edit").unwrap_or(&edit))
@@ -78,31 +97,37 @@ impl Target<'_> {
 
     async fn current(&self, connection: &mut PgConnection) -> Result<Option<Current>, sqlx::Error> {
         match self {
-            Self::News(id) => sqlx::query_as(
-                "SELECT updated_at::text AS token, to_jsonb(n) AS snapshot, 0::bigint AS source_revision
-                 FROM news n WHERE id=$1",
-            )
-            .bind(id)
-            .fetch_optional(connection)
-            .await,
-            Self::Page { slug, locale } => sqlx::query_as(
-                "SELECT e.updated_at::text AS token, to_jsonb(e) AS snapshot,
+            Self::News(id) => {
+                sqlx::query_as(
+                    "SELECT updated_at::text AS token, 0::bigint AS source_revision
+                 FROM news WHERE id=$1",
+                )
+                .bind(id)
+                .fetch_optional(connection)
+                .await
+            }
+            Self::Page { slug, locale } => {
+                sqlx::query_as(
+                    "SELECT e.updated_at::text AS token,
                         coalesce(source.revision,0) AS source_revision
                  FROM pages p JOIN editorial_pages e ON e.page_id=p.id
                  LEFT JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
                  WHERE p.slug=$1 AND e.locale=$2",
-            )
-            .bind(slug)
-            .bind(locale)
-            .fetch_optional(connection)
-            .await,
-            Self::Announcement(id) => sqlx::query_as(
-                "SELECT lock_version::text AS token, to_jsonb(a) AS snapshot, 0::bigint AS source_revision
-                 FROM announcements a WHERE id=$1",
-            )
-            .bind(id)
-            .fetch_optional(connection)
-            .await,
+                )
+                .bind(slug)
+                .bind(locale)
+                .fetch_optional(connection)
+                .await
+            }
+            Self::Announcement(id) => {
+                sqlx::query_as(
+                    "SELECT lock_version::text AS token, 0::bigint AS source_revision
+                 FROM announcements WHERE id=$1",
+                )
+                .bind(id)
+                .fetch_optional(connection)
+                .await
+            }
         }
     }
 
@@ -112,10 +137,30 @@ impl Target<'_> {
         actor: Uuid,
         restored_from: Option<i64>,
     ) -> Result<(), sqlx::Error> {
-        let current = self
-            .current(connection)
-            .await?
-            .ok_or(sqlx::Error::RowNotFound)?;
+        let snapshot: Value = match self {
+            Self::News(id) => {
+                sqlx::query_scalar("SELECT to_jsonb(n) FROM news n WHERE id=$1")
+                    .bind(id)
+                    .fetch_one(&mut *connection)
+                    .await?
+            }
+            Self::Page { slug, locale } => {
+                sqlx::query_scalar(
+                    "SELECT to_jsonb(e) FROM editorial_pages e JOIN pages p ON p.id=e.page_id
+                 WHERE p.slug=$1 AND e.locale=$2",
+                )
+                .bind(slug)
+                .bind(locale)
+                .fetch_one(&mut *connection)
+                .await?
+            }
+            Self::Announcement(id) => {
+                sqlx::query_scalar("SELECT to_jsonb(a) FROM announcements a WHERE id=$1")
+                    .bind(id)
+                    .fetch_one(&mut *connection)
+                    .await?
+            }
+        };
         let (kind, key, locale) = self.scope();
         sqlx::query(
             "INSERT INTO editorial_revisions(kind, object_key, locale, actor, restored_from, snapshot)
@@ -126,7 +171,7 @@ impl Target<'_> {
         .bind(locale)
         .bind(actor)
         .bind(restored_from)
-        .bind(current.snapshot)
+        .bind(snapshot)
         .execute(connection)
         .await?;
         Ok(())
@@ -191,16 +236,8 @@ pub(crate) fn value(snapshot: &Value, field: &str) -> String {
     snapshot[field].as_str().unwrap_or_default().into()
 }
 
-pub(crate) fn language(headers: &HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|value| value.starts_with("pl"))
-    {
-        "pl"
-    } else {
-        "en"
-    }
+pub(crate) fn language(chrome: Option<&oteryn_ui::Chrome>) -> &str {
+    chrome.map_or("pl", |chrome| chrome.lang.as_str())
 }
 
 const EN: &str = include_str!("../../../templates/content/revisions.en.ftl");
@@ -302,10 +339,12 @@ struct History<'a> {
     lang: &'a str,
     bundle: fluent_bundle::FluentBundle<fluent_bundle::FluentResource>,
     history_path: String,
-    edit_path: String,
+    back_path: String,
+    back_label: &'static str,
     locale: &'a str,
     csrf: String,
-    current: Option<Current>,
+    restore: Option<Current>,
+    missing_source: bool,
     rows: Vec<Revision>,
     older: Option<i64>,
     cursor: Option<i64>,
@@ -329,10 +368,6 @@ pub(crate) async fn history(
     session: &oteryn_web::session::BrowserSession,
 ) -> Result<Response, StatusCode> {
     query.validate().map_err(Error::status)?;
-    let csrf = session
-        .csrf_token()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let mut connection = pool
         .acquire()
         .await
@@ -350,9 +385,15 @@ pub(crate) async fn history(
                 to_char(saved_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS \"UTC\"') AS saved_at
          FROM editorial_revisions WHERE kind=$1 AND object_key=$2 AND locale=$3 AND id <= $4
          ORDER BY id DESC LIMIT 11",
-    ).bind(kind).bind(key).bind(locale).bind(query.before.map_or(i64::MAX, |id| id - 1))
+    ).bind(kind).bind(&key).bind(locale).bind(query.before.map_or(i64::MAX, |id| id - 1))
      .fetch_all(&mut *connection).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    if current.is_none() && rows.is_empty() {
+    if current.is_none()
+        && rows.is_empty()
+        && !target
+            .has_history(&mut connection)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    {
         return Err(StatusCode::NOT_FOUND);
     }
     let older = (rows.len() == 11).then(|| rows[9].id);
@@ -380,14 +421,35 @@ pub(crate) async fn history(
     } else {
         Vec::new()
     };
+    let (back_path, back_label) = if current.is_some() {
+        (target.edit_path(), "back")
+    } else {
+        (target.index_path().into(), "back-list")
+    };
+    let missing_source = locale == "pl"
+        && current
+            .as_ref()
+            .is_some_and(|edition| edition.source_revision == 0);
+    let restore = current.filter(|_| !missing_source);
+    drop(connection);
+    let csrf = if restore.is_some() && !rows.is_empty() {
+        session
+            .csrf_token()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+    } else {
+        String::new()
+    };
     Ok(oteryn_web::render(&History {
         lang,
         bundle: bundle(lang),
         history_path: target.history_path(),
-        edit_path: target.edit_path(),
+        back_path,
+        back_label,
         locale,
         csrf,
-        current,
+        restore,
+        missing_source,
         rows,
         older,
         cursor: query.before,
@@ -396,18 +458,6 @@ pub(crate) async fn history(
         to,
         diff,
     }))
-}
-
-pub(crate) async fn private(
-    request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Response {
-    let mut response = next.run(request).await;
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        axum::http::HeaderValue::from_static("no-store"),
-    );
-    response
 }
 
 #[cfg(test)]

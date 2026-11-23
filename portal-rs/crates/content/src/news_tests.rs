@@ -211,6 +211,46 @@ async fn postgres_news_lifecycle() {
     .fetch_one(&pool)
     .await
     .unwrap();
+    let taken_slug = format!("taken-{id}");
+    let mut renamed = make();
+    renamed.slug = taken_slug.clone();
+    save_current(&pool, &auth, context, Some(id), renamed)
+        .await
+        .unwrap();
+    save_current(&pool, &auth, context, None, make())
+        .await
+        .unwrap();
+    let current: String = sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let attempted = Edit::Restore {
+        source,
+        form: revisions::Restore {
+            expected_revision: current,
+            reviewed_source_revision: 0,
+        },
+    };
+    assert_eq!(
+        save_change(&pool, &auth, context, Some(id), attempted)
+            .await
+            .unwrap_err(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT slug FROM news WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        taken_slug
+    );
+    sqlx::query("DELETE FROM news WHERE slug=$1")
+        .bind(&slug)
+        .execute(&pool)
+        .await
+        .unwrap();
     let expected_revision: String =
         sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
             .bind(id)

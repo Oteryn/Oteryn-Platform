@@ -1,6 +1,6 @@
 use super::*;
 use crate::revisions::{self, Target};
-use axum::{Extension, Form, extract::Query, http::HeaderMap, response::Redirect, routing::post};
+use axum::{Extension, Form, extract::Query, response::Redirect, routing::post};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{
@@ -43,10 +43,7 @@ fn admin_routes(pool: PgPool) -> Router {
     Router::new()
         .route("/admin/pages", get(index))
         .route("/admin/pages/{slug}/{locale}", get(edit).post(save))
-        .route(
-            "/admin/pages/{slug}/{locale}/revisions",
-            get(history).layer(axum::middleware::from_fn(revisions::private)),
-        )
+        .route("/admin/pages/{slug}/{locale}/revisions", get(history))
         .route(
             "/admin/pages/{slug}/{locale}/revisions/{source}/restore",
             post(restore),
@@ -186,7 +183,7 @@ async fn edit(
     State(pool): State<PgPool>,
     Path((slug, locale)): Path<(String, String)>,
     Extension(session): Extension<BrowserSession>,
-    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Response {
     if !valid_slug(&slug) || !matches!(locale.as_str(), "pl" | "en") {
         return StatusCode::BAD_REQUEST.into_response();
@@ -226,18 +223,32 @@ async fn edit(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let history = if !legal(&slug) && !form.expected_revision.is_empty() {
-        Target::Page {
+    let mut history = String::new();
+    if !legal(&slug) {
+        let target = Target::Page {
             slug: &slug,
             locale: &locale,
+        };
+        let exists = if form.expected_revision.is_empty() {
+            let result = async {
+                let mut connection = pool.acquire().await?;
+                target.has_history(&mut connection).await
+            }
+            .await;
+            match result {
+                Ok(exists) => exists,
+                Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            }
+        } else {
+            true
+        };
+        if exists {
+            history = target.history_path();
         }
-        .history_path()
-    } else {
-        String::new()
-    };
+    }
     oteryn_web::render(&Editor {
         history,
-        history_label: revisions::history_label(revisions::language(&headers)),
+        history_label: revisions::history_label(revisions::language(chrome.as_deref())),
         title: text(&locale, "pages"),
         labels: [
             "title",
@@ -277,13 +288,13 @@ async fn history(
     Extension(session): Extension<BrowserSession>,
     Path((slug, locale)): Path<(String, String)>,
     Query(query): Query<revisions::Query>,
-    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Response, StatusCode> {
     let target = revision_target(&slug, &locale).map_err(revisions::Error::status)?;
     revisions::history(
         &pool,
         target,
-        revisions::language(&headers),
+        revisions::language(chrome.as_deref()),
         query,
         &session,
     )
@@ -491,7 +502,7 @@ async fn save_page(
         Change::Restore { source, form } => {
             let target = revision_target(slug, locale)?;
             if form.expected_revision.is_empty() {
-                return Err(Error::InvalidInput.into());
+                return Err(revisions::Error::Invalid.into());
             }
             let snapshot = target.snapshot(&mut tx, source).await?;
             (

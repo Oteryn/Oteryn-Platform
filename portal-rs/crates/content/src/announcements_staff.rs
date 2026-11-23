@@ -3,7 +3,7 @@ use super::*;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -44,10 +44,7 @@ fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) ->
             "/admin/announcements/{id}/edit",
             get(edit).post(update::<A>),
         )
-        .route(
-            "/admin/announcements/{id}/revisions",
-            get(history).layer(axum::middleware::from_fn(revisions::private)),
-        )
+        .route("/admin/announcements/{id}/revisions", get(history))
         .route(
             "/admin/announcements/{id}/revisions/{source}/restore",
             post(restore::<A>),
@@ -154,7 +151,7 @@ async fn edit(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
     Extension(session): Extension<BrowserSession>,
-    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Response, StatusCode> {
     let row =
         sqlx::query("SELECT to_jsonb(a) AS data,lock_version FROM announcements a WHERE id=$1")
@@ -183,7 +180,7 @@ async fn edit(
         fields,
         rows: vec![],
         history: Target::Announcement(id).history_path(),
-        history_label: revisions::history_label(revisions::language(&headers)),
+        history_label: revisions::history_label(revisions::language(chrome.as_deref())),
     }))
 }
 
@@ -192,12 +189,12 @@ async fn history(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(query): Query<revisions::Query>,
-    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Response, StatusCode> {
     revisions::history(
         &pool,
         Target::Announcement(id),
-        revisions::language(&headers),
+        revisions::language(chrome.as_deref()),
         query,
         &session,
     )

@@ -189,6 +189,9 @@ impl Announcements {
         let (input, version, restored_from) = match change {
             Edit::Save((input, version)) => (input, version, None),
             Edit::Restore { source, form } => {
+                if form.expected_revision < 1 {
+                    return Err(revisions::Error::Invalid.into());
+                }
                 let snapshot = target.snapshot(&mut tx, source).await?;
                 (
                     Input::draft_from(&snapshot)?,

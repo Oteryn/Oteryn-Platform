@@ -1,5 +1,7 @@
 history = Revision history
 back = Back to editor
+back-list = Back to content list
+missing-source = Save the English source before restoring a translation.
 locale = Content language
 from = Earlier revision number
 to = Later revision number

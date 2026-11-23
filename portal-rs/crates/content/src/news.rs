@@ -3,7 +3,7 @@ use crate::revisions::{self, Edit, Target};
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -139,10 +139,7 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news", get(admin_index).post(create))
         .route("/admin/news/create", get(new))
         .route("/admin/news/{id}/edit", get(edit))
-        .route(
-            "/admin/news/{id}/revisions",
-            get(history).layer(axum::middleware::from_fn(revisions::private)),
-        )
+        .route("/admin/news/{id}/revisions", get(history))
         .route("/admin/news/{id}/revisions/{source}/restore", post(restore))
         .route("/admin/news/{id}", post(update).put(update).delete(delete))
         .route("/admin/news/{id}/delete", post(delete))
@@ -315,6 +312,7 @@ async fn new(
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
         q.lang(),
+        q.lang(),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -326,16 +324,18 @@ async fn edit(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
-    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
     let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    let history_lang = revisions::language(chrome.as_deref());
     let lang = q
         .lang
         .as_deref()
         .filter(|lang| matches!(*lang, "en" | "pl"))
-        .unwrap_or_else(|| revisions::language(&headers));
+        .unwrap_or(history_lang);
     Ok(form(
         lang,
+        history_lang,
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),
@@ -350,7 +350,13 @@ async fn edit(
         session.csrf_token().await.map_err(unavailable)?,
     ))
 }
-fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String> {
+fn form(
+    lang: &str,
+    history_lang: &str,
+    id: Option<Uuid>,
+    input: Input,
+    csrf: String,
+) -> Html<String> {
     let action = id.map_or_else(
         || "/admin/news".to_owned(),
         |id| format!("/admin/news/{id}"),
@@ -359,7 +365,7 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
         format!(
             "<a href=\"{}\">{}</a>",
             Target::News(id).history_path(),
-            escape(&revisions::history_label(lang)),
+            escape(&revisions::history_label(history_lang)),
         )
     });
     html.push_str(&format!(
@@ -420,12 +426,12 @@ async fn history(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(query): Query<revisions::Query>,
-    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Response, StatusCode> {
     revisions::history(
         &pool,
         Target::News(id),
-        revisions::language(&headers),
+        revisions::language(chrome.as_deref()),
         query,
         &session,
     )
@@ -543,6 +549,9 @@ async fn save_change(
             (input, None)
         }
         Edit::Restore { source, form } => {
+            if form.expected_revision.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
             let id = id.ok_or(StatusCode::BAD_REQUEST)?;
             verify_revision(&mut tx, id, &form.expected_revision).await?;
             let snapshot = Target::News(id)
@@ -574,7 +583,13 @@ async fn save_change(
         "cms.news_created"
     };
     let id = if let Some(id) = id {
-        sqlx::query_scalar::<_,Uuid>("WITH revision AS MATERIALIZED (SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp FROM news WHERE id=$1) UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision) WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision) WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision) ELSE NULL END,updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(storage)?.ok_or(StatusCode::NOT_FOUND)?
+        sqlx::query_scalar::<_,Uuid>("WITH revision AS MATERIALIZED (SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp FROM news WHERE id=$1) UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision) WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision) WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision) ELSE NULL END,updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(|error| {
+            if restored_from.is_some() && error.as_database_error().is_some_and(|db| db.is_unique_violation()) {
+                StatusCode::CONFLICT
+            } else {
+                storage(error)
+            }
+        })?.ok_or(StatusCode::NOT_FOUND)?
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
