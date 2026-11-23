@@ -7,7 +7,6 @@ use sqlx::{Postgres, Transaction};
 #[derive(Debug, Clone)]
 pub struct PlatformCollection {
     catalogue: collection::Collection,
-    journal: Option<collection::Ownership>,
     world_enabled: bool,
 }
 
@@ -15,14 +14,13 @@ impl PlatformCollection {
     pub fn new(catalogue: collection::Collection, world_enabled: bool) -> Self {
         Self {
             catalogue,
-            journal: None,
             world_enabled,
         }
     }
 
     /// Install the same qualified authority used by the T90 collection router.
     pub fn with_journal(mut self, authority: collection::Ownership) -> Self {
-        self.journal = Some(authority);
+        self.catalogue = self.catalogue.with_ownership(authority);
         self
     }
 
@@ -35,12 +33,11 @@ impl PlatformCollection {
     ) -> Result<DeckSnapshot> {
         collection::valid_deck("PvP", ids).map_err(collection_error)?;
         if let Some(character) = character {
-            let authority = self.journal.as_ref().ok_or(Error::Unavailable)?;
             let now =
                 u64::try_from(time::OffsetDateTime::now_utc().unix_timestamp_nanos() / 1_000_000)
                     .map_err(|_| Error::Unavailable)?;
             self.catalogue
-                .require_locked(tx, owner, character, ids, authority, now)
+                .require_locked(tx, owner, character, ids, now)
                 .await
                 .map_err(collection_error)?;
         } else {
@@ -119,7 +116,7 @@ impl Collection for PlatformCollection {
     }
 
     fn journal_available(&self) -> bool {
-        self.journal.is_some()
+        self.catalogue.has_bestiary_source()
     }
 
     async fn deck(

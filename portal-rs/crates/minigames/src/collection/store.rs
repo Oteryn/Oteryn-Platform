@@ -16,7 +16,7 @@ pub struct Collection {
 }
 #[derive(Debug, Clone)]
 enum BestiarySource {
-    Projection(ProgressStore, Ownership),
+    Projection(ProgressStore, Option<Ownership>),
     Journal(Option<String>),
 }
 
@@ -26,7 +26,7 @@ impl Collection {
         world: WorldStore,
         progress: ProgressStore,
         flags: Flags,
-        ownership: Ownership,
+        ownership: Option<Ownership>,
     ) -> Self {
         Self {
             pool,
@@ -50,12 +50,18 @@ impl Collection {
         }
     }
 
-    #[cfg(test)]
-    pub(super) fn with_ownership(mut self, ownership: Ownership) -> Self {
+    pub(crate) fn with_ownership(mut self, ownership: Ownership) -> Self {
         if let BestiarySource::Projection(_, current) = &mut self.source {
-            *current = ownership;
+            *current = Some(ownership);
         }
         self
+    }
+
+    pub(crate) fn has_bestiary_source(&self) -> bool {
+        matches!(
+            self.source,
+            BestiarySource::Projection(_, Some(_)) | BestiarySource::Journal(Some(_))
+        )
     }
 
     async fn progress(
@@ -71,8 +77,10 @@ impl Collection {
                     .await
                     .map_err(journal_error)
             }
-            BestiarySource::Journal(None) => Err(Error::Unavailable),
-            BestiarySource::Projection(store, authority) => store
+            BestiarySource::Journal(None) | BestiarySource::Projection(_, None) => {
+                Err(Error::Unavailable)
+            }
+            BestiarySource::Projection(store, Some(authority)) => store
                 .read_locked(
                     tx,
                     Actor::Owner(account),

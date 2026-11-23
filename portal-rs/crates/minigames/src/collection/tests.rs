@@ -263,7 +263,7 @@ impl Database {
             world,
             progress,
             Flags { collection: true },
-            Ownership(Arc::new(trust.clone())),
+            Some(Ownership(Arc::new(trust.clone()))),
         );
         let mut bytes = Vec::new();
         image::ImageEncoder::write_image(

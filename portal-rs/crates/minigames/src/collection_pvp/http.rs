@@ -47,6 +47,7 @@ pub fn configured_router(pool: PgPool) -> Router {
         collection::Flags {
             collection: world_enabled,
         },
+        None,
     );
     let collection = PlatformCollection::new(catalogue, world_enabled);
     let payment = platform::payment(pool.clone(), flags.sets);

@@ -815,6 +815,7 @@ async fn postgres_published_cards_fund_a_qualifying_tournament()
             Vec::new(),
         ),
         collection::Flags { collection: true },
+        None,
     );
     let collection = PlatformCollection::new(catalogue, true);
     let service = Service::new(
