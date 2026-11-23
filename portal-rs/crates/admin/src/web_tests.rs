@@ -179,6 +179,7 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));
+        assert!(html.contains(&format!(r#"href="/admin/referrals?lang={lang}""#)));
         assert!(html.contains(&format!(
             "href=\"/admin/news\">{}</a>",
             text(lang, "cms-news")
