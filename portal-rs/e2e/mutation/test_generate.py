@@ -27,16 +27,30 @@ class InventoryTest(unittest.TestCase):
             "attribute nested delimiters": '-="' + "{{%%}}" * repetitions,
             "attribute mixed delimiters": '-="{{%' + "%}}{{%" * repetitions,
         }
-        # The child deadline also bounds CI if a matcher regresses.
+        # Time the match after interpreter startup and input transfer. Keep a
+        # separate child deadline to bound a stalled matcher.
+        script = """
+import sys
+from time import perf_counter
+from generate import TAG, ATTRIBUTE
+
+value = sys.stdin.read()
+started = perf_counter()
+if sys.argv[1] == "TAG.search":
+    TAG.search(value)
+else:
+    list(ATTRIBUTE.finditer(value))
+print(perf_counter() - started)
+"""
         for name, value in examples.items():
-            for match in ("TAG.search(value)", "list(ATTRIBUTE.finditer(value))"):
+            for match in ("TAG.search", "ATTRIBUTE.finditer"):
                 with self.subTest(example=name, matcher=match):
-                    subprocess.run(
-                        [sys.executable, "-B", "-c",
-                         f"import sys; from generate import TAG, ATTRIBUTE; value=sys.stdin.read(); {match}"],
+                    result = subprocess.run(
+                        [sys.executable, "-B", "-c", script, match],
                         cwd=Path(__file__).resolve().parent,
-                        input=value, text=True, check=True, timeout=1,
+                        input=value, text=True, capture_output=True, check=True, timeout=5,
                     )
+                    self.assertLess(float(result.stdout), 1)
 
     def test_recovery_key_form_resolves_all_rendered_modes(self):
         generated = inventory()
