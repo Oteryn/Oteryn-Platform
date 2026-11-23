@@ -9,8 +9,8 @@ use axum::{
 };
 use oteryn_web::Language;
 use serde::Deserialize;
-use sqlx::PgPool;
-use std::{collections::BTreeSet, future::Future, pin::Pin, sync::Arc};
+use sqlx::{PgPool, Row};
+use std::{future::Future, pin::Pin, sync::Arc};
 
 /// Decisions must be current at serving time; errors must never reuse an earlier allow.
 #[derive(Debug)]
@@ -92,6 +92,7 @@ const KINDS: &[(&str, u8)] = &[
 #[derive(Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Filters {
+    skill: Option<String>,
     world: Option<String>,
     vocation: Option<String>,
     page: Option<String>,
@@ -116,15 +117,17 @@ struct Entry {
 #[template(path = "pages/rankings.html", config = "../web/askama.toml")]
 struct Page {
     lang: &'static str,
+    kind: String,
     title: String,
     message: String,
     as_of: String,
-    watermark: String,
+    computed_at: String,
     world_label: String,
     vocation_label: String,
     apply: String,
     kind_label: String,
-    worlds: Vec<String>,
+    worlds: Vec<(String, String, bool)>,
+    filters_available: bool,
     world: String,
     vocation: String,
     vocations: Vec<(String, String)>,
@@ -145,15 +148,17 @@ impl Page {
         let text = |key: &str| lang.text(key);
         Self {
             lang: lang.code(),
+            kind: String::new(),
             title: text("rankings-title"),
             message: String::new(),
-            as_of: text("rankings-as-of"),
-            watermark: String::new(),
+            as_of: text("rankings-computed-at"),
+            computed_at: String::new(),
             world_label: text("rankings-world"),
             vocation_label: text("rankings-vocation"),
             apply: text("rankings-apply"),
             kind_label: text("rankings-category"),
             worlds: vec![],
+            filters_available: false,
             world: String::new(),
             vocation: "0".into(),
             vocations: (0..=5)
@@ -220,9 +225,9 @@ async fn handle(
     if !state.enabled {
         return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
     }
-    let Some((_, category)) = KINDS.iter().find(|(k, _)| *k == kind) else {
+    if !KINDS.iter().any(|(k, _)| *k == kind) {
         return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
-    };
+    }
     let raw = raw.unwrap_or_default();
     let filters = if raw.len() > 2048
         || malformed(&raw)
@@ -241,9 +246,13 @@ async fn handle(
     let Ok(number) = page_number.parse::<usize>() else {
         return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     };
-    if number == 0 || page_number != number.to_string() {
+    if !(1..=MAX_ROWS / PAGE_SIZE).contains(&number) || page_number != number.to_string() {
         return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
+    let kind = filters.skill.as_deref().unwrap_or(&kind);
+    let Some((_, category)) = KINDS.iter().find(|(k, _)| *k == kind) else {
+        return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
+    };
     let vocation = filters.vocation.as_deref().unwrap_or("0");
     if !matches!(vocation, "0" | "1" | "2" | "3" | "4" | "5") {
         return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
@@ -255,159 +264,298 @@ async fn handle(
     {
         return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
     }
-    match load(
-        &state,
-        lang,
-        &kind,
-        *category,
-        filters.world.as_deref(),
-        vocation,
-        number,
-    )
-    .await
-    {
-        Ok(page) => page.response(StatusCode::OK),
-        Err(status) => failure(
-            lang,
-            status,
-            if status == StatusCode::NOT_FOUND {
-                "rankings-not-found"
-            } else {
-                "rankings-unavailable"
-            },
-        ),
+    let mut page = Page::new(lang);
+    page.kind = kind.into();
+    page.vocation = vocation.into();
+    page.page = number;
+    page.filters_available = true;
+    page.title = format!(
+        "{} · {}",
+        page.title,
+        lang.text(&format!("rankings-{kind}"))
+    );
+    if kind == "level" {
+        page.headings.pop();
+    }
+    let result = load_selected(&state, lang, &mut page, *category, filters.world.as_deref()).await;
+    match result {
+        Ok(()) => page.response(StatusCode::OK),
+        Err(Unavailable::NotFound) => {
+            page.message = lang.text("rankings-not-found");
+            page.response(StatusCode::NOT_FOUND)
+        }
+        Err(reason) => {
+            tracing::debug!(?reason, world = %page.world, category, vocation, "rankings unavailable");
+            page.message = lang.text("rankings-unavailable");
+            page.response(StatusCode::SERVICE_UNAVAILABLE)
+        }
     }
 }
+
+async fn load_selected(
+    state: &Rankings,
+    lang: Language,
+    page: &mut Page,
+    category: u8,
+    selected: Option<&str>,
+) -> Result<(), Unavailable> {
+    page.worlds = worlds(&state.db, category, &page.vocation).await?;
+    let world = match selected {
+        Some(id) => page
+            .worlds
+            .iter()
+            .find(|(world, _, _)| world == id)
+            .ok_or(Unavailable::NotFound)?,
+        None => page
+            .worlds
+            .iter()
+            .find(|(_, _, published)| *published)
+            .or_else(|| page.worlds.first())
+            .ok_or(Unavailable::MissingWorld)?,
+    };
+    page.world.clone_from(&world.0);
+    load(state, lang, page, category).await
+}
+
+async fn worlds(
+    db: &PgPool,
+    category: u8,
+    vocation: &str,
+) -> Result<Vec<(String, String, bool)>, Unavailable> {
+    let worlds = sqlx::query_as(
+        "SELECT w.id::text, w.name, EXISTS (
+            SELECT 1 FROM public_snapshots s
+            JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch
+            WHERE s.family='highscores' AND NOT s.is_watermark
+              AND s.subject=w.id::text || ':' || $1 || ':' || $2
+         )
+         FROM world_status w ORDER BY w.name COLLATE \"C\", w.id LIMIT 257",
+    )
+    .bind(category.to_string())
+    .bind(vocation)
+    .fetch_all(db)
+    .await?;
+    if worlds.len() > 256 {
+        return Err(Unavailable::WorldRegistryLimit);
+    }
+    Ok(worlds)
+}
+
 async fn load(
     state: &Rankings,
     lang: Language,
-    kind: &str,
+    page: &mut Page,
     category: u8,
-    selected: Option<&str>,
-    vocation: &str,
-    number: usize,
-) -> Result<Page, StatusCode> {
+) -> Result<(), Unavailable> {
     let privacy_cut = crate::privacy::Cut::read(&state.db)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let unavailable = StatusCode::SERVICE_UNAVAILABLE;
-    // Read one subject snapshot only; never combine different ranking revisions/worlds.
-    let worlds: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT DISTINCT split_part(subject,':',1) AS world FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY world LIMIT 257").fetch_all(&state.db).await.map_err(|_| unavailable)?.into_iter().collect();
-    if worlds.len() > 256 {
-        return Err(unavailable);
-    }
-    let world = match selected {
-        Some(w) if worlds.contains(w) => w,
-        Some(_) => return Err(StatusCode::NOT_FOUND),
-        None => worlds.first().map(String::as_str).ok_or(unavailable)?,
-    };
-    // Payload and observation watermark must come from the same accepted snapshot.
-    let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
-        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
-    ).bind(format!("{world}:{category}:{vocation}")).fetch_optional(&state.db).await.map_err(|_| unavailable)?.ok_or(unavailable)?;
-    let snapshot: Snapshot = serde_json::from_value(payload.clone()).map_err(|_| unavailable)?;
-    if snapshot.world_id != world
-        || snapshot.category != category
-        || snapshot.filter.to_string() != vocation
-        || snapshot.rows.len() > 1000
-    {
-        return Err(unavailable);
-    }
-    let refs: Vec<CharacterRef> = snapshot
+        .map_err(Unavailable::from)?;
+    let subject = format!("{}:{category}:{}", page.world, page.vocation);
+    let cut = RankingCut::read(&state.db, &subject).await?;
+    let snapshot = cut.snapshot(&page.world, category, &page.vocation)?;
+    let refs: Vec<_> = snapshot
         .rows
         .iter()
-        .map(|r| CharacterRef {
-            id: r.character_id.clone(),
-            world: world.to_owned(),
-            name: r.name.clone(),
-        })
+        .map(|r| r.reference(&page.world))
         .collect();
     let hidden = state
         .visibility
         .references(&refs)
         .await
-        .map_err(|_| unavailable)?;
+        .map_err(|_| Unavailable::Privacy)?;
     if hidden.len() != refs.len() {
-        return Err(unavailable);
+        return Err(Unavailable::Privacy);
     }
-    let visible: Vec<Entry> = snapshot
+    let visible: Vec<_> = snapshot
         .rows
         .into_iter()
         .zip(hidden)
-        .filter_map(|(r, hidden)| (!hidden).then_some(r))
+        .filter_map(|(row, hidden)| (!hidden).then_some(row))
         .collect();
-    if number > visible.len().div_ceil(50).max(1) {
-        return Err(StatusCode::NOT_FOUND);
+    cut.validate(&state.db, &subject, &privacy_cut).await?;
+    let page_count = visible.len().div_ceil(PAGE_SIZE).max(1);
+    if page.page > page_count {
+        return Err(Unavailable::NotFound);
     }
-    let mut page = Page::new(lang);
-    page.title = format!("{}: {}", page.title, lang.text(&format!("rankings-{kind}")));
-    page.world = world.to_owned();
-    page.worlds = worlds.iter().cloned().collect();
-    page.vocation = vocation.into();
-    page.page = number;
-    page.watermark = time::OffsetDateTime::from_unix_timestamp(watermark)
-        .ok()
-        .and_then(|t| {
-            t.format(&time::format_description::well_known::Rfc3339)
-                .ok()
-        })
-        .ok_or(unavailable)?;
-    let url = |n| {
+    let as_of = cut
+        .as_of
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| Unavailable::InvalidSnapshot)?;
+    let url = |number| {
         format!(
-            "/{}/rankings/{kind}?world={world}&vocation={vocation}&page={n}",
-            lang.code()
+            "/{}/rankings/{}?world={}&vocation={}&page={number}",
+            lang.code(),
+            page.kind,
+            page.world,
+            page.vocation,
         )
     };
-    if number > 1 {
-        page.previous_url = url(number - 1);
+    if page.page > 1 {
+        page.previous_url = url(page.page - 1);
     }
-    if number * 50 < visible.len() {
-        page.next_url = url(number + 1);
+    if page.page < page_count {
+        page.next_url = url(page.page + 1);
     }
+    // Producer positions and order survive filtering and pagination, including ties.
     page.rows = visible
         .into_iter()
-        .skip((number - 1) * 50)
-        .take(50)
-        .map(|r| {
-            vec![
-                r.rank,
-                r.name,
-                if r.vocation <= 5 {
-                    if r.vocation == 0 {
-                        lang.text("rankings-vocation-none")
-                    } else {
-                        page.vocations[usize::from(r.vocation)].1.clone()
-                    }
-                } else {
-                    format!("{} {}", page.vocation_label, r.vocation)
-                },
-                r.level,
-                r.value,
-            ]
+        .skip((page.page - 1) * PAGE_SIZE)
+        .take(PAGE_SIZE)
+        .map(|row| {
+            let vocation = match row.vocation {
+                0 => lang.text("rankings-vocation-none"),
+                1..=5 => page.vocations[usize::from(row.vocation)].1.clone(),
+                v => format!("{} {v}", page.vocation_label),
+            };
+            let mut cells = vec![row.rank, row.name, vocation, row.level];
+            if page.kind != "level" {
+                cells.push(row.value);
+            }
+            cells
         })
         .collect();
     if page.rows.is_empty() {
         page.message = lang.text("rankings-empty");
     }
-    if !eligible(
-        &state.db,
-        &format!("{world}:{category}:{vocation}"),
-        &epoch,
-        &revision,
-        &payload,
-        &privacy_cut,
-    )
-    .await
-    .map_err(|_| unavailable)?
-    {
-        return Err(unavailable);
-    }
-    Ok(page)
+    page.computed_at = as_of;
+    Ok(())
 }
 
-/// Top `limit` visible characters of the level ranking on the first world, for
-/// the home page. Same snapshot rules as the page; each shown row passes the
-/// current privacy decision, and any doubt makes the whole block unavailable.
+impl Entry {
+    fn reference(&self, world: &str) -> CharacterRef {
+        CharacterRef {
+            id: self.character_id.clone(),
+            world: world.into(),
+            name: self.name.clone(),
+        }
+    }
+}
+
+const PAGE_SIZE: usize = 50;
+const MAX_ROWS: usize = 1000;
+const WATERMARK_MAX_AGE: i64 = 29;
+const SNAPSHOT_MAX_AGE: i64 = 299;
+const CLOCK_UNCERTAINTY: i64 = 1;
+
+#[derive(Debug)]
+enum Unavailable {
+    WorldRegistryLimit,
+    Conflict,
+    MissingWatermark,
+    StaleWatermark,
+    MissingSnapshot,
+    StaleSnapshot,
+    InvalidSnapshot,
+    Privacy,
+    Changed,
+    Database,
+    MissingWorld,
+    NotFound,
+}
+
+impl From<sqlx::Error> for Unavailable {
+    fn from(_: sqlx::Error) -> Self {
+        Self::Database
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct RankingCut {
+    epoch: String,
+    revision: String,
+    observed: i64,
+    as_of: time::OffsetDateTime,
+    payload: serde_json::Value,
+}
+
+impl RankingCut {
+    async fn read(
+        db: impl sqlx::Executor<'_, Database = sqlx::Postgres>,
+        subject: &str,
+    ) -> Result<Self, Unavailable> {
+        let row = sqlx::query(
+            "SELECT floor(extract(epoch FROM clock_timestamp()))::bigint AS now,
+                    public_projection_conflicted('highscores') AS conflicted,
+                    w.watermark AS complete_through, p.highest_epoch::text AS epoch,
+                    s.version::text AS revision, s.watermark AS observed, s.payload
+             FROM public_projection_state p
+             LEFT JOIN public_snapshots w
+               ON w.family='highscores' AND w.subject='' AND w.is_watermark AND w.epoch=p.highest_epoch
+             LEFT JOIN public_snapshots s
+               ON s.family='highscores' AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=p.highest_epoch
+             WHERE p.id=1",
+        )
+        .bind(subject)
+        .fetch_one(db)
+        .await?;
+        if row.try_get("conflicted")? {
+            return Err(Unavailable::Conflict);
+        }
+        let complete_through = row
+            .try_get::<Option<i64>, _>("complete_through")?
+            .ok_or(Unavailable::MissingWatermark)?;
+        let now: i64 = row.try_get("now")?;
+        if !(now - WATERMARK_MAX_AGE..=now + CLOCK_UNCERTAINTY).contains(&complete_through) {
+            return Err(Unavailable::StaleWatermark);
+        }
+        let observed = row
+            .try_get::<Option<i64>, _>("observed")?
+            .ok_or(Unavailable::MissingSnapshot)?;
+        let payload: serde_json::Value = row.try_get("payload")?;
+        let computed = payload["computed_at"]
+            .as_str()
+            .and_then(|value| value.parse::<i64>().ok())
+            .ok_or(Unavailable::InvalidSnapshot)?;
+        if !(now - SNAPSHOT_MAX_AGE..=observed.min(now + CLOCK_UNCERTAINTY)).contains(&computed)
+            || observed > complete_through
+        {
+            return Err(Unavailable::StaleSnapshot);
+        }
+        Ok(Self {
+            epoch: row.try_get("epoch")?,
+            revision: row.try_get("revision")?,
+            observed,
+            as_of: time::OffsetDateTime::from_unix_timestamp(computed)
+                .map_err(|_| Unavailable::InvalidSnapshot)?,
+            payload,
+        })
+    }
+
+    fn snapshot(&self, world: &str, category: u8, vocation: &str) -> Result<Snapshot, Unavailable> {
+        let snapshot =
+            Snapshot::deserialize(&self.payload).map_err(|_| Unavailable::InvalidSnapshot)?;
+        if snapshot.world_id != world
+            || snapshot.category != category
+            || snapshot.filter.to_string() != vocation
+            || snapshot.rows.len() > MAX_ROWS
+        {
+            return Err(Unavailable::InvalidSnapshot);
+        }
+        Ok(snapshot)
+    }
+
+    async fn validate(
+        &self,
+        db: &PgPool,
+        subject: &str,
+        privacy_cut: &crate::privacy::Cut,
+    ) -> Result<(), Unavailable> {
+        let mut tx = crate::privacy::read_fence(db).await?;
+        sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
+            .fetch_one(&mut *tx)
+            .await?;
+        if !privacy_cut.validate(&mut tx).await? {
+            return Err(Unavailable::Changed);
+        }
+        // Check age after the locks and privacy lookups, using the database clock.
+        if Self::read(&mut *tx, subject).await? != *self {
+            return Err(Unavailable::Changed);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+}
+/// Top visible characters of the first registered world's level ranking.
 pub async fn home_top(
     db: &PgPool,
     visibility: &dyn PublicVisibility,
@@ -415,50 +563,60 @@ pub async fn home_top(
     limit: usize,
     profiles: bool,
 ) -> Result<(Vec<oteryn_ui::HomeRank>, String), VisibilityUnavailable> {
-    fn fail(_: impl std::fmt::Display) -> VisibilityUnavailable {
-        VisibilityUnavailable
-    }
-    let privacy_cut = crate::privacy::Cut::read(db).await.map_err(fail)?;
-    let world: Option<String> = sqlx::query_scalar("SELECT min(split_part(subject,':',1)) FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)").fetch_one(db).await.map_err(fail)?;
-    let world = world.ok_or(VisibilityUnavailable)?;
-    let (payload, watermark, epoch, revision): (serde_json::Value, i64, String, String) = sqlx::query_as(
-        "SELECT payload, watermark, epoch::text, version::text FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND subject=$1 AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1)",
-    ).bind(format!("{world}:1:0")).fetch_optional(db).await.map_err(fail)?.ok_or(VisibilityUnavailable)?;
-    let snapshot: Snapshot = serde_json::from_value(payload.clone()).map_err(fail)?;
-    if snapshot.world_id != world
-        || snapshot.category != 1
-        || snapshot.filter != 0
-        || snapshot.rows.len() > 1000
-    {
-        return Err(VisibilityUnavailable);
-    }
-    let as_of = time::OffsetDateTime::from_unix_timestamp(watermark)
-        .ok()
-        .and_then(|t| {
-            t.format(time::macros::format_description!(
-                "[year]-[month]-[day] [hour]:[minute]"
-            ))
-            .ok()
+    home_top_inner(db, visibility, lang, limit, profiles)
+        .await
+        .map_err(|reason| {
+            tracing::debug!(?reason, "home rankings unavailable");
+            VisibilityUnavailable
         })
-        .ok_or(VisibilityUnavailable)?;
-    let mut shown = Vec::with_capacity(limit);
-    // Bounded scan: privacy checks stop once enough visible rows are found.
+}
+
+async fn home_top_inner(
+    db: &PgPool,
+    visibility: &dyn PublicVisibility,
+    lang: Language,
+    limit: usize,
+    profiles: bool,
+) -> Result<(Vec<oteryn_ui::HomeRank>, String), Unavailable> {
+    let privacy_cut = crate::privacy::Cut::read(db).await?;
+    let worlds = worlds(db, 1, "0").await?;
+    let (world, _, _) = worlds
+        .iter()
+        .find(|(_, _, published)| *published)
+        .ok_or(Unavailable::MissingSnapshot)?;
+    let subject = format!("{world}:1:0");
+    let cut = RankingCut::read(db, &subject).await?;
+    let snapshot = cut.snapshot(world, 1, "0")?;
+    let as_of = cut
+        .as_of
+        .format(time::macros::format_description!(
+            "[year]-[month]-[day] [hour]:[minute]"
+        ))
+        .map_err(|_| Unavailable::InvalidSnapshot)?;
+    if snapshot.rows.is_empty() {
+        visibility
+            .references(&[])
+            .await
+            .map_err(|_| Unavailable::Privacy)?;
+    }
+    let mut shown = Vec::with_capacity(limit.min(MAX_ROWS));
+    // Privacy checks stop once enough visible rows are found.
     for chunk in snapshot.rows.chunks(10) {
-        let refs: Vec<CharacterRef> = chunk
-            .iter()
-            .map(|r| CharacterRef {
-                id: r.character_id.clone(),
-                world: world.to_owned(),
-                name: r.name.clone(),
-            })
-            .collect();
-        let hidden = visibility.references(&refs).await?;
+        let refs: Vec<_> = chunk.iter().map(|r| r.reference(world)).collect();
+        let hidden = visibility
+            .references(&refs)
+            .await
+            .map_err(|_| Unavailable::Privacy)?;
         if hidden.len() != refs.len() {
-            return Err(VisibilityUnavailable);
+            return Err(Unavailable::Privacy);
         }
-        for (row, hidden) in chunk.iter().zip(hidden) {
-            if !hidden && shown.len() < limit {
-                shown.push(oteryn_ui::HomeRank {
+        shown.extend(
+            chunk
+                .iter()
+                .zip(hidden)
+                .filter(|(_, hidden)| !hidden)
+                .take(limit - shown.len())
+                .map(|(row, _)| oteryn_ui::HomeRank {
                     rank: row.rank.clone(),
                     name: row.name.clone(),
                     level: row.level.clone(),
@@ -472,49 +630,12 @@ pub async fn home_top(
                             )
                         )
                     }),
-                });
-            }
-        }
+                }),
+        );
         if shown.len() == limit {
             break;
         }
     }
-    if !eligible(
-        db,
-        &format!("{world}:1:0"),
-        &epoch,
-        &revision,
-        &payload,
-        &privacy_cut,
-    )
-    .await?
-    {
-        return Err(VisibilityUnavailable);
-    }
+    cut.validate(db, &subject, &privacy_cut).await?;
     Ok((shown, as_of))
-}
-
-async fn eligible(
-    db: &PgPool,
-    subject: &str,
-    epoch: &str,
-    revision: &str,
-    payload: &serde_json::Value,
-    privacy_cut: &crate::privacy::Cut,
-) -> Result<bool, VisibilityUnavailable> {
-    let mut tx = crate::privacy::read_fence(db)
-        .await
-        .map_err(|_| VisibilityUnavailable)?;
-    sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| VisibilityUnavailable)?;
-    let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots s JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch WHERE s.family='highscores' AND NOT public_projection_conflicted('highscores') AND s.subject=$1 AND NOT s.is_watermark AND s.epoch=$2::numeric AND s.version=$3::numeric AND s.payload=$4)")
-        .bind(subject).bind(epoch).bind(revision).bind(payload).fetch_one(&mut *tx).await.map_err(|_| VisibilityUnavailable)?;
-    let privacy_current = privacy_cut
-        .validate(&mut tx)
-        .await
-        .map_err(|_| VisibilityUnavailable)?;
-    tx.commit().await.map_err(|_| VisibilityUnavailable)?;
-    Ok(valid && privacy_current)
 }

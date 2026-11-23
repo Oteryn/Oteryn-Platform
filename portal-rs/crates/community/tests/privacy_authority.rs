@@ -278,6 +278,10 @@ impl RankingFixture {
         sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
             .execute(&db)
             .await?;
+        sqlx::query("INSERT INTO world_status(id,name) VALUES($1,'Ranked World')")
+            .bind(world)
+            .execute(&db)
+            .await?;
         let service = Service::new(
             db.clone(),
             Settings {
@@ -309,8 +313,8 @@ impl RankingFixture {
             sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('character_profile',$1,1,1,$2,$3)").bind(id.to_string()).bind(now).bind(serde_json::json!({"profile":[{"world_id":world,"name":name}]})).execute(&db).await?;
             rows.push(serde_json::json!({"rank":i.to_string(),"character_id":id,"name":name,"vocation":1,"level":"100","value":"1000"}));
         }
-        sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null')").bind(now).execute(&db).await?;
-        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('highscores',$1,1,1,$2,$3)").bind(format!("{world}:1:0")).bind(now).bind(serde_json::json!({"world_id":world,"category":1,"filter":0,"rows":rows})).execute(&db).await?;
+        sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('character_profile','',true,1,1,$1,'null'),('highscores','',true,1,1,$1,'null')").bind(now).execute(&db).await?;
+        sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) VALUES('highscores',$1,1,1,$2,$3)").bind(format!("{world}:1:0")).bind(now).bind(serde_json::json!({"world_id":world,"category":1,"filter":0,"computed_at":now.to_string(),"rows":rows})).execute(&db).await?;
 
         Ok(Self {
             admin,
@@ -521,7 +525,7 @@ async fn w3_c06_006_ranking_name_handoff() -> Result {
 }
 
 async fn seed_online(db: &PgPool) -> Result {
-    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'world_online',payload->>'world_id',1,1,watermark,jsonb_build_object('world_id',payload->>'world_id','characters',jsonb_build_array(jsonb_build_object('name','Aldric','level','100','vocation',1))) FROM public_snapshots WHERE family='highscores'")
+    sqlx::query("INSERT INTO public_snapshots(family,subject,epoch,version,watermark,payload) SELECT 'world_online',payload->>'world_id',1,1,watermark,jsonb_build_object('world_id',payload->>'world_id','characters',jsonb_build_array(jsonb_build_object('name','Aldric','level','100','vocation',1))) FROM public_snapshots WHERE family='highscores' AND NOT is_watermark")
         .execute(db).await?;
     sqlx::query("INSERT INTO public_snapshots(family,subject,is_watermark,epoch,version,watermark,payload) VALUES('world_online','',true,1,1,floor(extract(epoch FROM clock_timestamp()))::bigint,'null')")
         .execute(db).await?;
