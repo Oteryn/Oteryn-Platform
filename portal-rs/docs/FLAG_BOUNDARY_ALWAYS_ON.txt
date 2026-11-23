@@ -7,6 +7,8 @@ public G /api/v1/account/summary
 public G /api/v1/feed
 public G /en
 public G /en/
+public G /en/download
+public G /en/download/{channel}
 public G /en/help
 public G /en/legal/cookies
 public G /en/legal/privacy
@@ -17,6 +19,7 @@ public G /en/register/check-inbox
 public G /en/rules
 public G /en/search
 public G /en/server-information
+public G /en/start
 public G /en/support
 public G /en/support/report-a-bug
 public G /en/verify-email
@@ -30,6 +33,8 @@ public G /news
 public G /news/{slug}
 public G /pl
 public G /pl/
+public G /pl/download
+public G /pl/download/{channel}
 public G /pl/help
 public G /pl/legal/cookies
 public G /pl/legal/privacy
@@ -40,6 +45,7 @@ public G /pl/register/check-inbox
 public G /pl/rules
 public G /pl/search
 public G /pl/server-information
+public G /pl/start
 public G /pl/support
 public G /pl/support/report-a-bug
 public G /pl/verify-email
