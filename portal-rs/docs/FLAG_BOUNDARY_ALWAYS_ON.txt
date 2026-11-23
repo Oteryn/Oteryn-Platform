@@ -207,3 +207,6 @@ public P /{lang}/status/notices
 public P /{lang}/support/tickets/{id}/attachments
 public P /{lang}/unsubscribe/confirm
 public P /{locale}/events/calendar/month
+public G /{lang}/pass/operator
+public P /{lang}/pass/operator
+public P /{lang}/pass/{season}/progress

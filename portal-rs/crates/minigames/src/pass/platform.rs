@@ -1,4 +1,4 @@
-//! Platform-side adapters for the isolated testing environment.
+//! Platform account eligibility and the sandbox Wallet adapter.
 use super::*;
 use oteryn_wallet::{AdjustmentAudit, AuditHook, Ledger, WalletFlags, wire::DatabasePolicy};
 use sqlx::{PgConnection, PgPool};
