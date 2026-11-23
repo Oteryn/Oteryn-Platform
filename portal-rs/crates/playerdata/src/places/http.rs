@@ -109,19 +109,12 @@ impl Locale {
     }
 }
 #[derive(Template)]
-#[template(
-    source = r###"<!doctype html>
-<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/atlas/places.css"></head>
-<body><main><a href="/{{ lang }}/atlas">{{ back }}</a><h1>{{ title }}</h1><p>{{ help }}</p><p>{{ privacy }}</p>
-<form method="post" action="/{{ lang }}/atlas/places/participation"><fieldset><legend>{{ participation }}</legend><input type="hidden" name="_csrf" value="{{ csrf }}"><label><input type="radio" name="participating" value="true" {% if participating %}checked{% endif %}>{{ enabled }}</label><label><input type="radio" name="participating" value="false" {% if !participating %}checked{% endif %}>{{ excluded }}</label><button type="submit">{{ save }}</button></fieldset></form>
-{% if rows.is_empty() %}<p role="status">{{ empty }}</p>{% endif %}
-<ul class="places">{% for row in rows %}<li><h2>{{ row.place_key }}</h2><dl><dt>{{ day }}</dt><dd>{{ row.utc_day }}</dd><dt>{{ world }}</dt><dd>{{ row.world_id }}</dd><dt>{{ level }}</dt><dd>{{ row.level_min }}–{{ row.level_max }}</dd><dt>{{ vocation }}</dt><dd>{{ row.vocation_key }}</dd><dt>{{ experience }}</dt><dd>{{ row.experience_per_hour }}</dd><dt>{{ profit }}</dt><dd>{{ row.profit_per_hour }}</dd><dt>{{ count }}</dt><dd>{{ row.sessions }}</dd><dt>{{ provenance }}</dt><dd>{{ row.catalog_revision }} / {{ row.price_revision }}</dd></dl></li>{% endfor %}</ul></main></body></html>
-"###,
-    ext = "html"
-)]
+#[template(path = "playerdata/places.html", config = "src/hunts.askama.toml")]
 struct Page {
     lang: &'static str,
     rows: Vec<Cohort>,
+    available: bool,
+    unavailable: String,
     participating: bool,
     csrf: String,
     title: String,
@@ -200,15 +193,21 @@ async fn page(
     Path(lang): Path<String>,
     RawQuery(query): RawQuery,
     Extension(session): Extension<BrowserSession>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<(StatusCode, Html<String>), StatusCode> {
     let locale = Locale::parse(&lang)?;
     no_filters(query)?;
     let account = owner(&session).await?;
     let participating = store.preference(account, account).await?;
-    let rows = store.daily(account).await?;
+    let (status, rows) = match store.daily(account).await {
+        Ok(rows) => (StatusCode::OK, rows),
+        Err(Error::Disabled) => (StatusCode::SERVICE_UNAVAILABLE, Vec::new()),
+        Err(error) => return Err(error.into()),
+    };
     let view = Page {
         lang: locale.0,
         rows,
+        available: status == StatusCode::OK,
+        unavailable: locale.text("unavailable"),
         participating,
         csrf: session
             .csrf_token()
@@ -232,8 +231,11 @@ async fn page(
         provenance: locale.text("provenance"),
         world: locale.text("world"),
     };
-    Ok(Html(
-        view.render()
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    Ok((
+        status,
+        Html(
+            view.render()
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+        ),
     ))
 }

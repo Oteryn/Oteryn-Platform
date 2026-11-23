@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -185,9 +186,9 @@ impl PlacesStore {
         if actor != owner {
             return Err(Error::Denied);
         }
-        let active: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL)")
-            .bind(actor).fetch_one(connection).await?;
-        if !active {
+        let active: Option<Uuid> = sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR SHARE")
+            .bind(actor).fetch_optional(connection).await?;
+        if active.is_none() {
             return Err(Error::Denied);
         }
         Ok(())
@@ -221,8 +222,15 @@ impl PlacesStore {
             .execute(&mut *tx)
             .await?;
         Self::active(&mut tx, actor, owner).await?;
-        sqlx::query("INSERT INTO pd_places_preferences(account_id,participating) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET participating=$2, privacy_revision=pd_places_preferences.privacy_revision+1,updated_at=now()")
+        let changed = sqlx::query("INSERT INTO pd_places_preferences(account_id,participating) VALUES($1,$2) ON CONFLICT(account_id) DO UPDATE SET participating=$2, privacy_revision=pd_places_preferences.privacy_revision+1,updated_at=now() WHERE pd_places_preferences.participating IS DISTINCT FROM excluded.participating")
             .bind(owner).bind(participating).execute(&mut *tx).await?;
+        if changed.rows_affected() == 0 {
+            tx.commit().await?;
+            return Ok(());
+        }
+        sqlx::query("UPDATE pd_places_publication_days SET withdrawn=true WHERE NOT withdrawn AND utc_day IN (
+            SELECT (ended_at AT TIME ZONE 'UTC')::date FROM pd_places_sessions WHERE account_id=$1)")
+            .bind(owner).execute(&mut *tx).await?;
         // Every preference change starts a fresh contribution era. Re-enabling never
         // resurrects previous sessions, even when the ingest backlog is replayed.
         sqlx::query("INSERT INTO pd_places_replay_fences SELECT source_authority,session_id,ended_at+interval '120 days' FROM pd_places_sessions WHERE account_id=$1 ON CONFLICT DO NOTHING")
@@ -300,7 +308,7 @@ impl PlacesStore {
         sqlx::query("DELETE FROM pd_places_replay_fences WHERE expires_at<=now()")
             .execute(&mut *tx)
             .await?;
-        let rows: Vec<serde_json::Value>=sqlx::query_scalar("SELECT s.snapshot FROM pd_places_sessions s JOIN pd_places_preferences p USING(account_id) JOIN accounts a ON a.id=s.account_id WHERE p.participating AND p.privacy_revision=s.privacy_revision AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.ended_at<=date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '24 hours' LIMIT 4097")
+        let rows: Vec<serde_json::Value>=sqlx::query_scalar("SELECT s.snapshot FROM pd_places_sessions s JOIN pd_places_preferences p USING(account_id) JOIN accounts a ON a.id=s.account_id WHERE p.participating AND p.privacy_revision=s.privacy_revision AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.ended_at<=date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '24 hours' LIMIT 4097 FOR SHARE OF a")
             .fetch_all(&mut *tx).await?;
         if rows.len() > 4096 {
             return Err(Error::Denied);
@@ -314,10 +322,44 @@ impl PlacesStore {
             }
             sessions.push(session);
         }
-        let result = aggregate(&sessions, now);
+        let result = publish(&mut tx, aggregate(&sessions, now)).await?;
         tx.commit().await?;
         Ok(result)
     }
+}
+
+// Record one stable release per UTC day. Withdrawal preserves the release fence.
+async fn publish(
+    connection: &mut PgConnection,
+    cohorts: Vec<Cohort>,
+) -> Result<Vec<Cohort>, Error> {
+    let mut days: BTreeMap<String, Vec<Cohort>> = BTreeMap::new();
+    for row in cohorts {
+        days.entry(row.utc_day.clone()).or_default().push(row);
+    }
+    let days_with_rows: Vec<_> = days.keys().cloned().collect();
+    sqlx::query("UPDATE pd_places_publication_days SET withdrawn=true WHERE NOT withdrawn AND NOT (utc_day::text = ANY($1))")
+        .bind(days_with_rows)
+        .execute(&mut *connection)
+        .await?;
+    let mut visible = Vec::new();
+    for (day, rows) in days {
+        let digest = Sha256::digest(serde_json::to_vec(&rows).map_err(|_| Error::Invalid)?);
+        let withdrawn: bool = sqlx::query_scalar(
+            "INSERT INTO pd_places_publication_days(utc_day,digest) VALUES($1::text::date,$2)
+             ON CONFLICT(utc_day) DO UPDATE
+             SET withdrawn=pd_places_publication_days.withdrawn OR pd_places_publication_days.digest<>excluded.digest
+             RETURNING withdrawn",
+        )
+        .bind(day)
+        .bind(&digest[..])
+        .fetch_one(&mut *connection)
+        .await?;
+        if !withdrawn {
+            visible.extend(rows);
+        }
+    }
+    Ok(visible)
 }
 
 type Key = (i64, Uuid, String, String, String, String, u32);

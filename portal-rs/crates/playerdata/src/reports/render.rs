@@ -1,4 +1,4 @@
-use super::{Error, Report, Result};
+use super::{Error, Report, Result, Week};
 use askama::Template;
 use fluent_bundle::{FluentBundle, FluentResource};
 
@@ -48,11 +48,12 @@ pub fn message(locale: Locale, key: &str) -> Result<String> {
 }
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/app.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><body class=\"op-theme\"><main class=\"op-stack\"><h1>{{ title }}</h1><p>{{ start_date }} – {{ end_date }} UTC</p><dl><dt>{{ sessions }}</dt><dd>{{ count }}</dd><dt>{{ duration }}</dt><dd>{{ seconds }}</dd><dt>{{ gained }}</dt><dd>{{ gain }}</dd><dt>{{ lost }}</dt><dd>{{ loss }}</dd></dl><nav aria-label=\"{{ title }}\"><a href=\"?week={{ start }}&amp;format=json\">JSON</a> <a href=\"?week={{ start }}&amp;format=csv&amp;dataset=sessions\">CSV ({{ sessions }})</a> <a href=\"?week={{ start }}&amp;format=csv&amp;dataset=drops\">CSV ({{ drops }})</a></nav><ul>{% for session in report.sessions %}<li>{{ session.id }} <a href=\"reports/notes?kind=session&amp;id={{ session.id }}\">{{ note_label }}</a> <a href=\"reports/notes?kind=character&amp;id={{ session.character_id }}\">{{ character_note }}</a></li>{% endfor %}</ul><form class=\"op-stack\" method=\"post\" action=\"reports/email\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label><input type=\"checkbox\" name=\"enabled\" value=\"true\"{% if email_enabled %} checked{% endif %}>{{ optin }}</label><button class=\"op-button\">{{ preferences }}</button></form></main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/app.css\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><body class=\"op-theme\"><main class=\"op-stack\"><h1>{{ title }}</h1><p>{{ start_date }} – {{ end_date }} UTC</p><p><a href=\"reports/weekly-note?week={{ start }}\">{{ weekly_notes }}</a></p><dl><dt>{{ sessions }}</dt><dd>{{ count }}</dd><dt>{{ duration }}</dt><dd>{{ seconds }}</dd><dt>{{ gained }}</dt><dd>{{ gain }}</dd><dt>{{ lost }}</dt><dd>{{ loss }}</dd></dl><nav aria-label=\"{{ title }}\"><a href=\"?week={{ start }}&amp;format=json\">JSON</a> <a href=\"?week={{ start }}&amp;format=csv&amp;dataset=sessions\">CSV ({{ sessions }})</a> <a href=\"?week={{ start }}&amp;format=csv&amp;dataset=drops\">CSV ({{ drops }})</a></nav><ul>{% for session in report.sessions %}<li>{{ session.id }} <a href=\"reports/notes?kind=session&amp;id={{ session.id }}\">{{ note_label }}</a> <a href=\"reports/notes?kind=character&amp;id={{ session.character_id }}\">{{ character_note }}</a></li>{% endfor %}</ul><form class=\"op-stack\" method=\"post\" action=\"reports/email\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><label><input type=\"checkbox\" name=\"enabled\" value=\"true\"{% if email_enabled %} checked{% endif %}>{{ optin }}</label><button class=\"op-button\">{{ preferences }}</button></form></main></body></html>",
     ext = "html"
 )]
 struct Weekly<'a> {
     report: &'a Report,
+    weekly_notes: String,
     email_enabled: bool,
     note_label: String,
     character_note: String,
@@ -77,6 +78,7 @@ struct Weekly<'a> {
 pub fn weekly(locale: Locale, report: &Report, csrf: &str, email_enabled: bool) -> Result<String> {
     Weekly {
         report,
+        weekly_notes: message(locale, "weekly-notes")?,
         email_enabled,
         note_label: message(locale, "notes")?,
         character_note: message(locale, "character-note")?,
@@ -126,6 +128,93 @@ pub fn note(locale: Locale, csrf: &str, body: &str) -> Result<String> {
         title: message(locale, "notes")?,
         hint: message(locale, "hint")?,
         save: message(locale, "save")?,
+        csrf,
+        body,
+    }
+    .render()
+    .map_err(|_| Error::Unavailable)
+}
+
+#[derive(Template)]
+#[template(
+    path = "playerdata/reports/unavailable.html",
+    config = "src/hunts.askama.toml"
+)]
+struct Unavailable {
+    lang: &'static str,
+    title: String,
+    unavailable: String,
+    notes: String,
+    week: i64,
+}
+
+pub fn unavailable(locale: Locale, week: i64) -> Result<String> {
+    Unavailable {
+        lang: locale.code(),
+        title: message(locale, "title")?,
+        unavailable: message(locale, "report-unavailable")?,
+        notes: message(locale, "weekly-notes")?,
+        week,
+    }
+    .render()
+    .map_err(|_| Error::Unavailable)
+}
+
+#[derive(Template)]
+#[template(
+    path = "playerdata/reports/weekly-note.html",
+    config = "src/hunts.askama.toml"
+)]
+struct WeeklyNote<'a> {
+    lang: &'static str,
+    title: String,
+    reports: String,
+    label: String,
+    hint: String,
+    save: String,
+    export: String,
+    weeks: String,
+    previous_label: String,
+    next_label: String,
+    start: time::Date,
+    end: time::Date,
+    week: i64,
+    previous: Option<i64>,
+    next: Option<i64>,
+    csrf: &'a str,
+    body: &'a str,
+}
+
+pub fn weekly_note(
+    locale: Locale,
+    week: Week,
+    clock: i64,
+    csrf: &str,
+    body: &str,
+) -> Result<String> {
+    let date = |seconds| {
+        time::OffsetDateTime::from_unix_timestamp(seconds)
+            .map(|value| value.date())
+            .map_err(|_| Error::Invalid)
+    };
+    WeeklyNote {
+        lang: locale.code(),
+        title: message(locale, "weekly-notes")?,
+        reports: message(locale, "title")?,
+        label: message(locale, "notes")?,
+        hint: message(locale, "hint")?,
+        save: message(locale, "save")?,
+        export: message(locale, "weekly-notes-export")?,
+        weeks: message(locale, "weeks")?,
+        previous_label: message(locale, "previous-week")?,
+        next_label: message(locale, "next-week")?,
+        start: date(week.start)?,
+        end: date(week.end)?,
+        week: week.start,
+        previous: Week::closed(week.start - 604800, clock)
+            .ok()
+            .map(|value| value.start),
+        next: Week::closed(week.end, clock).ok().map(|value| value.start),
         csrf,
         body,
     }

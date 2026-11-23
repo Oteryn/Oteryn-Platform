@@ -230,6 +230,38 @@ async fn postgres_owner_optout_recompute_and_replay_fence() {
 }
 
 #[tokio::test]
+async fn postgres_published_day_is_withdrawn_after_participation_changes() {
+    let Some(pool) = database().await else { return };
+    let store = store(&pool, Arc::new(Source::default()));
+    let now = now(&pool).await;
+    let mut accounts = Vec::new();
+    for _ in 0..6 {
+        let id = account(&pool).await;
+        opt_in(&store, id).await;
+        for _ in 0..2 {
+            store.ingest(&session(id, now)).await.unwrap();
+        }
+        accounts.push(id);
+    }
+    let reader = accounts[0];
+    assert_eq!(store.daily(reader).await.unwrap()[0].sessions, 12);
+    let departing = accounts[5];
+    store
+        .set_preference(departing, departing, false)
+        .await
+        .unwrap();
+    assert!(store.daily(reader).await.unwrap().is_empty());
+
+    let replacement = account(&pool).await;
+    opt_in(&store, replacement).await;
+    for _ in 0..2 {
+        store.ingest(&session(replacement, now)).await.unwrap();
+    }
+    assert!(store.daily(reader).await.unwrap().is_empty());
+    pool.close().await;
+}
+
+#[tokio::test]
 async fn postgres_unknown_evidence_bad_input_and_flags_deny() {
     let Some(pool) = database().await else { return };
     let source = Arc::new(Source::default());
@@ -292,6 +324,14 @@ async fn postgres_http_owner_form_csrf_and_localization() {
     let Some(pool) = database().await else { return };
     let id = account(&pool).await;
     let store = store(&pool, Arc::new(Source::default()));
+    let clock = now(&pool).await;
+    for _ in 0..5 {
+        let participant = account(&pool).await;
+        opt_in(&store, participant).await;
+        for _ in 0..2 {
+            store.ingest(&session(participant, clock)).await.unwrap();
+        }
+    }
     let login = Router::new()
         .route(
             "/test-login",
@@ -357,6 +397,8 @@ async fn postgres_http_owner_form_csrf_and_localization() {
     assert_eq!(page.status(), StatusCode::OK);
     let html =
         String::from_utf8(to_bytes(page.into_body(), 65536).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("place:cave"));
+    assert!(html.contains(">1000</dd>"));
     assert!(html.contains("Mapa łowisk"));
     assert!(html.contains("name=\"participating\""));
     let csrf = html

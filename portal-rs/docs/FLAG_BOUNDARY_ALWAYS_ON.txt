@@ -133,3 +133,6 @@ public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}
 admission G /health
+public G /{locale}/account/journal/reports/weekly-note
+public G /{locale}/account/journal/reports/weekly-note/export
+public P /{locale}/account/journal/reports/weekly-note

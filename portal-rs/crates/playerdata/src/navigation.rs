@@ -37,4 +37,12 @@ pub fn register(registry: &mut Registry) {
         Group::World,
         false,
     );
+    registry.section(
+        true,
+        "weekly-notes",
+        "shell-weekly-notes",
+        "account/journal/reports/weekly-note",
+        Group::Account,
+        false,
+    );
 }
