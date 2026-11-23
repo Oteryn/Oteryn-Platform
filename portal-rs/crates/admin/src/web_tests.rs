@@ -148,6 +148,8 @@ fn localized_responsive_labelled_template() {
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
             next: None,
+            hireling_status: None,
+            translations: messages(lang).unwrap(),
         }
         .render()
         .unwrap();
@@ -233,6 +235,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     )
     .unwrap();
     assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("id=\"hireling-status\""));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),

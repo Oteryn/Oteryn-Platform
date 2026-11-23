@@ -1,6 +1,7 @@
 //! Staff surface. Authentication adapters are trusted server configuration, never request data.
 use crate::{
     audit::{self, AuditContext, Entry},
+    hireling_status,
     rbac::{
         AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, Change,
         CheckContext, Error, Permission,
@@ -9,7 +10,7 @@ use crate::{
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Query, Request, State},
+    extract::{OriginalUri, Query, Request, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -530,10 +531,16 @@ struct Page {
     roles: Vec<(Uuid, String)>,
     manage: bool,
     next: Option<Uuid>,
+    hireling_status: Option<hireling_status::Status>,
+    translations: fluent_bundle::FluentBundle<fluent_bundle::FluentResource>,
 }
 impl Page {
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
+    }
+
+    fn hireling_text(&self, key: &str) -> String {
+        message(&self.translations, key)
     }
 }
 const ROLE_PAGE_SIZE: i64 = 50;
@@ -567,6 +574,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     reports_navigation: Option<Extension<ReportsNavigation>>,
+    OriginalUri(uri): OriginalUri,
     headers: axum::http::HeaderMap,
     Query(query): Query<RolePageQuery>,
 ) -> Response {
@@ -617,31 +625,47 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
-    let mail_link = match s.auth.check(context, Permission::MailView).await {
-        Ok(()) => Some(text(lang, "mail-title")),
-        Err(Error::Denied) => None,
+    let mail = match s.auth.check(context, Permission::MailView).await {
+        Ok(()) => true,
+        Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let hireling_status = if uri.path() == "/admin"
+        && s.auth
+            .check(context, Permission::AdminAnalyticsView)
+            .await
+            .is_ok()
+    {
+        Some(hireling_status::Status::load(&s.pool).await)
+    } else {
+        None
+    };
+    let lang = language(&headers);
+    let Some(translations) = messages(lang) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let tr = |key| message(&translations, key);
     oteryn_web::render(&Page {
         lang,
-        title: text(lang, "title"),
-        roles_label: text(lang, "roles"),
-        reports_label: text(lang, "reports"),
+        title: tr("title"),
+        roles_label: tr("roles"),
+        reports_label: tr("reports"),
         moderate_reports,
-        mail_link,
-        players_label: text(lang, "players"),
+        mail_link: mail.then(|| tr("mail-title")),
+        players_label: tr("players"),
         players,
-        account_label: text(lang, "account"),
-        role_label: text(lang, "role"),
-        grant: text(lang, "grant"),
-        revoke: text(lang, "revoke"),
+        account_label: tr("account"),
+        role_label: tr("role"),
+        grant: tr("grant"),
+        revoke: tr("revoke"),
         csrf,
         next: (roles.len() == ROLE_PAGE_SIZE as usize)
             .then(|| roles.last().map(|r| r.0))
             .flatten(),
         roles,
         manage,
+        hireling_status,
+        translations,
     })
 }
 #[derive(Deserialize)]

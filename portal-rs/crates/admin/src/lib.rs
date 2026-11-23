@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod rbac;
 
+mod hireling_status;
 pub mod web;
 
 pub mod bazaar;
