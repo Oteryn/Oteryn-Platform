@@ -180,24 +180,25 @@ impl<A: AccountStateReader> Authorizer<A> {
             return Err(Forbidden);
         }
         ensure_panel_role_grant(&mut tx, role).await?;
-        let Some((before, protected)) =
-            prepare_permission_edit::<A>(&mut tx, actor, role, &permissions).await?
+        let Some(edit) = prepare_permission_edit::<A>(&mut tx, actor, role, &permissions).await?
         else {
             return Ok(());
         };
         let delegates_grant = permissions.contains(&Permission::GrantRoles)
-            && !before
+            && !edit
+                .before
                 .iter()
                 .any(|name| name == Permission::GrantRoles.as_str());
         let snapshot = AuditChange::RolePermissions {
             role,
-            before: before
+            before: edit
+                .before
                 .iter()
                 .map(|permission| permission.parse())
                 .collect::<Result<_, _>>()?,
             after: permissions.clone(),
         };
-        if protected {
+        if edit.requires_grant {
             if !grant_confirmation || (action.reason.is_empty() && !delegates_grant) {
                 return Err(Forbidden);
             }
@@ -218,12 +219,13 @@ impl<A: AccountStateReader> Authorizer<A> {
             .await;
         }
         write_permission_edit(&mut tx, role, &permissions).await?;
+        // Narrowing a role the actor holds records the diff without an assignment reason.
         staff_actions::record(
             &mut tx,
             actor,
             Uuid::now_v7(),
             snapshot,
-            (!action.reason.is_empty()).then_some(action.reason),
+            (!edit.held_by_actor && !action.reason.is_empty()).then_some(action.reason),
         )
         .await?;
         self.check_in(&mut tx, actor, Permission::ManageRoles)
@@ -321,7 +323,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
             Change::SetPermissions { role, permissions } => {
-                let Some((before, protected)) =
+                let Some(edit) =
                     prepare_permission_edit::<A>(&mut tx, context, role, permissions).await?
                 else {
                     self.check_in(&mut tx, context, Permission::ManageRoles)
@@ -332,7 +334,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                     tx.commit().await?;
                     return Ok(None);
                 };
-                if protected && panel {
+                if edit.requires_grant && panel {
                     return Err(Error::Denied);
                 }
                 write_permission_edit(&mut tx, role, permissions).await?;
@@ -340,7 +342,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 (
                     "rbac.role.permissions_changed",
                     role.to_string(),
-                    json!({"permissions": before}),
+                    json!({"permissions": edit.before}),
                     json!({"permissions": after}),
                     role,
                 )
@@ -472,6 +474,12 @@ async fn create_role<A: AccountStateReader>(
     Ok(role)
 }
 
+struct PermissionEdit {
+    before: Vec<String>,
+    requires_grant: bool,
+    held_by_actor: bool,
+}
+
 /// Call with the role-writer fence held. Widening an assigned role confers
 /// permissions on its holders, so it requires the same controls as a grant.
 async fn prepare_permission_edit<A: AccountStateReader>(
@@ -479,7 +487,7 @@ async fn prepare_permission_edit<A: AccountStateReader>(
     actor: CheckContext,
     role: Uuid,
     permissions: &[Permission],
-) -> Result<Option<(Vec<String>, bool)>, Error> {
+) -> Result<Option<PermissionEdit>, Error> {
     validate_permissions(permissions)?;
     require_role(connection, role).await?;
     let (key, built_in): (String, bool) =
@@ -506,27 +514,26 @@ async fn prepare_permission_edit<A: AccountStateReader>(
             Authorizer::<A>::check_permission(connection, actor.account, permission).await?;
         }
     }
-    let additions = after.iter().filter(|p| !before.iter().any(|b| b == *p));
-    let protected = if additions.clone().next().is_some() {
-        let (assigned, held): (bool, bool) = sqlx::query_as(
-            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1),
-                    EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
-        )
-        .bind(role)
-        .bind(actor.account)
-        .fetch_one(&mut *connection)
-        .await?;
-        if held {
-            return Err(Error::Denied);
-        }
-        assigned
-            || additions
-                .into_iter()
-                .any(|p| *p == Permission::GrantRoles.as_str())
-    } else {
-        false
-    };
-    Ok(Some((before, protected)))
+    let (assigned, held_by_actor): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1),
+                EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
+    )
+    .bind(role)
+    .bind(actor.account)
+    .fetch_one(&mut *connection)
+    .await?;
+    let mut additions = after.iter().filter(|p| !before.iter().any(|b| b == *p));
+    let widens = additions.clone().next().is_some();
+    if widens && held_by_actor {
+        return Err(Error::Denied);
+    }
+    let requires_grant =
+        widens && (assigned || additions.any(|p| *p == Permission::GrantRoles.as_str()));
+    Ok(Some(PermissionEdit {
+        before,
+        requires_grant,
+        held_by_actor,
+    }))
 }
 
 async fn write_permission_edit(
