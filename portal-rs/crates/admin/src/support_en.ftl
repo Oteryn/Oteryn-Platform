@@ -36,3 +36,4 @@ restriction = Restriction
 suspension = Suspension
 create = Create temporary sanction
 screenshots = Screenshots
+forum-post = View forum post

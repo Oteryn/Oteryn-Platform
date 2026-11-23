@@ -84,7 +84,7 @@ impl StaffSupport {
     fn available(&self, area: Area) -> std::result::Result<(), StaffError> {
         if match area {
             Area::Tickets => self.tickets.is_some(),
-            Area::Reports => self.reports_enabled,
+            Area::Reports => self.notifications.is_some(),
             Area::Enforcement => self.sanctions_enabled,
         } {
             Ok(())
@@ -132,9 +132,10 @@ impl Backend for StaffSupport {
             }
             Command::Moderate { .. } => {
                 let (owner, report_type): (Uuid, String) = sqlx::query_as(
-                    "SELECT reporter_account_id,report_type FROM support_report_queue WHERE id=$1",
+                    "SELECT q.reporter_account_id,q.report_type FROM support_report_queue q LEFT JOIN player_reports p ON p.id=q.id AND q.report_type<>'atlas' WHERE q.id=$1 AND ($2 OR p.forum_post_id IS NOT NULL)",
                 )
                 .bind(id)
+                .bind(self.reports_enabled)
                 .fetch_optional(&mut **tx)
                 .await
                 .map_err(|_| StaffError::Unavailable)?
@@ -228,14 +229,20 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM support_report_queue ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT q.id,q.lock_version,q.target_reference,q.status FROM support_report_queue q LEFT JOIN player_reports p ON p.id=q.id AND q.report_type<>'atlas' WHERE ($2 OR p.forum_post_id IS NOT NULL) ORDER BY q.created_at DESC,q.id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
                 "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
         };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
+        let rows_query =
+            sqlx::query_as(sqlx::AssertSqlSafe(query)).bind(i64::from(page.saturating_sub(1)) * 30);
+        let rows_query = if area == Area::Reports {
+            rows_query.bind(self.reports_enabled)
+        } else {
+            rows_query
+        };
+        let rows: Vec<(Uuid, i64, String, String)> = rows_query
             .fetch_all(&self.pool)
             .await
             .map_err(|_| StaffError::Unavailable)?;
@@ -248,6 +255,7 @@ impl Backend for StaffSupport {
                 status,
                 messages: vec![],
                 next_message: None,
+                forum_post: None,
             })
             .collect())
     }
@@ -269,6 +277,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                forum_post: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -285,14 +294,19 @@ impl Backend for StaffSupport {
         }
         let query = match area {
             Area::Reports => {
-                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,public_outcome,moderator_notes AS private_message FROM support_report_queue WHERE id=$1"
+                "SELECT q.id,q.lock_version,q.target_reference AS title,q.status,q.evidence_summary AS public_message,q.public_outcome,q.moderator_notes AS private_message,p.forum_post_id FROM support_report_queue q LEFT JOIN player_reports p ON p.id=q.id AND q.report_type<>'atlas' WHERE q.id=$1 AND ($2 OR p.forum_post_id IS NOT NULL)"
             }
             _ => {
                 "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,NULL::text AS public_outcome,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
             }
         };
-        let row = sqlx::query(sqlx::AssertSqlSafe(query))
-            .bind(id)
+        let row_query = sqlx::query(sqlx::AssertSqlSafe(query)).bind(id);
+        let row_query = if area == Area::Reports {
+            row_query.bind(self.reports_enabled)
+        } else {
+            row_query
+        };
+        let row = row_query
             .fetch_optional(&self.pool)
             .await
             .map_err(|_| StaffError::Unavailable)?
@@ -319,6 +333,11 @@ impl Backend for StaffSupport {
                 status: row.try_get("status")?,
                 messages,
                 next_message: None,
+                forum_post: if area == Area::Reports {
+                    row.try_get("forum_post_id")?
+                } else {
+                    None
+                },
             })
         };
         decode().map_err(|_| StaffError::Unavailable)

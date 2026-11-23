@@ -1,0 +1,52 @@
+<div class="op-row">
+  {% if t.pinned %}<span class="op-badge">{{ self.tr("pinned") }}</span>{% endif %}
+  {% if t.locked %}<span class="op-badge">{{ self.tr("locked") }}</span>{% endif %}
+  {% if t.deleted_at.is_some() %}<span class="op-badge">{{ self.tr("deleted") }}</span>{% endif %}
+  {% if signed_in && t.deleted_at.is_none() && (!staff || self.permitted("forum.subscription.edit")) %}
+    {% if mail_available || subscribed %}
+    <form method="post" action="{{ base }}/actions/subscribe{{ self.query() }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ t.id }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="enabled" value="{% if subscribed %}false{% else %}true{% endif %}">
+      <button class="op-button op-button--secondary" type="submit">{% if subscribed %}{{ self.tr("unsubscribe") }}{% else %}{{ self.tr("subscribe") }}{% endif %}</button>
+    </form>
+    {% else %}<p>{{ self.tr("subscription-unavailable") }}</p>{% endif %}
+  {% endif %}
+</div>
+{% if reported %}<p class="op-alert" role="status">{{ self.tr("reported") }}</p>{% endif %}
+{% if posts.is_empty() %}<p>{{ self.tr("no-posts") }}</p>{% endif %}
+{% for item in posts %}
+  {% let p = item.post %}
+  {% include "forum/post.html" %}
+{% endfor %}
+{% if let Some(post_id) = seen %}
+<form method="post" action="{{ base }}/actions/read" data-forum-read>
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <input type="hidden" name="id" value="{{ t.id }}">
+  <input type="hidden" name="post_id" value="{{ post_id }}">
+  <input type="hidden" name="page" value="{{ page }}">
+  <button type="submit" class="op-button op-button--secondary">{{ self.tr("mark-read") }}</button>
+</form>
+{% endif %}
+{% include "forum/paging.html" %}
+{% if !t.locked && t.deleted_at.is_none() %}
+  {% if can_post && (!staff || self.permitted("forum.post.create")) %}
+  <section class="op-panel op-stack" id="reply">
+    <h2>{{ self.tr("reply") }}</h2>
+    {% if let Some((quote_id, excerpt)) = quote %}
+      <blockquote><p>{{ self.tr("quoting") }} <a href="{{ base }}/posts/{{ quote_id }}{{ self.query() }}">{{ self.tr("quoted-post") }}</a></p><p>{{ excerpt }}</p></blockquote>
+      <a href="{{ self.page_url(*page) }}#reply">{{ self.tr("cancel-quote") }}</a>
+    {% endif %}
+    <form class="op-stack" method="post" action="{{ base }}/actions/reply{{ self.query() }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ t.id }}">
+      {% if let Some((quote_id, _)) = quote %}<input type="hidden" name="quote" value="{{ quote_id }}">{% endif %}
+      <label class="op-field">{{ self.tr("body") }}<textarea class="op-input" name="body" rows="8" maxlength="8000" required></textarea></label>
+      <p class="op-hint">{{ self.tr("format-help") }}</p>
+      <button class="op-button" type="submit">{{ self.tr("reply") }}</button>
+    </form>
+  </section>
+  {% else %}{% include "forum/posting_notice.html" %}{% endif %}
+{% endif %}
+{% if staff %}{% include "forum/moderate_thread.html" %}{% endif %}

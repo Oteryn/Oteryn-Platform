@@ -24,6 +24,7 @@ tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
 oteryn-gateway = { path = "../../crates/gateway" }
 oteryn-gameauth = { path = "../../crates/gameauth" }
 oteryn-community = { path = "../../crates/community" }
+oteryn-forum = { path = "../../crates/forum" }
 oteryn-internal-api = { path = "../../crates/internal-api" }
 oteryn-stats = { path = "../../crates/stats" }
 oteryn-notify.workspace = true

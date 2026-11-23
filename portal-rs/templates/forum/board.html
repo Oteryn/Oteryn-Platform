@@ -1,0 +1,56 @@
+<section class="op-stack">
+  <h2>{{ self.tr("threads") }}</h2>
+  {% if topics.is_empty() %}<p>{{ self.tr("no-threads") }}</p>{% endif %}
+  <ul class="forum-list op-stack">
+    {% for topic in topics %}
+    <li class="op-panel op-stack">
+      <h3><a href="{{ base }}/threads/{{ topic.id }}{{ self.query() }}">{{ topic.title }}</a></h3>
+      <div class="op-row">
+        {% if topic.pinned %}<span class="op-badge">{{ self.tr("pinned") }}</span>{% endif %}
+        {% if topic.locked %}<span class="op-badge">{{ self.tr("locked") }}</span>{% endif %}
+        {% if topic.removed %}<span class="op-badge">{{ self.tr("deleted") }}</span>{% endif %}
+        {% if topic.unread %}<strong class="op-badge" data-unread>{{ self.tr("unread") }}</strong>{% endif %}
+        <span>{{ self.tr("reply-count") }} {{ topic.replies }}</span>
+        <span>{{ self.tr("latest") }} <time datetime="{{ self.iso(topic.activity_at) }}">{{ self.when(topic.activity_at) }}</time></span>
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
+  {% include "forum/paging.html" %}
+</section>
+{% if can_post && (!staff || self.permitted("forum.thread.create")) %}
+<section class="op-panel op-stack">
+  <h2>{{ self.tr("new-thread") }}</h2>
+  <form class="op-stack" method="post" action="{{ base }}/actions/new-thread{{ self.query() }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="id" value="{{ b.id }}">
+    <label class="op-field">{{ self.tr("thread-title") }}<input class="op-input" name="title" maxlength="160" required></label>
+    <label class="op-field">{{ self.tr("body") }}<textarea class="op-input" name="body" rows="8" maxlength="8000" required></textarea></label>
+    <p class="op-hint">{{ self.tr("format-help") }}</p>
+    <button class="op-button" type="submit">{{ self.tr("publish") }}</button>
+  </form>
+</section>
+{% else %}
+{% include "forum/posting_notice.html" %}
+{% endif %}
+{% if staff && self.permitted("forum.board.edit") %}
+<section class="op-panel op-stack">
+  <h2>{{ self.tr("edit-board") }}</h2>
+  <form class="op-stack" method="post" action="{{ base }}/actions/edit-board{{ self.query() }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="id" value="{{ b.id }}">
+    <input type="hidden" name="version" value="{{ b.version }}">
+    <label class="op-field">{{ self.tr("name-pl") }}<input class="op-input" name="name_pl" maxlength="100" value="{{ b.name_pl }}" required></label>
+    <label class="op-field">{{ self.tr("name-en") }}<input class="op-input" name="name_en" maxlength="100" value="{{ b.name_en }}" required></label>
+    <label class="op-field">{{ self.tr("order") }}<input class="op-input" type="number" name="position" min="0" max="10000" value="{{ b.position }}" required></label>
+    <label class="op-field">{{ self.tr("visibility") }}
+      <select class="op-input" name="visibility">
+        {% for value in ["public", "signed-in", "staff"] %}
+        <option value="{{ value }}"{% if b.visibility == *value %} selected{% endif %}>{{ self.tr(value) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="op-button" type="submit">{{ self.tr("edit-board") }}</button>
+  </form>
+</section>
+{% endif %}

@@ -145,6 +145,7 @@ fn localized_responsive_labelled_template() {
             charts_label: crate::charts::nav_label(lang),
             can_view_charts: true,
             newsletter_label: None,
+            forum_label: Some(text(lang, "forum")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -168,6 +169,7 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains(&format!(r#"href="/admin/status?lang={lang}""#)));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
+        assert!(html.contains(&format!("/admin/forum?lang={lang}")));
         assert!(!html.contains("<unsafe>"));
         std::fs::write(format!("/tmp/t10b-{lang}.html"), &html).unwrap();
         assert!(!text(lang, "mfa").is_empty());

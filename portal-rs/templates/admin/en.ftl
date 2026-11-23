@@ -266,3 +266,4 @@ system-off = Off
 system-configuration = Configuration presence
 system-set = Set
 system-unset = Unset
+forum = Community forum

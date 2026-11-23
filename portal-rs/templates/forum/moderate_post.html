@@ -1,0 +1,22 @@
+{% for (command, permission) in [
+    ("post-edit", "forum.post.edit"),
+    ("post-delete", "forum.post.delete"),
+    ("post-restore", "forum.post.restore")
+] %}
+  {% if self.permitted(permission) && (*command != "post-delete" || p.deleted_at.is_none()) && (*command != "post-restore" || p.deleted_at.is_some()) %}
+  <details>
+    <summary>{{ self.tr(command) }}</summary>
+    <form class="op-stack" method="post" action="{{ base }}/actions/{{ command }}{{ self.query() }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="id" value="{{ t.id }}">
+      <input type="hidden" name="post_id" value="{{ p.id }}">
+      <input type="hidden" name="version" value="{{ p.version }}">
+      {% if *command == "post-edit" %}
+      <label class="op-field">{{ self.tr("body") }}<textarea class="op-input" name="body" rows="6" maxlength="8000" required>{{ p.body }}</textarea></label>
+      {% endif %}
+      <label class="op-field">{{ self.tr("reason") }}<input class="op-input" name="reason" maxlength="400" required></label>
+      <button class="op-button" type="submit">{{ self.tr(command) }}</button>
+    </form>
+  </details>
+  {% endif %}
+{% endfor %}

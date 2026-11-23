@@ -1,0 +1,35 @@
+{% extends "layout.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="/forum-assets/forum.css">
+{% if signed_in && !staff %}<script defer src="/forum-assets/forum.js"></script>{% endif %}
+{% endblock %}
+{% block main_class %}op-main op-stack forum{% endblock %}
+{% block content %}
+<nav class="op-row forum-nav" aria-label="{{ self.tr("forum") }}">
+  {% if staff %}<a href="/admin">{{ self.tr("staff-panel") }}</a>{% endif %}
+  <a href="{{ base }}{{ self.query() }}">{{ self.tr("boards") }}</a>
+  {% if let Some(b) = board %}<a href="{{ base }}/boards/{{ b.id }}{{ self.query() }}">{{ b.name(lang) }}</a>{% endif %}
+  {% if signed_in %}<a href="{{ base }}/preferences{{ self.query() }}">{{ self.tr("preferences") }}</a>{% endif %}
+  {% if staff && self.permitted("support.reports.manage") %}<a href="/admin/moderation/reports">{{ self.tr("reports") }}</a>{% endif %}
+</nav>
+<h1>{{ title }}</h1>
+{% match screen %}
+{% when Screen::Index %}
+  {% include "forum/index.html" %}
+{% when Screen::Board %}
+  {% if let Some(b) = board %}{% include "forum/board.html" %}{% endif %}
+{% when Screen::Thread %}
+  {% if let Some(t) = thread %}{% include "forum/thread.html" %}{% endif %}
+{% when Screen::Preferences %}
+  {% include "forum/preferences.html" %}
+{% when Screen::Profile %}
+  <section class="op-panel op-stack">
+    <h2>{{ self.tr("recent-posts") }}</h2>
+    {% if profile_posts.is_empty() %}<p>{{ self.tr("no-posts") }}</p>{% endif %}
+    <ul>{% for (post_id, topic) in profile_posts %}<li><a href="{{ base }}/posts/{{ post_id }}">{{ topic }}</a></li>{% endfor %}</ul>
+  </section>
+{% when Screen::Failure %}
+  <p><a href="{{ base }}{{ self.query() }}">{{ self.tr("back") }}</a></p>
+{% endmatch %}
+{% endblock %}

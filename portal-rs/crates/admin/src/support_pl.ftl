@@ -36,3 +36,4 @@ restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
 screenshots = Zrzuty ekranu
+forum-post = Zobacz wpis na forum

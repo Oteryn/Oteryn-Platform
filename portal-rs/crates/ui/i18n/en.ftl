@@ -144,6 +144,7 @@ rankings-vocation-none = No vocation
 
 shell-play = Play
 shell-community = Community
+shell-forum = Community forum
 shell-world = World
 shell-account = Account
 shell-login = Sign in

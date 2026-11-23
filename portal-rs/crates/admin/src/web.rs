@@ -636,6 +636,7 @@ struct Page {
     charts_label: String,
     can_view_charts: bool,
     newsletter_label: Option<String>,
+    forum_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -782,6 +783,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .is_ok()
             .then(|| crate::newsletter::label(lang, "title")),
+        forum_label: s
+            .auth
+            .check(context, Permission::ForumModerator)
+            .await
+            .ok()
+            .map(|()| text(lang, "forum")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

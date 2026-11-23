@@ -1,0 +1,62 @@
+.forum {
+  width: min(100% - 2rem, 58rem);
+  margin-inline: auto;
+  overflow-wrap: anywhere;
+}
+
+.forum .op-panel,
+.forum .op-field,
+.forum .op-input {
+  min-width: 0;
+}
+
+.forum .op-input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.forum .op-row {
+  flex-wrap: wrap;
+}
+
+.forum .forum-between {
+  justify-content: space-between;
+}
+
+.forum .forum-list {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.forum .forum-list h3 {
+  margin: 0;
+}
+
+.forum details > summary {
+  cursor: pointer;
+}
+
+.forum details > form {
+  margin-block-start: .75rem;
+}
+
+.forum .forum-quote,
+.forum .forum-message blockquote {
+  margin-inline: 0;
+  padding-inline-start: .8rem;
+  border-inline-start: .2rem solid currentColor;
+}
+
+.forum .forum-quote p {
+  white-space: pre-wrap;
+}
+
+.forum pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.forum-post:target {
+  outline: 2px solid currentColor;
+  outline-offset: .15rem;
+}
