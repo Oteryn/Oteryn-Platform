@@ -348,6 +348,7 @@ impl<A: AccountStateReader> Service<A> {
         valid_id(input.target)?;
         valid_id(input.report)?;
         let mut tx = self.pool.begin().await?;
+        rbac::mutation_budget(&mut tx).await?;
         rbac::lock_accounts_resources_and_mutation_with::<Error, _>(
             &mut tx,
             &[actor.account],
@@ -424,6 +425,7 @@ impl<A: AccountStateReader> Service<A> {
             return Err(Error::BadInput);
         }
         let mut tx = self.pool.begin().await?;
+        rbac::mutation_budget(&mut tx).await?;
         // Find the immutable target and expected requester without locking any
         // domain row. Acquire actor and requester locks in canonical order.
         let (target_id, requester): (Uuid, Uuid) = sqlx::query_as(
@@ -755,9 +757,13 @@ async fn page<A: AccountStateReader>(
         String::new()
     };
     let mut tx = service.pool.begin().await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-        .execute(&mut *tx)
-        .await?;
+    sqlx::raw_sql(
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
+         SET LOCAL statement_timeout = '3s';
+         SET LOCAL transaction_timeout = '6s'",
+    )
+    .execute(&mut *tx)
+    .await?;
     let confirmed = (can_write || can_ban) && recent_confirmation(&mut tx, actor).await?;
     let now = clock(&mut tx).await?;
     let targets = if filter.id.is_none() && (can_write || can_ban) {

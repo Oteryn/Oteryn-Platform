@@ -269,6 +269,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.check(context, Permission::ManageSupportTickets)
             .await?;
         let mut tx = self.pool.begin().await?;
+        crate::rbac::mutation_budget(&mut tx).await?;
         let records =
             oteryn_identity::security_revocations::recent_for_account(&mut tx, id).await?;
         tx.commit().await?;
