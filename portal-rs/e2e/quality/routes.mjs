@@ -48,10 +48,26 @@ function candidates(pattern, locale, ids) {
   return paths;
 }
 
+// The shared scanner leaves Rust's positional formatter intact. Read the
+// registered family list and its literal segments from the owning router.
+function routePatterns(pattern) {
+  if (!pattern.endsWith('/account/characters/{name}/{}')) return [pattern];
+  const source = fs.readFileSync(new URL('../../crates/community/src/families/web.rs', import.meta.url), 'utf8');
+  const families = source.match(/for family in \[([^\]]+)\]/)?.[1];
+  if (!families) throw new Error('Could not read the owned character route families');
+  const segments = new Map([...source.matchAll(/Family::(\w+) => "([a-z-]+)",/g)]
+    .map(([, family, segment]) => [family, segment]));
+  return [...families.matchAll(/Family::(\w+)/g)].map(([, family]) => {
+    const segment = segments.get(family);
+    if (!segment) throw new Error(`Missing route segment for character family ${family}`);
+    return pattern.replace('{}', segment);
+  });
+}
+
 export function routes(locale, ids) {
   const getRoutes = [...inventory.routes.filter(route => route.methods.includes('GET')),
     ...expectations.filter(route => route.method === 'GET')];
-  const patterns = new Set(getRoutes.map(({ route }) => route));
+  const patterns = new Set(getRoutes.flatMap(({ route }) => routePatterns(route)));
   for (const { path } of inventory.sections) {
     patterns.add(path.startsWith('/') ? path : '/{lang}/' + path);
   }
