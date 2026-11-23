@@ -212,3 +212,6 @@ public G /admin/client-build
 internal G /admin/today
 native G /admin/today
 public G /admin/today
+internal G /{lang}/account/journal/items
+native G /{lang}/account/journal/items
+public G /{lang}/account/journal/items

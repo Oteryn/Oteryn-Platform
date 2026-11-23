@@ -411,9 +411,20 @@ pub struct CollectionEvidence {
 
 impl CollectionEvidence {
     pub async fn characters(
-        mut tx: Transaction<'_, Postgres>,
+        tx: Transaction<'_, Postgres>,
         actor: Uuid,
     ) -> Result<Vec<(Uuid, String)>, Error> {
+        Ok(Self::owned_characters(tx, actor)
+            .await?
+            .into_iter()
+            .map(|(id, name, _)| (id, name))
+            .collect())
+    }
+
+    pub(crate) async fn owned_characters(
+        mut tx: Transaction<'_, Postgres>,
+        actor: Uuid,
+    ) -> Result<Vec<(Uuid, String, Uuid)>, Error> {
         store::lock_account(&mut tx, &actor.to_string()).await?;
         collection_account(&mut tx, actor).await?;
         shared_fences(&mut tx).await?;
@@ -429,7 +440,7 @@ impl CollectionEvidence {
         let mut owned = Vec::new();
         for (id, name) in characters {
             match collection_cut(&mut tx, actor, id, &feed).await {
-                Ok(_) => owned.push((id, name)),
+                Ok(cut) => owned.push((id, name, cut.world)),
                 Err(Error::Denied | Error::Unavailable) => continue,
                 Err(e) => return Err(e),
             }

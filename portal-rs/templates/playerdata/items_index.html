@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{ locale.text("items-journal") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack op-panel">
+  <h1>{{ locale.text("items-journal") }}</h1>
+  <p>{{ locale.text("items-index-note") }}</p>
+  <section>
+    <h2>{{ locale.text("items-characters") }}</h2>
+    {% if characters.is_empty() %}
+    <p>{{ locale.text("items-unknown") }}</p>
+    {% else %}
+    <ul class="op-stack">
+      {% for (id, name, world) in characters %}
+      <li class="op-panel">
+        <h3>{{ name }}</h3>
+        <ul>
+          {% if flags.items %}
+          <li><a href="/{{ locale.0 }}/panel/items/{{ world }}/{{ id }}">{{ locale.text("items-title") }}</a></li>
+          {% endif %}
+          {% if flags.history %}
+          <li><a href="/{{ locale.0 }}/panel/history/{{ world }}/market/{{ id }}">{{ locale.text("items-market") }}</a></li>
+          <li><a href="/{{ locale.0 }}/panel/history/{{ world }}/trades/{{ id }}">{{ locale.text("items-trade") }}</a></li>
+          {% endif %}
+        </ul>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  <section>
+    <h2>{{ locale.text("items-bank") }}</h2>
+    {% if worlds.is_empty() %}
+    <p>{{ locale.text("items-unknown") }}</p>
+    {% else %}
+    <ul>
+      {% for (id, name) in worlds %}
+      <li><a href="/{{ locale.0 }}/panel/history/{{ id }}/bank">{{ name }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>
