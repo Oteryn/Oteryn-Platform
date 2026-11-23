@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures.mjs';
 import { pool, submit } from '../helpers.mjs';
 import { action, audit, isolatedAdmin, player, query, unique } from '../staff-rbac-helpers.mjs';
+import { readFileSync } from 'node:fs';
 import https from 'node:https';
 
 function atTextareaLimit(prefix) {
@@ -10,6 +11,9 @@ function atTextareaLimit(prefix) {
 
 async function unfinishedAppeal(page, csrfHeader) {
   const target = new URL(page.url());
+  const caFile = process.env.SSL_CERT_FILE;
+  if (!caFile) throw new Error('The browser harness must supply its TLS CA in SSL_CERT_FILE');
+  const ca = readFileSync(caFile);
   const cookies = await page.context().cookies(target.href);
   const headers = {
     cookie: cookies.map(({ name, value }) => `${name}=${value}`).join('; '),
@@ -19,7 +23,7 @@ async function unfinishedAppeal(page, csrfHeader) {
   };
   if (csrfHeader) headers['x-csrf-token'] = csrfHeader;
   return new Promise((resolve, reject) => {
-    const request = https.request(target, { method: 'POST', headers, rejectUnauthorized: false }, response => {
+    const request = https.request(target, { method: 'POST', headers, ca }, response => {
       let body = '';
       response.setEncoding('utf8');
       response.on('error', reject);
