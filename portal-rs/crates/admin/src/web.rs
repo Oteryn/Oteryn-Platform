@@ -281,6 +281,10 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             "/admin/mail-outbox/cancel",
             post(crate::mail_ops::cancel::<I, A>),
         )
+        .route(
+            "/admin/audit-evidence",
+            get(crate::audit_evidence::page::<I, A>).post(crate::audit_evidence::export::<I, A>),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -418,6 +422,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         "/admin/mail-outbox/retry" => Permission::MailRetry,
         "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
         "/admin/mail-outbox/cancel" => Permission::MailCancel,
+        "/admin/audit-evidence" => Permission::ViewAudit,
         _ => Permission::Access,
     });
     for required in [Permission::Access, permission] {
@@ -506,6 +511,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    audit_evidence_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -594,6 +600,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let audit_evidence_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "audit-evidence-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -601,6 +612,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        audit_evidence_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

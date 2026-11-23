@@ -67,3 +67,14 @@ mail-error-unavailable = The worker could not look up delivery details.
 mail-error-audit = The worker could not record the delivery result.
 mail-error-lease = Worker lease expired on the final attempt.
 mail-error-recorded = The worker recorded a delivery error.
+
+audit-evidence-title = Audit evidence
+audit-evidence-description = Verify and download a daily Platform audit chain. The last 90 completed UTC days are available. The export contains sensitive staff activity records.
+audit-evidence-day = Evidence date (UTC)
+audit-evidence-download = Verify and download JSON
+audit-evidence-invalid = Enter a valid date.
+audit-evidence-window = This date is outside the audit evidence window.
+audit-evidence-limit = This day has too many entries for the portal to export.
+audit-evidence-integrity = The portal could not verify the evidence for this date.
+audit-evidence-denied = You do not have permission to export audit evidence.
+audit-evidence-unavailable = Audit evidence is temporarily unavailable.

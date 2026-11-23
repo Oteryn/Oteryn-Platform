@@ -1324,7 +1324,7 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         }
         let failing = self
             .failures
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |n| n.checked_sub(1),
@@ -1335,7 +1335,7 @@ impl oteryn_payments::PaymentProvider for RefundStub {
         }
         if self
             .malformed
-            .fetch_update(
+            .try_update(
                 std::sync::atomic::Ordering::SeqCst,
                 std::sync::atomic::Ordering::SeqCst,
                 |n| n.checked_sub(1),

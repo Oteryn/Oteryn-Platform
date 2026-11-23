@@ -56,4 +56,4 @@ pub use control::*;
 
 #[cfg(test)]
 #[path = "audit_tests.rs"]
-mod control_tests;
+pub(crate) mod control_tests;

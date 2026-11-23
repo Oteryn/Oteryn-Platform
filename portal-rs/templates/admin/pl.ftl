@@ -67,3 +67,14 @@ mail-error-audit = Nie udało się zapisać wyniku wysyłki.
 mail-error-lease = Blokada zadania wygasła podczas ostatniej próby.
 mail-error-recorded = Zarejestrowano błąd wysyłki.
 mail-limited = Zbyt wiele żądań do kolejki. Spróbuj ponownie za chwilę.
+
+audit-evidence-title = Dowody audytowe
+audit-evidence-description = Zweryfikuj i pobierz dzienny łańcuch audytu Platformy. Dostępnych jest 90 ostatnich zakończonych dni UTC. Eksport zawiera wrażliwe dane o działaniach zespołu.
+audit-evidence-day = Data dowodów (UTC)
+audit-evidence-download = Zweryfikuj i pobierz JSON
+audit-evidence-invalid = Podaj prawidłową datę.
+audit-evidence-window = Ta data wykracza poza okres dostępności dowodów audytowych.
+audit-evidence-limit = Liczba wpisów z tego dnia przekracza limit eksportu w portalu.
+audit-evidence-integrity = Portal nie mógł zweryfikować dowodów z tego dnia.
+audit-evidence-denied = Nie masz uprawnień do eksportu dowodów audytowych.
+audit-evidence-unavailable = Dowody audytowe są tymczasowo niedostępne.
