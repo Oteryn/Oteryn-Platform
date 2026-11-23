@@ -16,6 +16,7 @@ const test = browserTest.extend({
     // Each worker gets ports outside the main and outbox harnesses.
     const port = 18640 + info.parallelIndex * 10;
     await withPortal({
+      browser: true,
       harnessEnv: {
         PORTAL_E2E_HTTP_PORT: String(port),
         PORTAL_E2E_INTERNAL_PORT: String(port + 1),

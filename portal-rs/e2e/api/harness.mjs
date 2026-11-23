@@ -10,16 +10,24 @@ import { SMTPServer } from 'smtp-server';
 
 const e2e = fileURLToPath(new URL('../', import.meta.url));
 // An existing Playwright worker can use the isolated portal through exercise.
-export async function run({ config, args, portalOptions = {}, harnessEnv = {} }, exercise) {
+export async function run({ config, args, portalOptions = {}, harnessEnv = {}, browser = false }, exercise) {
   const binary = path.resolve(process.env.PORTAL_E2E_BINARY
     || path.join(e2e, '../target/debug/oteryn-portal'));
   fs.accessSync(binary, fs.constants.X_OK);
+  // run.mjs trusts the shared browser harness CA before launching Playwright.
+  const browserTls = browser ? {
+    OTERYN_NATIVE_TLS_CERT_FILE: process.env.OTERYN_INTERNAL_TLS_CERT_FILE,
+    OTERYN_NATIVE_TLS_KEY_FILE: process.env.OTERYN_INTERNAL_TLS_KEY_FILE,
+  } : {};
+  if (Object.values(browserTls).some(file => !file)) {
+    throw new Error('Start the shared browser harness and launch this spec with run.mjs');
+  }
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-api-contracts-'));
   const output = path.join(scratch, 'harness');
   const launch = path.join(scratch, 'launch-portal.mjs');
   const seed = path.join(scratch, 'seed.json');
   const nativePort = Number(harnessEnv.PORTAL_API_NATIVE_PORT || process.env.PORTAL_API_NATIVE_PORT || 18544);
-  const publicOrigin = `https://127.0.0.1:${nativePort}`;
+  const publicOrigin = `https://${browser ? 'localhost' : '127.0.0.1'}:${nativePort}`;
   const smtpPort = Number(harnessEnv.PORTAL_API_SMTP_PORT || process.env.PORTAL_API_SMTP_PORT || 18587);
   const smtpPassword = randomBytes(32).toString('hex');
   const clientId = '019a5f4a-1000-7000-8000-000000000001';
@@ -59,6 +67,7 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {} },
     env: { ...process.env, ...${JSON.stringify(options)},
       OTERYN_NATIVE_TLS_CERT_FILE: process.env.OTERYN_INTERNAL_TLS_CERT_FILE,
       OTERYN_NATIVE_TLS_KEY_FILE: process.env.OTERYN_INTERNAL_TLS_KEY_FILE,
+      ...${JSON.stringify(browserTls)},
       SSL_CERT_FILE: process.env.OTERYN_INTERNAL_TLS_CLIENT_CA_FILE,
     }, stdio: 'inherit',
   });
