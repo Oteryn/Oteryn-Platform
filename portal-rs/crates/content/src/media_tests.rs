@@ -40,6 +40,27 @@ fn refuses_bad_input_and_disguised_payloads() {
     assert!(process("x.png", &vec![0; MAX_BYTES + 1]).is_err());
     assert!(process("wide.png", &fixture(ImageFormat::Png, 6001, 1)).is_err());
 }
+#[test]
+fn validates_upload_metadata_and_alternative_text() {
+    assert!(validate_upload_metadata("Diagram.PNG", Some("image/png")).is_ok());
+    assert!(validate_upload_metadata("diagram.webp", Some("application/octet-stream")).is_ok());
+    for (name, mime) in [
+        ("diagram.png", "image/svg+xml"),
+        ("diagram.svg", "image/png"),
+        ("../diagram.png", "image/png"),
+        (".png", "image/png"),
+    ] {
+        assert_eq!(
+            validate_upload_metadata(name, Some(mime)),
+            Err(StatusCode::UNPROCESSABLE_ENTITY)
+        );
+    }
+    assert_eq!(validated_alt("  A diagram  "), Ok("A diagram"));
+    for alt in ["  ", "A\0B", &"é".repeat(501)] {
+        assert_eq!(validated_alt(alt), Err(StatusCode::UNPROCESSABLE_ENTITY));
+    }
+}
+
 #[tokio::test]
 async fn postgres_media_atomic_storage_references_and_integrity() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -72,7 +93,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
     sqlx::query("INSERT INTO media(id,alt_text,mime_type,width,height,content,sha256) VALUES($1,'Image','image/png',10,10,$2,$3)")
         .bind(id).bind(&processed.content).bind(Sha256::digest(&processed.content).to_vec()).execute(&pool).await.unwrap();
     assert_eq!(
-        read(&pool, id, false).await.unwrap().status(),
+        read(&pool, id, false, false).await.unwrap().status(),
         StatusCode::OK
     );
     sqlx::query("INSERT INTO media_references(media_id,consumer) VALUES($1,'test')")
@@ -104,7 +125,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            Ok(Form(DeleteForm::default()))
         )
         .await
         .err(),
@@ -122,7 +144,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
         .await
         .unwrap();
     assert_eq!(
-        read(&pool, id, false).await.err(),
+        read(&pool, id, false, false).await.err(),
         Some(StatusCode::SERVICE_UNAVAILABLE)
     );
     assert_eq!(
@@ -130,7 +152,8 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             State(pool.clone()),
             Extension(context),
             Extension(auth.clone()),
-            Path(id)
+            Path(id),
+            Ok(Form(DeleteForm::default()))
         )
         .await
         .err(),
@@ -155,16 +178,13 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            Ok(Form(DeleteForm::default())),
         ),
     )
     .await
     .unwrap()
     .unwrap();
-    sqlx::query("DELETE FROM media WHERE id=$1")
-        .bind(id)
-        .execute(&pool)
-        .await
-        .unwrap();
+    news_replacement(&pool, &auth, context, &processed).await;
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)
@@ -172,6 +192,109 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
         .unwrap();
     root.close().await;
 }
+async fn news_replacement(
+    pool: &PgPool,
+    auth: &MutationAuthorization,
+    context: CheckContext,
+    image: &ProcessedImage,
+) {
+    let original = Uuid::now_v7();
+    let replacement = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO media(id,alt_text,mime_type,width,height,content,sha256)
+         VALUES ($1,'Original diagram','image/png',10,10,$3,$4),
+                ($2,'Replacement diagram','image/png',10,10,$3,$4)",
+    )
+    .bind(original)
+    .bind(replacement)
+    .bind(&image.content)
+    .bind(Sha256::digest(&image.content).to_vec())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO news(slug,title,body,media_id,published_at)
+         VALUES ('media-draft','Draft','Draft article',$1,NULL),
+                ('media-published','Published','Published article',$1,now())",
+    )
+    .bind(original)
+    .execute(pool)
+    .await
+    .unwrap();
+    let remove = |replacement_id| {
+        delete(
+            State(pool.clone()),
+            Extension(context),
+            Extension(auth.clone()),
+            Path(original),
+            Ok(Form(DeleteForm {
+                replacement_id,
+                lang: None,
+            })),
+        )
+    };
+    assert_eq!(
+        remove(None).await.err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+    assert_eq!(
+        remove(Some(original)).await.err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+    assert_eq!(
+        remove(Some(Uuid::now_v7())).await.err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+    sqlx::query("INSERT INTO media_references(media_id,consumer) VALUES($1,'other')")
+        .bind(original)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        remove(Some(replacement)).await.err(),
+        Some(StatusCode::UNPROCESSABLE_ENTITY)
+    );
+    let attached = || {
+        sqlx::query_scalar::<_, Uuid>(
+            "SELECT media_id FROM news WHERE slug IN ('media-draft','media-published')",
+        )
+        .fetch_all(pool)
+    };
+    assert_eq!(attached().await.unwrap(), vec![original; 2]);
+    assert_eq!(
+        read(pool, replacement, false, true).await.err(),
+        Some(StatusCode::NOT_FOUND)
+    );
+
+    sqlx::query("DELETE FROM media_references WHERE media_id=$1")
+        .bind(original)
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        remove(Some(replacement)).await.unwrap().status(),
+        StatusCode::FOUND
+    );
+    assert_eq!(attached().await.unwrap(), vec![replacement; 2]);
+    assert_eq!(
+        read(pool, original, false, false).await.err(),
+        Some(StatusCode::NOT_FOUND)
+    );
+    assert_eq!(
+        read(pool, replacement, false, true).await.unwrap().status(),
+        StatusCode::OK
+    );
+
+    sqlx::query("UPDATE news SET published_at=NULL WHERE slug='media-published'")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        read(pool, replacement, false, true).await.err(),
+        Some(StatusCode::NOT_FOUND)
+    );
+}
+
 #[tokio::test]
 async fn missing_staff_context_is_refused() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -319,7 +442,10 @@ async fn browser_lifecycle(pool: &PgPool) {
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(read(pool, id, true).await.unwrap().status(), StatusCode::OK);
+    assert_eq!(
+        read(pool, id, true, false).await.unwrap().status(),
+        StatusCode::OK
+    );
     let audit_count: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='editorial_media.uploaded'",
     )
@@ -351,7 +477,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         .unwrap();
     assert_eq!(response.status(), StatusCode::FOUND);
     assert_eq!(
-        read(pool, id, false).await.err(),
+        read(pool, id, false, false).await.err(),
         Some(StatusCode::NOT_FOUND)
     );
 }

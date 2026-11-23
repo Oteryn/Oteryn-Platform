@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="{{ lang }}" class="op-theme">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <title>{{ self.text("media-title") }}</title>
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ self.text("media-title") }}</h1>
+  <form class="op-stack" method="post" action="/admin/media" enctype="multipart/form-data">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <label for="image">{{ self.text("media-image") }}</label>
+    <input class="op-input" id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required>
+    <label for="alt">{{ self.text("media-alt") }}</label>
+    <textarea class="op-input" id="alt" name="alt_text" maxlength="500" required></textarea>
+    <button class="op-button">{{ self.text("media-upload") }}</button>
+  </form>
+  <form class="op-stack" method="get" action="/admin/media" role="search">
+    <input type="hidden" name="lang" value="{{ lang }}">
+    <label for="media-search">{{ self.text("media-search-label") }}</label>
+    <input class="op-input" id="media-search" name="q" type="search" maxlength="255" value="{{ query }}">
+    <button class="op-button">{{ self.text("media-search") }}</button>
+  </form>
+  {% for item in items %}
+  <article class="op-card op-stack">
+    <img src="/admin/media/{{ item.id }}/thumbnail" width="160" alt="{{ item.alt }}">
+    {% if let Some(name) = item.name %}<div>{{ name }}</div>{% endif %}
+    <p>{{ item.alt }}</p>
+    <details>
+      <summary>{{ self.text("media-edit-alt") }}</summary>
+      <form class="op-stack" method="post" action="/admin/media/{{ item.id }}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="lang" value="{{ lang }}">
+        <input type="hidden" name="revision" value="{{ item.revision }}">
+        <label for="alt-{{ item.id }}">{{ self.text("media-alt") }}</label>
+        <textarea class="op-input" id="alt-{{ item.id }}" name="alt_text" maxlength="500" required>{{ item.alt }}</textarea>
+        <button class="op-button">{{ self.text("media-save-alt") }}</button>
+      </form>
+    </details>
+    <label for="asset-{{ item.id }}">{{ self.text("media-id") }}</label>
+    <input class="op-input" id="asset-{{ item.id }}" value="{{ item.id }}" readonly>
+    <a href="/admin/news/create?lang={{ lang }}&amp;media_id={{ item.id }}">{{ self.text("media-new-post") }}</a>
+    {% if !item.references.is_empty() || item.other_references > 0 %}
+    <h2>{{ self.text("media-references") }}</h2>
+    <ul>
+      {% for reference in item.references %}
+      <li><a href="/admin/news/{{ reference.id }}/edit?lang={{ lang }}">{{ reference.title }}</a></li>
+      {% endfor %}
+      {% if item.other_references > 0 %}
+      <li>{{ self.text("media-other-reference") }} ({{ item.other_references }})</li>
+      {% endif %}
+    </ul>
+    {% endif %}
+    {% if item.other_references == 0 %}
+    <form class="op-stack" method="post" action="/admin/media/{{ item.id }}/delete">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="lang" value="{{ lang }}">
+      {% if item.references.is_empty() %}
+      <button class="op-button">{{ self.text("media-delete") }}</button>
+      {% else %}
+      <label for="replacement-{{ item.id }}">{{ self.text("media-replacement") }}</label>
+      <input class="op-input" id="replacement-{{ item.id }}" name="replacement_id" maxlength="36" required>
+      <button class="op-button">{{ self.text("media-replace-delete") }}</button>
+      {% endif %}
+    </form>
+    {% endif %}
+  </article>
+  {% else %}
+    <p>{{ self.text("media-empty") }}</p>
+  {% endfor %}
+  {% if let Some(previous) = previous %}
+    <a href="?page={{ previous }}&amp;lang={{ lang }}&amp;q={{ query|urlencode_strict }}">{{ self.text("media-previous") }}</a>
+  {% endif %}
+  {% if more %}
+    <a href="?page={{ next }}&amp;lang={{ lang }}&amp;q={{ query|urlencode_strict }}">{{ self.text("media-next") }}</a>
+  {% endif %}
+</main>
+</body>
+</html>

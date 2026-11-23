@@ -90,6 +90,7 @@ impl Options {
 struct Input {
     #[serde(default)]
     expected_revision: String,
+    media_id: Option<String>,
     slug: String,
     title: String,
     body: String,
@@ -127,6 +128,7 @@ pub fn public_router(pool: PgPool) -> Router {
     Router::new()
         .route("/news", get(index))
         .route("/news/{slug}", get(show))
+        .route("/news/media/{id}", get(crate::media::published_content))
         .route("/{lang}/news", get(local_index))
         .route("/{lang}/news/{slug}", get(local_show))
         .with_state(pool)
@@ -258,16 +260,53 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
     if !slug_valid(slug) {
         return Err(StatusCode::NOT_FOUND);
     }
-    let row=sqlx::query("SELECT CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) AND slug=$2").bind(lang).bind(slug).fetch_optional(pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    use askama::Template;
+    let row = sqlx::query(
+        "SELECT CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,
+                CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,
+                m.id AS media_id, m.alt_text, least(m.width, 320) AS image_width
+         FROM news LEFT JOIN media m ON m.id=news.media_id
+         WHERE published_at<=now() AND slug=$2 AND ($1='en' OR
+             (translation_published_at<=now() AND translation_source_updated_at>=news.updated_at
+              AND length(trim(title_pl))>0 AND length(trim(body_pl))>0))",
+    )
+    .bind(lang)
+    .bind(slug)
+    .fetch_optional(pool)
+    .await
+    .map_err(unavailable)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+    let image = row
+        .get::<Option<Uuid>, _>("media_id")
+        .map(|id| ArticleImage {
+            id,
+            alt: row.get("alt_text"),
+            width: row.get("image_width"),
+        });
+    let article = Article {
+        image,
+        body: escape(row.get("body")).replace('\n', "<br>"),
+    };
     Ok(page(
         lang,
         row.get("title"),
-        format!(
-            "<article><p>{}</p></article>",
-            escape(row.get("body")).replace('\n', "<br>")
-        ),
+        article.render().map_err(unavailable)?,
     ))
 }
+
+struct ArticleImage {
+    id: Uuid,
+    alt: String,
+    width: i32,
+}
+
+#[derive(askama::Template)]
+#[template(path = "content/news_article.html")]
+struct Article {
+    image: Option<ArticleImage>,
+    body: String,
+}
+
 async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
@@ -281,9 +320,12 @@ async fn admin_index(
     .await
     .map_err(unavailable)?;
     let lang = q.lang();
+    let messages = crate::media::messages(lang)?;
+    let library = crate::media::label(&messages, "media-news-library");
     let mut html = format!(
-        "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
-        label(lang, "new")
+        "<a href=\"/admin/news/create?lang={lang}\">{}</a><a href=\"/admin/media?lang={lang}\">{}</a>",
+        label(lang, "new"),
+        escape(&library)
     );
     let has_next = rows.len() > 25 && q.page.unwrap_or(1) < MAX_PAGE;
     for row in rows.into_iter().take(25) {
@@ -302,17 +344,29 @@ async fn admin_index(
     }
     Ok(page(lang, &label(lang, "news"), html))
 }
+#[derive(Deserialize)]
+struct CreateOptions {
+    lang: Option<String>,
+    media_id: Option<Uuid>,
+}
 async fn new(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
-    Query(q): Query<Options>,
+    Query(q): Query<CreateOptions>,
 ) -> Result<Html<String>, StatusCode> {
-    Ok(form(
-        q.lang(),
+    form(
+        if q.lang.as_deref() == Some("en") {
+            "en"
+        } else {
+            "pl"
+        },
         None,
-        Input::default(),
+        Input {
+            media_id: q.media_id.map(|id| id.to_string()),
+            ..Input::default()
+        },
         session.csrf_token().await.map_err(unavailable)?,
-    ))
+    )
 }
 async fn edit(
     State(pool): State<PgPool>,
@@ -321,11 +375,12 @@ async fn edit(
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
-    let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
-    Ok(form(
+    let row=sqlx::query("SELECT media_id::text AS media_id,updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    form(
         q.lang(),
         Some(id),
         Input {
+            media_id: row.get("media_id"),
             expected_revision: row.get("expected_revision"),
             slug: row.get("slug"),
             title: row.get("title"),
@@ -336,9 +391,14 @@ async fn edit(
             translation_published_at: row.get("translation_published_at"),
         },
         session.csrf_token().await.map_err(unavailable)?,
-    ))
+    )
 }
-fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String> {
+fn form(
+    lang: &str,
+    id: Option<Uuid>,
+    input: Input,
+    csrf: String,
+) -> Result<Html<String>, StatusCode> {
     let action = id.map_or_else(
         || "/admin/news".to_owned(),
         |id| format!("/admin/news/{id}"),
@@ -387,6 +447,13 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
             )
         });
     }
+    let messages = crate::media::messages(lang)?;
+    let library = crate::media::label(&messages, "media-news-library");
+    let field = crate::media::label(&messages, "media-news-field");
+    html.push_str(&format!(
+        "<label for=\"media_id\">{}</label><input class=\"op-input\" id=\"media_id\" name=\"media_id\" maxlength=\"36\" value=\"{}\"><a href=\"/admin/media?lang={lang}\" target=\"_blank\" rel=\"noopener\">{}</a>",
+        escape(&field), escape(input.media_id.as_deref().unwrap_or_default()), escape(&library)
+    ));
     html.push_str(&format!(
         "<button class=\"op-button\">{}</button></form>",
         label(lang, "save")
@@ -394,7 +461,7 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
     if let Some(id) = id {
         html.push_str(&format!("<form class=\"op-stack\" method=\"post\" action=\"/admin/news/{id}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><button class=\"op-button\">{}</button></form>",escape(&csrf),escape(&expected_revision),label(lang,"delete")));
     }
-    page(lang, &label(lang, "news"), html)
+    Ok(page(lang, &label(lang, "news"), html))
 }
 async fn create(
     State(pool): State<PgPool>,
@@ -434,12 +501,23 @@ async fn save(
     if !input.valid() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let media_id = input
+        .media_id
+        .as_deref()
+        .filter(|field| !field.is_empty())
+        .map(str::parse::<Uuid>)
+        .transpose()
+        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
         &[context.account],
         move |connection| {
             Box::pin(async move {
+                sqlx::query("SELECT id FROM media WHERE id=$1 FOR KEY SHARE")
+                    .bind(media_id)
+                    .execute(&mut *connection)
+                    .await?;
                 sqlx::query("SELECT id FROM news WHERE id=$1 FOR UPDATE")
                     .bind(id)
                     .execute(connection)
@@ -488,6 +566,20 @@ async fn save(
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
+    let media_id: Option<Uuid> = if input.media_id.is_some() {
+        sqlx::query_scalar("UPDATE news SET media_id=$2 WHERE id=$1 RETURNING media_id")
+            .bind(id)
+            .bind(media_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(storage)?
+    } else {
+        sqlx::query_scalar("SELECT media_id FROM news WHERE id=$1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(unavailable)?
+    };
     audit::append(
         &mut tx,
         Entry {
@@ -498,7 +590,7 @@ async fn save(
             action,
             target: &id.to_string(),
             before,
-            after: json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at}),
+            after: json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at,"media_id":media_id}),
         },
     )
     .await

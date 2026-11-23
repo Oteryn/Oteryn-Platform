@@ -1,0 +1,6 @@
+<article>
+  {% if let Some(image) = image %}
+  <img src="/news/media/{{ image.id }}" width="{{ image.width }}" alt="{{ image.alt }}">
+  {% endif %}
+  <p>{{ body|safe }}</p>
+</article>
