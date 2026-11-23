@@ -294,7 +294,11 @@ fn sudo_target(
     }
     let Query(query) =
         Query::<SudoQuery>::try_from_uri(uri).map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok((query.return_to, query.return_to.query(), query.device_cursor()?))
+    Ok((
+        query.return_to,
+        query.return_to.query(),
+        query.device_cursor()?,
+    ))
 }
 fn session_hash(headers: &HeaderMap) -> Option<Vec<u8>> {
     let mut values = headers
@@ -444,7 +448,10 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&device_page_path(return_to.path(lang.code()), before)))
+    Ok(redirect(&device_page_path(
+        return_to.path(lang.code()),
+        before,
+    )))
 }
 
 #[cfg(test)]
