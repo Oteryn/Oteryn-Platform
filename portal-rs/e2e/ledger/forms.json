@@ -4,8 +4,8 @@
     "line": 7,
     "action": "/{lang}/admin/store/codes",
     "method": "POST",
-    "route_pattern": null,
-    "crate": "web",
+    "route_pattern": "/{lang}/admin/store/codes",
+    "crate": "oteryn-portal",
     "fields": [
       "_csrf",
       "amount",
@@ -23,6 +23,104 @@
     ]
   },
   {
+    "template": "crates/admin/src/commerce/page.html",
+    "line": 6,
+    "action": "/admin/commerce/{action}",
+    "method": "POST",
+    "route_pattern": "/admin/commerce/{action}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "amount",
+      "days",
+      "reason",
+      "request_id",
+      "target"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/commerce/page.html",
+    "line": 17,
+    "action": "/admin/commerce/approvals/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/commerce/approvals/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/commerce/page.html",
+    "line": 17,
+    "action": "/admin/commerce/cancellations/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/commerce/cancellations/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/enforcement/templates/index.html",
+    "line": 15,
+    "action": "/admin/console/enforcement",
+    "method": "GET",
+    "route_pattern": "/admin/console/enforcement",
+    "crate": "admin",
+    "fields": [
+      "character",
+      "lang"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/enforcement/templates/index.html",
+    "line": 24,
+    "action": "/admin/console/enforcement/step-up",
+    "method": "POST",
+    "route_pattern": "/admin/console/enforcement/step-up",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "code"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/console/enforcement/templates/index.html",
+    "line": 64,
+    "action": "/admin/console/enforcement",
+    "method": "POST",
+    "route_pattern": "/admin/console/enforcement",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "intent",
+      "minutes",
+      "operation",
+      "profile",
+      "proof",
+      "reason",
+      "version"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
     "template": "crates/admin/src/console/templates/page.html",
     "line": 8,
     "action": "/console/dashboard",
@@ -160,7 +258,7 @@
   },
   {
     "template": "crates/admin/src/console/templates/read.html",
-    "line": 5,
+    "line": 6,
     "action": "/admin/console/players",
     "method": "POST",
     "route_pattern": "/admin/console/players",
@@ -176,7 +274,7 @@
   },
   {
     "template": "crates/admin/src/console/templates/read.html",
-    "line": 5,
+    "line": 6,
     "action": "/admin/console/players",
     "method": "GET",
     "route_pattern": "/admin/console/players",
@@ -191,7 +289,7 @@
   },
   {
     "template": "crates/admin/src/console/templates/read.html",
-    "line": 6,
+    "line": 8,
     "action": "/admin/console/audit",
     "method": "GET",
     "route_pattern": "/admin/console/audit",
@@ -208,11 +306,244 @@
     ]
   },
   {
+    "template": "crates/admin/src/console/templates/read.html",
+    "line": 10,
+    "action": "/admin/console/players/retry",
+    "method": "POST",
+    "route_pattern": "/admin/console/players/retry",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "character",
+      "lang",
+      "operation",
+      "request"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 5,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "reason"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "kick"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 7,
+    "action": "/admin/players",
+    "method": "GET",
+    "route_pattern": "/admin/players",
+    "crate": "admin",
+    "fields": [
+      "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 13,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "body"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "account-status"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 27,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "body"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "account-email"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 37,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "body"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "review-flag"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 50,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "body",
+      "submission"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "note"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 51,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "reason"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "logout"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 52,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "reason"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "kick"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 53,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "ticket"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "verify-identity"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 54,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "evidence",
+      "reason"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "request-reset"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 55,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "hold",
+      "reason"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "release-coin-hold"
+      }
+    ]
+  },
+  {
+    "template": "crates/admin/src/players/page.html",
+    "line": 57,
+    "action": "/admin/players/{id}",
+    "method": "POST",
+    "route_pattern": "/admin/players/{id}",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "request"
+    ],
+    "buttons": [
+      {
+        "name": "action",
+        "value": "approve-reset"
+      }
+    ]
+  },
+  {
     "template": "crates/payments/templates/coin/checkout.html",
     "line": 9,
     "action": "/native-account/coin-checkout/{order_id}",
     "method": "POST",
-    "route_pattern": null,
+    "route_pattern": "/native-account/coin-checkout/{order_id}",
     "crate": "payments",
     "fields": [
       "_csrf",
@@ -227,11 +558,115 @@
     "line": 10,
     "action": "/native-account/coin-checkout/{order_id}",
     "method": "POST",
-    "route_pattern": null,
+    "route_pattern": "/native-account/coin-checkout/{order_id}",
     "crate": "payments",
     "fields": [
       "_csrf",
       "action"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/support/src/tickets/page.html",
+    "line": 8,
+    "action": "/{lang}/support/tickets",
+    "method": "POST",
+    "route_pattern": "/{lang}/support/tickets",
+    "crate": "support",
+    "fields": [
+      "_csrf",
+      "body",
+      "category",
+      "request_key",
+      "subject"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/support/src/tickets/page.html",
+    "line": 11,
+    "action": "/{lang}/support/tickets/{id}/read",
+    "method": "POST",
+    "route_pattern": "/{lang}/support/tickets/{id}/read",
+    "crate": "support",
+    "fields": [
+      "_csrf",
+      "after",
+      "reply"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/support/src/tickets/page.html",
+    "line": 13,
+    "action": "/{lang}/admin/support/tickets/{id}/reply",
+    "method": "POST",
+    "route_pattern": "/{lang}/admin/support/tickets/{id}/reply",
+    "crate": "support",
+    "fields": [
+      "_csrf",
+      "body",
+      "internal",
+      "lock_version",
+      "reason"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/support/src/tickets/page.html",
+    "line": 13,
+    "action": "/{lang}/support/tickets/{id}/reply",
+    "method": "POST",
+    "route_pattern": "/{lang}/support/tickets/{id}/reply",
+    "crate": "support",
+    "fields": [
+      "_csrf",
+      "body",
+      "internal",
+      "lock_version",
+      "reason"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/support/src/tickets/page.html",
+    "line": 14,
+    "action": "/{lang}/admin/support/tickets/{id}/status",
+    "method": "POST",
+    "route_pattern": "/{lang}/admin/support/tickets/{id}/status",
+    "crate": "support",
+    "fields": [
+      "_csrf",
+      "lock_version",
+      "reason",
+      "status"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/support/src/tickets/page.html",
+    "line": 14,
+    "action": "/{lang}/support/tickets/{id}/status",
+    "method": "POST",
+    "route_pattern": "/{lang}/support/tickets/{id}/status",
+    "crate": "support",
+    "fields": [
+      "_csrf",
+      "lock_version",
+      "reason",
+      "status"
     ],
     "buttons": [
       null
@@ -355,7 +790,7 @@
   },
   {
     "template": "templates/account/mfa/page.html",
-    "line": 13,
+    "line": 14,
     "action": "/{lang}/mfa/challenge",
     "method": "POST",
     "route_pattern": "/{lang}/mfa/challenge",
@@ -371,7 +806,7 @@
   },
   {
     "template": "templates/account/mfa/page.html",
-    "line": 18,
+    "line": 19,
     "action": "/{lang}/mfa/email",
     "method": "POST",
     "route_pattern": "/{lang}/mfa/email",
@@ -385,7 +820,7 @@
   },
   {
     "template": "templates/account/mfa/page.html",
-    "line": 21,
+    "line": 25,
     "action": "/{lang}/mfa/confirm",
     "method": "POST",
     "route_pattern": "/{lang}/mfa/confirm",
@@ -401,7 +836,23 @@
   },
   {
     "template": "templates/account/mfa/page.html",
-    "line": 32,
+    "line": 25,
+    "action": "/{lang}/mfa/replace/confirm",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/replace/confirm",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "code",
+      "password"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 36,
     "action": "/{lang}/mfa/enroll",
     "method": "POST",
     "route_pattern": "/{lang}/mfa/enroll",
@@ -416,7 +867,24 @@
   },
   {
     "template": "templates/account/mfa/page.html",
-    "line": 37,
+    "line": 42,
+    "action": "/{lang}/mfa/manage",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/manage",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "action",
+      "code",
+      "password"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 56,
     "action": "/{lang}/mfa/devices",
     "method": "POST",
     "route_pattern": "/{lang}/mfa/devices",
@@ -424,6 +892,36 @@
     "fields": [
       "_csrf",
       "device"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/mfa/page.html",
+    "line": 64,
+    "action": "/{lang}/mfa/native-devices",
+    "method": "POST",
+    "route_pattern": "/{lang}/mfa/native-devices",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "family"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/account/profile.html",
+    "line": 13,
+    "action": "/{lang}/account/profile",
+    "method": "POST",
+    "route_pattern": "/{lang}/account/profile",
+    "crate": "identity",
+    "fields": [
+      "_csrf",
+      "display_name"
     ],
     "buttons": [
       null
@@ -621,6 +1119,7 @@
       "pl_slug",
       "pl_summary",
       "pl_title",
+      "reason",
       "starts_at"
     ],
     "buttons": [
@@ -647,6 +1146,7 @@
       "pl_slug",
       "pl_summary",
       "pl_title",
+      "reason",
       "starts_at"
     ],
     "buttons": [
@@ -663,6 +1163,7 @@
     "fields": [
       "_csrf",
       "lock_version",
+      "reason",
       "status"
     ],
     "buttons": [
@@ -680,6 +1181,7 @@
       "_csrf",
       "body",
       "expected_revision",
+      "final_approved",
       "legal_effective_date",
       "legal_version",
       "published_at",
@@ -737,7 +1239,7 @@
   },
   {
     "template": "templates/admin/roles.html",
-    "line": 5,
+    "line": 7,
     "action": "/admin/roles",
     "method": "POST",
     "route_pattern": "/admin/roles",
@@ -760,7 +1262,7 @@
   },
   {
     "template": "templates/admin/roles.html",
-    "line": 8,
+    "line": 10,
     "action": "/admin/roles",
     "method": "POST",
     "route_pattern": "/admin/roles",
@@ -779,7 +1281,7 @@
   },
   {
     "template": "templates/admin/roles.html",
-    "line": 16,
+    "line": 19,
     "action": "/admin/roles",
     "method": "POST",
     "route_pattern": "/admin/roles",
@@ -794,6 +1296,84 @@
         "name": "action",
         "value": "set-permissions"
       }
+    ]
+  },
+  {
+    "template": "templates/admin/staff-invite.html",
+    "line": 22,
+    "action": "/{lang}/logout",
+    "method": "POST",
+    "route_pattern": "/{lang}/logout",
+    "crate": "identity",
+    "fields": [
+      "_csrf"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/staff-invite.html",
+    "line": 28,
+    "action": "/{lang}/staff-invite",
+    "method": "POST",
+    "route_pattern": "/{lang}/staff-invite",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "token"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/staff-invites.html",
+    "line": 19,
+    "action": "/admin/staff-invites",
+    "method": "POST",
+    "route_pattern": "/admin/staff-invites",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "approve",
+      "reason"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/staff-invites.html",
+    "line": 29,
+    "action": "/admin/staff-invites",
+    "method": "POST",
+    "route_pattern": "/admin/staff-invites",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "email",
+      "reason",
+      "request_key",
+      "role"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "templates/admin/staff-invites.html",
+    "line": 59,
+    "action": "/admin/staff-invites/{id}/revoke",
+    "method": "POST",
+    "route_pattern": "/admin/staff-invites/{id}/revoke",
+    "crate": "admin",
+    "fields": [
+      "_csrf",
+      "reason"
+    ],
+    "buttons": [
+      null
     ]
   },
   {
@@ -1309,7 +1889,7 @@
   },
   {
     "template": "templates/components/thais-account-links.html",
-    "line": 25,
+    "line": 30,
     "action": "/{lang}/logout",
     "method": "POST",
     "route_pattern": "/{lang}/logout",
@@ -1323,7 +1903,7 @@
   },
   {
     "template": "templates/components/thais-header.html",
-    "line": 112,
+    "line": 123,
     "action": "/{lang}/logout",
     "method": "POST",
     "route_pattern": "/{lang}/logout",
@@ -1340,7 +1920,7 @@
     "line": 18,
     "action": "/admin/announcements",
     "method": "POST",
-    "route_pattern": null,
+    "route_pattern": "/admin/announcements",
     "crate": "content",
     "fields": [
       "_csrf",
@@ -1356,7 +1936,7 @@
     "line": 18,
     "action": "/admin/announcements/{id}/edit",
     "method": "POST",
-    "route_pattern": null,
+    "route_pattern": "/admin/announcements/{id}/edit",
     "crate": "content",
     "fields": [
       "_csrf",
@@ -2101,6 +2681,37 @@
     "fields": [
       "page",
       "q"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/content/src/media.rs",
+    "line": 588,
+    "action": "/admin/media",
+    "method": "POST",
+    "route_pattern": "/admin/media",
+    "crate": "content",
+    "fields": [
+      "_csrf",
+      "alt_text",
+      "image",
+      "upload_key"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
+    "template": "crates/content/src/media.rs",
+    "line": 588,
+    "action": "/admin/media/{id}/delete",
+    "method": "POST",
+    "route_pattern": "/admin/media/{id}/delete",
+    "crate": "content",
+    "fields": [
+      "_csrf"
     ],
     "buttons": [
       null

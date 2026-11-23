@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect } from './fixtures.mjs';
-import { fixtureDatabaseEnv, password, pool, seedPasswordRange, submit, waitForLoginBudget } from './helpers.mjs';
+import { fixtureDatabaseEnv, password, pool, seedBreachRange, submit, waitForLoginBudget } from './helpers.mjs';
 
 export const localized = (locale, en, pl) => locale === 'en' ? en : pl;
 export const identityEmail = () => `identity-${randomUUID()}@example.invalid`;
@@ -36,14 +36,10 @@ export async function seedPlayer(locale) {
   }
 }
 
-export async function seedBreachedPassword(value) {
-  await seedPasswordRange(value);
-  const hash = createHash('sha1').update(value).digest('hex').toUpperCase();
-  const result = await identityQuery(
-    'UPDATE registration_password_ranges SET suffixes = ARRAY[$2::text], complete_xact = pg_current_xact_id() WHERE prefix = $1',
-    [hash.slice(0, 5), hash.slice(5)],
-  );
-  expect(result.rowCount).toBe(1);
+export async function seedBreachedPassword() {
+  // Public example input and its precomputed breach-provider test range.
+  await seedBreachRange('70B17', ['11B20E2163DFE81F5E590CE04F789AC7567']);
+  return 'BreachExampleOnly!2026';
 }
 
 export async function waitForIdentityBudget(policies, remaining) {

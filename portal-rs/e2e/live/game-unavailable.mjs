@@ -49,8 +49,14 @@ export function isGameUnavailable(url, { status, headers, body }) {
 
   const contentLanguage = headers.get('content-language');
   if (contentLanguage && contentLanguage !== lang) return false;
-  const html = body.toString('utf8')
-    .replace(/<!--[\s\S]*?-->|<(script|style|template)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+  const nonContent = /<!--[\s\S]*?-->|<(script|style|template)\b[^>]*>[\s\S]*?<\/\1>/gi;
+  let html = body.toString('utf8');
+  let previous;
+  // Removing one span can join fragments into another non-content span.
+  do {
+    previous = html;
+    html = previous.replace(nonContent, '');
+  } while (html !== previous);
   const language = html.match(/<html\b[^>]*\slang="([^"]+)"[^>]*>/i)?.[1];
   const main = html.match(/<main\b[^>]*\sid="main"[^>]*>([\s\S]*?)<\/main>/i)?.[1];
   if (language !== lang || !main) return false;

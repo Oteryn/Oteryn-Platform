@@ -17,8 +17,7 @@ test('registration validates every field, current consent versions and breached 
   const t = (en, pl) => localized(locale, en, pl);
   const path = `/${locale}/register`;
   const email = identityEmail();
-  const breached = password();
-  await seedBreachedPassword(breached);
+  const breached = await seedBreachedPassword();
   await waitForIdentityBudget(registrationPolicies, 2);
   await page.goto(path);
   await localizedPage(page, locale, t('Create an account', 'Utwórz konto'));

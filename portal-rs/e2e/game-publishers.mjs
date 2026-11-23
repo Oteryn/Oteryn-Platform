@@ -223,6 +223,7 @@ export async function startGameDataBrowser({server, caFile, publicPort, authorit
     browserProxy.once('error', reject);
     browserProxy.listen(0, '127.0.0.1', resolve);
   });
+  const browserHost = 'localhost';
   return {
     env: {
       OTERYN_ACCOUNT_LOGIN: 'true',
@@ -246,7 +247,8 @@ export async function startGameDataBrowser({server, caFile, publicPort, authorit
       PORTAL_DEATHS_V2_INGEST_ENABLED: 'true',
       ...smtpCredentials,
       OTERYN_SMTP_PORT: String(smtp.server.address().port),
-      OTERYN_PUBLIC_ORIGIN: `https://127.0.0.1:${browserProxy.address().port}`,
+      OTERYN_PUBLIC_ORIGIN: `https://${browserHost}:${browserProxy.address().port}`,
+      OTERYN_WEBAUTHN_RP_ID: browserHost,
     },
     async close() {
       await Promise.all([

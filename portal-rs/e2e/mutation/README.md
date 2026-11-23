@@ -5,10 +5,26 @@ From `portal-rs/e2e`, regenerate and verify the source inventory.
 ```sh
 python3 mutation/generate.py
 python3 mutation/generate.py --check
+python3 ledger/forms.py
+python3 ledger/forms.py --check
 python3 -B -m unittest discover -s mutation -p 'test_*.py'
 ```
 
 `forms.json` records source POST forms, including Rust-rendered markup, and write-method router registrations. A form's source and ordinal identify it when several forms share a line. An empty `action` submits to the current document. `actionVariants` captures finite template expansions inferred from literals or the form's rendering code. Runtime identifiers remain template expressions. Locale-prefixed routes share a row, while unprefixed aliases retain their own rows. The inventory includes source registrations behind feature gates and compatibility routes. Native and internal protocol receivers and provider webhooks are outside the browser inventory.
+
+The inventory has 123 source forms and 179 write routes. The ledger recorder and report use all 179 routes in addition to the general route inventory. `ledger/forms.py` maps browser form submissions by method and pathname, including submitters. It checks that every mutation form has a ledger mapping or an explicit route-only classification. The CI workflow contract test checks both inventories and runs the matcher tests.
+
+| Refreshed inventory group | Evidence or classification |
+| --- | --- |
+| Login and MFA, including replacement confirmation, managed credentials, remembered and native device removal | Form rows use the localized pathname. The staff return query shares the login row. `identity-authentication.spec.mjs`, `ledger-unhit-account.spec.mjs`, and `panels/identity.spec.mjs` exercise the flows. Unprefixed compatibility routes retain their own route rows. |
+| Account profile and email-change reversion | Profile form evidence comes from `panels/identity.spec.mjs`. The Rust-rendered email-change flow is classified for route evidence and exercised by `identity-account-security.spec.mjs`. |
+| Editorial page approval, event create/edit/status and media upload/delete | Form rows include approval, staff reason and upload-key fields. The content crate covers legal approval and the browser specs cover editorial writes, legal display, and uploads. API PUT requests qualify for route evidence. |
+| Staff invitation approval, creation, revocation, acceptance and logout | Form and route evidence comes from `staff-invite.spec.mjs`. Return-language query parameters do not create additional ledger routes. |
+| GM enforcement step-up and apply, player retry, and console nodes | Form and route rows are attributed separately by method. `panels/gm-enforce.spec.mjs` exercises the enforcement forms. Player retry remains a tracked gap when the fixture supplies no retryable command. |
+| Staff account status, email, review flag and note, and player/staff ticket reply and status | Form rows include the named submitters and required reasons. `panels/accounts.spec.mjs`, `panels/support.spec.mjs`, and the mutation matrix exercise these flows. |
+| Runtime-generated Bazaar review and staff support actions | Classified for route evidence in `ledger/forms.py`. The mutation inventory preserves action selectors, their static values, and runtime placeholders. `commerce-bazaar.spec.mjs` and `panels/support.spec.mjs` supply route evidence for their exercised operations. |
+
+The checked-in aggregate ledger and delta retain their captured revision. Refresh those reports with a matching full capture when publishing a new baseline.
 
 Start the disposable PostgreSQL and Portal harness documented in [the E2E guide](../README.md). Run the matrix from the same directory.
 
@@ -49,5 +65,5 @@ b, c and d require their own write requests where middleware can be exercised.
 | `POST /{lang}/collection/battles/{id}` | Requires an active battle and a turn version issued by its start operation. The prerequisites for starting a battle are unavailable. |
 | `POST /{lang}/pass/{season}/buy` | The enabled testing Wallet rejects purchases targeting a missing season with HTTP 403. [The season-pass spec](../specs/season-pass.spec.mjs) seeds a purchasable season and verifies purchase and replay. |
 | `POST /{lang}/pass/{season}/claim` | The composed router keeps reward claims disabled and returns HTTP 404. |
-| `POST /{lang}/puzzles/{id}/answer` | `Puzzles::publish` is a Rust service method with no composed ingress or operator CLI. The harness cannot publish an eligible daily definition to supply the puzzle ID. |
+| `POST /{lang}/puzzles/{id}/answer` | The basic mutation fixture has no eligible daily definition. `puzzles.spec.mjs` starts the dedicated puzzle fixture, publishes through staff ingress and exercises the answer. |
 | `POST /{lang}/shop` | `crates/store/src/web_backend.rs::configured` constructs the browser backend with `purchases: None` and an access adapter whose purchase target check always returns false. The matrix checks CSRF and the composed 503 response with no purchases, debits, or deliveries. The Store crate's enabled-backend purchase test checks malformed fields and durable state. |

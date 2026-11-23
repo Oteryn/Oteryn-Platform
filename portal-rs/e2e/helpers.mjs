@@ -86,14 +86,18 @@ export async function mailLink(page,email,pattern,timeout=30_000) {
   return found;
 }
 export async function seedPasswordRange(value) {
+  // The breach provider addresses ranges by a five-character SHA-1 prefix.
+  const prefix=crypto.createHash('sha1').update(value).digest('hex').toUpperCase().slice(0,5);
+  await seedBreachRange(prefix, []);
+}
+export async function seedBreachRange(prefix, suffixes) {
   const db=pool();
   try {
     await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-registration' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThan(5);
     await db.query('UPDATE registration_abuse_policy SET enabled=true WHERE singleton=true');
     await db.query("INSERT INTO world_status(id,name) SELECT uuidv7(),'Local Browser World' WHERE NOT EXISTS(SELECT 1 FROM world_status)");
-    // Synthetic local corpus, matching the identity crate's registration fixtures.
-    const prefix=crypto.createHash('sha1').update(value).digest('hex').toUpperCase().slice(0,5);
-    await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
+    const result=await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,$2::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix,suffixes]);
+    expect(result.rowCount).toBe(1);
   } finally { await db.end(); }
 }
 export async function register(page,lang,email=`browser-${crypto.randomUUID()}@local.test`) {

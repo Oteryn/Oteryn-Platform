@@ -10,9 +10,8 @@ test('sudo and password change reject wrong passwords, and change rejects mismat
   const t = (en, pl) => localized(locale, en, pl);
   const account = await seedPlayer(locale);
   const next = password();
-  const breached = password();
   await seedPasswordRange(next);
-  await seedBreachedPassword(breached);
+  const breached = await seedBreachedPassword();
   const path = `/${locale}/password/change`;
   const sudo = `/${locale}/account/sudo`;
   const refused = t(

@@ -9,10 +9,18 @@ OUTPUT = Path(__file__).with_name("forms.json")
 WRITE = re.compile(r"(?:(?<![\w:])|(?<=routing::))(post|put|patch|delete)\s*\(\s*([\w:]+|\|)")
 ROUTE = re.compile(r"\.route\(\s*")
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[(),]')
-TAG = re.compile(r"<(form|input|button|select|textarea)\b((?:\{\{.*?\}\}|\{%.*?%\}|\"[^\"]*\"|'[^']*'|[^>])*?)>", re.I | re.S)
+# A template token ends at its first closing delimiter. Each plain-text
+# alternative excludes the opening characters handled by the other branches.
+TEMPLATE = r"\{\{(?:[^}]|\}(?!\}))*\}\}|\{%(?:[^%]|%(?!\}))*%\}"
+LONE_BRACE = r"\{(?![{%])"
+DOUBLE_QUOTED = rf'(?:{TEMPLATE}|{LONE_BRACE}|[^"{{])*'
+SINGLE_QUOTED = rf"(?:{TEMPLATE}|{LONE_BRACE}|[^'{{])*"
+TAG = re.compile(
+    rf"""<(form|input|button|select|textarea)\b((?:{TEMPLATE}|{LONE_BRACE}|"{DOUBLE_QUOTED}"|'{SINGLE_QUOTED}'|[^>"'{{])*)>""",
+    re.I,
+)
 ATTRIBUTE = re.compile(
-    r"""([\w:-]+)\s*=\s*(?:"((?:\{%.*?%\}|\{\{.*?\}\}|[^"])*)"|'([^']*)'|([^\s>]+))""",
-    re.S,
+    rf"""(?<![\w:-])([\w:-]+)\s*=\s*(?:"({DOUBLE_QUOTED})"|'({SINGLE_QUOTED})'|([^\s>"']+))""",
 )
 FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")

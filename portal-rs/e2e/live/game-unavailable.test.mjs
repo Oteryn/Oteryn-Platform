@@ -55,3 +55,14 @@ test('identical database-failure HTML is a hard smoke finding without the server
   result.headers.delete('x-oteryn-game-data');
   assert.equal(isGameUnavailable(online, result), false);
 });
+
+test('a marker inside non-content markup exposed by cleanup remains a hard failure', () => {
+  const marker = '<p role="status">Temporarily unavailable.</p>';
+  for (const wrapper of [
+    `<scr<!-- gap -->ipt>${marker}</script>`,
+    `<!<!-- gap -->-- ${marker} -->`,
+    `<tem<!-- gap -->plate>${marker}</template>`,
+  ]) {
+    assert.equal(isGameUnavailable(online, response('en', 'Online characters', wrapper)), false);
+  }
+});

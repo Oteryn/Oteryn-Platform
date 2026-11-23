@@ -11,7 +11,8 @@ test('coverage requires a response from the matching passing attempt', t => {
   t.after(() => rmSync(directory, {recursive: true}));
   mkdirSync(join(directory, 'ledger'));
   mkdirSync(join(directory, 'test-results/ledger'), {recursive: true});
-  for (const file of ['inventory.json', 'ledger/capture.mjs', 'ledger/forms.json', 'ledger/report.mjs']) {
+  mkdirSync(join(directory, 'mutation'));
+  for (const file of ['inventory.json', 'mutation/forms.json', 'ledger/capture.mjs', 'ledger/forms.json', 'ledger/report.mjs']) {
     cpSync(new URL(`../${file}`, import.meta.url), join(directory, file));
   }
 
@@ -46,6 +47,8 @@ test('coverage requires a response from the matching passing attempt', t => {
   };
   const requests = [
     hit,
+    {...hit, route_pattern: '/admin/console/enforcement/step-up', method: 'POST', status: 303,
+      form_action: {action: '/admin/console/enforcement/step-up', buttons: [null]}},
     {...hit, route_pattern: '/account/recovery-key', method: 'POST', form_action: null, worker: 0, retry: 0},
     {...hit, project: 'en-390', worker: 2, retry: 0},
     {...hit, test: 'search › expected failure', retry: 0},
@@ -63,6 +66,11 @@ test('coverage requires a response from the matching passing attempt', t => {
     cases: [{spec: hit.spec, test: hit.test, project: 'pl-1440'}],
   }]);
   assert.equal(rows.find(row => row.id === 'R-identity-145836777639757').hit, false);
+  assert.deepEqual(rows.filter(row => row.method === 'POST' &&
+    (row.action ?? row.route) === '/admin/console/enforcement/step-up')
+    .map(row => [row.id[0], row.hit]).sort(), [['F', true], ['R', true]]);
+  assert.deepEqual(rows.filter(row => row.id.startsWith('R-') && row.method === 'POST' &&
+    row.route.startsWith('/admin/pages/{slug}/')).map(row => row.route), ['/admin/pages/{slug}/{lang}']);
 
   saveResults(candidateCapture);
   rejects('Ledger captures do not match the Playwright run.', '--delta');

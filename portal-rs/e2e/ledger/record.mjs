@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { test } from '@playwright/test';
 import { createRequire } from 'node:module';
 import { pool } from '../helpers.mjs';
+import { ledgerInventory } from './capture.mjs';
 
-export const inventory = JSON.parse(readFileSync(new URL('../inventory.json', import.meta.url)));
+export const inventory = ledgerInventory();
 export const forms = JSON.parse(readFileSync(new URL('./forms.json', import.meta.url)));
 
 const parameter = /\{([^{}]+)\}/g;

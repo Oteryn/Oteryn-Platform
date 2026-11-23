@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inventoryDigest, sameCapture, validateCapture } from './capture.mjs';
+import { inventoryDigest, ledgerInventory, sameCapture, validateCapture } from './capture.mjs';
 
-const inventory = JSON.parse(readFileSync(new URL('../inventory.json', import.meta.url)));
+const inventory = ledgerInventory();
 const forms = JSON.parse(readFileSync(new URL('./forms.json', import.meta.url)));
 const resultsOption = process.argv.indexOf('--results-dir');
 const suppliedDirectory = process.argv[resultsOption + 1];

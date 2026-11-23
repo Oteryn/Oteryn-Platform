@@ -17,7 +17,7 @@ async function listen(server) {
 
 test('Chromium and its API clients cannot follow redirects outside the fixture', { timeout: 30_000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crawl-origin-'));
-  let browser, api, proxy, fixture, canary;
+  let browser, api, proxy, fixture, outsideServer;
   try {
     const key = path.join(directory, 'key.pem');
     const cert = path.join(directory, 'cert.pem');
@@ -25,11 +25,11 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
       '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' });
     const tls = { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
     let outsideConnections = 0;
-    canary = https.createServer(tls, (_request, response) => {
+    outsideServer = https.createServer(tls, (_request, response) => {
       response.end('outside');
     });
-    canary.on('connection', () => { outsideConnections += 1; });
-    const outside = await listen(canary);
+    outsideServer.on('connection', () => { outsideConnections += 1; });
+    const outside = await listen(outsideServer);
     fixture = https.createServer(tls, (incoming, response) => {
       if (incoming.url === '/same-origin') response.writeHead(302, { Location: '/page' });
       if (incoming.url === '/first-hop') response.writeHead(307, { Location: '/second-hop' });
@@ -52,7 +52,7 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
     api = await request.newContext(options);
     for (const client of [context.request, api]) {
       assert.equal((await client.get('/same-origin')).url(), `${origin}/page`);
-      const rejected = await client.post('/first-hop', { form: { probe: 'local-canary' } });
+      const rejected = await client.post('/first-hop', { form: { probe: 'local-sentinel' } });
       assert.equal(rejected.status(), 403);
     }
     assert.equal(outsideConnections, 0);
@@ -60,7 +60,7 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
     await api?.dispose();
     await browser?.close();
     proxy?.close();
-    for (const server of [fixture, canary]) {
+    for (const server of [fixture, outsideServer]) {
       if (!server?.listening) continue;
       server.closeAllConnections();
       await new Promise(resolve => server.close(resolve));

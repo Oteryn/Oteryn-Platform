@@ -66,9 +66,8 @@ test('password reset validates the form, replaces the password and refuses reuse
   const t = (en, pl) => localized(locale, en, pl);
   const account = await seedPlayer(locale);
   const next = password();
-  const breached = password();
   await seedPasswordRange(next);
-  await seedBreachedPassword(breached);
+  const breached = await seedBreachedPassword();
   await waitForIdentityBudget(['identity-password-recovery-source'], 4);
   await page.goto(`/${locale}/forgot-password`);
   await localizedPage(page, locale, t('Reset password', 'Zresetuj hasło'));

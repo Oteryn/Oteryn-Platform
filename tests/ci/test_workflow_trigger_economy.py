@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import runpy
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -431,3 +433,11 @@ runpy.run_path(
 )
 
 print("workflow trigger economy contract: PASS")
+
+portal = ROOT / "portal-rs"
+subprocess.run([sys.executable, "-B", "e2e/mutation/generate.py", "--check"], cwd=portal, check=True)
+subprocess.run([sys.executable, "-B", "e2e/ledger/forms.py", "--check"], cwd=portal, check=True)
+subprocess.run(
+    [sys.executable, "-B", "-m", "unittest", "discover", "-s", "e2e/mutation", "-p", "test_*.py"],
+    cwd=portal, check=True,
+)

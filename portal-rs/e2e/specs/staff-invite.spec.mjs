@@ -11,6 +11,7 @@ const manage='/admin/staff-invites';
 const reason='Verified staff onboarding request';
 const address=()=>`invite-${crypto.randomUUID()}@example.invalid`;
 const origin=()=>new URL(process.env.OTERYN_PUBLIC_ORIGIN || 'https://localhost:18443').origin;
+const escapeRegex=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
 function seedAccount(lang) {
   const account={email:address(),password:password(),locale:lang};
@@ -65,13 +66,13 @@ async function send(page,email,roles,lang,staffPassword,checkRequiredReason=fals
 }
 
 async function invitation(page,email,lang) {
-  const match=new RegExp(`${origin().replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}/${lang}/staff-invite\\?token=(?:3D)?[a-f0-9]{64}`);
+  const match=new RegExp(`${escapeRegex(origin())}/${lang}/staff-invite\\?token=(?:3D)?[a-f0-9]{64}`);
   const link=await mailLink(page,email,match);
   const [{expiry}]=await query(
     "SELECT to_char(expires_at AT TIME ZONE 'UTC',$2) AS expiry FROM staff_invites WHERE email=$1",
     [email,`${lang==='pl'?'DD.MM.YYYY':'YYYY-MM-DD'} HH24:MI:SS "UTC"`],
   );
-  const stamp=new RegExp(expiry.replace(/\./g,'\\.'));
+  const stamp=new RegExp(escapeRegex(expiry));
   expect(await mailLink(page,email,stamp)).toBe(expiry);
   return link;
 }
