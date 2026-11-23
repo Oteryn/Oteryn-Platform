@@ -47,6 +47,10 @@ test('events calendar follows publication and the viewer’s time zone', async (
     await expect(calendarLink).toBeVisible();
     await calendarLink.click();
     await expect(page).toHaveURL(new RegExp(`${calendar}$`));
+    await expect(page.locator('footer.foot')).toBeVisible();
+    await expect(page.getByRole('table')).toHaveCSS('table-layout', 'fixed');
+    const badMonth = await page.request.get(`${calendar}?month=${year}-13`);
+    expect(badMonth.status()).toBe(422);
     await page.getByLabel(t.month, { exact: true }).fill(`${year}-02`);
     await page.getByRole('button', { name: t['show-month'] }).click();
     await expect(page.getByRole('heading', { name: `${t['month-february']} ${year}` })).toBeVisible();
@@ -112,7 +116,7 @@ test('i18n-parity for events', () => {
   const en = messages('templates/events', 'en');
   const pl = messages('templates/events', 'pl');
   expect(Object.keys(pl).sort()).toEqual(Object.keys(en).sort());
-  for (const key of ['calendar', 'time-zone', 'save-time-zone', 'export-event', 'export-upcoming']) {
+  for (const key of ['calendar', 'time-zone', 'save-time-zone', 'export-event', 'export-upcoming', 'previous-events', 'next-events']) {
     expect(en[key]).toBeTruthy();
     expect(pl[key]).toBeTruthy();
   }

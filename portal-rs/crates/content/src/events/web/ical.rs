@@ -1,8 +1,11 @@
 use super::{locale, response};
-use crate::events::{Error, Events, repository::ExportEvent, valid_slug};
+use crate::{
+    Pagination,
+    events::{Error, Events, repository::ExportEvent, valid_slug},
+};
 use axum::{
-    extract::{Path, State},
-    http::header,
+    extract::{Path, Query, State},
+    http::{HeaderValue, header},
     response::{IntoResponse, Response},
 };
 use time::{OffsetDateTime, UtcOffset};
@@ -14,24 +17,35 @@ pub(super) async fn single(
     if !valid_slug(&slug) {
         return response(Error::NotFound);
     }
-    export(events, &lang, Some(&slug)).await
+    export(events, &lang, Some(&slug), Pagination::default()).await
 }
 
-pub(super) async fn upcoming(State(events): State<Events>, Path(lang): Path<String>) -> Response {
-    export(events, &lang, None).await
+pub(super) async fn upcoming(
+    State(events): State<Events>,
+    Path(lang): Path<String>,
+    Query(page): Query<Pagination>,
+) -> Response {
+    export(events, &lang, None, page).await
 }
 
-async fn export(events: Events, lang: &str, slug: Option<&str>) -> Response {
+async fn export(events: Events, lang: &str, slug: Option<&str>, page: Pagination) -> Response {
+    const PAGE_SIZE: i64 = 200;
     if let Err(error) = locale(lang) {
         return response(error);
     }
-    let entries = match events.export_events(lang, slug).await {
+    let limit = if slug.is_some() { 1 } else { PAGE_SIZE + 1 };
+    let mut entries = match events
+        .export_events(lang, slug, page.offset(PAGE_SIZE), limit)
+        .await
+    {
         Ok(entries) => entries,
         Err(error) => return response(error),
     };
-    if slug.is_some() && entries.is_empty() {
+    if (slug.is_some() || page.page > 0) && entries.is_empty() {
         return response(Error::NotFound);
     }
+    let more = entries.len() as i64 > PAGE_SIZE;
+    entries.truncate(PAGE_SIZE as usize);
 
     let mut body = String::from(
         "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Oteryn//Portal Events//EN\r\nCALSCALE:GREGORIAN\r\n",
@@ -45,14 +59,23 @@ async fn export(events: Events, lang: &str, slug: Option<&str>) -> Response {
     } else {
         "attachment; filename=\"oteryn-upcoming.ics\""
     };
-    (
+    let mut download = (
         [
             (header::CONTENT_TYPE, "text/calendar; charset=utf-8"),
             (header::CONTENT_DISPOSITION, attachment),
         ],
         body,
     )
-        .into_response()
+        .into_response();
+    if more
+        && let Ok(link) = HeaderValue::from_str(&format!(
+            "</{lang}/events/upcoming.ics?page={}>; rel=\"next\"",
+            page.next()
+        ))
+    {
+        download.headers_mut().insert(header::LINK, link);
+    }
+    download
 }
 
 fn append_event(calendar: &mut String, event: ExportEvent) {

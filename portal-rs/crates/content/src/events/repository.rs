@@ -145,24 +145,32 @@ impl Events {
         zone: &str,
         first: Date,
         next: Date,
+        offset: i64,
+        limit: i64,
     ) -> Result<Vec<CalendarEvent>, Error> {
         // Pad the UTC window so both occurrences of a repeated local hour
         // remain candidates. The calendar clips the rows to the local month.
         Ok(sqlx::query_as(
-            "SELECT t.title,t.slug,e.starts_at,e.ends_at,
-                    e.starts_at AT TIME ZONE $2 AS local_start,
-                    e.ends_at AT TIME ZONE $2 AS local_end,
-                    ((e.ends_at - interval '1 microsecond') AT TIME ZONE $2)::date AS last_day
-             FROM events e JOIN event_translations t ON t.event_id=e.id
-             WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1
-               AND e.starts_at < (($4::date + 1)::timestamp AT TIME ZONE 'UTC')
-               AND e.ends_at > (($3::date - 1)::timestamp AT TIME ZONE 'UTC')
-             ORDER BY e.starts_at,e.id",
+            "SELECT * FROM (
+                 SELECT e.id,t.title,t.slug,e.starts_at,e.ends_at,
+                        e.starts_at AT TIME ZONE $2 AS local_start,
+                        e.ends_at AT TIME ZONE $2 AS local_end,
+                        ((e.ends_at - interval '1 microsecond') AT TIME ZONE $2)::date AS last_day
+                 FROM events e JOIN event_translations t ON t.event_id=e.id
+                 WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1
+                   AND e.starts_at < (($4::date + 1)::timestamp AT TIME ZONE 'UTC')
+                   AND e.ends_at > (($3::date - 1)::timestamp AT TIME ZONE 'UTC')
+             ) AS candidates
+             WHERE least(local_start::date,last_day) < $4
+               AND greatest(local_start::date,last_day) >= $3
+             ORDER BY starts_at,id LIMIT $6 OFFSET $5",
         )
         .bind(locale)
         .bind(zone)
         .bind(first)
         .bind(next)
+        .bind(offset)
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?)
     }
@@ -171,6 +179,8 @@ impl Events {
         &self,
         locale: &str,
         slug: Option<&str>,
+        offset: i64,
+        limit: i64,
     ) -> Result<Vec<ExportEvent>, Error> {
         Ok(sqlx::query_as(
             "SELECT e.id,t.title,t.summary,e.starts_at,e.ends_at,e.updated_at
@@ -178,10 +188,12 @@ impl Events {
              WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1
                AND (($2::text IS NOT NULL AND t.slug=$2)
                     OR ($2::text IS NULL AND e.ends_at>CURRENT_TIMESTAMP))
-             ORDER BY e.starts_at,e.id",
+             ORDER BY e.starts_at,e.id LIMIT $4 OFFSET $3",
         )
         .bind(locale)
         .bind(slug)
+        .bind(offset)
+        .bind(limit)
         .fetch_all(&self.pool)
         .await?)
     }

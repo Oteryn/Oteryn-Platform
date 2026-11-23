@@ -16,7 +16,11 @@ use oteryn_admin::{
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
     web::{PanelConfig, PortalIdentity, StaffSession},
 };
-use oteryn_web::session::{self, BrowserSession, SessionLayer};
+use oteryn_web::{
+    Language,
+    ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter},
+    session::{self, BrowserSession, SessionLayer},
+};
 use sqlx::PgPool;
 use std::sync::Arc;
 use time::{
@@ -41,6 +45,13 @@ pub fn public_router(pool: PgPool) -> Router {
         .route_layer(middleware::from_fn_with_state(
             sessions,
             session::middleware,
+        ))
+        .route("/{locale}/events/upcoming.ics", get(ical::upcoming))
+        .route("/{locale}/events/{slug}/event.ics", get(ical::single))
+        .route_layer(middleware::from_fn(limit_calendar))
+        .route_layer(middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            ratelimit::supply,
         ));
     Router::new()
         .route("/events", get(|| async { Redirect::to("/pl/events") }))
@@ -56,11 +67,32 @@ pub fn public_router(pool: PgPool) -> Router {
         )
         .route("/{locale}/events", get(index))
         .route("/{locale}/events/{slug}", get(show))
-        .route("/{locale}/events/upcoming.ics", get(ical::upcoming))
-        .route("/{locale}/events/{slug}/event.ics", get(ical::single))
+        .route("/events/calendar.css", get(calendar::stylesheet))
         .merge(calendar)
         .with_state(Events::new(pool))
         .layer(middleware::from_fn(headers))
+}
+
+async fn limit_calendar(
+    Extension(limiter): Extension<RateLimiter>,
+    source: Option<ClientSource>,
+    request: Request,
+    next: Next,
+) -> Response {
+    // Network listeners attach the transport peer. In-process callers have no peer.
+    if let Some(ClientSource(ip)) = source
+        && let Err(denial) = limiter
+            .check(NamedPolicy::PublicGameData, &[Keys::source(ip)])
+            .await
+    {
+        let lang = if request.uri().path().starts_with("/en/") {
+            Language::En
+        } else {
+            Language::Pl
+        };
+        return denial.response(lang, false);
+    }
+    next.run(request).await
 }
 async fn headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;

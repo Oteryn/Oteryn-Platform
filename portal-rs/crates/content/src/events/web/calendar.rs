@@ -1,5 +1,8 @@
 use super::{TimeLabel, display_date, locale, response, text};
-use crate::events::{Error, Events, repository::CalendarEvent};
+use crate::{
+    Pagination,
+    events::{Error, Events, repository::CalendarEvent},
+};
 use askama::Template;
 use axum::{
     Extension, Form,
@@ -14,6 +17,14 @@ use time::{Date, Month};
 const ZONE_COOKIE: &str = "__Host-oteryn_events_zone";
 const DEFAULT_ZONE: &str = "UTC";
 const MAX_YEAR: i32 = 9998;
+const PAGE_SIZE: i64 = 200;
+
+pub(super) async fn stylesheet() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../../../../templates/events/calendar.css"),
+    )
+}
 
 pub(super) fn cookie_zone(headers: &HeaderMap) -> Option<&str> {
     headers
@@ -28,6 +39,8 @@ pub(super) fn cookie_zone(headers: &HeaderMap) -> Option<&str> {
 #[derive(Deserialize)]
 pub(super) struct MonthQuery {
     month: Option<String>,
+    #[serde(default)]
+    page: u32,
 }
 
 fn parse_month(value: &str) -> Result<Date, Error> {
@@ -105,6 +118,11 @@ struct CalendarPage<'a> {
     month: String,
     previous: Option<String>,
     next: Option<String>,
+    previous_page: Option<u32>,
+    next_page: Option<u64>,
+    previous_page_label: String,
+    next_page_label: String,
+    page: u32,
     weekdays: [String; 7],
     weeks: Vec<&'a [Option<&'a CalendarDay<'a>>]>,
     days: &'a [CalendarDay<'a>],
@@ -157,9 +175,23 @@ async fn render_month(
         &format!("month-{}", month.to_string().to_ascii_lowercase()),
     );
 
-    let items: Vec<_> = events
-        .calendar_events(lang, zone, first, next)
-        .await?
+    let pagination = Pagination { page: query.page };
+    let mut rows = events
+        .calendar_events(
+            lang,
+            zone,
+            first,
+            next,
+            pagination.offset(PAGE_SIZE),
+            PAGE_SIZE + 1,
+        )
+        .await?;
+    if query.page > 0 && rows.is_empty() {
+        return Err(Error::NotFound);
+    }
+    let more = rows.len() as i64 > PAGE_SIZE;
+    rows.truncate(PAGE_SIZE as usize);
+    let items: Vec<_> = rows
         .into_iter()
         .map(|row| CalendarItem::new(lang, row))
         .collect();
@@ -202,6 +234,11 @@ async fn render_month(
         month: month_key(first),
         previous: (previous.year() >= 1).then(|| month_key(previous)),
         next: (next.year() <= MAX_YEAR).then(|| month_key(next)),
+        previous_page: query.page.checked_sub(1),
+        next_page: more.then(|| pagination.next()),
+        previous_page_label: text(lang, "previous-events"),
+        next_page_label: text(lang, "next-events"),
+        page: query.page,
         weekdays: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
             .map(|day| text(lang, &format!("weekday-{day}"))),
         weeks: cells.chunks(7).collect(),
@@ -255,6 +292,10 @@ async fn save_zone(
     if let Some(first) = month {
         target.push_str("?month=");
         target.push_str(&month_key(first));
+    }
+    if query.page > 0 {
+        target.push(if month.is_some() { '&' } else { '?' });
+        target.push_str(&format!("page={}", query.page));
     }
     Ok(([(header::SET_COOKIE, cookie)], Redirect::to(&target)).into_response())
 }

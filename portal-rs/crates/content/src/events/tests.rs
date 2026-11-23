@@ -698,7 +698,8 @@ async fn postgres_public_events_only_link_to_nonempty_pages() {
         sqlx::query(
             "WITH added AS (
                 INSERT INTO events(status, starts_at, ends_at, created_by, updated_by, published_by)
-                SELECT 'published', now(), now()+interval '1 day', $1, $1, $1
+                SELECT 'published', '2096-04-01 01:00Z'::timestamptz,
+                       '2096-04-02 00:00Z'::timestamptz, $1, $1, $1
                 FROM generate_series(1, $2) RETURNING id
             )
             INSERT INTO event_translations(event_id, locale, title, slug, summary, body)
@@ -721,7 +722,106 @@ async fn postgres_public_events_only_link_to_nonempty_pages() {
             let second = public_html(&app, &format!("{path}?page=1")).await;
             assert_eq!(second.matches("<article ").count(), usize::from(count == 1));
             assert!(!second.contains("href=\"?page=2\""));
+
+            let calendar = format!("{path}/calendar/month?month=2096-04");
+            let first = public_html(&app, &calendar).await;
+            assert_eq!(first.matches("id=\"day-2096-04-01\"").count(), 1);
+            assert!(!first.contains("id=\"day-2096-04-02\""));
+            assert_eq!(first.contains("&amp;page=1\" rel=\"next\""), count == 1);
+            let second = request(app.clone(), &format!("{calendar}&page=1")).await;
+            assert_eq!(
+                second.status(),
+                if count == 1 {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                }
+            );
+            if count == 1 {
+                let second = to_bytes(second.into_body(), 50_000).await.unwrap();
+                let second = std::str::from_utf8(&second).unwrap();
+                assert!(second.contains("&amp;page=0\" rel=\"prev\""));
+                assert!(!second.contains("&amp;page=2\" rel=\"next\""));
+            }
+
+            let feed = format!("{path}/upcoming.ics");
+            let first = request(app.clone(), &feed).await;
+            assert_eq!(first.status(), StatusCode::OK);
+            let follow = format!("<{feed}?page=1>; rel=\"next\"");
+            assert_eq!(
+                first
+                    .headers()
+                    .get(header::LINK)
+                    .map(|link| link.to_str().unwrap()),
+                (count == 1).then_some(follow.as_str()),
+            );
+            let first = to_bytes(first.into_body(), 100_000).await.unwrap();
+            let first = std::str::from_utf8(&first).unwrap();
+            assert_eq!(first.matches("BEGIN:VEVENT\r\n").count(), 200);
+            if count == 1 {
+                let second = public_html(&app, &format!("{feed}?page=1")).await;
+                assert_eq!(second.matches("BEGIN:VEVENT\r\n").count(), 1);
+                let uid = second
+                    .lines()
+                    .find(|line| line.starts_with("UID:"))
+                    .unwrap();
+                assert!(!first.contains(uid));
+            }
         }
+    }
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_calendar_shares_the_public_read_budget() {
+    use axum::extract::ConnectInfo;
+    use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
+    use std::net::SocketAddr;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("disposable PostgreSQL");
+    let peer: SocketAddr = "192.0.2.10:443".parse().unwrap();
+    let policy = NamedPolicy::PublicGameData;
+    RateLimiter::new(db.pool.clone())
+        .check(policy, &[Keys::source(peer.ip())])
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count)
+         SELECT limiter_name, key_hash, window_start + make_interval(secs => $3 * n), $2
+         FROM web_rate_limits CROSS JOIN generate_series(0, 1) AS n
+         WHERE limiter_name = $1
+         ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE
+         SET count = excluded.count",
+    )
+    .bind(policy.name())
+    .bind(policy.limit())
+    .bind(policy.window_seconds() as f64)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+
+    let app = web::public_router(db.pool.clone());
+    for (method, path) in [
+        ("GET", "/en/events/calendar/month"),
+        ("POST", "/en/events/calendar/month"),
+        ("GET", "/en/events/upcoming.ics"),
+        ("GET", "/en/events/example/event.ics"),
+    ] {
+        let reply = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .extension(ConnectInfo(peer))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(reply.headers().contains_key(header::RETRY_AFTER));
     }
     db.close().await;
 }

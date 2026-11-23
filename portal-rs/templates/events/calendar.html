@@ -6,7 +6,7 @@
   <title>{{ heading }} · {{ title }}</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/events/calendar.css">
+  <link rel="stylesheet" href="/events/calendar.css">
 </head>
 <body class="op-theme">
   <main class="op-stack op-panel events-page">
@@ -23,7 +23,7 @@
         </div>
         <button class="op-button" type="submit">{{ show_month_label }}</button>
       </form>
-      <form method="post" action="/{{ lang }}/events/calendar/month?month={{ month }}" class="events-controls">
+      <form method="post" action="/{{ lang }}/events/calendar/month?month={{ month }}{% if page > 0 %}&amp;page={{ page }}{% endif %}" class="events-controls">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         <div>
           <label for="event-zone">{{ zone_label }}</label>
@@ -77,6 +77,12 @@
     </section>
     {% endif %}
     {% endfor %}
+    {% if previous_page.is_some() || next_page.is_some() %}
+    <div class="events-controls">
+      {% if let Some(previous) = previous_page %}<a href="?month={{ month }}&amp;page={{ previous }}" rel="prev">{{ previous_page_label }}</a>{% endif %}
+      {% if let Some(next) = next_page %}<a href="?month={{ month }}&amp;page={{ next }}" rel="next">{{ next_page_label }}</a>{% endif %}
+    </div>
+    {% endif %}
   </main>
 </body>
 </html>
