@@ -693,13 +693,14 @@ async fn deletion(
 }
 
 pub fn configured_operator_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    oteryn_admin::web::configured_guard(
+    let routes = oteryn_admin::web::configured_guard(
         Router::new()
             .route("/admin/account-closure", get(operator_status))
             .with_state(pool.clone()),
         pool,
         oteryn_admin::rbac::Permission::ViewAudit,
-    )
+    )?;
+    Ok(oteryn_web::ratelimit::finish_routes(routes))
 }
 
 #[derive(serde::Deserialize)]
