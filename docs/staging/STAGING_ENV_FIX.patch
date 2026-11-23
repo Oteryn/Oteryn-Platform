@@ -1,0 +1,624 @@
+Oracle staging qualification update
+Base for this patch is codex/staging-infra at 903b9bcecd6c5bd0d6591e58d993f2714c9e2dc9.
+Apply this patch from the root of that infrastructure checkout.
+
+The browser image supplies the exact revision's executable, static files,
+Rust sources for feature-flag discovery, and contract fixtures for outbox
+tests. Python generates the pinned negative catalogue candidate and OpenSSL
+generates ephemeral test certificates.
+
+The Compose changes give browser qualification a temporary PostgreSQL 18.6
+cluster. Browser and PostgreSQL share loopback on a separate internal network.
+The namespace allows the CI launcher's SMTP ports 465 and 587. PostgreSQL
+data, keys and reports use temporary filesystems with bounded resources.
+
+The deployment script generates independent credentials for that cluster,
+starts it before the browser and removes it after completion or timeout.
+The browser calls local.mjs and run.mjs with the launcher's private environment
+file. The launcher supplies Game and payment fixtures, enabled test flags,
+OAuth configuration, sources, seed data and legal pages. This restores the
+complete Polish desktop project. Oracle retains deployed-stack readiness
+and keeps its tunnel-facing flags and data independent of qualification.
+
+The runner keeps the existing literal spec filter and a two-hour CI browser
+budget. It reports pass, fail and skip counts and test identities. It leaves
+raw assertion messages and browser artifacts inside the temporary container.
+The infrastructure tests check loopback isolation, credential separation,
+full spec collection, the time budget and cleanup.
+
+diff --git a/deploy/oracle/README.md b/deploy/oracle/README.md
+index 59440cf..9984eff 100644
+--- a/deploy/oracle/README.md
++++ b/deploy/oracle/README.md
+@@ -554,8 +554,8 @@ install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.y
+
+ The host needs Python 3.11+, Git, OpenSSL, Docker Engine 28+ with BuildKit and
+ Compose v2, at least four CPUs and 10 GiB RAM. The largest running staging
+-workload, including the stack and one test container, is capped at two CPUs
+-and under 5 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
++workload, including the stack and browser qualification, is capped at 2.4 CPUs
++and under 6 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
+ The CLI refuses a held production deployment lock or a pending production
+ deployment when it starts, before building, and before replacing staging.
+ Each check releases its shared read lock immediately.
+@@ -576,28 +576,28 @@ Keep the generated environment files and captured mail private.
+
+ Each replacement recreates PostgreSQL, migrates it, installs the testing legal
+ pages and seeds a disposable account through the portal CLI. The staging portal
+-is reachable on `127.0.0.1:18080` on the host, including `/readyz`. The browser
+-container connects through its own loopback HTTPS origin and trusts the generated
+-staging CA. Port 18080 is served by `portal-public`, a second `serve` on the
++is reachable on `127.0.0.1:18080` on the host, including `/readyz`. Port 18080
++is served by `portal-public`, a second `serve` on the
+ same database whose origin comes from `/opt/oteryn-staging/public-origin`
+ (one `https://<hostname>` line; without the file it is the loopback origin).
+ Put the tunnel hostname there when staging is published behind Cloudflare
+-Access, so CSRF, passkeys and mail links match the address people use; the
+-in-stack E2E keeps the loopback origin. The staff panel runs only on its own
++Access, so CSRF, passkeys and mail links match the address people use. The
++staff panel runs only on its own
+ host, named in `/opt/oteryn-staging/admin-origin` (one `https://<hostname>`
+ line, different from `public-origin`, routed by the same tunnel to port 18080).
+ Cookies are host-only, so staff sign in there separately from the player
+ portal; without the file the staff panel stays off. Passkeys are bound to the
+ public host, so staff use TOTP on the staff host. Mail goes to the stack's authenticated
+-STARTTLS catcher. Game,
+-store and payment features are disabled. With no spec argument Playwright
+-runs every collected spec except those in `STAGING_IGNORED` in
+-`staging-deploy.py`; each entry names what it needs that staging does not have
+-(a running Game, money features, or a local-harness control endpoint). A spec
+-named on the command line always runs. The in-stack E2E portal enables the same
+-read-only features as `portal-public` plus the staff panel on its loopback
+-origin, and the browser container shares its MFA key so the seed CLI can
+-provision MFA accounts.
++STARTTLS catcher. Game, store and payment features are disabled on this deployment.
++
++Browser qualification runs the deployed revision's portal binary in a disposable
++CI fixture stack via `portal-rs/e2e/local.mjs` and `run.mjs`. The browser and its
++temporary PostgreSQL cluster share an isolated network namespace and never
++connect to the tunnel-facing deployment. The synthetic Game producers and
++payment fixture run there with throwaway keys. The launcher owns the flags,
++legal pages, test CA, mail sink and seed data. With no spec filter Playwright
++runs the full `pl-1440` project. The separate Portal RS E2E workflow covers all
++four projects. The staging report retains counts, test names and failure types.
+
+ ### Staging from GitHub Actions
+
+diff --git a/deploy/oracle/staging-deploy.py b/deploy/oracle/staging-deploy.py
+index d258694..f4697b2 100644
+--- a/deploy/oracle/staging-deploy.py
++++ b/deploy/oracle/staging-deploy.py
+@@ -52,9 +52,8 @@ OFF = (
+     'PORTAL_PLAYERDATA_G9_INGEST_ENABLED', 'PORTAL_PLAYERDATA_G10_INGEST_ENABLED',
+     'PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED', 'PORTAL_ACCOUNT_CLOSURE_ENABLED',
+ )
+-# Read-only features production enables (/opt/oteryn-portal/portal.env), on both
+-# the tunnel-facing portal-public and the in-stack E2E portal. Flags that need a
+-# running Game or money (OFF) stay off.
++# The deployed staging profile keeps the read-only public features. By design,
++# it has no Game or payment fixture configuration.
+ PUBLIC_FLAGS = (
+     'OTERYN_ACCOUNT_BADGES_ENABLED', 'OTERYN_ACCOUNT_EXPORT_ENABLED',
+     'OTERYN_ATLAS_ENABLED', 'OTERYN_ATLAS_BESTIARY_ENABLED', 'OTERYN_ATLAS_DELIVERY_ENABLED',
+@@ -74,33 +73,6 @@ ADMIN_FLAGS = (
+     'OTERYN_ADMIN_PANEL', 'OTERYN_ADMIN_PLAYERS', 'OTERYN_ADMIN_PLAYER_CHARACTERS',
+     'OTERYN_ADMIN_CONSOLE', 'OTERYN_ADMIN_CONTROL',
+ )
+-# The in-stack E2E runs every collected spec except these, each of which needs
+-# something the staging profile does not provide (rule: no Game, no money, no
+-# local-harness control endpoint). A spec named on the command line still runs.
+-STAGING_IGNORED = {
+-    'specs/outbox.spec.mjs': 'local harness --outbox report',
+-    'specs/league.spec.mjs': 'league fixture producer',
+-    'specs/public-depth-minigames.spec.mjs': 'league fixture producer',
+-    'specs/account-closure.spec.mjs': 'Game closure control endpoint',
+-    'specs/rate-limits-export-profile.spec.mjs': 'Game closure control endpoint',
+-    'specs/lifecycle.spec.mjs': 'Game-backed account closure (OFF)',
+-    'specs/oauth.spec.mjs': 'local harness OAuth callback client',
+-    'specs/character-create-nav.spec.mjs': 'spawns its own harness and Game',
+-    'specs/account.spec.mjs': 'walks shop, bazaar and season pass (money, OFF)',
+-    'specs/wallet-topup.spec.mjs': 'payments (OFF)',
+-    'specs/season-pass.spec.mjs': 'season pass wallet (OFF)',
+-    'specs/staff-commerce-store.spec.mjs': 'store (OFF)',
+-    'specs/staff-commerce-referrals.spec.mjs': 'store and coins (OFF)',
+-    'specs/staff-commerce-premium.spec.mjs': 'premium payments (OFF)',
+-    'specs/staff-commerce-codes.spec.mjs': 'store codes (OFF)',
+-    'specs/staff-commerce-reconciliation.spec.mjs': 'payments (OFF)',
+-    'specs/bazaar.spec.mjs': 'bazaar and the local fake Game (OFF)',
+-    'specs/game-sim-boundaries.spec.mjs': 'local fake Game',
+-    'specs/game-sim-bazaar.spec.mjs': 'local fake Game',
+-    'specs/gm-bazaar.spec.mjs': 'local fake Game',
+-    'bazaar/legacy.spec.mjs': 'local PostgreSQL administrator URL',
+-    'security/auth-throttle.spec.mjs': 'per-peer addresses from the local harness proxy',
+-}
+ # One staff account per built-in role (staff-<role>@example.invalid, plus
+ # founder@example.invalid as platform_admin). Passwords are random and
+ # discarded: each black-box tester takes over its own account through the
+@@ -274,8 +246,9 @@ def build_context(directory, pg=False):
+     lock = e2e / 'package-lock.json'
+     cargo_lock = portal / 'Cargo.lock'
+     paths = [portal, e2e, lock, cargo_lock, e2e / 'package.json']
++    paths += [directory / name for name in ('docs', 'docs/contracts', 'docs/contracts/fixtures')]
+     if pg:
+-        paths += [directory / name for name in ('docs', 'docs/contracts', 'deploy', 'deploy/oracle')]
++        paths += [directory / name for name in ('deploy', 'deploy/oracle')]
+     if any(path.is_symlink() for path in paths):
+         raise Refusal('staging build inputs must be within the checkout')
+     packages = json.loads(lock.read_text())['packages']
+@@ -316,7 +289,8 @@ def build(directory, sha, target):
+             '--build-arg', 'CARGO_BUILD_JOBS=2', '--label', f'{REVISION}={sha}',
+             '-f', str(ROOT / 'staging.Dockerfile'), '-t', image]
+     if target == 'browser':
+-        args += ['--build-context', f'e2e={portal / "e2e"}']
++        args += ['--build-context', f'e2e={portal / "e2e"}',
++                 '--build-context', f'contracts={directory / "docs/contracts"}']
+     elif target == 'builder':
+         args += ['--build-context', f'contracts={directory / "docs/contracts"}',
+                  '--build-context', f'oracle={directory / "deploy/oracle"}']
+@@ -366,7 +340,7 @@ def random_hex_key():
+
+ def configure(directory, sha):
+     db_password, smtp_password, test_password = (secrets.token_urlsafe(32) for _ in range(3))
+-    local_db = f'postgres://portal:{db_password}@127.0.0.1:5432/{PORTAL_DB}'
++    browser_password = secrets.token_urlsafe(32)
+     test_db = f'postgres://staging_tests:{test_password}@postgres:5432/{TEST_DB}'
+     env_file(directory, 'compose.env', {
+         'STAGING_IMAGE': image_tag(sha), 'STAGING_BROWSER': image_tag(sha, 'browser'),
+@@ -377,9 +351,6 @@ def configure(directory, sha):
+     })
+     portal = dict.fromkeys(OFF, 'false')
+     portal.update({f'OTERYN_ACCOUNT_{flag}': 'true' for flag in ACCOUNT_FLAGS})
+-    # The in-stack E2E portal is reachable only through the browser container's
+-    # loopback origin; it runs the same read-only features and the staff panel
+-    # there so the specs can reach them (as the local harness does).
+     portal.update({flag: 'true' for flag in PUBLIC_FLAGS + ADMIN_FLAGS})
+     portal['OTERYN_ADMIN_HOST'] = ORIGIN.split('://', 1)[1]
+     portal.update({
+@@ -408,20 +379,19 @@ def configure(directory, sha):
+         'OTERYN_WEBAUTHN_RP_ID': host.split(':', 1)[0],
+         'OTERYN_NOTIFY_UNSUBSCRIBE_URL': f'{origin}/en/unsubscribe',
+     })
++    env_file(directory, 'browser-postgres.env', {
++        'POSTGRES_USER': 'portal', 'POSTGRES_DB': 'postgres', 'POSTGRES_PASSWORD': browser_password,
++    })
+     env_file(directory, 'browser.env', {
+-        'OTERYN_ENV': 'testing', 'APP_ENV': 'testing', 'OTERYN_PUBLIC_ORIGIN': ORIGIN,
+-        'OTERYN_STATIC_DIR': '/app/static', 'PORTAL_E2E_ORIGIN': ORIGIN,
++        'PORTAL_E2E_ADMIN_DATABASE_URL': f'postgres://portal:{browser_password}@127.0.0.1:5432/postgres',
+         'PORTAL_E2E_BINARY': '/usr/local/bin/staging-portal',
+-        'OTERYN_DATABASE_URL': local_db, 'PORTAL_E2E_DATABASE_URL': local_db,
+-        # The seed CLI encrypts MFA secrets the deployed portal must decrypt.
+-        'OTERYN_MFA_KEY': portal['OTERYN_MFA_KEY'],
+-        'STAGING_IGNORED': json.dumps(sorted(STAGING_IGNORED)),
++        'PORTAL_E2E_SCRATCH': '/tmp/portal-e2e',
+     })
+     env_file(directory, 'pg-tests.env', {
+         'DATABASE_URL': test_db, 'PORTAL_TEST_DATABASE_URL': test_db, 'RUST_TEST_THREADS': '1',
+     })
+     seed_password = secrets.token_urlsafe(32)
+-    sensitive = [db_password, smtp_password, test_password, seed_password,
++    sensitive = [db_password, smtp_password, test_password, seed_password, browser_password,
+                  portal['OTERYN_MFA_KEY'], portal['OTERYN_RESET_DELIVERY_KEY'],
+                  portal['OTERYN_NOTIFY_UNSUBSCRIBE_KEY']]
+     return smtp_password, test_password, seed_password, sensitive
+@@ -440,15 +410,14 @@ def install_tls(directory, smtp_password):
+              '-subj', '/CN=Oracle Staging CA', '-addext', 'basicConstraints=critical,CA:TRUE',
+              '-keyout', 'ca-key.pem', '-out', 'ca.pem'], cwd=tls)
+         files = [('trust/ca.pem', (tls / 'ca.pem').read_bytes(), 0o444)]
+-        for service, host in (('mail', 'mail'), ('browser', 'localhost')):
+-            run(['openssl', 'req', '-newkey', 'rsa:2048', '-noenc', '-subj', f'/CN={host}',
+-                 '-keyout', 'key.pem', '-out', 'leaf.csr'], cwd=tls)
+-            (tls / 'extensions').write_text(f'subjectAltName=DNS:{host}\nextendedKeyUsage=serverAuth\n')
+-            run(['openssl', 'x509', '-req', '-in', 'leaf.csr', '-CA', 'ca.pem', '-CAkey',
+-                 'ca-key.pem', '-CAcreateserial', '-days', '7', '-extfile', 'extensions',
+-                 '-out', 'leaf.pem'], cwd=tls)
+-            for name in ('key.pem', 'leaf.pem'):
+-                files.append((f'{service}/{name}', (tls / name).read_bytes(), 0o444))
++        run(['openssl', 'req', '-newkey', 'rsa:2048', '-noenc', '-subj', '/CN=mail',
++             '-keyout', 'key.pem', '-out', 'leaf.csr'], cwd=tls)
++        (tls / 'extensions').write_text('subjectAltName=DNS:mail\nextendedKeyUsage=serverAuth\n')
++        run(['openssl', 'x509', '-req', '-in', 'leaf.csr', '-CA', 'ca.pem', '-CAkey',
++             'ca-key.pem', '-CAcreateserial', '-days', '7', '-extfile', 'extensions',
++             '-out', 'leaf.pem'], cwd=tls)
++        for name in ('key.pem', 'leaf.pem'):
++            files.append((f'mail/{name}', (tls / name).read_bytes(), 0o444))
+         files.append(('mail/auth', f'portal:{smtp_password}\n'.encode(), 0o444))
+         payload = io.BytesIO()
+         with tarfile.open(fileobj=payload, mode='w') as archive:
+@@ -506,87 +475,95 @@ def replace_stack(directory, sha, smtp_password, seed_password):
+     wait_ready()
+
+
+-# Loopback services mirror the repository browser fixtures. Branch Node code
+-# runs as a confined container user on the internal staging network.
++# Use the CI launcher on a disposable PostgreSQL cluster in the browser's
++# network namespace. Neither service joins the deployed portal's network.
+ BROWSER = r"""
+ const fs = require('node:fs');
+ const https = require('node:https');
+-const http = require('node:http');
+-const net = require('node:net');
+-const { spawn, execFileSync } = require('node:child_process');
+-
+-async function proxy(req, res) {
+-  if (req.url === '/__mail') {
+-    try {
+-      const mail = 'http://mail:8025/api/v1/';
+-      const { messages } = await (await fetch(mail + 'messages')).json();
+-      const captured = await Promise.all((messages ?? []).map(async message => ({
+-        to: message.To.map(recipient => recipient.Address),
+-        raw: await (await fetch(new URL('message/' + encodeURIComponent(message.ID) + '/raw', mail))).text(),
+-      })));
+-      res.setHeader('content-type', 'application/json');
+-      res.end(JSON.stringify(captured.reverse()));
+-    } catch {
+-      res.writeHead(502).end();
+-    }
+-    return;
++const { spawn } = require('node:child_process');
++const { setTimeout: delay } = require('node:timers/promises');
++
++const scratch = process.env.PORTAL_E2E_SCRATCH;
++const envFile = scratch + '/env.json';
++const reportFile = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;
++const configFile = '/tmp/staging.config.mjs';
++
++function ready() {
++  if (!fs.existsSync(envFile)) return false;
++  return new Promise(resolve => {
++    const request = https.get({
++      hostname: 'localhost', family: 4, port: 18443, path: '/en',
++      ca: fs.readFileSync(scratch + '/ca.pem'), timeout: 2000,
++    }, response => {
++      response.resume();
++      resolve(response.statusCode === 200);
++    });
++    request.on('timeout', () => request.destroy());
++    request.on('error', () => resolve(false));
++  });
++}
++
++function publish(report) {
++  // Assertion messages, attachments and stdout may contain generated credentials.
++  // Send only test metadata and a fixed classification for each failure.
++  function suites(input) {
++    return input.map(suite => ({
++      suites: suites(suite.suites ?? []),
++      specs: (suite.specs ?? []).map(spec => ({
++        file: spec.file, title: spec.title,
++        tests: spec.tests.map(test => ({
++          status: test.status, projectName: test.projectName,
++          results: test.results.slice(-1).map(result => ({
++            error: {message: {
++              timedOut: 'test timed out', failed: 'test failed', interrupted: 'test interrupted',
++            }[result.status] ?? 'test did not pass'},
++          })),
++        })),
++      })),
++    }));
+   }
+-  const upstream = http.request({
+-    hostname: 'portal', port: 8080, path: req.url, method: req.method, headers: req.headers,
+-  }, result => { res.writeHead(result.statusCode, result.headers); result.pipe(res); });
+-  upstream.on('error', () => res.writeHead(502).end());
+-  req.pipe(upstream);
++  process.stdout.write(JSON.stringify({
++    stats: report.stats, suites: suites(report.suites),
++    errors: report.errors.map(() => ({message: 'Playwright runner error'})),
++  }));
+ }
+
+ async function start() {
+-  const nss = '/tmp/.pki/nssdb';
+-  fs.mkdirSync(nss, {recursive: true});
+-  execFileSync('certutil', ['-N', '--empty-password', '-d', 'sql:' + nss]);
+-  execFileSync('certutil', ['-A', '-n', 'Oracle staging', '-t', 'C,,',
+-                           '-i', '/trust/ca.pem', '-d', 'sql:' + nss]);
+-  const web = https.createServer({
+-    cert: fs.readFileSync('/tls/leaf.pem'), key: fs.readFileSync('/tls/key.pem'),
+-  }, proxy);
+-  const pg = net.createServer(local => {
+-    const remote = net.connect(5432, 'postgres');
+-    local.on('error', () => remote.destroy());
+-    remote.on('error', () => local.destroy());
+-    local.pipe(remote).pipe(local);
+-  });
+-  const listen = (server, port) => new Promise((resolve, reject) => {
+-    server.once('error', reject);
+-    server.listen(port, '127.0.0.1', resolve);
+-  });
+-  await Promise.all([listen(web, 18443), listen(pg, 5432)]);
+-  fs.writeFileSync('/tmp/staging.config.mjs', `
+-    import base from '/workspace/e2e/playwright.config.mjs';
+-    import { chromium } from '/workspace/e2e/node_modules/playwright/index.mjs';
+-    const ignored = process.argv.includes('--') ? [] :
+-      JSON.parse(process.env.STAGING_IGNORED || '[]').map(spec => '/workspace/e2e/' + spec);
+-    export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts', testIgnore: ignored,
+-      // Only the JSON report leaves the container: traces and screenshots of
+-      // failures filled the 512 MB /tmp and crashed every later page.
+-      use: {...base.use, ignoreHTTPSErrors: false, trace: 'off', screenshot: 'off', video: 'off',
+-        launchOptions: {...base.use.launchOptions, executablePath: chromium.executablePath()}}};
+-  `);
+-  // One project: all four run serially for over two hours, past the one-hour cap.
+-  // Portal RS E2E runs every project on each change; staging proves the deployed stack.
+-  const args = ['node_modules/@playwright/test/cli.js', 'test', '--config=/tmp/staging.config.mjs',
+-                '--project=pl-1440', '--reporter=json'];
+-  if (process.argv[1]) args.push('--', process.argv[1]);
+-  const child = spawn(process.execPath, args, {stdio: 'ignore'});
+-  child.on('exit', code => {
+-    pg.close();
+-    web.close();
+-    const report = '/tmp/report.json';
+-    if (fs.existsSync(report) && fs.statSync(report).size <= 16 * 1024 * 1024) {
+-      process.stdout.write(fs.readFileSync(report), () => process.exit(code ?? 1));
+-    } else {
+-      process.exit(1);
++  const launcher = spawn(process.execPath, ['local.mjs'], {stdio: 'ignore'});
++  const stopped = new Promise(resolve => launcher.once('close', resolve));
++  try {
++    const deadline = Date.now() + 180_000;
++    while (!await ready()) {
++      if (launcher.exitCode !== null || launcher.signalCode !== null || Date.now() >= deadline) {
++        const report = {stats: {expected: 0, unexpected: 0, flaky: 0, skipped: 0},
++          suites: [], errors: [{message: 'CI fixture stack did not become ready'}]};
++        process.stdout.write(JSON.stringify(report));
++        return 1;
++      }
++      await delay(1000);
+     }
+-  });
++    fs.writeFileSync(configFile, `
++      import base from '/workspace/e2e/playwright.config.mjs';
++      import { chromium } from '/workspace/e2e/node_modules/playwright/index.mjs';
++      export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts',
++        use: {...base.use, trace: 'off', screenshot: 'off', video: 'off',
++          launchOptions: {...base.use.launchOptions, executablePath: chromium.executablePath()}}};
++    `);
++    const args = ['run.mjs', envFile, 'test', '--config=' + configFile,
++                  '--project=pl-1440', '--reporter=json'];
++    if (process.argv[1]) args.push('--', process.argv[1]);
++    const child = spawn(process.execPath, args, {stdio: 'ignore'});
++    const code = await new Promise(resolve => child.once('close', resolve));
++    if (fs.existsSync(reportFile) && fs.statSync(reportFile).size <= 16 * 1024 * 1024) {
++      publish(JSON.parse(fs.readFileSync(reportFile, 'utf8')));
++    }
++    return code ?? 1;
++  } finally {
++    launcher.kill('SIGINT');
++    await stopped;
++  }
+ }
+-start().catch(() => process.exit(1));
++start().then(code => {process.exitCode = code;}, () => {process.exitCode = 1;});
+ """
+
+
+@@ -635,17 +612,22 @@ def playwright_summary(result, sensitive):
+
+ def playwright(directory, spec, sensitive):
+     # Playwright takes positional file filters as regexes. Match the literal spec.
+-    result = test_container(directory, 'browser', '-e', BROWSER, '--', re.escape(spec))
++    try:
++        compose(directory, 'up', '-d', '--wait', '--wait-timeout', '90', 'browser-postgres')
++        result = test_container(directory, 'browser', '-e', BROWSER, '--', re.escape(spec),
++                                timeout=7200)
++    finally:
++        compose(directory, 'rm', '--stop', '--force', 'browser-postgres')
+     if result is None:
+         return False, ['Playwright timed out']
+     return playwright_summary(result, sensitive)
+
+
+-def test_container(directory, service, *arguments):
++def test_container(directory, service, *arguments, timeout=3600):
+     name = f'{PROJECT}_{service}_job'
+     try:
+         return compose(directory, 'run', '--rm', '--no-deps', '-T', '--name', name,
+-                       service, *arguments, output=True, check=False, timeout=3600)
++                       service, *arguments, output=True, check=False, timeout=timeout)
+     except subprocess.TimeoutExpired:
+         run(['docker', 'container', 'rm', '--force', name], check=False)
+         return None
+diff --git a/deploy/oracle/staging.Dockerfile b/deploy/oracle/staging.Dockerfile
+index 6d44a28..8e0d312 100644
+--- a/deploy/oracle/staging.Dockerfile
++++ b/deploy/oracle/staging.Dockerfile
+@@ -46,7 +46,7 @@ ENTRYPOINT ["/app/oteryn-portal"]
+
+ FROM mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d AS browser
+ RUN apt-get update \
+-    && apt-get install -y --no-install-recommends libnss3-tools \
++    && apt-get install -y --no-install-recommends openssl python3 \
+     && rm -rf /var/lib/apt/lists/* \
+     && useradd -r -u 10001 browser
+ WORKDIR /workspace/e2e
+@@ -60,6 +60,9 @@ COPY --from=build /usr/lib/*-linux-gnu/ld-linux-*.so.* /usr/lib/*-linux-gnu/libc
+ RUN printf '%s\n' '#!/bin/sh' 'exec /portal-lib/ld-linux-*.so.* --library-path /portal-lib /app/oteryn-portal "$@"' > /usr/local/bin/staging-portal \
+     && chmod 0755 /usr/local/bin/staging-portal
+ COPY crates /workspace/crates
++COPY bin /workspace/bin
+ COPY templates /workspace/templates
++COPY --from=contracts fixtures /docs/contracts/fixtures
++RUN ln -s /app/static /workspace/static
+ USER 10001:10001
+ ENTRYPOINT ["node"]
+diff --git a/deploy/oracle/staging.compose.yml b/deploy/oracle/staging.compose.yml
+index 2dceef9..092acf1 100644
+--- a/deploy/oracle/staging.compose.yml
++++ b/deploy/oracle/staging.compose.yml
+@@ -59,8 +59,7 @@ services:
+     cpus: 0.2
+     mem_limit: 384m
+     command: [serve]
+-  # Same database and image; only the browser-facing origin differs. The
+-  # tunnel reaches it through ingress, the in-stack E2E keeps using portal.
++  # The tunnel reaches this origin through ingress.
+   portal-public:
+     <<: *app
+     env_file: [portal.env, public.env]
+@@ -141,24 +140,50 @@ services:
+     volumes:
+       - trust:/trust
+       - mail_tls:/mail
+-      - browser_tls:/browser
+-  browser:
++  browser-postgres:
+     <<: *confined
++    profiles: [operations]
++    image: postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
++    networks: [browser]
++    user: '999:999'
++    cpus: 0.4
++    mem_limit: 768m
++    env_file: browser-postgres.env
++    environment:
++      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
++    command: [postgres, -c, listen_addresses=127.0.0.1, -c, max_connections=200]
++    sysctls:
++      net.ipv4.ip_unprivileged_port_start: '0'
++    tmpfs:
++      - /var/lib/postgresql:size=512m,uid=999,gid=999
++      - /var/run/postgresql:size=16m,uid=999,gid=999
++      - /tmp:size=32m,uid=999,gid=999
++    healthcheck:
++      test: [CMD, pg_isready, -q, -h, '127.0.0.1', -U, portal, -d, postgres]
++      interval: 2s
++      timeout: 2s
++      retries: 30
++  browser:
+     profiles: [operations]
+     image: ${STAGING_BROWSER:?}
+     pull_policy: never
++    network_mode: service:browser-postgres
++    read_only: true
++    cap_drop: [ALL]
++    security_opt: [no-new-privileges:true]
++    pids_limit: 512
++    init: true
++    logging:
++      driver: local
++      options: {max-size: 10m, max-file: '2'}
+     cpus: 1
+-    mem_limit: 2g
++    mem_limit: 3g
+     shm_size: 256m
+     env_file: browser.env
+     environment:
+       HOME: /tmp
+-      NODE_EXTRA_CA_CERTS: /trust/ca.pem
+       PLAYWRIGHT_JSON_OUTPUT_FILE: /tmp/report.json
+       FORCE_COLOR: '0'
+-    volumes:
+-      - trust:/trust:ro
+-      - browser_tls:/tls:ro
+     tmpfs:
+       - /tmp:size=512m,uid=10001,gid=10001
+   pg-tests:
+@@ -184,9 +209,13 @@ networks:
+       com.docker.network.bridge.gateway_mode_ipv4: isolated
+   ingress:
+     driver: bridge
++  browser:
++    driver: bridge
++    internal: true
++    driver_opts:
++      com.docker.network.bridge.gateway_mode_ipv4: isolated
+ volumes:
+   data:
+   trust:
+   mail_tls:
+-  browser_tls:
+   pg_target:
+diff --git a/deploy/oracle/test_staging_deploy.py b/deploy/oracle/test_staging_deploy.py
+index f7a1fc9..a55bacb 100644
+--- a/deploy/oracle/test_staging_deploy.py
++++ b/deploy/oracle/test_staging_deploy.py
+@@ -188,11 +188,22 @@ class StagingDeploy(unittest.TestCase):
+                 self.assertGreater(int(service['mem_limit']), 0)
+                 for volume in service.get('volumes', []):
+                     self.assertEqual(volume['type'], 'volume')
+-                if name != 'ingress':
++                if name not in ('ingress', 'browser', 'browser-postgres'):
+                     self.assertEqual(set(service['networks']), {'net'})
+-        for job in ('browser', 'pg-tests'):
+-            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in (*core, job)), 2)
+-            self.assertLess(sum(int(services[name]['mem_limit']) for name in (*core, job)), 5 * 1024**3)
++        self.assertTrue(config['networks']['browser']['internal'])
++        self.assertEqual(config['networks']['browser']['driver_opts'],
++                         {'com.docker.network.bridge.gateway_mode_ipv4': 'isolated'})
++        self.assertEqual(set(services['browser-postgres']['networks']), {'browser'})
++        self.assertEqual(services['browser']['network_mode'], 'service:browser-postgres')
++        self.assertNotIn('networks', services['browser'])
++        self.assertEqual(services['browser-postgres']['image'], services['postgres']['image'])
++        self.assertIn('listen_addresses=127.0.0.1', services['browser-postgres']['command'])
++        self.assertNotIn('volumes', services['browser-postgres'])
++        self.assertNotIn('volumes', services['browser'])
++        for jobs, cpu, memory in ((('browser', 'browser-postgres'), 2.4, 6), (('pg-tests',), 2, 5)):
++            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in (*core, *jobs)), cpu)
++            self.assertLess(sum(int(services[name]['mem_limit']) for name in (*core, *jobs)),
++                            memory * 1024**3)
+         self.assertIn('postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42',
+                       services['postgres']['image'])
+         self.assertEqual(services['mail']['environment']['MP_SMTP_REQUIRE_STARTTLS'], 'true')
+@@ -353,19 +364,21 @@ class StagingDeploy(unittest.TestCase):
+         for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
+             self.assertIn(option, self.staging.BROWSER)
+
+-    def test_e2e_ignores_only_named_existing_specs_and_shares_the_mfa_key(self):
++    def test_e2e_uses_ci_launcher_and_a_separate_database(self):
+         staging = self.staging
+-        e2e = HERE.parents[1] / 'portal-rs' / 'e2e'
+-        for spec, reason in staging.STAGING_IGNORED.items():
+-            with self.subTest(spec=spec):
+-                self.assertTrue((e2e / spec).is_file())
+-                self.assertTrue(reason)
+         staging.configure(self.root, SHA)
+         browser = (self.root / 'browser.env').read_text()
+         portal = (self.root / 'portal.env').read_text()
+-        key = next(line for line in portal.splitlines() if line.startswith('OTERYN_MFA_KEY='))
+-        self.assertIn(key + '\n', browser)
+-        self.assertIn('testIgnore: ignored', staging.BROWSER)
++        source = (self.root / 'browser-postgres.env').read_text()
++        password = next(line.split('=', 1)[1] for line in source.splitlines()
++                        if line.startswith('POSTGRES_PASSWORD='))
++        self.assertIn(f'PORTAL_E2E_ADMIN_DATABASE_URL=postgres://portal:{password}@127.0.0.1:5432/postgres\n',
++                      browser)
++        self.assertNotIn(password, portal)
++        self.assertNotIn('OTERYN_MFA_KEY', browser)
++        self.assertIn("['local.mjs']", staging.BROWSER)
++        self.assertIn("'run.mjs', envFile, 'test'", staging.BROWSER)
++        self.assertNotIn('testIgnore', staging.BROWSER)
+
+     def test_playwright_runs_one_project_within_the_cap(self):
+         self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
+@@ -387,8 +400,12 @@ class StagingDeploy(unittest.TestCase):
+         self.assertEqual(summary, ['Playwright passed 3, failed 1, skipped 2',
+                                    'specs/a.spec.mjs: can register [en-390] — Expected [redacted]',
+                                    'skipped 2 in specs/a.spec.mjs'])
+-        self.assertEqual(command.call_args.args[0][-2:], ['--', r'specs/a\.spec\.mjs'])
+-        self.assert_isolated([command.call_args.args[0]])
++        self.assertEqual(command.call_args_list[0].args[0][-1], 'browser-postgres')
++        self.assertEqual(command.call_args_list[1].args[0][-2:], ['--', r'specs/a\.spec\.mjs'])
++        self.assertEqual(command.call_args_list[1].kwargs['timeout'], 7200)
++        self.assertEqual(command.call_args_list[2].args[0][-4:],
++                         ['rm', '--stop', '--force', 'browser-postgres'])
++        self.assert_isolated([item.args[0] for item in command.call_args_list])
+         report.update(suites=[], stats={'expected': 1, 'unexpected': 0, 'flaky': 0, 'skipped': 0})
+         self.assertTrue(staging.playwright_summary(
+             subprocess.CompletedProcess([], 0, stdout=json.dumps(report).encode()), [])[0])
+@@ -424,11 +441,13 @@ class StagingDeploy(unittest.TestCase):
+     def test_timeout_removes_only_the_named_test_container(self):
+         staging = self.staging
+         timeout = subprocess.TimeoutExpired(['docker'], 3600)
+-        with patch.object(staging, 'run', side_effect=[timeout, None]) as command:
++        with patch.object(staging, 'run', side_effect=[None, timeout, None, None]) as command:
+             self.assertEqual(staging.playwright(self.root, '', []),
+                              (False, ['Playwright timed out']))
+-        self.assertEqual(command.call_args.args[0],
++        self.assertEqual(command.call_args_list[2].args[0],
+                          ['docker', 'container', 'rm', '--force', 'oteryn-staging_browser_job'])
++        self.assertEqual(command.call_args_list[3].args[0][-4:],
++                         ['rm', '--stop', '--force', 'browser-postgres'])
+         self.assert_isolated([item.args[0] for item in command.call_args_list])
+
+     def test_deploy_rechecks_boundaries_before_replacement_and_saves_both_results(self):
