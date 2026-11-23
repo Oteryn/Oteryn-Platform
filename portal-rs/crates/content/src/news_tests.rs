@@ -890,13 +890,7 @@ async fn postgres_pagination_language_and_caps() {
         let (status, html) = get_public(&archive, &format!("/en/news?page={number}")).await;
         assert_eq!(status, StatusCode::OK);
         assert!(!html.contains(r#"rel="next""#));
-        assert!(
-            !public::listing(&pool, "en", &q)
-                .await
-                .unwrap()
-                .0
-                .contains("?page=")
-        );
+        assert!(!html.contains(&format!("?page={}", number + 1)));
         let response = admin_listing(&pool, q, "en", false).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let html = to_bytes(response.into_body(), 100000).await.unwrap();

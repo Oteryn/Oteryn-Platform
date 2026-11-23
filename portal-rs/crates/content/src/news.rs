@@ -373,7 +373,7 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
         lang,
         row.get("title"),
         format!(
-            "<p><a href=\"/{lang}/{section}\">{}</a>{}{discussion_link}",
+            "<p><a href=\"/{lang}/{section}\">{}</a></p>{}{discussion_link}",
             label(lang, section),
             article.render().map_err(unavailable)?
         ),
@@ -586,8 +586,10 @@ async fn new(
 }
 async fn edit(
     State(pool): State<PgPool>,
-    Extension(context): Extension<CheckContext>,
-    Extension(auth): Extension<MutationAuthorization>,
+    (Extension(context), Extension(auth)): (
+        Extension<CheckContext>,
+        Extension<MutationAuthorization>,
+    ),
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
