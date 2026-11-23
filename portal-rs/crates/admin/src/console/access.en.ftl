@@ -38,3 +38,6 @@ house = House
 bank = Bank balance
 logins = Last login times
 empty = No matching records.
+result-authority = Agent result verification
+result-key-current = Key current
+game-effects = Game-changing operations

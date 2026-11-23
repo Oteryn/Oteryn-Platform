@@ -38,3 +38,6 @@ house = Dom
 bank = Saldo banku
 logins = Czasy ostatnich logowań
 empty = Brak pasujących wpisów.
+result-authority = Weryfikacja wyników agentów
+result-key-current = Klucz aktywny
+game-effects = Operacje zmieniające stan gry

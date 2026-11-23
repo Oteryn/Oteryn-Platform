@@ -51,6 +51,7 @@ pub struct AgentStatus {
     pub agent_id: String,
     pub operations: Vec<String>,
     pub observed_at: String,
+    pub result_authority: bool,
 }
 #[derive(Debug, Clone, Default)]
 pub struct AccessSnapshot {
@@ -204,6 +205,11 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         self.auth.check(actor, permission).await.is_ok()
     }
     async fn advertised(&self, operation: &str) -> bool {
+        if crate::control::catalog::advertised_kind(operation, 1)
+            != Some(crate::control::signer::Kind::Query)
+        {
+            return false;
+        }
         let Ok(agents) = self.store.agents().await else {
             return false;
         };
@@ -213,10 +219,15 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
             return false;
         };
         live.next().is_none()
-            && agent
-                .advertised_operations
-                .iter()
-                .any(|op| op.operation == operation && op.operation_version == 1)
+            && self
+                .channel
+                .as_ref()
+                .is_some_and(|channel| channel.has_result_authority(&agent))
+            && agent.advertised_operations.iter().any(|op| {
+                op.operation == operation
+                    && op.operation_version == 1
+                    && op.kind == crate::control::Kind::Query
+            })
     }
     async fn players(
         &self,
@@ -311,6 +322,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
                     .into_iter()
                     .filter(|agent| agent.connected)
                     .map(|agent| AgentStatus {
+                        result_authority: self
+                            .channel
+                            .as_ref()
+                            .is_some_and(|channel| channel.has_result_authority(&agent)),
                         agent_id: agent.agent_id,
                         observed_at: agent.last_seen_at.to_string(),
                         operations: agent
@@ -537,6 +552,7 @@ pub(crate) struct Page {
     pub players: String,
     pub audit: String,
     pub access: String,
+    pub is_access: bool,
     pub approvals: String,
     pub search: bool,
     pub csrf: String,
@@ -564,6 +580,7 @@ impl Page {
             players: tr(lang, "players"),
             audit: tr(lang, "audit"),
             access: tr(lang, "access"),
+            is_access: title == "access",
             approvals: tr(lang, "approvals"),
             search: false,
             csrf: String::new(),
@@ -629,6 +646,27 @@ pub(crate) async fn page<B: Backend>(
                 .collect()
         }),
     );
+    page.section(
+        "result-authority",
+        metadata
+            .agents
+            .as_ref()
+            .filter(|agents| !agents.is_empty())
+            .map(|agents| {
+                agents
+                    .iter()
+                    .map(|agent| {
+                        let status = if agent.result_authority {
+                            "result-key-current"
+                        } else {
+                            "unavailable"
+                        };
+                        format!("{} · {}", agent.agent_id, tr(lang, status))
+                    })
+                    .collect()
+            }),
+    );
+    page.section("game-effects", None);
     page.section(
         "agents",
         metadata.agents.map(|agents| {

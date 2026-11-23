@@ -86,6 +86,37 @@ pub struct AgentBinding {
     pub allowed_nodes: Vec<String>,
     pub result_key: Option<(ed25519_dalek::VerifyingKey, signer::Validity)>,
 }
+impl AgentBinding {
+    pub(crate) fn current_result_key(
+        &self,
+        now: i64,
+    ) -> Option<(ed25519_dalek::VerifyingKey, signer::Validity)> {
+        self.result_key
+            .filter(|(key, window)| !key.is_weak() && window.contains(now))
+    }
+
+    pub(crate) fn allows_target(&self, target: &store::Target) -> bool {
+        target
+            .world_id
+            .as_ref()
+            .is_none_or(|id| self.allowed_worlds.contains(id))
+            && target
+                .node_id
+                .as_ref()
+                .is_none_or(|id| self.allowed_nodes.contains(id))
+    }
+
+    pub(crate) fn allows_agent_scope(&self, agent: &store::Agent) -> bool {
+        agent
+            .served_worlds
+            .iter()
+            .all(|id| self.allowed_worlds.contains(id))
+            && agent
+                .served_nodes
+                .iter()
+                .all(|id| self.allowed_nodes.contains(id))
+    }
+}
 #[derive(Clone)]
 struct Context {
     pool: PgPool,
@@ -101,6 +132,9 @@ impl HttpError {
     }
     fn forbidden() -> Self {
         Self(StatusCode::FORBIDDEN, "ADM_FORBIDDEN")
+    }
+    fn untrusted_signer() -> Self {
+        Self(StatusCode::FORBIDDEN, "ADM_SIGNER_UNTRUSTED")
     }
     fn limit() -> Self {
         Self(StatusCode::PAYLOAD_TOO_LARGE, "ADM_LIMIT_EXCEEDED")
@@ -390,6 +424,10 @@ async fn channel(
     if p.wait_seconds > 25 || !(1..=max_batch()).contains(&p.limit) {
         return Err(HttpError::invalid());
     }
+    let (_, validity) = ctx
+        .binding
+        .current_result_key(time::OffsetDateTime::now_utc().unix_timestamp())
+        .ok_or_else(HttpError::untrusted_signer)?;
     let mut tx = ctx.pool.begin().await?;
     crate::rbac::mutation_budget(&mut tx).await?;
     ingress_lock(&mut tx, true).await?;
@@ -398,9 +436,21 @@ async fn channel(
     ctx.store.heartbeat(&p.agent_id, p.owner_epoch).await?;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(u64::from(p.wait_seconds));
     loop {
+        if !validity.contains(time::OffsetDateTime::now_utc().unix_timestamp()) {
+            return Err(HttpError::untrusted_signer());
+        }
         let requests = ctx
             .store
-            .claim_pending(&p.agent_id, p.owner_epoch, p.limit)
+            .claim_read_queries(
+                &p.agent_id,
+                p.owner_epoch,
+                p.limit,
+                store::ReadDelivery {
+                    worlds: &ctx.binding.allowed_worlds,
+                    nodes: &ctx.binding.allowed_nodes,
+                    validity,
+                },
+            )
             .await?;
         if !requests.is_empty() || tokio::time::Instant::now() >= deadline {
             let mut envelopes = Vec::new();
@@ -431,27 +481,15 @@ async fn results(
     if e.agent_id != ctx.binding.agent_id {
         return Err(HttpError::forbidden());
     }
-    if let Some((key, validity)) = &ctx.binding.result_key {
-        signer::verify_result(
-            &e,
-            key,
-            *validity,
-            time::OffsetDateTime::now_utc().unix_timestamp(),
-        )
-        .map_err(|error| {
-            HttpError(
-                StatusCode::FORBIDDEN,
-                match error {
-                    signer::Error::Untrusted => "ADM_SIGNER_UNTRUSTED",
-                    _ => "ADM_BAD_SIGNATURE",
-                },
-            )
-        })?;
-    }
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    let (key, validity) = ctx
+        .binding
+        .current_result_key(now)
+        .ok_or_else(HttpError::untrusted_signer)?;
+    signer::verify_result(&e, &key, validity, now)
+        .map_err(|_| HttpError(StatusCode::FORBIDDEN, "ADM_BAD_SIGNATURE"))?;
     let payload = serde_json::to_value(&e).map_err(|_| HttpError::invalid())?;
-    let status: store::Status =
-        serde_json::from_value(serde_json::to_value(e.status).map_err(|_| HttpError::invalid())?)
-            .map_err(|_| HttpError::invalid())?;
+    let status = store::Status::from(e.status);
     let _permit = ctx.gate.lock().await;
     let mut tx = ctx.pool.begin().await?;
     crate::rbac::mutation_budget(&mut tx).await?;
@@ -461,24 +499,28 @@ async fn results(
     lock_request(&mut tx, e.request_id).await?;
     let epoch = delivery_epoch(&mut tx, &e.agent_id, e.request_id).await?;
     owns_request(&mut tx, &e.agent_id, epoch, e.request_id).await?;
-    let (operation_id, operation, version, target): (Uuid, String, i32, sqlx::types::Json<store::Target>) = sqlx::query_as(
-        "SELECT admin_operation_id,operation,operation_version,target FROM admin_control_requests WHERE request_id=$1",
-    )
-    .bind(e.request_id)
-    .fetch_one(&mut *tx)
-    .await?;
-    if operation_id != e.admin_operation_id {
+    let request: store::Request =
+        sqlx::query_as("SELECT * FROM admin_control_requests WHERE request_id=$1 FOR UPDATE")
+            .bind(e.request_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if !ctx.binding.allows_target(&request.target.0) {
+        return Err(store::Error::Unavailable.into());
+    }
+    if !result_schema::qualified_read(&request) {
+        return Err(HttpError::unknown_operation());
+    }
+    let now: time::OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+        .fetch_one(&mut *tx)
+        .await?;
+    if !validity.contains(now.unix_timestamp()) {
+        return Err(HttpError::untrusted_signer());
+    }
+    if !result_schema::valid_receipt(&request, &e, &payload, now) {
         return Err(HttpError::invalid());
     }
     let duplicate:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_results WHERE request_id=$1 AND agent_id=$2 AND payload=$3)").bind(e.request_id).bind(&e.agent_id).bind(&payload).fetch_one(&mut *tx).await?;
     if !duplicate {
-        if status == store::Status::Succeeded
-            && catalog::READ_OPERATIONS.contains(&operation.as_str())
-            && (!result_schema::valid_success(&operation, version, &e.result.0)
-                || !result_schema::matches_detail_target(&operation, &target.0, &e.result.0))
-        {
-            return Err(HttpError::invalid());
-        }
         ctx.store
             .record_result_in(
                 &mut tx,

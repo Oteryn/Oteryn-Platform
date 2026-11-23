@@ -55,6 +55,23 @@ impl StoredChannel {
             bindings,
         })
     }
+    pub(super) fn agent_binding(
+        &self,
+        agent: &control::Agent,
+    ) -> Option<&crate::control_http::AgentBinding> {
+        self.bindings
+            .iter()
+            .find(|binding| binding.agent_id == agent.agent_id && binding.allows_agent_scope(agent))
+    }
+
+    pub(super) fn has_result_authority(&self, agent: &control::Agent) -> bool {
+        self.agent_binding(agent)
+            .and_then(|binding| {
+                binding.current_result_key(OffsetDateTime::now_utc().unix_timestamp())
+            })
+            .is_some()
+    }
+
     async fn owner(
         &self,
         agent: Option<&str>,
@@ -86,12 +103,7 @@ impl StoredChannel {
         if candidates.next().is_some() {
             return Err(Error::Unavailable);
         }
-        // Results require configured verification keys even if transport is authenticated.
-        if !self
-            .bindings
-            .iter()
-            .any(|b| b.agent_id == owner.agent_id && b.result_key.is_some())
-        {
+        if !self.has_result_authority(&owner) {
             return Err(Error::Unavailable);
         }
         Ok(owner)
@@ -199,7 +211,7 @@ impl StoredChannel {
         let owns: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM admin_control_agents a WHERE a.agent_id=$1 AND a.owner_epoch=$2 AND a.last_seen_at>clock_timestamp()-interval '30 seconds' AND a.last_seen_at<=clock_timestamp() AND ($3::text IS NULL OR $3=ANY(a.served_worlds)) AND ($4::text IS NULL OR $4=ANY(a.served_nodes)) AND a.advertised_operations @> $5 AND NOT EXISTS(SELECT 1 FROM admin_control_agents b WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch AND ($3=ANY(b.served_worlds) OR $4=ANY(b.served_nodes))))")
             .bind(&agent.agent_id).bind(agent.owner_epoch).bind(&target.world_id).bind(&target.node_id)
             .bind(json!([{"operation":operation,"operation_version":1,"kind":"query"}])).fetch_one(&mut *tx).await?;
-        if !owns {
+        if !owns || !self.has_result_authority(agent) {
             return Err(Error::Unavailable);
         }
         auth.check_in(&mut tx, actor, Permission::Access)
@@ -350,9 +362,7 @@ impl StoredChannel {
         if !owns {
             return Err(Error::Unavailable);
         }
-        // Admission follows the request across owners. For successful results,
-        // check the recording epoch, falling back to admission for legacy
-        // transitions from the same agent.
+        // Admission follows the intent across owners. A receipt also proves its own delivery below.
         let request = sqlx::query_as(
             "SELECT r.* FROM admin_control_requests r
              JOIN audit_log a ON a.request_id=r.request_id AND a.actor=r.actor
@@ -368,12 +378,6 @@ impl StoredChannel {
                      WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch
                          AND (r.target->>'world_id'=ANY(other.served_worlds)
                              OR r.target->>'node_id'=ANY(other.served_nodes)))
-                 AND (r.status<>'succeeded' OR (r.agent_id=g.agent_id AND COALESCE(
-                     (SELECT t.after->>'owner_epoch' FROM audit_log t
-                      WHERE t.request_id=r.request_id AND t.action='admin.control.transition'
-                          AND t.after->>'status'='succeeded' LIMIT 1),
-                     CASE WHEN a.target=g.agent_id THEN a.after->>'owner_epoch'
-                          ELSE g.owner_epoch::text END) = g.owner_epoch::text))
              ORDER BY r.issued_at DESC LIMIT 1",
         )
         .bind(actor)
@@ -387,32 +391,16 @@ impl StoredChannel {
         .await?;
         Ok(request)
     }
-    async fn verified(
-        &self,
-        actor: Uuid,
-        agent: &control::Agent,
-        operation: &str,
-        target: &control::Target,
-        params: &Value,
-        request_id: Option<Uuid>,
-    ) -> Result<Option<(control::Request, signer::ResultEnvelope)>, Error> {
-        let request = self
-            .authorized_request(actor, agent, operation, target, params, request_id)
-            .await?;
-        self.verified_result(agent, request).await
-    }
     async fn verified_result(
         &self,
         agent: &control::Agent,
-        request: Option<control::Request>,
-    ) -> Result<Option<(control::Request, signer::ResultEnvelope)>, Error> {
+        request: Option<&control::Request>,
+    ) -> Result<Option<signer::ResultEnvelope>, Error> {
         let Some(request) = request else {
             return Ok(None);
         };
-        if request.expires_at <= OffsetDateTime::now_utc()
-            || request.status != control::Status::Succeeded
-            || request.agent_id.as_deref() != Some(&agent.agent_id)
-        {
+        let now = OffsetDateTime::now_utc();
+        if request.expires_at <= now || request.agent_id.as_deref() != Some(&agent.agent_id) {
             return Ok(None);
         }
         let rows = self
@@ -420,57 +408,53 @@ impl StoredChannel {
             .results(request.request_id, 1)
             .await
             .map_err(|_| Error::Unavailable)?;
-        let Some(row) = rows.first() else {
+        let Some(row) = rows
+            .first()
+            .filter(|row| row.status == request.status && row.agent_id == agent.agent_id)
+        else {
             return Ok(None);
         };
-        let result: signer::ResultEnvelope =
-            serde_json::from_value(row.payload.clone()).map_err(|_| Error::Unavailable)?;
-        let (key, validity) = self
-            .bindings
-            .iter()
-            .find(|b| b.agent_id == agent.agent_id)
-            .and_then(|b| b.result_key)
-            .ok_or(Error::Unavailable)?;
-        signer::verify_result(
-            &result,
-            &key,
-            validity,
-            OffsetDateTime::now_utc().unix_timestamp(),
-        )
-        .map_err(|_| Error::Unavailable)?;
-        let completed = result
-            .completed_at
-            .as_deref()
-            .and_then(|s| OffsetDateTime::parse(s, &Rfc3339).ok())
-            .ok_or(Error::Unavailable)?;
-        if result.request_id != request.request_id
-            || result.admin_operation_id != request.admin_operation_id
-            || result.agent_id != agent.agent_id
-            || result.status != signer::Status::Succeeded
-            || completed < request.issued_at
-            || completed > request.expires_at
-            || completed > OffsetDateTime::now_utc()
+        let Ok(result) = serde_json::from_value::<signer::ResultEnvelope>(row.payload.clone())
+        else {
+            return Ok(None);
+        };
+        let Some((key, validity)) = self
+            .agent_binding(agent)
+            .filter(|binding| binding.allows_target(&request.target.0))
+            .and_then(|binding| binding.current_result_key(now.unix_timestamp()))
+        else {
+            return Ok(None);
+        };
+        if result.agent_id != agent.agent_id
+            || control::Status::from(result.status) != request.status
+            || signer::verify_result(&result, &key, validity, now.unix_timestamp()).is_err()
+            || !control::result_schema::valid_receipt(request, &result, &row.payload, now)
+            || !bounded_json(&result.result.0, 0)
         {
-            return Err(Error::Unavailable);
+            return Ok(None);
         }
-        let bounded = bounded_json(&result.result.0, 0);
-        if matches!(
-            request.operation.as_str(),
-            "admin.ledger.query" | "admin.policy.get"
-        ) {
-            if !bounded
-                || !control::result_schema::valid_success(
-                    &request.operation,
-                    request.operation_version,
-                    &result.result.0,
-                )
-            {
-                return Ok(None);
-            }
-        } else if !bounded {
-            return Err(Error::Unavailable);
-        }
-        Ok(Some((request, result)))
+        let current_delivery: bool = sqlx::query_scalar(
+            "SELECT count(*) = 1 AND bool_and(t.after->>'owner_epoch'=$3::bigint::text)
+             FROM audit_log t
+             JOIN admin_control_agents a ON a.agent_id=$2 AND a.owner_epoch=$3
+             WHERE t.request_id=$1 AND t.action='admin.control.transition'
+                 AND t.after->>'status'='delivered' AND t.after ? 'owner_epoch'
+                 AND a.last_seen_at>clock_timestamp()-interval '30 seconds'
+                 AND a.last_seen_at<=clock_timestamp()
+                 AND ($4::text IS NULL OR $4=ANY(a.served_worlds))
+                 AND ($5::text IS NULL OR $5=ANY(a.served_nodes))
+                 AND NOT EXISTS (SELECT 1 FROM admin_control_agents b
+                     WHERE b.agent_id<>a.agent_id AND b.owner_epoch>=a.owner_epoch
+                         AND ($4=ANY(b.served_worlds) OR $5=ANY(b.served_nodes)))",
+        )
+        .bind(request.request_id)
+        .bind(&agent.agent_id)
+        .bind(agent.owner_epoch)
+        .bind(&request.target.world_id)
+        .bind(&request.target.node_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(current_delivery.then_some(result))
     }
     pub(super) async fn snapshot(
         &self,
@@ -487,10 +471,16 @@ impl StoredChannel {
             .map_err(|_| access::Error::Unavailable)?;
         let target =
             Self::target(&agent, None, character).map_err(|_| access::Error::Unavailable)?;
-        if let Some((request, result)) = self
-            .verified(actor.account, &agent, operation, &target, &params, None)
+        let request = self
+            .authorized_request(actor.account, &agent, operation, &target, &params, None)
             .await
-            .map_err(|_| access::Error::Unavailable)?
+            .map_err(|_| access::Error::Unavailable)?;
+        let result = self
+            .verified_result(&agent, request.as_ref())
+            .await
+            .map_err(|_| access::Error::Unavailable)?;
+        if let Some((request, result)) = request.zip(result)
+            && result.status == signer::Status::Succeeded
         {
             return Ok(Some((
                 request.request_id,
@@ -548,15 +538,22 @@ impl Channel for StoredChannel {
         let selected = self
             .authorized_request(actor, &owner, operation.name(), &scope, &json!({}), request)
             .await?;
+        let verified = self.verified_result(&owner, selected.as_ref()).await?;
         let status = selected.as_ref().map_or(QueryStatus::Pending, |request| {
             use control::Status;
             match request.status {
-                Status::Queued | Status::Delivered | Status::Accepted | Status::InProgress
+                Status::Queued
+                | Status::Delivered
+                | Status::Accepted
+                | Status::InProgress
+                | Status::Expired
                     if request.expires_at <= OffsetDateTime::now_utc() =>
                 {
                     QueryStatus::Expired
                 }
-                Status::Queued | Status::Delivered | Status::Accepted => QueryStatus::Pending,
+                Status::Queued | Status::Delivered => QueryStatus::Pending,
+                _ if verified.is_none() => QueryStatus::Unavailable,
+                Status::Accepted => QueryStatus::Pending,
                 Status::InProgress => QueryStatus::InProgress,
                 Status::Succeeded => QueryStatus::Succeeded,
                 Status::Failed => QueryStatus::Failed,
@@ -565,7 +562,6 @@ impl Channel for StoredChannel {
                 Status::Cancelled => QueryStatus::Cancelled,
             }
         });
-        let verified = self.verified_result(&owner, selected).await?;
         let mut view = AgentView {
             owner_epoch: owner.owner_epoch as u64,
             last_contact: SystemTime::UNIX_EPOCH
@@ -575,17 +571,8 @@ impl Channel for StoredChannel {
             result: None,
             status,
         };
-        if let Some((request, result)) = verified
-            && control::result_schema::valid_success(
-                &request.operation,
-                request.operation_version,
-                &result.result.0,
-            )
-            && control::result_schema::matches_detail_target(
-                &request.operation,
-                &request.target.0,
-                &result.result.0,
-            )
+        if let Some((request, result)) = selected.zip(verified)
+            && result.status == signer::Status::Succeeded
         {
             let records = super::projection::records(operation, &result.result.0)
                 .map_err(|_| Error::Unavailable)?;

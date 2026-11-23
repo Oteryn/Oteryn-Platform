@@ -63,6 +63,7 @@ impl Backend for Fake {
             signers: None,
             agents: Some(vec![AgentStatus {
                 agent_id: "test-agent".into(),
+                result_authority: true,
                 operations: vec![],
                 observed_at: "2026-11-05T19:00:00Z".into(),
             }]),
@@ -533,7 +534,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
             owner_epoch: 1,
         })
         .await?;
-    assert!(metadata.advertised("player.search").await);
+    assert!(!metadata.advertised("player.search").await);
     assert!(!metadata.advertised("player.inventory.get").await);
     let agents = metadata
         .access()
@@ -543,6 +544,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
         .unwrap();
     assert_eq!(agents.len(), 1);
     assert_eq!(agents[0].operations, vec!["player.search@1 (query)"]);
+    assert!(!agents[0].result_authority);
     sqlx::query("UPDATE admin_control_agents SET last_seen_at=clock_timestamp()-interval '31 seconds' WHERE agent_id='console-test-agent'").execute(&db.pool).await?;
     assert!(!metadata.advertised("player.search").await);
     assert!(
