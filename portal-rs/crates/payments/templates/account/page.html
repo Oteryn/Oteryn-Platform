@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="{{ lang }}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme"><main class="op-stack"><nav class="op-row" aria-label="{{ title }}"><a class="op-button op-button--secondary" href="/{{ lang }}/panel/premium">{{ premium_label }}</a> <a class="op-button op-button--secondary" href="/{{ lang }}/panel/payments">{{ payments_label }}</a></nav>
+<body class="op-theme"><main class="op-stack"><nav class="op-row" aria-label="{{ title }}"><a class="op-button op-button--secondary" href="/{{ lang }}/panel/premium">{{ premium_label }}</a> <a class="op-button op-button--secondary" href="/{{ lang }}/panel/payments">{{ payments_label }}</a>{% if let Some(label) = sandbox_label %} <a class="op-button op-button--secondary" href="/{{ lang }}/panel/payments/coin-checkout">{{ label }}</a>{% endif %}</nav>
 <h1>{{ title }}</h1>
 {% if premium %}<dl><dt>{{ status_label }}</dt><dd>{{ status }}</dd><dt>{{ end_label }}</dt><dd>{{ end }}</dd></dl>
 {% else %}

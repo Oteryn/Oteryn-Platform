@@ -2573,3 +2573,96 @@ async fn reconcile_loads_charged_back_intent() {
     assert_eq!(state, "chargeback");
     h.close().await;
 }
+
+#[tokio::test]
+async fn payment_qualification_requires_reconciliation_permission_and_valid_ids() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let id = Uuid::now_v7();
+    let event = format!("refund-{id}");
+    sqlx::query("INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state) VALUES($1,$2,'test',$3,499,'PLN','refunded')")
+        .bind(id).bind(h.target).bind(id.to_string()).execute(&h.pool).await.unwrap();
+    sqlx::query("INSERT INTO payment_provider_webhook_events(event_id,body_sha256,event_type,outcome) VALUES($1,$2,'refund','unknown_order')")
+        .bind(&event).bind(vec![0_u8; 32]).execute(&h.pool).await.unwrap();
+
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(h.second)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    let role = Uuid::now_v7();
+    sqlx::query("INSERT INTO roles(id,key) VALUES($1,'commerce_reader_test')")
+        .bind(role)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.access'),($1,'marketplace.manage')")
+        .bind(role).execute(&h.pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(h.second)
+        .bind(role)
+        .execute(&h.pool)
+        .await
+        .unwrap();
+
+    for (actor, query, expected) in [
+        (
+            h.actor,
+            format!("intent={id}&event={event}"),
+            StatusCode::OK,
+        ),
+        (
+            h.actor,
+            "intent=bad".to_string(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            h.actor,
+            "event=bad%20id".to_string(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (h.second, format!("intent={id}"), StatusCode::FORBIDDEN),
+        (h.second, String::new(), StatusCode::OK),
+    ] {
+        let app = router(
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(actor, h.pool.clone()),
+            Authority(h.pool.clone()),
+            h.effects(),
+            flags(),
+        );
+        let response = app
+            .oneshot(
+                HttpRequest::get(format!("/admin/commerce?{query}"))
+                    .header("host", "staff.test")
+                    .header("accept-language", "en")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), expected);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 200_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        if actor == h.actor && expected == StatusCode::OK {
+            assert!(html.contains("<dd>Refunded</dd>"));
+            assert!(html.contains("<dd>4.99 PLN</dd>"));
+            assert!(html.contains("<dd>Unknown order</dd>"));
+        } else {
+            assert!(!html.contains("4.99 PLN"));
+            assert!(!html.contains("name=\"event\""));
+        }
+    }
+    h.close().await;
+}

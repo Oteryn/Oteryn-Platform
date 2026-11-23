@@ -121,7 +121,7 @@ fn enabled(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("true")
 }
 #[derive(Clone, Copy)]
-struct Locale(&'static str);
+pub(super) struct Locale(&'static str);
 impl Locale {
     fn from_headers(headers: &HeaderMap) -> Self {
         Self(
@@ -136,7 +136,7 @@ impl Locale {
             },
         )
     }
-    fn text(self, key: &str) -> String {
+    pub(super) fn text(self, key: &str) -> String {
         let source = if self.0 == "en" {
             include_str!("en.ftl")
         } else {
@@ -178,6 +178,8 @@ struct Pending {
 #[derive(Template)]
 #[template(path = "commerce/page.html", config = "src/commerce/askama.toml")]
 struct Page {
+    locale: Locale,
+    qualification: Option<qualification::Qualification>,
     lang: &'static str,
     title: String,
     note: String,
@@ -206,8 +208,10 @@ struct QueueFilter {
     // Site-wide locale switch parameter carried by admin navigation links.
     #[serde(rename = "lang")]
     _lang: Option<String>,
+    intent: Option<String>,
+    event: Option<String>,
 }
-fn format_refund_amount(minor_units: i64, currency: &str) -> String {
+pub(super) fn format_refund_amount(minor_units: i64, currency: &str) -> String {
     // ISO 4217 currencies whose minor units differ from the usual hundredths.
     let exponent = match currency {
         "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
@@ -232,6 +236,20 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
     Query(filter): Query<QueueFilter>,
 ) -> Response {
     let locale = Locale::from_headers(&headers);
+    let intent = filter.intent.as_deref().filter(|id| !id.is_empty());
+    let event = filter.event.as_deref().filter(|id| !id.is_empty());
+    let qualification = match s
+        .auth
+        .check(context, rbac::Permission::ReconcilePayments)
+        .await
+    {
+        Ok(()) => match qualification::Qualification::load(&s.pool, locale, intent, event).await {
+            Ok(value) => Some(value),
+            Err(error) => return failure(locale, error),
+        },
+        Err(rbac::Error::Denied) if intent.is_none() && event.is_none() => None,
+        Err(error) => return failure(locale, error.into()),
+    };
     let mut actions = vec![];
     for (key, command) in [
         ("grant", Command::Grant { days: 1 }),
@@ -307,6 +325,8 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         Err(_) => return failure(locale, Error::Unavailable),
     };
     oteryn_web::render(&Page {
+        locale,
+        qualification,
         lang: locale.0,
         title: locale.text("title"),
         note: locale.text("note"),

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ locale.text("sandbox-title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  {% if history %}
+  <nav><a href="/{{ locale.0 }}/panel/payments">{{ locale.text("payments") }}</a></nav>
+  {% endif %}
+  <h1>{{ locale.text("sandbox-title") }}</h1>
+  <p>{{ locale.text("sandbox-note") }}</p>
+  {% if let Some(key) = notice %}<p role="alert">{{ locale.text(key) }}</p>{% endif %}
+
+  {% if let Some(selected) = quote %}
+  <section class="op-card op-stack">
+    <h2>{{ locale.text("sandbox-confirm") }}</h2>
+    <dl>
+      <dt>{{ locale.text("sandbox-coins") }}</dt><dd>{{ selected.coins }}</dd>
+      <dt>{{ locale.text("amount") }}</dt><dd>{{ selected.price.display() }}</dd>
+      <dt>{{ locale.text("sandbox-seconds") }}</dt><dd>{{ selected.valid_for_seconds }}</dd>
+    </dl>
+    <form method="post" action="/{{ locale.0 }}/panel/payments/coin-checkout">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="order">
+      <input type="hidden" name="package" value="{{ selected.id }}">
+      <input type="hidden" name="quote" value="{{ selected.quote_id }}">
+      <input type="hidden" name="request" value="{{ request }}">
+      <button class="op-button" type="submit">{{ locale.text("sandbox-continue") }}</button>
+    </form>
+  </section>
+  {% else if !packages.is_empty() %}
+  <section class="op-stack">
+    <h2>{{ locale.text("sandbox-packages") }}</h2>
+    {% for package in packages %}
+    <form class="op-card op-stack" method="post" action="/{{ locale.0 }}/panel/payments/coin-checkout">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="action" value="quote">
+      <input type="hidden" name="package" value="{{ package.id }}">
+      <dl>
+        <dt>{{ locale.text("sandbox-coins") }}</dt><dd>{{ package.coins }}</dd>
+        <dt>{{ locale.text("amount") }}</dt><dd>{{ package.price.display() }}</dd>
+      </dl>
+      <button class="op-button" type="submit">{{ locale.text("sandbox-select") }}</button>
+    </form>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="op-stack">
+    <h2>{{ locale.text("sandbox-orders") }}</h2>
+    {% if orders.is_empty() %}<p>{{ locale.text("sandbox-no-orders") }}</p>{% endif %}
+    {% for order in orders %}
+    <article class="op-card op-stack">
+      <h3><a href="/native-account/coin-checkout/{{ order.order_id }}?lang={{ locale.0 }}">{{ locale.text("sandbox-order") }}</a></h3>
+      <dl>
+        <dt>{{ locale.text("sandbox-coins") }}</dt><dd>{{ order.coins }}</dd>
+        <dt>{{ locale.text("amount") }}</dt><dd>{{ order.price.display() }}</dd>
+        <dt>{{ locale.text("status") }}</dt><dd>{{ locale.text(order.state.as_str()) }}</dd>
+      </dl>
+      {% if order.review_required %}<p>{{ locale.text("sandbox-review") }}</p>{% endif %}
+    </article>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>

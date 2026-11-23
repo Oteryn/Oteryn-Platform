@@ -7,6 +7,7 @@
 pub mod configured;
 mod effects;
 mod http;
+mod qualification;
 mod reconcile;
 pub use configured::*;
 pub use effects::*;
