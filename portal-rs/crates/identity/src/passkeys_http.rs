@@ -17,8 +17,12 @@ use sqlx::PgPool;
 use std::net::SocketAddr;
 use uuid::Uuid;
 
+pub(crate) fn enabled() -> bool {
+    std::env::var("OTERYN_ACCOUNT_PASSKEYS").as_deref() == Ok("true")
+}
+
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    if !std::env::var("OTERYN_ACCOUNT_PASSKEYS").is_ok_and(|v| v == "true") {
+    if !enabled() {
         return Ok(Router::new());
     }
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;

@@ -70,6 +70,10 @@ struct LoginPage {
     failed: bool,
 }
 impl LoginPage {
+    fn passkeys_enabled(&self) -> bool {
+        crate::passkeys_http::enabled()
+    }
+
     fn text(&self, key: &str) -> String {
         if !key.starts_with("login-") && key != "logout-submit" {
             return self.language.text(key);

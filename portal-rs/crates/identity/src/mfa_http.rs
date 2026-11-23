@@ -207,6 +207,10 @@ struct Page {
     devices: Vec<String>,
 }
 impl Page {
+    fn passkeys_enabled(&self) -> bool {
+        crate::passkeys_http::enabled()
+    }
+
     fn text(&self, key: &str) -> String {
         let source = if self.language == Language::En {
             include_str!("../../../templates/account/mfa/en.ftl")

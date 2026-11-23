@@ -2,6 +2,33 @@
 mod database;
 use super::*;
 use tower::ServiceExt;
+
+#[test]
+fn challenge_links_localized_retry_guidance_to_the_code_field() {
+    for (language, message) in [
+        (Language::En, "The code could not be verified."),
+        (Language::Pl, "Nie udało się potwierdzić kodu."),
+    ] {
+        let mut page = Page {
+            lang: language.code(),
+            language,
+            csrf: String::new(),
+            mode: "challenge",
+            failed: true,
+            secret: String::new(),
+            codes: vec![],
+            devices: vec![],
+        };
+        let rendered = page.render().unwrap();
+        assert!(rendered.contains(&format!("role=\"alert\" id=\"mfa-error\">{message}")));
+        assert!(rendered.contains("aria-describedby=\"mfa-error\" aria-invalid=\"true\""));
+        page.failed = false;
+        let rendered = page.render().unwrap();
+        assert!(!rendered.contains("id=\"mfa-error\""));
+        assert!(!rendered.contains("aria-invalid"));
+    }
+}
+
 #[tokio::test]
 async fn postgres_mfa_browser_csrf_limiter_and_login_challenge()
 -> Result<(), Box<dyn std::error::Error>> {
