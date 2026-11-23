@@ -761,11 +761,11 @@ async fn stored_console_browser_query_verified_result_and_ownership(
             for (status, label) in [
                 ("queued", "Awaiting a stored result"),
                 ("delivered", "Awaiting a stored result"),
-                ("accepted", "Awaiting a stored result"),
-                ("in_progress", "In progress"),
-                ("failed", "Query failed"),
-                ("rejected", "Query rejected"),
-                ("cancelled", "Query cancelled"),
+                ("accepted", "Unavailable"),
+                ("in_progress", "Unavailable"),
+                ("failed", "Unavailable"),
+                ("rejected", "Unavailable"),
+                ("cancelled", "Unavailable"),
                 ("expired", "Query expired"),
             ] {
                 sqlx::query("UPDATE admin_control_requests SET status=$1,issued_at=clock_timestamp()-interval '120 seconds',expires_at=CASE WHEN $1='expired' THEN clock_timestamp()-interval '1 second' ELSE clock_timestamp()+interval '60 seconds' END WHERE request_id=$2")
@@ -777,9 +777,9 @@ async fn stored_console_browser_query_verified_result_and_ownership(
                 let html = browser_get(&app, &cookie, &path).await?;
                 assert!(html.contains(label), "{status} must display {label}");
                 let expected = match status {
-                    "queued" | "delivered" | "accepted" => "pending",
-                    "in_progress" => "in-progress",
-                    other => other,
+                    "queued" | "delivered" => "pending",
+                    "expired" => "expired",
+                    _ => "unavailable",
                 };
                 let view = channel
                     .read(actor, "agent-a", operation, None, Some(request.request_id))
@@ -842,7 +842,7 @@ async fn stored_console_browser_query_verified_result_and_ownership(
             .is_none()
     );
     sqlx::query("INSERT INTO admin_control_agents(agent_id, build, catalog_digest, advertised_operations, served_worlds, served_nodes, owner_epoch) SELECT 'agent-b',build,catalog_digest,advertised_operations,served_worlds,served_nodes,3 FROM admin_control_agents WHERE agent_id='agent-a'").execute(&pool).await?;
-    sqlx::query("UPDATE admin_control_requests SET status='expired' WHERE request_id=$1")
+    sqlx::query("UPDATE admin_control_requests SET status='expired',issued_at=LEAST(issued_at,clock_timestamp()-interval '2 seconds'),expires_at=clock_timestamp()-interval '1 second' WHERE request_id=$1")
         .bind(request.request_id)
         .execute(&pool)
         .await?;
@@ -918,12 +918,12 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
 }
 
 #[tokio::test]
-async fn a3_configured_console_displays_every_lifecycle_outcome()
+async fn a3_configured_console_distinguishes_transport_and_receipt_states()
 -> Result<(), Box<dyn std::error::Error>> {
     let started = std::time::Instant::now();
     let result = stored_console_browser_query_verified_result_and_ownership(true, false).await;
     eprintln!(
-        "a3_configured_console_displays_every_lifecycle_outcome duration: {:?}",
+        "a3_configured_console_distinguishes_transport_and_receipt_states duration: {:?}",
         started.elapsed()
     );
     result

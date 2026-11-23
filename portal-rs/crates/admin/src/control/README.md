@@ -20,9 +20,8 @@ For example, `"allowed_worlds":["world-a"],"allowed_nodes":[]` grants only
 `{"san":"exact verified SAN"}` or `{"spki":"base64url SHA-256"}`. A result
 key has `public_key` (base64url Ed25519), `not_before`, `not_after` (Unix seconds).
 Only public key material belongs in this configuration. Duplicate CNs or
-transport identities fail startup. The database pool needs at least two
-connections: duplicate-result serialization holds one connection while the
-existing store commits its audited state transition on another.
+transport identities fail startup. Configure a current result key before
+delivering requests. The transport requires a pool with at least two connections.
 
 The trusted TLS adapter must insert both the existing guard's `VerifiedClient`
 and a `VerifiedAgent` from the verified certificate. Neither is derived from
@@ -63,20 +62,18 @@ framing ratified by the owner on 2026-11-19
   versions are refused with 400 `ADM_UNKNOWN_OPERATION`.
 - `channel`: `agent_id`, `owner_epoch`, optional `wait_seconds` (0–25, default 0),
   optional `limit` (1–32, default 32). Returns a JSON array of at most `limit`
-  signed request envelopes. Delivery is claimed once and records the owner epoch;
-  expired requests are never returned. Disconnected or ambiguous owners deny.
+  signed request envelopes for qualified v1 reads. Delivery requires a current
+  result key and configured scope. It is claimed once and records the owner epoch.
+  Expired requests are never returned. Disconnected or ambiguous owners deny.
   `db.status`, `db.migrations.list`, and `admin.policy.get` are global reads
-  with an empty signed target. Other Game reads require World scope.
-- `results`: the bare closed ADM-01 result envelope. Agent ID must match TLS
-  evidence. A configured result key verifies the signature before storage. The
-  result is bound to the epoch its request was delivered under; if that agent no
-  longer owns the request at that epoch (a newer epoch, its own included, or no
-  recorded delivery) it is refused with 409 `ADM_AGENT_SUPERSEDED`. After
-  ownership checks, exact stored retries are acknowledged without another
-  result or audit row. New successful read results must match the pinned schema
-  for the stored operation and version. Missing read schemas and invalid read
-  payloads return 400 `ADM_INVALID_PARAMS`. Commands use the existing receipt
-  path. Conflicting transitions are refused.
+  with an empty signed target. Other Game reads require their catalogued scope.
+- `results`: the bare closed ADM-01 result envelope. The current configured
+  result key and TLS agent identity authenticate every receipt. The stored
+  assignment, target scope and delivery epoch must match. A superseded owner
+  or a request without a matching delivery receives 409 `ADM_AGENT_SUPERSEDED`.
+  The stored operation and version select the payload schema. Exact retries are
+  acknowledged after those checks without another result or audit row. New
+  receipts and legal state transitions commit together before acknowledgment.
 - `stream`: `agent_id`, `owner_epoch`, `request_id`, nonempty `chunks` array of
   `index` (0–63) and `data` (unpadded base64url). Decoded chunks are at most 1 MiB;
   the primary key and index bound limit the complete request to 64 chunks across

@@ -63,7 +63,7 @@ impl Database {
     }
 }
 fn request() -> NewRequest {
-    request_for("staff.warning", Kind::Command)
+    request_for("admin.policy.get", Kind::Query)
 }
 /// A signed request for a catalogued operation; queries reuse the request id.
 fn request_for(operation: &str, kind: Kind) -> NewRequest {
@@ -149,6 +149,33 @@ fn app_with_scope(
     allowed_worlds: Vec<String>,
     allowed_nodes: Vec<String>,
 ) -> Router {
+    app_with_scope_and_key(pool, enabled, allowed_worlds, allowed_nodes, Some(result_key()))
+}
+
+fn result_key() -> (ed25519_dalek::VerifyingKey, signer::Validity) {
+    (
+        ed25519_dalek::SigningKey::from_bytes(&[9; 32]).verifying_key(),
+        signer::Validity {
+            not_before: 0,
+            not_after: i64::MAX,
+        },
+    )
+}
+fn app_with_key(
+    pool: PgPool,
+    enabled: bool,
+    result_key: Option<(ed25519_dalek::VerifyingKey, signer::Validity)>,
+) -> Router {
+    app_with_scope_and_key(pool, enabled, vec!["world-a".into()], vec![], result_key)
+}
+
+fn app_with_scope_and_key(
+    pool: PgPool,
+    enabled: bool,
+    allowed_worlds: Vec<String>,
+    allowed_nodes: Vec<String>,
+    result_key: Option<(ed25519_dalek::VerifyingKey, signer::Validity)>,
+) -> Router {
     router(
         pool,
         enabled,
@@ -157,13 +184,7 @@ fn app_with_scope(
             allowed_nodes,
             agent_id: "agent-a".into(),
             identity: Identity::san("urn:test:agent-a").unwrap(),
-            result_key: Some((
-                ed25519_dalek::SigningKey::from_bytes(&[9; 32]).verifying_key(),
-                signer::Validity {
-                    not_before: 0,
-                    not_after: i64::MAX,
-                },
-            )),
+            result_key,
         }],
     )
     .unwrap()
@@ -210,8 +231,20 @@ fn game_heartbeat(epoch: i64) -> Value {
 }
 /// A bare result envelope in Game's `Response` shape, signed by the configured agent key.
 fn signed_result(r: &NewRequest, status: &str, result: Value, error: Value) -> Value {
+    let active = matches!(status, "accepted" | "in_progress");
+    let completed_at = (!active).then(|| {
+        OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap()
+    });
+    let progress = (status == "in_progress").then(|| json!({"step":1,"of":2,"text":"Working"}));
+    sign_envelope(
+        json!({"request_id":r.request_id,"admin_operation_id":r.admin_operation_id,"status":status,"error":error,"result":result,"dry_run_preview":null,"game_ledger_id":"ledger-a","audit_event_ids":[],"effective_revision":null,"progress":progress,"completed_at":completed_at,"agent_id":"agent-a","agent_build":"test-build","signature":""}),
+    )
+}
+
+fn sign_envelope(mut envelope: Value) -> Value {
     use ed25519_dalek::Signer;
-    let mut envelope = json!({"request_id":r.request_id,"admin_operation_id":r.admin_operation_id,"status":status,"error":error,"result":result,"dry_run_preview":null,"game_ledger_id":"ledger-a","audit_event_ids":[],"effective_revision":null,"progress":null,"completed_at":"2026-11-05T23:00:01Z","agent_id":"agent-a","agent_build":"test-build","signature":""});
     let parsed: signer::ResultEnvelope = serde_json::from_value(envelope.clone()).unwrap();
     envelope["signature"] = json!(
         URL_SAFE_NO_PAD.encode(
@@ -341,7 +374,12 @@ async fn postgres_hello_channel_results_and_snapshots() {
     );
     assert_eq!(value[0]["signature"], URL_SAFE_NO_PAD.encode(&r.signature));
     for status in ["accepted", "in_progress", "succeeded"] {
-        let result = signed_result(&r, status, json!({}), Value::Null);
+        let payload = if status == "succeeded" {
+            json!({"operations":[]})
+        } else {
+            Value::Null
+        };
+        let result = signed_result(&r, status, payload, Value::Null);
         for _ in 0..2 {
             assert_eq!(
                 post(app.clone(), "results", result.clone(), true)
@@ -724,7 +762,7 @@ async fn postgres_result_uses_one_connection_under_stream_contention() {
         .status(),
         StatusCode::OK
     );
-    let result = signed_result(&r, "accepted", json!({}), Value::Null);
+    let result = signed_result(&r, "accepted", Value::Null, Value::Null);
     let mut blocker = db.pool.begin().await.unwrap();
     sqlx::query("LOCK TABLE admin_control_results IN ACCESS EXCLUSIVE MODE")
         .execute(&mut *blocker)
@@ -1354,7 +1392,7 @@ async fn postgres_adm_results_validate_signed_payload_against_stored_operation()
 }
 
 #[tokio::test]
-async fn exact_legacy_read_retry_is_acknowledged_only_by_its_delivery_owner() {
+async fn postgres_result_replay_rechecks_the_operation_schema() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::open().await.expect("PostgreSQL required");
     let app = app(db.pool.clone(), true);
@@ -1372,7 +1410,7 @@ async fn exact_legacy_read_retry_is_acknowledged_only_by_its_delivery_owner() {
         json_body(claimed).await[0]["request_id"],
         request.request_id.to_string()
     );
-    // Simulate a receipt persisted before operation schemas were enforced.
+    // Seed a retained receipt to verify validation on retry.
     let payload = signed_result(&request, "succeeded", json!({}), Value::Null);
     db.store()
         .record_result(
@@ -1398,7 +1436,7 @@ async fn exact_legacy_read_retry_is_acknowledged_only_by_its_delivery_owner() {
         post(app.clone(), "results", payload.clone(), true)
             .await
             .status(),
-        StatusCode::OK
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         post(app.clone(), "hello", hello_body(2), true)
@@ -1419,5 +1457,138 @@ async fn exact_legacy_read_retry_is_acknowledged_only_by_its_delivery_owner() {
         1
     );
     assert_eq!(audit_count().await.unwrap(), before);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_result_authority_and_operation_policy() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let app = app(db.pool.clone(), true);
+    assert_eq!(
+        post(app.clone(), "hello", hello_body(1), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+
+    let read = request();
+    let command = request_for("staff.warning", Kind::Command);
+    db.store().enqueue(&read).await.unwrap();
+    db.store().enqueue(&command).await.unwrap();
+    let (key, current) = result_key();
+    let expired = signer::Validity {
+        not_before: 0,
+        not_after: 1,
+    };
+    for value in [None, Some((key, expired))] {
+        let restricted = app_with_key(db.pool.clone(), true, value);
+        let refused = post(restricted, "channel", game_poll(1, 0), true).await;
+        assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            json_body(refused).await["error"]["code"],
+            "ADM_SIGNER_UNTRUSTED"
+        );
+    }
+    let response = post(app.clone(), "channel", game_poll(1, 0), true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let delivered = json_body(response).await;
+    assert_eq!(delivered.as_array().unwrap().len(), 1);
+    assert_eq!(delivered[0]["request_id"], read.request_id.to_string());
+    assert_eq!(
+        db.store()
+            .get(command.request_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        Status::Queued
+    );
+
+    let receipt = signed_result(&read, "succeeded", json!({"operations":[]}), Value::Null);
+    for (value, code) in [
+        (None, "ADM_SIGNER_UNTRUSTED"),
+        (Some((key, expired)), "ADM_SIGNER_UNTRUSTED"),
+        (
+            Some((
+                ed25519_dalek::SigningKey::from_bytes(&[8; 32]).verifying_key(),
+                current,
+            )),
+            "ADM_BAD_SIGNATURE",
+        ),
+    ] {
+        let response = post(
+            app_with_key(db.pool.clone(), true, value),
+            "results",
+            receipt.clone(),
+            true,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(json_body(response).await["error"]["code"], code);
+    }
+
+    let mut wrong_operation = receipt.clone();
+    wrong_operation["admin_operation_id"] = json!(command.admin_operation_id);
+    let mut with_error = receipt.clone();
+    with_error["error"] = json!({"code":"ADM_FORBIDDEN","message":"Denied","retryable":false});
+    let invalid_error = signed_result(
+        &read,
+        "rejected",
+        Value::Null,
+        json!({"code":"ADM_UNRECOGNIZED","message":"Denied","retryable":false}),
+    );
+    for value in [
+        sign_envelope(wrong_operation),
+        sign_envelope(with_error),
+        invalid_error,
+    ] {
+        assert_eq!(
+            post(app.clone(), "results", value, true).await.status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert!(
+        db.store()
+            .results(read.request_id, 32)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        db.store()
+            .get(read.request_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        Status::Delivered
+    );
+
+    for _ in 0..2 {
+        let response = post(app.clone(), "results", receipt.clone(), true).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(json_body(response).await, json!({"status":"recorded"}));
+    }
+    let expired_router = app_with_key(db.pool.clone(), true, Some((key, expired)));
+    assert_eq!(
+        post(expired_router, "results", receipt, true)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        db.store().results(read.request_id, 32).await.unwrap().len(),
+        1
+    );
+    assert_eq!(
+        db.store()
+            .get(read.request_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .status,
+        Status::Succeeded
+    );
     db.close().await;
 }

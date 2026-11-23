@@ -26,6 +26,21 @@ text_enum!(Status {
 });
 text_enum!(Decision { Approved => "approved", Rejected => "rejected" });
 
+impl From<super::signer::Status> for Status {
+    fn from(status: super::signer::Status) -> Self {
+        use super::signer::Status as Wire;
+        match status {
+            Wire::Accepted => Self::Accepted,
+            Wire::InProgress => Self::InProgress,
+            Wire::Succeeded => Self::Succeeded,
+            Wire::Failed => Self::Failed,
+            Wire::Rejected => Self::Rejected,
+            Wire::Expired => Self::Expired,
+            Wire::Cancelled => Self::Cancelled,
+        }
+    }
+}
+
 impl Status {
     /// Short operations may return a final result directly after delivery.
     /// Only progress may repeat. `record_result` separately reconciles final
@@ -135,6 +150,13 @@ pub struct Agent {
     pub owner_epoch: i64,
     pub last_seen_at: OffsetDateTime,
     pub connected: bool,
+}
+
+/// Configured result authority and scope for the ratified read transport.
+pub(crate) struct ReadDelivery<'a> {
+    pub worlds: &'a [String],
+    pub nodes: &'a [String],
+    pub validity: super::signer::Validity,
 }
 
 /// A signed, schema-checked request supplied by the trusted signing layer.
@@ -509,6 +531,27 @@ impl Store {
         epoch: i64,
         limit: u32,
     ) -> Result<Vec<Request>, Error> {
+        self.claim_pending_in_scope(agent, epoch, limit, None).await
+    }
+
+    pub(crate) async fn claim_read_queries(
+        &self,
+        agent: &str,
+        epoch: i64,
+        limit: u32,
+        scope: ReadDelivery<'_>,
+    ) -> Result<Vec<Request>, Error> {
+        self.claim_pending_in_scope(agent, epoch, limit, Some(scope))
+            .await
+    }
+
+    async fn claim_pending_in_scope(
+        &self,
+        agent: &str,
+        epoch: i64,
+        limit: u32,
+        scope: Option<ReadDelivery<'_>>,
+    ) -> Result<Vec<Request>, Error> {
         self.enabled()?;
         if !bounded(agent, 128) || epoch <= 0 || !(1..=32).contains(&limit) {
             return Err(Error::InvalidInput);
@@ -533,6 +576,12 @@ impl Store {
                 SELECT r.request_id FROM admin_control_requests r, admin_control_agents a
                 WHERE a.agent_id=$1 AND a.owner_epoch=$2 AND r.status='queued'
                 AND r.issued_at <= clock_timestamp() AND r.expires_at > clock_timestamp()
+                AND ($6::text[] IS NULL OR (
+                    r.kind='query' AND r.operation_version=1 AND NOT r.dry_run
+                    AND r.operation=ANY($6)
+                    AND a.served_worlds <@ $7::text[] AND a.served_nodes <@ $8::text[]
+                    AND floor(extract(epoch FROM clock_timestamp())) >= $9::bigint
+                    AND floor(extract(epoch FROM clock_timestamp())) < $10::bigint))
                 AND (r.risk_class NOT IN ('R3','R4') OR EXISTS (SELECT 1 FROM audit_log e
                     WHERE e.request_id=r.request_id AND e.action='admin.control.evidence.attached'))
                 AND a.advertised_operations @> jsonb_build_array(jsonb_build_object(
@@ -567,6 +616,15 @@ impl Store {
         .bind(i64::from(limit))
         .bind(&super::catalog::GLOBAL_READS[..])
         .bind(&super::catalog::REGISTERED_READS[..])
+        .bind(
+            scope
+                .as_ref()
+                .map(|_| super::catalog::REGISTERED_READS.as_slice()),
+        )
+        .bind(scope.as_ref().map(|scope| scope.worlds))
+        .bind(scope.as_ref().map(|scope| scope.nodes))
+        .bind(scope.as_ref().map(|scope| scope.validity.not_before))
+        .bind(scope.as_ref().map(|scope| scope.validity.not_after))
         .fetch_all(&mut *tx)
         .await?;
         // The delivery epoch binds later results to this delivery session.

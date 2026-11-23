@@ -85,3 +85,6 @@ sanctions-invalid = Check the target, report, reason and expiry fields.
 sanctions-denied = This review action is unavailable to you. Check your assignment, permission and recent password confirmation.
 sanctions-conflict = This review already exists, has changed or has expired. Open the review to see its current state.
 sanctions-limited = Your hourly limit for new reviews has been reached.
+result-authority = Agent result verification
+result-key-current = Key current
+game-effects = Game-changing operations

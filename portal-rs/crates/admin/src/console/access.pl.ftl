@@ -85,3 +85,6 @@ sanctions-invalid = Sprawdź przypisany cel, zgłoszenie, powód i termin.
 sanctions-denied = Ta czynność jest dla Ciebie niedostępna. Sprawdź przypisanie, uprawnienia i czas ostatniego potwierdzenia hasła.
 sanctions-conflict = Weryfikacja już istnieje, zmieniła się lub wygasła. Otwórz ją ponownie, aby sprawdzić aktualny stan.
 sanctions-limited = Osiągnięto godzinowy limit nowych weryfikacji.
+result-authority = Weryfikacja wyników agentów
+result-key-current = Klucz aktywny
+game-effects = Operacje zmieniające stan gry

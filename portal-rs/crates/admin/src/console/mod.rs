@@ -310,6 +310,7 @@ pub struct AgentView {
 /// The store returns status only after checking actor, target and request ownership.
 #[derive(Debug, Clone, Copy)]
 pub enum QueryStatus {
+    Unavailable,
     Pending,
     InProgress,
     Succeeded,
@@ -324,7 +325,7 @@ impl QueryStatus {
         match self {
             Self::Pending => "pending",
             Self::InProgress => "in-progress",
-            Self::Succeeded => "unavailable",
+            Self::Unavailable | Self::Succeeded => "unavailable",
             Self::Failed => "failed",
             Self::Rejected => "rejected",
             Self::ReadError(error) => error.key(),
