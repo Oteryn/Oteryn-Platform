@@ -306,6 +306,8 @@ test('staff publish content and handle a player’s support, safety and account 
         expect(wrong.status()).toBe(403);
         // The browser only renders this form with a fresh agent. Exercise the
         // same endpoint against the harness's disconnected agent boundary.
+        const invalidRefresh = await gamePost(operator, `/console/${path}`, { lang, operation, agent: '/' });
+        expect(invalidRefresh.status()).toBe(400);
         const refresh = await gamePost(operator, `/console/${path}`, { lang, operation, agent: 'unavailable' });
         expect(refresh.status()).toBe(503);
       }
