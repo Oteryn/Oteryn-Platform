@@ -218,3 +218,6 @@ public G /{lang}/account/journal/items
 public G /{locale}/account/journal/reports/weekly-note
 public G /{locale}/account/journal/reports/weekly-note/export
 public P /{locale}/account/journal/reports/weekly-note
+public G /admin/character-cases
+public P /admin/character-cases
+public P /admin/character-cases/review

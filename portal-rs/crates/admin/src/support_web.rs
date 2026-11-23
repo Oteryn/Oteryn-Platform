@@ -279,7 +279,17 @@ async fn show<A: AccountStateReader, B: Backend>(
     {
         record.forum_post = None;
     }
-    render_record(area, record, session, headers, false).await
+    let character_cases = area == Area::Tickets
+        && matches!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM tickets WHERE id=$1 AND category='character')",
+            )
+            .bind(id)
+            .fetch_one(&s.pool)
+            .await,
+            Ok(true)
+        );
+    render_record(area, record, session, headers, false, character_cases).await
 }
 async fn create_page(
     Extension(session): Extension<BrowserSession>,
@@ -295,7 +305,7 @@ async fn create_page(
         next_message: None,
         forum_post: None,
     };
-    render_record(Area::Enforcement, record, session, headers, true).await
+    render_record(Area::Enforcement, record, session, headers, true, false).await
 }
 async fn render_record(
     area: Area,
@@ -303,6 +313,7 @@ async fn render_record(
     session: BrowserSession,
     headers: HeaderMap,
     create: bool,
+    character_cases: bool,
 ) -> Response {
     let csrf = match session.csrf_token().await {
         Ok(v) => v,
@@ -319,6 +330,13 @@ async fn render_record(
             "<p><a href=\"/{lang}/admin/support/tickets/{}#screenshots\">{}</a></p>",
             record.id,
             escape(&text(lang, "screenshots")),
+        ));
+    }
+    if character_cases {
+        body.push_str(&format!(
+            "<p><a href=\"/admin/character-cases?ticket={}\">{}</a></p>",
+            record.id,
+            escape(&web::text(lang, "character-case-title")),
         ));
     }
     if let Some(status) = &record.appeal_status {

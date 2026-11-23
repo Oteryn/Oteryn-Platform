@@ -321,6 +321,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             get(crate::client_build::page::<I, A>),
         )
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::character_cases::web::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
             "/admin/mail-outbox/retry",
@@ -490,6 +491,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     };
     let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
         (crate::client_build::PATH, _) => &[Permission::ManageDownloads],
+        ("/admin/character-cases", _) => &[Permission::ManageSupportTickets],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -658,6 +660,7 @@ struct Page {
     mail_link: Option<String>,
     client_build_link: Option<String>,
     world_daily_link: Option<String>,
+    character_cases_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -737,18 +740,14 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         false
     };
-    let players = if s.players_enabled {
-        match s
-            .auth
-            .check(context, Permission::ManageSupportTickets)
-            .await
-        {
-            Ok(()) => true,
-            Err(Error::Denied) => false,
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        }
-    } else {
-        false
+    let support = match s
+        .auth
+        .check(context, Permission::ManageSupportTickets)
+        .await
+    {
+        Ok(()) => true,
+        Err(Error::Denied) => false,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
@@ -837,8 +836,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         mail_link,
         client_build_link,
         world_daily_link,
+        character_cases_link: support.then(|| text(lang, "character-case-title")),
         players_label: text(lang, "players"),
-        players,
+        players: s.players_enabled && support,
         errors_label: s
             .auth
             .check(context, Permission::ViewPortalErrors)
