@@ -36,6 +36,10 @@ fn validates_queries_and_encodes_destinations() {
     };
     assert!(f.validate().is_ok());
     assert_eq!(f.q, "dragon sword");
+    f.kind = "characters".into();
+    f.q = "  Élodie   Hero  ".into();
+    assert!(f.validate().is_ok());
+    assert_eq!(f.q, "Élodie   Hero");
     assert_eq!(segment("a/b?<"), "a%2Fb%3F%3C");
     assert_eq!(
         destination("pl", "pages", "terms-of-service"),

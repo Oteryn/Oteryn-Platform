@@ -18,3 +18,7 @@ distance = Distance fighting
 shielding = Shielding
 fishing = Fishing
 death = Death (time and level)
+portal-search = Find characters in portal search
+compare = Compare this character
+skills = Skills
+deaths = Recent deaths

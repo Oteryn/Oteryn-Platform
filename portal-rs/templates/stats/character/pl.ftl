@@ -41,3 +41,7 @@ axe_level = Walka toporem
 distance_level = Walka dystansowa
 shielding_level = Obrona tarczą
 fishing_level = Łowienie
+compare-title = Porównaj postacie
+compare-hint = Podaj nazwy dwóch publicznych postaci i wybierz metrykę. Wyniki pokazują dzienne obserwacje.
+first-character = Nazwa pierwszej postaci
+second-character = Nazwa drugiej postaci

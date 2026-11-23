@@ -347,3 +347,4 @@ shell-account-closure-pending = Oczekujące zamknięcie konta
 shell-account-overview-back = Wróć do przeglądu konta
 shell-account-sudo = Potwierdź hasło
 shell-account-export-sudo = Potwierdź hasło, aby pobrać dane konta.
+shell-public-characters = Postacie
