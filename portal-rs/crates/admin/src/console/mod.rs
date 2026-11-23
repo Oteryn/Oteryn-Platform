@@ -8,6 +8,8 @@ pub mod audit;
 pub mod players;
 
 mod projection;
+pub use remediation::Selection as RemediationSelection;
+mod remediation;
 mod stored;
 pub use stored::StoredChannel;
 mod alerts;

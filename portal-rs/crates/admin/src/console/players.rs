@@ -1,6 +1,7 @@
 //! R1 player views. Only allowlisted fields reach templates; personal fields are
 //! masked even when present in a verified response. Reads fail if auditing fails.
 use super::access::{Backend, Console, Error, Page, language, tr};
+use super::remediation::{Selection, View};
 use crate::{
     audit::{
         AdminControlAudit, AdminControlAuditWriter, AuditContext, AuditOutcome, ReadView, RiskClass,
@@ -23,11 +24,15 @@ pub struct Input {
     pub lang: Option<String>,
     pub q: Option<String>,
     pub character: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remediation: Option<Selection>,
 }
 impl Input {
     pub fn validate(&self) -> Result<(), Error> {
         language(self.lang.as_deref())?;
-        if self.q.is_some() && self.character.is_some() {
+        if (self.q.is_some() && self.character.is_some())
+            || (self.remediation.is_some() && (self.q.is_some() || self.character.is_some()))
+        {
             return Err(Error::BadInput);
         }
         if let Some(q) = &self.q
@@ -157,6 +162,11 @@ pub(crate) async fn view<B: Backend>(
             state.check(actor, "support.tickets.manage").await?;
         }
         let lang = language(input.lang.as_deref())?;
+        if let Some(selection) = input.remediation {
+            let mut page = Page::new(lang, "remediation");
+            page.remediation = Some(View::new(lang, selection));
+            return Ok(page);
+        }
         let mut page = Page::new(lang, "players");
         page.search = can_search;
         for title in ["characters", "inventory", "sanctions"] {
@@ -348,6 +358,7 @@ pub(super) async fn search<B: Backend>(
         q: Some(form.q),
         lang: form.lang,
         character: None,
+        remediation: None,
     };
     let query = serde_urlencoded::to_string(&input).map_err(|_| Error::BadInput)?;
     input.validate()?;

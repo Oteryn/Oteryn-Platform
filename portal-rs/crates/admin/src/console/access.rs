@@ -575,6 +575,8 @@ pub(crate) struct Page {
     pub admin_label: String,
     pub operation_label: String,
     pub target_label: String,
+    pub(super) remediation: Option<super::remediation::View>,
+    remediation_label: String,
 }
 #[derive(Debug)]
 pub(crate) struct Section {
@@ -603,6 +605,12 @@ impl Page {
             admin_label: tr(lang, "admin"),
             operation_label: tr(lang, "operation"),
             target_label: tr(lang, "target"),
+            remediation: None,
+            remediation_label: if matches!(title, "players" | "remediation") {
+                tr(lang, "remediation")
+            } else {
+                String::new()
+            },
         }
     }
     pub fn section(&mut self, title: &str, lines: Option<Vec<String>>) {
