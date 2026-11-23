@@ -163,9 +163,11 @@ pub(crate) fn config_from(
     })
 }
 
-/// Indicates that the portal composes the reports backend alongside the staff panel.
+/// Links to other staff routes composed by the portal.
 #[derive(Clone, Copy)]
-struct ReportsNavigation;
+struct PortalNavigation {
+    reports_enabled: bool,
+}
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let reports_enabled = std::env::var("OTERYN_REPORTS_ENABLED").as_deref() == Ok("true")
@@ -181,11 +183,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         PortalIdentity::configured(pool),
         std::env::var("OTERYN_ADMIN_PLAYERS").is_ok_and(|value| value == "true"),
     );
-    Ok(if reports_enabled {
-        router.layer(Extension(ReportsNavigation))
-    } else {
-        router
-    })
+    Ok(router.layer(Extension(PortalNavigation { reports_enabled })))
 }
 
 /// [`guarded`] with the panel's environment configuration and the server-side
@@ -520,6 +518,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    world_daily_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -566,7 +565,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
-    reports_navigation: Option<Extension<ReportsNavigation>>,
+    navigation: Option<Extension<PortalNavigation>>,
     headers: axum::http::HeaderMap,
     Query(query): Query<RolePageQuery>,
 ) -> Response {
@@ -575,7 +574,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let moderate_reports = if reports_navigation.is_some() {
+    let moderate_reports = if navigation.as_ref().is_some_and(|nav| nav.reports_enabled) {
         match s
             .auth
             .check(context, Permission::ManageSupportReports)
@@ -623,6 +622,15 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let world_daily_link = if navigation.is_some() {
+        match s.auth.check(context, Permission::GameWorldRead).await {
+            Ok(()) => Some(text(lang, "world-daily")),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        None
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +638,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        world_daily_link,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

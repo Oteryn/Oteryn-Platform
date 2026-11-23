@@ -1,6 +1,12 @@
-use super::{Config, Error, schema, store, view::read_current};
+use super::{
+    Config, Error, operator,
+    presentation::{Labels, render_section, render_widget},
+    schema,
+    selection::{self, Options},
+    store,
+    view::read_current,
+};
 use crate::v2_watermark::Part;
-use askama::Template;
 use axum::{
     Extension, Router,
     body::{Body, Bytes},
@@ -13,12 +19,11 @@ use axum::{
 use oteryn_internal_api::guard::{self, IdentityMap, JsonRule, RoutePolicy};
 use sqlx::PgPool;
 use std::sync::Arc;
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
-use uuid::Uuid;
+use time::OffsetDateTime;
 #[derive(Clone)]
-struct Surface {
-    db: PgPool,
-    config: Config,
+pub(super) struct Surface {
+    pub(super) db: PgPool,
+    pub(super) config: Config,
 }
 #[derive(Clone)]
 struct Ingest {
@@ -125,7 +130,7 @@ async fn ingest(
         Err(e) => guard::failure(status(e)),
     }
 }
-fn status(e: Error) -> StatusCode {
+pub(super) fn status(e: Error) -> StatusCode {
     match e {
         Error::BadInput => StatusCode::BAD_REQUEST,
         Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
@@ -133,7 +138,7 @@ fn status(e: Error) -> StatusCode {
         Error::Conflict => StatusCode::CONFLICT,
     }
 }
-/// Extend existing Today and public headers; disabled serving passes responses through unchanged.
+/// Add the daily state to Today and eligible public headers.
 pub fn mount(app: Router, db: PgPool, config: Config) -> Router {
     let state = Surface { db, config };
     app.merge(
@@ -146,10 +151,14 @@ pub fn mount(app: Router, db: PgPool, config: Config) -> Router {
     )
     .layer(from_fn_with_state(state, extend))
 }
-pub fn configured_mount(app: Router, db: PgPool) -> Router {
+pub fn configured_mount(app: Router, db: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let config = Config::configured();
-    mount(
-        app.merge(routes(
+    let operator = operator::router(Surface {
+        db: db.clone(),
+        config: config.clone(),
+    })?;
+    Ok(mount(
+        app.merge(operator).merge(routes(
             db.clone(),
             Arc::new(configured_identities()),
             config.clone(),
@@ -157,7 +166,7 @@ pub fn configured_mount(app: Router, db: PgPool) -> Router {
         )),
         db,
         config,
-    )
+    ))
 }
 /// The guarded `world_daily` watermark route, mounted only through [`crate::v2_watermark`].
 pub fn configured_watermark_router(db: PgPool) -> Router {
@@ -181,28 +190,6 @@ fn configured_identities() -> IdentityMap {
         })
         .unwrap_or_default()
 }
-#[derive(serde::Deserialize, Default)]
-#[serde(deny_unknown_fields)]
-struct Options {
-    world: Option<String>,
-    lang: Option<String>,
-}
-fn options(raw: Option<&str>, config: &Config) -> Result<(Uuid, Option<String>), Error> {
-    let q: Options =
-        serde_urlencoded::from_str(raw.unwrap_or_default()).map_err(|_| Error::BadInput)?;
-    if q.lang.as_deref().is_some_and(|s| !matches!(s, "pl" | "en")) {
-        return Err(Error::BadInput);
-    }
-    let world = match q.world {
-        Some(s) => schema::world_id(&s)?,
-        None if config.worlds.len() == 1 => *config.worlds.first().ok_or(Error::Unavailable)?,
-        None => return Err(Error::Unavailable),
-    };
-    if !config.worlds.contains(&world) {
-        return Err(Error::Unavailable);
-    }
-    Ok((world, q.lang))
-}
 fn language(path: &str, selected: Option<&str>) -> Result<&'static str, Error> {
     match path.split('/').nth(1) {
         Some("en") => Ok("en"),
@@ -224,28 +211,42 @@ fn request_language(path: &str, raw: Option<&str>) -> &'static str {
         });
     language(path, selected.as_deref()).unwrap_or("pl")
 }
-async fn load(
+async fn load(state: &Surface, options: &Options, lang: &str) -> Result<super::DailyView, Error> {
+    let world = options.world(&state.config)?;
+    let view = read_current(&state.db, &state.config, world, lang).await?;
+    match options.date {
+        Some(date) => view.for_date(date, now()),
+        None => Ok(view),
+    }
+}
+
+async fn requested_view(
     state: &Surface,
     path: &str,
     raw: Option<&str>,
-) -> Result<(super::DailyView, &'static str), Error> {
-    if !state.config.public_enabled {
-        return Err(Error::Unavailable);
-    }
-    let (world, selected) = options(raw, &state.config)?;
-    let lang = language(path, selected.as_deref())?;
-    Ok((
-        read_current(&state.db, &state.config, world, lang).await?,
-        lang,
-    ))
+) -> Result<super::DailyView, Error> {
+    let options = Options::parse(raw)?;
+    let lang = language(path, options.lang.as_deref())?;
+    load(state, &options, lang).await
+}
+
+#[derive(serde::Serialize)]
+struct Data {
+    #[serde(flatten)]
+    view: super::DailyView,
+    upcoming_raids: &'static str,
 }
 async fn data(
     State(state): State<Surface>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
 ) -> Response {
-    let mut r = match load(&state, uri.path(), raw.as_deref()).await {
-        Ok((v, _)) => axum::Json(v).into_response(),
+    let mut r = match requested_view(&state, uri.path(), raw.as_deref()).await {
+        Ok(view) => axum::Json(Data {
+            view,
+            upcoming_raids: "unavailable",
+        })
+        .into_response(),
         Err(e) => (
             status(e),
             axum::Json(serde_json::json!({"status":"unavailable"})),
@@ -261,12 +262,11 @@ async fn widget(
     RawQuery(raw): RawQuery,
 ) -> Response {
     let lang = request_language(uri.path(), raw.as_deref());
-    let result = load(&state, uri.path(), raw.as_deref()).await;
+    let result = requested_view(&state, uri.path(), raw.as_deref()).await;
     let code = result
         .as_ref()
         .map_or_else(|e| status(*e), |_| StatusCode::OK);
-    let (view, lang) = result.map(|(v, l)| (Some(v), l)).unwrap_or((None, lang));
-    let mut r = (code, Html(render_widget(view.as_ref(), lang))).into_response();
+    let mut r = (code, Html(render_widget(result.as_ref().ok(), lang))).into_response();
     no_store(&mut r);
     r
 }
@@ -283,16 +283,17 @@ fn public_html_path(path: &str) -> bool {
     }) || path == "/today"
 }
 async fn extend(State(state): State<Surface>, request: Request, next: Next) -> Response {
-    if !state.config.public_enabled
-        || request.method() != axum::http::Method::GET
-        || !public_html_path(request.uri().path())
+    let uri = request.uri().clone();
+    let today = matches!(uri.path(), "/today" | "/pl/today" | "/en/today");
+    if request.method() != axum::http::Method::GET
+        || !public_html_path(uri.path())
+        || (!today && !state.config.public_enabled)
     {
         return next.run(request).await;
     }
-    let uri = request.uri().clone();
-    let today = matches!(uri.path(), "/today" | "/pl/today" | "/en/today");
     let response = next.run(request).await;
-    if response.headers().contains_key(header::CONTENT_ENCODING)
+    if !response.status().is_success()
+        || response.headers().contains_key(header::CONTENT_ENCODING)
         || !response
             .headers()
             .get(header::CONTENT_TYPE)
@@ -300,9 +301,8 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     {
         return response;
     }
-    let result = load(&state, uri.path(), if today { uri.query() } else { None }).await;
+    let options = Options::parse(if today { uri.query() } else { None });
     let lang = request_language(uri.path(), uri.query());
-    let lang = result.as_ref().map_or(lang, |(_, l)| *l);
     let (mut parts, body) = response.into_parts();
     let bytes = match oteryn_web::decoration::buffer(
         body,
@@ -314,14 +314,23 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
         Ok(bytes) => bytes,
         Err(body) => return Response::from_parts(parts, body),
     };
-    // Body streaming can wait after the first source read. Resolve a new cut
-    // once buffering is complete, so invalidations during that wait take effect.
-    let final_result = load(&state, uri.path(), if today { uri.query() } else { None }).await;
-    let view = final_result
-        .as_ref()
-        .ok()
-        .map(|(v, _)| v)
-        .filter(|v| v.eligible(now()));
+    let worlds = match options.as_ref().ok().filter(|_| today) {
+        Some(options) => {
+            let selected = options.world(&state.config).ok();
+            selection::choices(&state.db, &state.config, selected).await
+        }
+        None => Vec::new(),
+    };
+    // Resolve the fenced projection after buffering and loading the selector.
+    let selected = match options.as_ref() {
+        Ok(options) => load(&state, options, lang).await.ok(),
+        Err(_) => {
+            parts.status = StatusCode::BAD_REQUEST;
+            None
+        }
+    };
+    let at = now();
+    let view = selected.as_ref().filter(|view| view.eligible(at));
     let mut html = match String::from_utf8(bytes.to_vec()) {
         Ok(s) => s,
         Err(_) => return Response::from_parts(parts, Body::from(bytes)),
@@ -335,18 +344,23 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
         if let Some(start) = html[main..].find(marker) {
             let start = main + start + marker.len();
             if let Some(end) = html[start..].find("</p>") {
-                html.replace_range(start..start + end, &label(lang, "partial"));
+                html.replace_range(start..start + end, &Labels::new(lang).text("partial"));
             }
         }
     }
-    let widget = render_widget(view, lang);
-    if let Some(i) = html.find("</header>") {
-        html.insert_str(i, &widget);
-    } else if today && let Some(i) = html.find("<body>") {
-        html.insert_str(i + 6, &format!("<header>{widget}</header>"));
+    if state.config.public_enabled {
+        let widget = render_widget(view, lang);
+        if let Some(i) = html.find("</header>") {
+            html.insert_str(i, &widget);
+        } else if today && let Some(i) = html.find("<body>") {
+            html.insert_str(i + 6, &format!("<header>{widget}</header>"));
+        }
     }
     if today && let Some(i) = html.find("</main>") {
-        html.insert_str(i, &render_section(view, lang));
+        html.insert_str(
+            i,
+            &render_section(view, lang, options.as_ref().map_err(|e| *e), worlds, at),
+        );
     }
     parts.headers.remove(header::CONTENT_LENGTH);
     parts.headers.remove(header::ETAG);
@@ -354,7 +368,7 @@ async fn extend(State(state): State<Surface>, request: Request, next: Next) -> R
     no_store(&mut r);
     r
 }
-fn no_store(r: &mut Response) {
+pub(super) fn no_store(r: &mut Response) {
     for (name, value) in [
         (
             "content-security-policy",
@@ -381,129 +395,53 @@ fn no_store(r: &mut Response) {
         HeaderValue::from_static("nosniff"),
     );
 }
-fn label(lang: &str, key: &str) -> String {
-    let (locale, source) = if lang == "en" {
-        (
-            unic_langid::langid!("en"),
-            include_str!("../../../../templates/today/en.ftl"),
-        )
-    } else {
-        (
-            unic_langid::langid!("pl"),
-            include_str!("../../../../templates/today/pl.ftl"),
-        )
-    };
-    let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
-    if let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) {
-        let _ = bundle.add_resource(resource);
-    }
-    bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
-        .unwrap_or_default()
-}
-#[derive(Template)]
-#[template(path = "today/widget.html", config = "src/today.askama.toml")]
-struct Widget {
-    title: String,
-    creature_label: String,
-    boss_label: String,
-    creature: String,
-    boss: String,
-    unavailable: String,
-    available: bool,
-}
-fn render_widget(view: Option<&super::DailyView>, lang: &str) -> String {
-    Widget {
-        title: label(lang, "title"),
-        creature_label: label(lang, "creature"),
-        boss_label: label(lang, "boss"),
-        creature: view.map(|v| v.current.creature.clone()).unwrap_or_default(),
-        boss: view.map(|v| v.current.boss.clone()).unwrap_or_default(),
-        unavailable: label(lang, "unavailable"),
-        available: view.is_some(),
-    }
-    .render()
-    .unwrap_or_default()
-}
-#[derive(Template)]
-#[template(path = "today/section.html", config = "src/today.askama.toml")]
-struct Section {
-    title: String,
-    unavailable: String,
-    available: bool,
-    world: String,
-    current: String,
-    history_label: String,
-    coverage: String,
-    history: Vec<String>,
-    raids_label: String,
-    raid_note: String,
-    raids: Vec<String>,
-    empty: String,
-}
-fn date(seconds: i64) -> String {
-    OffsetDateTime::from_unix_timestamp(seconds)
-        .ok()
-        .and_then(|d| d.format(&Rfc3339).ok())
-        .unwrap_or_default()
-}
-fn boost(b: &super::Boost, lang: &str) -> String {
-    format!(
-        "{} — {}: {}; {}: {} ({} – {})",
-        label(lang, "boost"),
-        label(lang, "creature"),
-        b.creature,
-        label(lang, "boss"),
-        b.boss,
-        date(b.from),
-        date(b.until)
-    )
-}
-fn render_section(view: Option<&super::DailyView>, lang: &str) -> String {
-    Section {
-        title: label(lang, "title"),
-        unavailable: label(lang, "unavailable"),
-        available: view.is_some(),
-        world: view.map(|v| v.world.clone()).unwrap_or_default(),
-        current: view.map(|v| boost(&v.current, lang)).unwrap_or_default(),
-        history_label: label(lang, "history"),
-        coverage: view
-            .map(|v| {
-                format!(
-                    "{} {}",
-                    label(lang, "coverage"),
-                    date(v.history_complete_from)
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn daily_queries_validate_before_reading_and_keep_editorial_available() {
+        let db = PgPool::connect_lazy("postgres://portal@127.0.0.1:1/unused").unwrap();
+        let editorial = Router::new().route(
+            "/en/today",
+            get(|| async { Html("<main><h1>Editorial</h1></main>") }),
+        );
+        let app = mount(editorial, db, Config::default());
+        for (path, query, code) in [
+            ("", "", StatusCode::OK),
+            ("", "?date=2024-02-29", StatusCode::OK),
+            ("/data", "?date=2024-02-29", StatusCode::SERVICE_UNAVAILABLE),
+            ("/widget", "", StatusCode::SERVICE_UNAVAILABLE),
+            ("", "?date=2026-02-29", StatusCode::BAD_REQUEST),
+            ("/data", "?date=2026-2-01", StatusCode::BAD_REQUEST),
+            ("/widget", "?date=", StatusCode::BAD_REQUEST),
+            (
+                "/data",
+                "?date=2026-02-01&date=2026-02-02",
+                StatusCode::BAD_REQUEST,
+            ),
+            ("/widget", "?world=invalid", StatusCode::BAD_REQUEST),
+        ] {
+            let r = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("/en/today{path}{query}"))
+                        .body(Body::empty())
+                        .unwrap(),
                 )
-            })
-            .unwrap_or_default(),
-        history: view
-            .map(|v| v.history.iter().map(|h| boost(h, lang)).collect())
-            .unwrap_or_default(),
-        raids_label: label(lang, "raids"),
-        raid_note: label(lang, "raid-note"),
-        raids: view
-            .map(|v| {
-                v.raids
-                    .iter()
-                    .map(|r| {
-                        format!(
-                            "{} — {} ({})",
-                            r.name,
-                            r.scheduled_at.map(date).unwrap_or_else(|| if lang == "en" {
-                                "Unknown time".into()
-                            } else {
-                                "Nieznany czas".into()
-                            }),
-                            label(lang, &r.state)
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        empty: label(lang, "empty"),
+                .await
+                .unwrap();
+            assert_eq!(r.status(), code, "{path}{query}");
+            if path.is_empty() && code == StatusCode::OK {
+                let body = to_bytes(r.into_body(), 16_384).await.unwrap();
+                let html = std::str::from_utf8(&body).unwrap();
+                assert!(html.contains("Editorial"));
+                assert!(html.contains("World daily data is currently unavailable."));
+                assert!(html.contains("name=\"date\""));
+            }
+        }
     }
-    .render()
-    .unwrap_or_default()
 }

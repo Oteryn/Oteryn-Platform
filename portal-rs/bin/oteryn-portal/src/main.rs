@@ -483,7 +483,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let listener = tokio::net::TcpListener::bind(config.bind).await?;
             tracing::info!(bind = %config.bind, environment = ?config.environment, "serving");
             let app = app.merge(oteryn_atlas::delivery::configured_router(db.clone()));
-            let app = oteryn_community::today::configured_mount(app, db.clone());
+            let app = oteryn_community::today::configured_mount(app, db.clone())?;
             let mut navigation = oteryn_ui::Registry::default();
             navigation.registration = true; // register::routes is always mounted.
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
