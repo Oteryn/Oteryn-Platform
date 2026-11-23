@@ -9,12 +9,18 @@ use axum::{
 };
 use sqlx::PgPool;
 
-use crate::{Channel, Downloads, Error, FeatureFlags};
+use crate::{Channel, Downloads, Error, FeatureFlags, browser};
 
-/// Static-like GET surface. Upload/publication is a Rust API for trusted staff composition only.
+/// Public GET surface. Publication stays on the trusted operator path.
 /// Trust roots are unnecessary here: only previously verified database publications can be read.
 pub fn router(pool: PgPool, flags: FeatureFlags) -> Router {
     Router::new()
+        .route("/{lang}/download", get(browser::download))
+        .route("/{lang}/start", get(browser::start))
+        .route(
+            "/{lang}/download/{channel}/{build}/{platform}/{architecture}",
+            get(browser::package),
+        )
         .route("/updates/{channel}/metadata/{filename}", get(metadata))
         .route("/updates/{channel}/policy-v1.json", get(policy))
         .route("/updates/{channel}/targets/{*target}", get(target))

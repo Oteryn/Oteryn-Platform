@@ -11,6 +11,8 @@ workspace = true
 
 [dependencies]
 oteryn-admin.workspace = true
+oteryn-ui.workspace = true
+askama = "0.16.1"
 axum = "0.8.9"
 async-trait = "0.1"
 bytes = "1"

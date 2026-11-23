@@ -679,3 +679,84 @@ async fn rejects_policy_shorter_than_signed_length() {
         "short policy passed verification"
     );
 }
+
+#[tokio::test]
+async fn db_browser_download_uses_the_current_signed_package() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let signer = SignerFixture::new();
+    let downloads = Downloads::new(db.pool.clone(), ON, signer.roots());
+    let actor = Uuid::now_v7();
+    let mut policy = signer.policy(1, "rel-a", 1);
+    policy.current_version_display = "1.0.0 <preview>".to_owned();
+    let upload = signer.upload(policy);
+    let mut rejected = upload.clone();
+    rejected.policy.push(b' ');
+    assert!(matches!(
+        downloads.publish(&ALLOW, actor, rejected).await,
+        Err(Error::Verification)
+    ));
+    let app = router(db.pool.clone(), ON);
+    let get = |uri: &'static str| {
+        app.clone()
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+    };
+    let response = get("/en/download").await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains("No verified release"));
+
+    downloads.publish(&ALLOW, actor, upload).await.unwrap();
+    let response = get("/en/download").await.unwrap();
+    assert_eq!(response.headers()["content-language"], "en");
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let html = String::from_utf8_lossy(&body);
+    assert!(html.contains("1.0.0 &#60;preview&#62;"));
+    assert!(html.contains("/en/download/stable/rel-a/windows/x86_64"));
+
+    let artifact = "/en/download/stable/rel-a/windows/x86_64";
+    let response = get(artifact).await.unwrap();
+    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let digest = hex::encode(Sha256::digest(b"package"));
+    assert_eq!(
+        response.headers()["location"],
+        format!(
+            "https://downloads.oteryn.com/updates/stable/targets/channels/stable/releases/rel-a/windows/x86_64/{digest}.client.zip"
+        ),
+    );
+
+    for (uri, code) in [
+        ("/en/download?channel=preview", StatusCode::BAD_REQUEST),
+        (
+            "/en/download/stable/bad%20build/windows/x86_64",
+            StatusCode::BAD_REQUEST,
+        ),
+        (
+            "/en/download/stable/rel-a/linux/x86_64",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "/en/download/beta/rel-a/windows/x86_64",
+            StatusCode::NOT_FOUND,
+        ),
+        ("/fr/download", StatusCode::NOT_FOUND),
+    ] {
+        assert_eq!(get(uri).await.unwrap().status(), code, "{uri}");
+    }
+
+    downloads
+        .publish(&ALLOW, actor, signer.upload(signer.policy(2, "rel-b", 2)))
+        .await
+        .unwrap();
+    assert_eq!(get(artifact).await.unwrap().status(), StatusCode::NOT_FOUND);
+    let disabled = router(db.pool.clone(), FeatureFlags::default());
+    let response = disabled
+        .oneshot(Request::get(artifact).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    db.close().await;
+}

@@ -35,7 +35,6 @@ thais-home-registration-unavailable = Rejestracja jest obecnie niedostępna.
 thais-home-rules-intro = Przeczytaj
 thais-home-character-unavailable = Tworzenie postaci jest obecnie niedostępne.
 thais-home-client-info = Informacje o kliencie znajdziesz na stronie serwera.
-thais-home-client-unavailable = Informacje o pobieraniu klienta są obecnie niedostępne.
 
 brand = Oteryn
 skip = Przejdź do treści
@@ -336,3 +335,28 @@ thais-foot-player-help = Pomoc dla graczy
 thais-foot-legal = Informacje prawne
 thais-foot-report = Zgłoś błąd
 thais-foot-language = Język portalu
+
+# Instalacja klienta
+onboarding-guide = Jak zainstalować klienta
+onboarding-download-intro = Wybierz aktualnego klienta Oteryn dla swojego systemu operacyjnego i procesora.
+onboarding-channel = Kanał wydania
+onboarding-stable = Stabilny (zalecany)
+onboarding-beta = Beta
+onboarding-verified = Zweryfikowane wydanie
+onboarding-unavailable = W tym kanale nie ma zweryfikowanego wydania.
+onboarding-platform-help = Użyj obsługiwanej wersji systemu operacyjnego wskazanego przy pakiecie. Dobierz architekturę procesora i upewnij się, że masz dość miejsca na pobranie i instalację.
+onboarding-download = Pobierz
+onboarding-size = Rozmiar pliku
+onboarding-bytes = B
+onboarding-start-intro = Zainstaluj klienta Oteryn, a następnie zaloguj się za pomocą konta portalu.
+onboarding-install = Instalacja i logowanie
+onboarding-choose-package = Do pierwszej instalacji użyj kanału stabilnego. Wybierz pakiet dla swojego systemu operacyjnego i procesora.
+onboarding-check-package = Przed otwarciem pliku porównaj jego sumę SHA-256 z wartością na stronie pobierania. Jeśli sumy się różnią, usuń plik i pobierz go ponownie.
+onboarding-open-package = Uruchom instalator i postępuj zgodnie z instrukcjami. Jeśli pobrano archiwum, rozpakuj je do folderu z prawem zapisu i uruchom z niego klienta.
+onboarding-first-login = Otwórz klienta, wybierz logowanie i postępuj zgodnie z instrukcjami. Użyj konta portalu. Jeśli konto wymaga weryfikacji, dokończ ją przed kolejną próbą.
+onboarding-update = Aktualizacja i naprawa klienta
+onboarding-update-help = Zamknij klienta. Jeśli program uruchamiający proponuje aktualizację, zainstaluj ją w nim. Jeśli aktualizacja się nie powiedzie, sprawdź połączenie i wolne miejsce na dysku, a potem spróbuj ponownie. Jeśli program nie proponuje aktualizacji, pobierz i ponownie zainstaluj aktualny zweryfikowany pakiet dla tego samego kanału i platformy.
+onboarding-update-refused = Jeśli program uruchamiający odrzuci pakiet lub nie może zweryfikować aktualizacji, przerwij instalację i skontaktuj się z pomocą.
+onboarding-sign-in-help = Problemy z logowaniem?
+onboarding-recovery-help = Jeśli nie pamiętasz hasła lub nie masz dostępu do konta, sprawdź opcje odzyskiwania w sekcji pomocy. Nigdy nie przesyłaj pomocy technicznej hasła ani kodów odzyskiwania.
+onboarding-support = Odzyskiwanie konta i pomoc
