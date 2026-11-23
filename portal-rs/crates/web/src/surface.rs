@@ -2,6 +2,7 @@
 
 use axum::{
     Router,
+    body::Body,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -343,6 +344,7 @@ async fn policy(mut request: Request, next: Next) -> Response {
     let chrome = request_chrome(&request, lang);
     let representation = error_representation(request.headers());
     let path = request.uri().path().to_owned();
+    let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
     let nonce = if getrandom::fill(&mut random).is_ok() {
         random
@@ -363,6 +365,14 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
+    let form_refusal = matches!(
+        representation,
+        ErrorRepresentation::DefaultHtml | ErrorRepresentation::Html
+    ) && matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+        && response
+            .extensions()
+            .get::<crate::RenderedFormRefusal>()
+            .is_some();
     if !oauth_protocol_path(&path)
         && path != oteryn_gameauth::locator::PATH
         && (matches!(
@@ -371,6 +381,7 @@ async fn policy(mut request: Request, next: Next) -> Response {
         ) || (status == StatusCode::UNAUTHORIZED
             && representation == ErrorRepresentation::Html
             && browser_path(&path)))
+        && !form_refusal
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
         && !(status == StatusCode::SERVICE_UNAVAILABLE
@@ -402,8 +413,11 @@ async fn policy(mut request: Request, next: Next) -> Response {
             header::CONTENT_SECURITY_POLICY,
             header::REFERRER_POLICY,
         ] {
-            if let Some(value) = response.headers().get(&name) {
-                replacement.headers_mut().insert(name, value.clone());
+            if response.headers().contains_key(&name) {
+                replacement.headers_mut().remove(&name);
+                for value in response.headers().get_all(&name) {
+                    replacement.headers_mut().append(&name, value.clone());
+                }
             }
         }
         for name in [header::SET_COOKIE, header::CACHE_CONTROL] {
@@ -453,8 +467,13 @@ async fn policy(mut request: Request, next: Next) -> Response {
             "public, max-age=300, must-revalidate"
         };
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
+    } else if !browser_path(&path) {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     } else {
         crate::chrome::ensure_no_store(headers);
+    }
+    if is_head {
+        *response.body_mut() = Body::empty();
     }
     response
 }
@@ -469,7 +488,7 @@ fn hashed_name(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::{Body, to_bytes};
+    use axum::body::to_bytes;
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
 
