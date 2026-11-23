@@ -36,6 +36,8 @@ announcement-body-pl = Body (Polish)
 announcement-action-label-pl = Action label (Polish)
 announcement-translation-published-at = Translation approved at (UTC)
 
+operator-draft = Draft — operator data will be replaced.
+final-approval = Approve this new legal edition as final
 support = Player support
 report-a-bug = Report a bug
 help-tickets = Submit a support ticket

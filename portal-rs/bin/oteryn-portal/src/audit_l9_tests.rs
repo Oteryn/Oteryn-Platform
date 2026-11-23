@@ -115,6 +115,15 @@ async fn fixture(name: &str, mode: &str) -> Result {
     command
         .args(["--exact", &format!("audit_l9_tests::{name}"), "--nocapture"])
         .env("L9_CHILD", "true")
+        .env("OTERYN_ENV", "testing")
+        .env(
+            "OTERYN_TERMS_VERSION",
+            oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+        )
+        .env(
+            "OTERYN_PRIVACY_VERSION",
+            oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+        )
         .env("TRUSTED_PROXIES", "10.0.0.1")
         .env("OTERYN_SMTP_HOST", "localhost")
         .env("OTERYN_SMTP_PORT", port.to_string())
@@ -130,6 +139,15 @@ async fn fixture(name: &str, mode: &str) -> Result {
         .env("OTERYN_ACCOUNT_SESSIONS", "false")
         .env("OTERYN_ACCOUNT_LOGIN", "false")
         .env("OTERYN_ACCOUNT_PASSKEYS", "false");
+    if matches!(
+        name,
+        "production_registration_account_exists" | "production_legal_signup_refusals"
+    ) {
+        command
+            .env("OTERYN_ENV", "production")
+            .env_remove("OTERYN_TERMS_VERSION")
+            .env_remove("OTERYN_PRIVACY_VERSION");
+    }
     if name == "missing_mail_refuses_admission" {
         command.env_remove("OTERYN_SMTP_HOST");
     }
@@ -203,10 +221,19 @@ async fn fixture(name: &str, mode: &str) -> Result {
     }
     Ok(())
 }
-async fn database() -> Result<crate::reset_http::tests::db::Database> {
+async fn empty_database() -> Result<crate::reset_http::tests::db::Database> {
     crate::reset_http::tests::db::Database::open()
         .await?
         .ok_or_else(|| "PORTAL_TEST_DATABASE_URL required; no skipped audit tests".into())
+}
+async fn database() -> Result<crate::reset_http::tests::db::Database> {
+    let db = empty_database().await?;
+    oteryn_db::test_support::seed_final_signup_editions(
+        &db.pool,
+        oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+    )
+    .await?;
+    Ok(db)
 }
 fn app(pool: sqlx::PgPool) -> axum::Router {
     oteryn_web::register::configured(oteryn_web::router(
@@ -399,10 +426,115 @@ async fn production_proxy_budgets() -> Result {
     Ok(())
 }
 #[tokio::test]
+async fn production_legal_signup_refusals() -> Result {
+    if std::env::var("L9_CHILD").is_err() {
+        return fixture("production_legal_signup_refusals", "starttls").await;
+    }
+    assert_eq!(std::env::var("OTERYN_ENV")?, "production");
+    use oteryn_db::test_support::{APPROVED_SIGNUP_EDITION, seed_signup_editions};
+    use oteryn_identity::consents::{ConsentConfig, DEFAULT_LEGAL_VERSION};
+
+    let legacy = (APPROVED_SIGNUP_EDITION.0, APPROVED_SIGNUP_EDITION.1, false);
+    let fictional = ("Tax ID (NIP) (000) 000-00-00", "NIP (000) 000-00-00", true);
+    let fictional_image = (
+        "Service terms.\n\n![Tax ID (NIP) 000-000-00-00](/missing-image.png)",
+        "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP 000-000-00-00'>",
+        true,
+    );
+    let invalid_nip = ("Tax ID (NIP) PL 123-456-78-03", "NIP 123-456-78-03", true);
+    let blank = ("<!-- Draft terms -->", "<!-- Projekt regulaminu -->", true);
+    let invisible = ("&#xfe0f;", "&#x034f;", true);
+    let allow_placeholders = ConsentConfig::published(
+        DEFAULT_LEGAL_VERSION.into(),
+        DEFAULT_LEGAL_VERSION.into(),
+        true,
+    );
+    for (reason, refused, has_visible_body) in [
+        ("fictional operator", fictional, true),
+        (
+            "fictional operator in image alternative",
+            fictional_image,
+            true,
+        ),
+        ("invalid operator NIP", invalid_nip, true),
+        (
+            "unresolved operator field",
+            (
+                "Operator: {{operator}}",
+                "Dane operatora: {{operator}}",
+                true,
+            ),
+            true,
+        ),
+        ("unapproved legacy snapshot", legacy, true),
+        ("empty sanitized body", blank, false),
+        ("invisible sanitized body", invisible, false),
+    ] {
+        for slug in ["terms", "privacy"] {
+            let (terms, privacy) = if slug == "terms" {
+                (refused, APPROVED_SIGNUP_EDITION)
+            } else {
+                (APPROVED_SIGNUP_EDITION, refused)
+            };
+            let db = empty_database().await?;
+            seed_signup_editions(&db.pool, DEFAULT_LEGAL_VERSION, terms, privacy).await?;
+            sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+                .execute(&db.pool)
+                .await?;
+            let app = app(db.pool.clone());
+            let browser = browser(&db.pool, None).await?;
+            for locale in ["en", "pl"] {
+                if has_visible_body {
+                    // Both live rows match their immutable snapshots. Only the
+                    // production approval gate can reject these editions.
+                    allow_placeholders
+                        .check_publication(&db.pool, locale)
+                        .await?;
+                }
+                let path = format!("/{locale}/register");
+                let peer = "10.0.0.1:1234";
+                let source = "192.0.2.1";
+                let page = app
+                    .clone()
+                    .oneshot(request("GET", &path, &browser, peer, source, "")?)
+                    .await?;
+                assert_eq!(
+                    page.status(),
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{locale} {slug} {reason}"
+                );
+                let body =
+                    registration_body(&app, &db.pool, &browser, "new@example.test", source).await?;
+                let response = app
+                    .clone()
+                    .oneshot(request("POST", &path, &browser, peer, source, &body)?)
+                    .await?;
+                assert_eq!(
+                    response.status(),
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "{locale} {slug} {reason}"
+                );
+                let counts: (i64, i64, i64) = sqlx::query_as(
+                    "SELECT (SELECT count(*) FROM accounts),
+                            (SELECT count(*) FROM account_consents),
+                            (SELECT count(*) FROM outbox)",
+                )
+                .fetch_one(&db.pool)
+                .await?;
+                assert_eq!(counts, (0, 0, 0), "{locale} {slug} {reason}");
+            }
+            db.close().await?;
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
 async fn production_registration_account_exists() -> Result {
     if std::env::var("L9_CHILD").is_err() {
         return fixture("production_registration_account_exists", "starttls").await;
     }
+    assert_eq!(std::env::var("OTERYN_ENV")?, "production");
     let start = Instant::now();
     let db = database().await?;
     account(&db.pool, "existing@example.test").await?;

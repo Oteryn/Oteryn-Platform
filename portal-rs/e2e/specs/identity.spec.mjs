@@ -41,8 +41,9 @@ test('TOTP enrollment, challenge, recovery login and one-time recovery code',asy
  const provisioning=await page.locator('main .op-prose').innerText();
  const totp=provisioning.startsWith('otpauth:')?OTPAuth.URI.parse(provisioning):new OTPAuth.TOTP({secret:provisioning,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:account.password,code:totp.generate()});
- const codes=await page.locator('textarea[readonly]').allTextContents();
- expect(codes.length).toBeGreaterThan(0);
+ const recoveryCodes=page.locator('textarea[readonly]');
+ await expect(recoveryCodes.first()).toBeVisible();
+ const codes=await recoveryCodes.allTextContents();
  await login(page,lang,account);
  await expect(page).toHaveURL(/mfa\/challenge/);
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});

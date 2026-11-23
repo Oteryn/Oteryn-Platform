@@ -8,6 +8,7 @@ use axum::{
     routing::get,
 };
 use sqlx::{PgPool, Row};
+pub mod legal;
 mod staff;
 #[cfg(test)]
 mod tests;
@@ -71,6 +72,7 @@ struct Page {
     title: String,
     body: String,
     version: String,
+    draft_notice: String,
     help_links: bool,
     tickets_label: String,
     password_label: String,
@@ -116,20 +118,27 @@ async fn custom(
 async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
     let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
     let help_links = matches!(&result, Ok(None)) && matches!(slug, "support" | "report-a-bug");
-    let (status, title, body, version) = match result {
+    let (status, title, body, version, draft_notice) = match result {
         Ok(Some(row)) => {
             let body: String = row.get("body");
+            let title: String = row.get("title");
+            let version: String = row.get("version");
+            let draft_notice = if legal(slug)
+                && oteryn_identity::consents::inspect_legal_edition(&version, &title, &body)
+                    .needs_operator_update()
+            {
+                text(lang, "operator-draft")
+            } else {
+                String::new()
+            };
             let mut html = String::new();
             pulldown_cmark::html::push_html(&mut html, pulldown_cmark::Parser::new(&body));
             (
                 StatusCode::OK,
-                row.get("title"),
+                title,
                 ammonia::clean(&html),
-                format!(
-                    "{} {}",
-                    row.get::<String, _>("version"),
-                    row.get::<String, _>("effective")
-                ),
+                format!("{} {}", version, row.get::<String, _>("effective")),
+                draft_notice,
             )
         }
         Ok(None) => (
@@ -150,6 +159,7 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             ),
             String::new(),
             String::new(),
+            String::new(),
         ),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
@@ -158,6 +168,7 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
         title,
         body,
         version,
+        draft_notice,
         help_links,
         tickets_label: text(lang, "help-tickets"),
         password_label: text(lang, "help-password"),

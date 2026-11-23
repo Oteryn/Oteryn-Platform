@@ -566,6 +566,11 @@ async fn production_proxy_policy_isolates_registration_verification_login_and_se
             .contains("TRUSTED_PROXIES: 172.18.0.10\n")
     );
     let app = crate::with_proxy_policy(app, pool.clone(), TrustedProxies::parse("172.18.0.10")?);
+    oteryn_db::test_support::seed_final_signup_editions(
+        &pool,
+        oteryn_identity::consents::DEFAULT_LEGAL_VERSION,
+    )
+    .await?;
     let response = app
         .clone()
         .oneshot(request("GET", "/en/register", "", "")?)

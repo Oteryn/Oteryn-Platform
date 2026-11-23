@@ -168,7 +168,9 @@ if(!process.env.PORTAL_OAUTH_CONFIG){
  env.PORTAL_OAUTH_CONFIG=JSON.stringify(oauth);
 }
 command(binary,['migrate']);
+command(binary,['install-legal-pages']);
 command(binary,['migrate'],{env:queryEnv,stdio:'ignore'});
+command(binary,['install-legal-pages'],{env:queryEnv,stdio:'ignore'});
 command(binary,['seed','query-catalog','{}'],{env:queryEnv,stdio:'ignore'});
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.

@@ -382,6 +382,11 @@ async function start() {
     OTERYN_MFA_KEY: crypto.randomBytes(32).toString('hex'),
   };
   for (const key of ['PORTAL_E2E_HTTP_PORT', 'PORTAL_E2E_INTERNAL_PORT']) delete env[key];
+  if (env.OTERYN_ENV === 'preprod') {
+    for (const key of ['OTERYN_TERMS_VERSION', 'OTERYN_PRIVACY_VERSION']) {
+      env[key] = process.env[key] ?? 'e2e-approved-v1';
+    }
+  }
 
   // ---- build, migrate ----------------------------------------------------------
   async function run(program, args, {
@@ -460,6 +465,21 @@ async function start() {
     await run(binary, ['migrate'], { stdio: ['ignore', migrationLog, migrationLog], reportPid: true });
   } finally {
     fs.closeSync(migrationLog);
+  }
+
+  if (['local', 'testing'].includes(env.OTERYN_ENV)) {
+    await run(binary, ['install-legal-pages']);
+  } else if (env.OTERYN_ENV === 'preprod') {
+    // Only the freshly created local harness database receives these editions.
+    const fixture = new pg.Client({ connectionString: databaseURL });
+    await fixture.connect();
+    try {
+      const sql = fs.readFileSync(path.join(here, 'support', 'approved-signup.sql'), 'utf8');
+      await fixture.query(sql, [env.OTERYN_TERMS_VERSION, env.OTERYN_PRIVACY_VERSION]);
+    } finally {
+      await fixture.end();
+    }
+    await run(binary, ['check-signup-legal']);
   }
 
   // ---- services ----------------------------------------------------------------

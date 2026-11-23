@@ -46,11 +46,13 @@ impl RegisterPage {
 pub(crate) fn config(value: Option<Extension<ConsentConfig>>) -> Result<ConsentConfig, StatusCode> {
     let config = value.map(|v| v.0).unwrap_or_default();
     if !config.validate() {
-        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        tracing::error!("sign-up blocked: invalid OTERYN_TERMS_VERSION or OTERYN_PRIVACY_VERSION");
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
     Ok(config)
 }
 async fn show(
+    State(state): State<AppState>,
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     value: Option<Extension<ConsentConfig>>,
@@ -58,6 +60,11 @@ async fn show(
     if session.account_id().await.is_some() {
         return Ok(Redirect::to("/account").into_response());
     }
+    let config = config(value)?;
+    config
+        .check_publication(&state.db, language.code())
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let page = RegisterPage {
         lang: language.code(),
         language,
@@ -65,7 +72,7 @@ async fn show(
             .csrf_token()
             .await
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
-        config: config(value)?,
+        config,
         email: String::new(),
         errors: BTreeMap::new(),
     };
@@ -106,6 +113,10 @@ async fn submit(
         return Ok(error.response(language, false));
     }
     let config = config(value)?;
+    config
+        .check_publication(&state.db, language.code())
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let input = form.map(|Form(input)| input).unwrap_or_default();
     let errors = register::validate(&input, &config);
     if !errors.is_empty() {
@@ -129,7 +140,10 @@ async fn submit(
     }
     register::register(&state.db, input, &config, language.code(), Some(source))
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| match error {
+            register::Error::LegalUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            register::Error::Backend(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
     session::rotate(&session, PrivilegeChange::Reissue)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -142,17 +156,47 @@ async fn inbox(
     super::verify::message(language, &session, "verify-inbox", StatusCode::OK).await
 }
 
+fn allows_placeholder_editions() -> bool {
+    matches!(
+        std::env::var("OTERYN_ENV").as_deref(),
+        Ok("local" | "testing")
+    )
+}
+
+fn configured_consent(allow_placeholders: bool) -> ConsentConfig {
+    let default_version = if allow_placeholders {
+        oteryn_identity::consents::PLACEHOLDER_LEGAL_VERSION
+    } else {
+        oteryn_identity::consents::DEFAULT_LEGAL_VERSION
+    };
+    ConsentConfig::published(
+        std::env::var("OTERYN_TERMS_VERSION").unwrap_or_else(|_| default_version.into()),
+        std::env::var("OTERYN_PRIVACY_VERSION").unwrap_or_else(|_| default_version.into()),
+        allow_placeholders,
+    )
+}
+
+/// Check the candidate's live configuration without starting the web service.
+pub async fn check_live_signup(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {
+    if allows_placeholder_editions() {
+        return Err(sqlx::Error::Protocol(
+            "live signup check requires a non-disposable profile".into(),
+        ));
+    }
+    let consents = configured_consent(false);
+    let mut tx = pool.begin().await?;
+    for locale in ["en", "pl"] {
+        consents.check_publication(&mut *tx, locale).await?;
+    }
+    tx.commit().await
+}
+
 /// Registers legal-document versions and T02's trusted browser origin at process startup.
 /// Deployments set OTERYN_PUBLIC_ORIGIN to the canonical origin, and may override
 /// OTERYN_TERMS_VERSION and OTERYN_PRIVACY_VERSION when publishing new documents.
 /// Without a configured origin, browser requests carrying Origin remain refused.
 pub fn configured(app: Router) -> Router {
-    let defaults = ConsentConfig::default();
-    let consents = ConsentConfig {
-        terms_version: std::env::var("OTERYN_TERMS_VERSION").unwrap_or(defaults.terms_version),
-        privacy_version: std::env::var("OTERYN_PRIVACY_VERSION")
-            .unwrap_or(defaults.privacy_version),
-    };
+    let consents = configured_consent(allows_placeholder_editions());
     let csrf = crate::csrf::CsrfConfig {
         trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")
             .ok()

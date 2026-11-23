@@ -401,20 +401,22 @@ async fn consents_legal_acceptance_unchanged() -> TestResult {
     let Some(f) = Fixture::new().await? else {
         return Ok(());
     };
-    let mut conn = f.pool.acquire().await?;
-    record(&mut conn, f.account, &ConsentConfig::default(), None).await?;
+    oteryn_db::test_support::seed_final_signup_editions(&f.pool, DEFAULT_LEGAL_VERSION).await?;
+    let config = ConsentConfig::default();
+    let mut tx = f.pool.begin().await?;
+    let editions = config.check_publication(&mut *tx, "en").await?;
+    record(&mut tx, f.account, &editions, None).await?;
+    tx.commit().await?;
     let legal: Vec<(String, bool, bool)> = sqlx::query_as("SELECT document_kind,granted,actor=account_id FROM account_consents WHERE account_id=$1 ORDER BY document_kind")
         .bind(f.account).fetch_all(&f.pool).await?;
     assert_eq!(
         legal,
         vec![("privacy".into(), true, true), ("terms".into(), true, true)]
     );
-    assert!(
-        record(&mut conn, f.account, &ConsentConfig::default(), None)
-            .await
-            .is_err()
-    );
-    drop(conn);
+    let mut tx = f.pool.begin().await?;
+    let editions = config.check_publication(&mut *tx, "en").await?;
+    assert!(record(&mut tx, f.account, &editions, None).await.is_err());
+    tx.rollback().await?;
     f.close().await
 }
 
@@ -443,4 +445,108 @@ async fn audit02_consent_dispatch_budget_stops_durable_writes() -> TestResult {
     }
     assert_eq!(f.count().await?, 10);
     f.close().await
+}
+
+#[test]
+fn recognizes_placeholders_in_rendered_legal_text() {
+    for body in [
+        "NIP 000‑000‑00‑00",
+        "NIP (000) 000-00-00",
+        "NIP (00\u{034f}0) 000-00-00",
+        "Tax ID (NIP) （０００） 000-00-00",
+        "Tax ID (NIP) **000**&#8209;000&#x2011;00‑00",
+        "Tax ID (NIP) <strong>000</strong>&#8209;000‑00‑00",
+        "KRS 0000000000",
+        "NIP: ０００–０００·００ ００",
+        "ul. Przykładowa **1**",
+    ] {
+        let text = inspect_legal_edition("final-v1", "Terms", body);
+        assert!(text.has_placeholder && text.has_visible_body, "{body}");
+    }
+    let real = inspect_legal_edition("final-v1", "Terms", "**NIP (123) 456-78-02**");
+    assert!(!real.has_placeholder && real.has_visible_body);
+    for body in [
+        "<!-- NIP 000‑000‑00‑00 -->",
+        "<p>&nbsp;&#8203;</p>",
+        "<hr>",
+        "<p>&#x034f;&#xfe0f;</p>",
+        "&#x2800;",
+    ] {
+        let text = inspect_legal_edition("final-v1", "Terms", body);
+        assert!(!text.has_placeholder && !text.has_visible_body, "{body}");
+    }
+}
+
+#[test]
+fn detects_unresolved_template_fields_in_legal_editions() {
+    for (title, body) in [
+        ("Terms", "Operator: {{operator}}"),
+        (
+            "Regulamin",
+            "Operator: &#123;&#123; operator.name &#125;&#125;",
+        ),
+        (
+            "Terms",
+            "Contact information. ![{{operator}}](/missing-image.png)",
+        ),
+        ("Terms for {{operator}}", "Contact information."),
+    ] {
+        let edition = inspect_legal_edition("final-v1", title, body);
+        assert!(
+            edition.has_visible_body && edition.has_placeholder,
+            "{title} {body}"
+        );
+    }
+    assert!(!inspect_legal_edition("final-v1", "Terms", "Contact {operator}").has_placeholder);
+}
+
+#[test]
+fn validates_nip_in_rendered_text_and_image_alternatives() {
+    for body in [
+        "![Tax ID (NIP) (000) 000-00-00](/missing-image.png)",
+        "NIP (000) ![000-00-00](/missing-image.png)",
+        "<img src='/missing-image.png' alt='NIP 000&#8209;000-00-00'>",
+        "<a href='/contact' title='NIP 000-000-00-00'>Contact</a>",
+    ] {
+        assert!(
+            inspect_legal_edition("final-v1", "Terms", body).has_placeholder,
+            "{body}"
+        );
+    }
+    assert!(
+        !inspect_legal_edition(
+            "final-v1",
+            "Terms",
+            "![NIP 123-456-78-02](/missing-image.png)"
+        )
+        .has_visible_body
+    );
+
+    for body in [
+        "Tax ID (NIP) PL 123-456-78-03",
+        "NIP: 123 456 78 90",
+        "NIP: 123-456-78-021",
+        "NIP: 123-456",
+        "Service terms.\n\n![NIP: 123-456-78-03](/missing-image.png)",
+        "Warunki świadczenia usług.\n\n<img src='/missing-image.png' alt='NIP: 123&#8209;456-78-03'>",
+    ] {
+        let text = inspect_legal_edition("final-v1", "Terms", body);
+        assert!(
+            text.has_visible_body && text.has_invalid_nip && !text.has_placeholder,
+            "{body}"
+        );
+    }
+    for body in [
+        "NIP: PL (１２３) 456‑78‑02; 2026",
+        "NIP: 123 456 78 02\n\n2026",
+        "<p>NIP: 123 456 78 02<br>2026</p>",
+        "Contact.\n\n![Tax ID (NIP) 123-456-78-02](/missing-image.png)",
+        "Dane do kontaktu. Numer NIP można podać w formularzu.",
+    ] {
+        let text = inspect_legal_edition("final-v1", "Terms", body);
+        assert!(
+            text.has_visible_body && !text.needs_operator_update(),
+            "{body}"
+        );
+    }
 }

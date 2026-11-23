@@ -17,6 +17,15 @@ pub struct Registration {
     pub terms: Option<String>,
     pub privacy: Option<String>,
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("signup legal editions unavailable")]
+    LegalUnavailable,
+    #[error(transparent)]
+    Backend(#[from] sqlx::Error),
+}
+
 /// Field names and translation keys, never submitted credential values.
 pub fn validate(input: &Registration, config: &ConsentConfig) -> Vec<(&'static str, &'static str)> {
     let mut errors = Vec::new();
@@ -45,10 +54,10 @@ pub async fn register(
     config: &ConsentConfig,
     locale: &str,
     ip: Option<IpAddr>,
-) -> Result<Option<AccountId>, sqlx::Error> {
+) -> Result<Option<AccountId>, Error> {
     if !config.validate() || !validate(&input, config).is_empty() || !matches!(locale, "pl" | "en")
     {
-        return Err(sqlx::Error::Protocol("invalid registration".into()));
+        return Err(sqlx::Error::Protocol("invalid registration".into()).into());
     }
     crate::abuse::check_password(pool, &input.password)
         .await
@@ -59,9 +68,13 @@ pub async fn register(
         .map_err(|_| sqlx::Error::Protocol("password hashing unavailable".into()))?
         .map_err(sqlx::Error::Protocol)?;
     let mut tx = pool.begin().await?;
+    let editions = config
+        .check_publication(&mut *tx, locale)
+        .await
+        .map_err(|_| Error::LegalUnavailable)?;
     let account = Accounts::create(&mut tx, &input.email, &hash, locale).await?;
     if let Some(account) = account {
-        consents::record(&mut tx, account.id, config, ip).await?;
+        consents::record(&mut tx, account.id, &editions, ip).await?;
         verify::issue(&mut tx, account.id, locale).await?;
         tx.commit().await?;
         Ok(Some(account.id))

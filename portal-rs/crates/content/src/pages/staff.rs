@@ -50,6 +50,7 @@ struct Editor {
     locale: String,
     form: PageForm,
     labels: Vec<String>,
+    legal: bool,
 }
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(super) struct PageForm {
@@ -65,6 +66,8 @@ pub(super) struct PageForm {
     pub legal_version: String,
     #[serde(default)]
     pub legal_effective_date: String,
+    #[serde(default)]
+    pub final_approved: String,
     #[serde(default)]
     pub action: String,
 }
@@ -89,6 +92,15 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
         && form.body.chars().count() <= 100000
         && form.legal_version.len() <= 80
         && matches!(form.action.as_str(), "save" | "delete")
+        && (form.final_approved.is_empty()
+            || (form.final_approved == "yes" && legal(slug) && !form.published_at.is_empty() && {
+                let text = oteryn_identity::consents::inspect_legal_edition(
+                    &form.legal_version,
+                    &form.title,
+                    &form.body,
+                );
+                text.has_visible_body && !text.needs_operator_update()
+            }))
         && (!legal(slug)
             || form.published_at.is_empty()
             || (!form.legal_version.trim().is_empty() && !form.legal_effective_date.is_empty()))
@@ -175,6 +187,7 @@ async fn edit(
                 .get::<Option<sqlx::types::time::Date>, _>("legal_effective_date")
                 .map(|v| v.to_string())
                 .unwrap_or_default(),
+            final_approved: String::new(),
             action: String::new(),
         },
         Ok(None) => PageForm::default(),
@@ -198,11 +211,13 @@ async fn edit(
             "effective",
             "save",
             "delete",
+            "final-approval",
         ]
         .map(|k| text(&locale, k))
         .to_vec(),
         lang: locale.clone(),
         locale,
+        legal: legal(&slug),
         slug,
         csrf,
         form,
@@ -312,17 +327,29 @@ pub(super) async fn persist(
                 return Err(Error::InvalidInput);
             }
         }
-        let content =
+        let mut content =
             json!({"title":form.title,"body":form.body,"effective":form.legal_effective_date});
-        if legal(slug) && !form.published_at.is_empty() {
+        let publishing_legal = legal(slug) && !form.published_at.is_empty();
+        let mut final_approved = form.final_approved == "yes";
+        if publishing_legal {
             let old:Option<serde_json::Value>=sqlx::query_scalar("SELECT content FROM page_legal_versions WHERE page_id=$1 AND locale=$2 AND version=$3").bind(id).bind(locale).bind(&form.legal_version).fetch_optional(&mut *tx).await?;
+            final_approved |= old
+                .as_ref()
+                .is_some_and(|snapshot| snapshot["final_approved"] == true);
+            if final_approved {
+                content["final_approved"] = json!(true);
+            }
             if old.is_some_and(|v| v != content) {
                 return Err(Error::InvalidInput);
             }
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
-        sqlx::query_scalar("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond') RETURNING to_jsonb(editorial_pages)")
-            .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).fetch_one(&mut *tx).await?
+        let mut saved: Value = sqlx::query_scalar("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond') RETURNING to_jsonb(editorial_pages)")
+            .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).fetch_one(&mut *tx).await?;
+        if publishing_legal {
+            saved["final_approved"] = json!(final_approved);
+        }
+        saved
     };
     audit::append(
         &mut tx,

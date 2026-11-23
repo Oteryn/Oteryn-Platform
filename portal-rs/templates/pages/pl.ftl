@@ -36,6 +36,8 @@ announcement-body-pl = Treść (polska)
 announcement-action-label-pl = Etykieta akcji (polska)
 announcement-translation-published-at = Data zatwierdzenia tłumaczenia (UTC)
 
+operator-draft = Wersja robocza — dane operatora zostaną zastąpione.
+final-approval = Zatwierdź tę nową wersję dokumentu jako ostateczną
 support = Pomoc dla graczy
 report-a-bug = Zgłoś błąd
 help-tickets = Wyślij zgłoszenie do pomocy
