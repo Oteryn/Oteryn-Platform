@@ -1,17 +1,19 @@
 import AxeBuilder from '@axe-core/playwright';
 import axeCore from 'axe-core';
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test as base, expect, request as playwrightRequest } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
-import { login, password, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
-import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { password, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
+import { seededLogin, query } from '../staff-rbac-helpers.mjs';
 import { documentLanguage, languageFilter, matchingRoute, maxSamples, routes } from './routes.mjs';
 import { assertKeyboard } from './keyboard.mjs';
 import { publishEditorialFixtures } from './editorial-fixtures.mjs';
 import { assertBudgets, collectResponses, installVitals, startPaintTrace, vitals } from './performance.mjs';
 
-const actors = ['platform_admin', 'anonymous', 'player'];
+const staffRoles = JSON.parse(process.env.PORTAL_QUALITY_STAFF_ROLES ?? '[]');
+if (!staffRoles.includes('platform_admin')) throw new Error('Use node quality/run.mjs to load the built-in staff roles');
+const actors = ['platform_admin', 'anonymous', 'player', ...staffRoles.filter(role => role !== 'platform_admin')];
 const selected = process.env.PORTAL_QUALITY_ROUTE?.split(',').map(pattern => pattern.trim()) ?? [];
 const editorialRoutes = ['/{lang}/news/{slug}', '/{lang}/events/{slug}', '/{lang}/wiki/articles/{slug}'];
 const wcag = ['wcag2a', 'wcag2aa'];
@@ -37,39 +39,37 @@ function seed(entity, input) {
   }
 }
 
-async function actorState(browser, info, actor) {
-  const fixturePassword = password();
-  await seedPasswordRange(fixturePassword);
-  if (actor === 'anonymous') return { cookies: [], origins: [] };
+async function actorState(browser, info, actor, publish = false) {
   const locale = info.project.metadata.locale;
-  const credentials = { email: `quality-${randomUUID()}@example.invalid`, password: fixturePassword };
+  const credentials = { email: `quality-${randomUUID()}@example.invalid`, password: password() };
   const { accountId } = seed('account', { ...credentials, locale });
   const context = await browser.newContext({
     ...info.project.use, baseURL: process.env.PORTAL_E2E_ORIGIN,
   });
   let phase = 'sign-in';
-  let editorial = [];
   try {
     const page = await context.newPage();
-    if (actor === 'platform_admin') {
+    if (staffRoles.includes(actor)) {
       const roles = await query(
-        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin' RETURNING role_id",
-        [accountId],
+        'INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2 AND built_in RETURNING role_id',
+        [accountId, actor],
       );
       expect(roles).toHaveLength(1);
       const { recoveryCodes } = seed('account-mfa', { accountId, password: credentials.password });
-      await loginWithRecoveryCode(page, locale, credentials, recoveryCodes[0]);
+      await seededLogin(page, locale, { ...credentials, recoveryCode: recoveryCodes[0] });
+    } else {
+      await seededLogin(page, locale, credentials);
+    }
+    if (actor === 'platform_admin') {
       expect((await page.goto('/admin')).status(), 'platform admin reaches staff panel').toBe(200);
       expect(new URL(page.url()).pathname).toMatch(/^\/admin(?:\/|$)/);
     } else {
-      await login(page, locale, credentials);
-      expect((await page.goto('/account')).status(), 'seeded player reaches account').toBe(200);
+      expect((await page.goto('/account')).status(), 'seeded actor reaches account').toBe(200);
       expect(new URL(page.url()).pathname).toMatch(/\/account\/?$/);
     }
-    if (actor === 'platform_admin' &&
-        (!selected.length || editorialRoutes.some(pattern => selected.includes(pattern)))) {
+    if (publish) {
       phase = 'editorial publication';
-      editorial = await publishEditorialFixtures(page, locale);
+      return { editorial: await publishEditorialFixtures(page, locale) };
     }
     phase = 'ticket creation';
     expect((await page.goto(`/${locale}/support/tickets/create`)).status()).toBe(200);
@@ -85,13 +85,26 @@ async function actorState(browser, info, actor) {
     });
     await expect(page).toHaveURL(/support\/reports\/[a-f0-9-]+$/);
     const report = new URL(page.url()).pathname.split('/').at(-1);
-    return { storage: await context.storageState(), accountId, ticket, report, editorial };
+    return { storage: await context.storageState(), accountId, ticket, report };
   } catch {
     throw new Error(`Could not prepare the ${actor} browser fixture during ${phase}`);
   } finally {
     await context.close();
   }
 }
+
+const test = base.extend({
+  editorial: [async ({ browser }, use, info) => {
+    await seedPasswordRange(password());
+    const needsEditorial = !selected.length || editorialRoutes.some(pattern => selected.includes(pattern));
+    const fixtures = needsEditorial ? await actorState(browser, info, 'platform_admin', true) : { editorial: [] };
+    await use(fixtures.editorial);
+  }, { scope: 'worker' }],
+});
+
+// Playwright can shard individual actor/project cases from this file.
+// A shard still walks each assigned actor's entire linked inventory.
+test.describe.configure({ mode: 'parallel' });
 
 function addLinks(inventory, links, source) {
   for (const link of links) {
@@ -251,16 +264,22 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
 }
 
 for (const actor of actors) {
-  test(`quality budgets for ${actor}`, async ({ browser }, info) => {
-    const state = await actorState(browser, info, actor);
+  test(`quality budgets for ${actor}`, async ({ browser, editorial }, info) => {
+    const state = actor === 'anonymous'
+      ? { cookies: [], origins: [] }
+      : await actorState(browser, info, actor);
     const locale = info.project.metadata.locale;
     const inventory = routes(locale, {
       player: state.accountId, ticket: state.ticket, report: state.report, world: process.env.PORTAL_QUALITY_WORLD,
     });
     const origin = new URL(process.env.PORTAL_E2E_ORIGIN);
-    addLinks(inventory, (state.editorial ?? []).map(path => new URL(path, origin)), origin);
+    addLinks(inventory, editorial.map(path => new URL(path, origin)), origin);
     const covered = new Map();
     const evidence = [];
+    let completed = false;
+    const reportData = () => ({
+      actor, locale, width: info.project.use.viewport.width, completed, routeFilter: selected, evidence,
+    });
     const report = info.outputPath('quality-inventory.json');
     for (const pattern of selected) {
       expect(inventory.some(row => row.pattern === pattern), `selected source pattern ${pattern} exists`).toBe(true);
@@ -271,6 +290,7 @@ for (const actor of actors) {
       storageState: state.storage ?? state,
       extraHTTPHeaders: { accept: 'text/html', 'accept-language': locale },
     };
+    const session = state.storage && await playwrightRequest.newContext(probeOptions);
     try {
       const tested = new Map();
       let addedSamples;
@@ -295,7 +315,7 @@ for (const actor of actors) {
               const label = [requestedPath, 'audit completed', location].filter(Boolean).join(' ');
               expect.soft(reason, label).toBe('');
             }
-            fs.writeFileSync(report, JSON.stringify({ actor, locale, evidence }), { mode: 0o600 });
+            fs.writeFileSync(report, JSON.stringify(reportData()), { mode: 0o600 });
             if (evidence.length % 25 === 0) {
               console.info(`[quality] ${info.project.name} ${actor} processed ${evidence.length} route samples and audited ${covered.size} documents`);
             }
@@ -303,9 +323,17 @@ for (const actor of actors) {
         }
       } while (addedSamples);
       expect(covered.size, 'rendered documents audited').toBeGreaterThan(0);
+      if (session) {
+        const account = await session.get('/account');
+        expect(account.status(), 'actor session still reaches the account after the crawl').toBe(200);
+        expect(new URL(account.url()).pathname).toMatch(/\/account\/?$/);
+      }
+      completed = true;
     } finally {
+      await session?.dispose();
+      fs.writeFileSync(report, JSON.stringify(reportData()), { mode: 0o600 });
       await info.attach('quality-inventory', {
-        contentType: 'application/json', body: JSON.stringify({ actor, locale, evidence }),
+        contentType: 'application/json', body: JSON.stringify(reportData()),
       });
     }
   });

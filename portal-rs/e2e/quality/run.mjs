@@ -7,6 +7,7 @@ import https from 'node:https';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pool } from '../helpers.mjs';
 
 const e2e = fileURLToPath(new URL('../', import.meta.url));
 const root = path.dirname(e2e);
@@ -107,6 +108,15 @@ try {
     })),
   ]);
   const secrets = JSON.parse(fs.readFileSync(path.join(out, 'secrets/env.json'), 'utf8'));
+  const db = pool(secrets.OTERYN_DATABASE_URL);
+  let staffRoles;
+  try {
+    const { rows } = await db.query('SELECT key FROM roles WHERE built_in ORDER BY key');
+    staffRoles = rows.map(row => row.key);
+    if (!staffRoles.includes('platform_admin')) throw new Error('Platform administrator role is missing');
+  } finally {
+    await db.end();
+  }
   proxy = https.createServer({
     key: fs.readFileSync(secrets.OTERYN_INTERNAL_TLS_KEY_FILE),
     cert: fs.readFileSync(secrets.OTERYN_INTERNAL_TLS_CERT_FILE),
@@ -136,6 +146,7 @@ try {
       PORTAL_QUALITY_SEED_BINARY: wrapper,
       PORTAL_QUALITY_SEED_ENV: path.join(out, 'secrets/env.json'),
       PORTAL_QUALITY_WORLD: report.seed.world.worldId,
+      PORTAL_QUALITY_STAFF_ROLES: JSON.stringify(staffRoles),
       PORTAL_QUALITY_INVENTORY: path.join(sourceScan, 'e2e/inventory.json'),
     },
     stdio: 'inherit',
