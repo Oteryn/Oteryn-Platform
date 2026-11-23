@@ -253,11 +253,14 @@ function proxyRequest(req,res,port=18080) {
  }
  forward(req,res,port,headers,localAddress);
 }
-const proxy=https.createServer(tls,proxyRequest);
-const nativePanelOffProxy=https.createServer(tls,(req,res)=>proxyRequest(req,res,nativePanelOffPort));
+// Playwright's API agent reuses idle sockets while the browser navigates.
+// Keep these disposable listeners open until the suite closes its contexts.
+const proxyTls={...tls,keepAliveTimeout:0};
+const proxy=https.createServer(proxyTls,proxyRequest);
+const nativePanelOffProxy=https.createServer(proxyTls,(req,res)=>proxyRequest(req,res,nativePanelOffPort));
 nativePanelOffProxy.listen(nativePanelOffProxyPort,'127.0.0.1');
 proxy.listen(18443,'127.0.0.1');
-const queryProxy=https.createServer(tls,(req,res)=>forward(req,res,queryPort));
+const queryProxy=https.createServer(proxyTls,(req,res)=>forward(req,res,queryPort));
 queryProxy.listen(queryProxyPort,'127.0.0.1');
 function start(role,instanceEnv,log){
  const fd=fs.openSync(path.join(scratch,`${log}.log`),'a',0o600);
@@ -285,7 +288,7 @@ delete nativePanelOffEnv.PORTAL_E2E_ROUTE_REPORT;
 children['native-panel-off']=start('serve',nativePanelOffEnv,'native-panel-off');
 league.start();
 if(splitStaffOrigin){
- const staffProxy=https.createServer(tls,proxyRequest).listen(443,'127.0.0.1');
+ const staffProxy=https.createServer(proxyTls,proxyRequest).listen(443,'127.0.0.1');
  proxy.once('close',()=>staffProxy.close());
 }
 await gameProducer.start();
