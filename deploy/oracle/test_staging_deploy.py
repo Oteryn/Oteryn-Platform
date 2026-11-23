@@ -275,9 +275,12 @@ class StagingDeploy(unittest.TestCase):
         # before the public portal starts, because the stack has no egress.
         policy = [entry for entry in grant if entry.kwargs['data'] == staging.REGISTRATION_POLICY]
         self.assertEqual(len(policy), 1)
-        self.assertIn('-1', policy[0].args[0])
+        # psql accepts -1 only with -c/-f, so the SQL carries its own transaction.
+        self.assertNotIn('-1', policy[0].args[0])
         self.assertIsInstance(staging.REGISTRATION_POLICY, bytes)
         sql = staging.REGISTRATION_POLICY.decode()
+        self.assertTrue(sql.startswith('BEGIN;\n'))
+        self.assertTrue(sql.endswith('COMMIT;\n'))
         self.assertIn('SET enabled = true', sql)
         self.assertIn('generate_series(0, 1048575)', sql)
         for sample in staging.BREACHED_SAMPLES:

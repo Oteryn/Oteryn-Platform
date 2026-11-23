@@ -89,6 +89,7 @@ GRANT_STAFF = ''.join(
 # black-box tests can still see the refusal. Registration is enabled here.
 BREACHED_SAMPLES = ('Staging-Breached-Password-1', 'Staging-Breached-Password-2')
 REGISTRATION_POLICY = (
+    "BEGIN;\n"
     "UPDATE registration_abuse_policy SET enabled = true WHERE singleton;\n"
     "INSERT INTO registration_password_ranges(prefix, suffixes, expires_at, complete, complete_xact) "
     "SELECT upper(lpad(to_hex(n), 5, '0')), ARRAY[]::text[], now() + interval '30 days', true, "
@@ -99,6 +100,7 @@ REGISTRATION_POLICY = (
         "UPDATE registration_password_ranges SET suffixes = suffixes || "
         f"ARRAY['{digest[5:]}'], complete_xact = pg_current_xact_id() WHERE prefix = '{digest[:5]}';\n"
         for digest in (hashlib.sha1(sample.encode()).hexdigest().upper() for sample in BREACHED_SAMPLES))
+    + "COMMIT;\n"
 ).encode()
 ACCOUNT_FLAGS = (
     'LOGIN', 'MFA', 'PASSKEYS', 'PASSWORD_RESET', 'SESSIONS', 'CREDENTIALS',
@@ -447,7 +449,7 @@ def replace_stack(directory, sha, smtp_password, seed_password):
     compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
             '-U', 'portal', '-d', PORTAL_DB, data=GRANT_STAFF)
     compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
-            '-U', 'portal', '-d', PORTAL_DB, '-1', data=REGISTRATION_POLICY, timeout=600)
+            '-U', 'portal', '-d', PORTAL_DB, data=REGISTRATION_POLICY, timeout=600)
     compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress')
     wait_ready()
 
