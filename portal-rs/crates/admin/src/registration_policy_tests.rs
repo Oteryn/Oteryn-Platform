@@ -44,9 +44,7 @@ fn validates_bilingual_closure_and_applies_numeric_bounds() -> Result<(), Box<dy
 #[tokio::test]
 async fn saves_current_policy_with_confirmation_permission_and_history()
 -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
-        return Ok(());
-    };
+    let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let root = PgPool::connect(&url).await?;
     let schema = format!("regpolicy_{}", Uuid::now_v7().simple());

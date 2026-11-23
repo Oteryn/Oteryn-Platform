@@ -49,18 +49,18 @@ fn refusal_with_reason(error: Error, language: &str, reason: &str) -> Response {
         Error::Disabled | Error::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     };
     let language = if language == "en" { "en" } else { "pl" };
-    let body = format!(
-        "<!doctype html><html lang=\"{language}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><main><p role=\"alert\">{}</p><a href=\"/{language}/register\">{}</a></main></html>",
-        text(language, "title"),
-        text(language, key),
-        text(language, "retry")
-    );
-    let mut response = (status, [(header::CACHE_CONTROL, "no-store")], Html(body)).into_response();
     let message = if reason.is_empty() {
         text(language, key)
     } else {
         reason.to_owned()
     };
+    let Ok(escaped) = askama::filters::escape(&message, askama::filters::Html);
+    let body = format!(
+        "<!doctype html><html lang=\"{language}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>{}</title><main><p role=\"alert\">{escaped}</p><a href=\"/{language}/register\">{}</a></main></html>",
+        text(language, "title"),
+        text(language, "retry")
+    );
+    let mut response = (status, [(header::CACHE_CONTROL, "no-store")], Html(body)).into_response();
     response
         .extensions_mut()
         .insert(oteryn_ui::RefusalMessage(message));

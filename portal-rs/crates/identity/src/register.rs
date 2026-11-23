@@ -20,6 +20,8 @@ pub struct Registration {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("registration closed")]
+    Closed,
     #[error("signup legal editions unavailable")]
     LegalUnavailable,
     #[error(transparent)]
@@ -61,13 +63,24 @@ pub async fn register(
     }
     crate::abuse::check_password(pool, &input.password)
         .await
-        .map_err(|_| sqlx::Error::Protocol("registration protection refused".into()))?;
+        .map_err(|error| match error {
+            crate::abuse::Error::Disabled => Error::Closed,
+            _ => sqlx::Error::Protocol("registration protection refused".into()).into(),
+        })?;
     // Hash on both paths, outside the asynchronous executor and before checking uniqueness.
     let hash = tokio::task::spawn_blocking(move || password::hash(&input.password))
         .await
         .map_err(|_| sqlx::Error::Protocol("password hashing unavailable".into()))?
         .map_err(sqlx::Error::Protocol)?;
     let mut tx = pool.begin().await?;
+    let open: bool = sqlx::query_scalar(
+        "SELECT enabled FROM registration_abuse_policy WHERE singleton FOR SHARE",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if !open {
+        return Err(Error::Closed);
+    }
     let editions = config
         .check_publication(&mut *tx, locale)
         .await

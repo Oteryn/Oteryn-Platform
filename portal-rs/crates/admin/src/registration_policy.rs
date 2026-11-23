@@ -68,11 +68,7 @@ pub(super) struct Selection {
 }
 impl Selection {
     fn lang(&self, headers: &HeaderMap) -> &'static str {
-        match self.lang.as_deref() {
-            Some("pl") => "pl",
-            Some("en") => "en",
-            _ => language(headers),
-        }
+        language(self.lang.as_deref(), headers)
     }
 }
 
@@ -245,7 +241,9 @@ async fn render(
         sudo,
         message: notice.map(|(_, key)| key),
     });
-    if let Some((status, _)) = notice {
+    if response.status().is_success()
+        && let Some((status, _)) = notice
+    {
         *response.status_mut() = status;
     }
     Ok(response)
@@ -361,14 +359,14 @@ pub(super) async fn save<I: StaffSession, A: AccountStateReader>(
     form: Result<Form<Settings>, FormRejection>,
 ) -> Result<Response, Error> {
     let lang = selection.lang(&headers);
-    // Both policy permissions are required to render a form after rejection.
-    s.auth
-        .check(context, Permission::ViewRegistrationPolicy)
-        .await?;
-    let Ok((revision, policy)) = form
-        .map_err(|_| policy::InvalidPolicy)
-        .and_then(|Form(settings)| settings.validate())
-    else {
+    let validated = match form {
+        Ok(Form(settings)) => settings.validate(),
+        Err(error) if error.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            Err(policy::InvalidPolicy)
+        }
+        Err(error) => return Ok(error.status().into_response()),
+    };
+    let Ok((revision, policy)) = validated else {
         return render(
             &s.pool,
             &session,

@@ -545,9 +545,9 @@ async fn outage_timeout_and_malformed_body_are_unavailable() -> TestResult {
 #[tokio::test]
 async fn corpus_import_time_tracks_operator_upserts_separately_from_cache_refreshes() -> TestResult
 {
-    let Some(db) = Database::open().await? else {
-        return Ok(());
-    };
+    let db = Database::open()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
     let p = &db.pool;
     let last_import = || async {
         sqlx::query_scalar::<_, sqlx::types::time::OffsetDateTime>(

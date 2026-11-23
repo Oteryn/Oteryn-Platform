@@ -142,7 +142,9 @@ async fn submit(
     register::register(&state.db, input, &config, language.code(), Some(source))
         .await
         .map_err(|error| match error {
-            register::Error::LegalUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+            register::Error::Closed | register::Error::LegalUnavailable => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             register::Error::Backend(_) => StatusCode::INTERNAL_SERVER_ERROR,
         })?;
     session::rotate(&session, PrivilegeChange::Reissue)

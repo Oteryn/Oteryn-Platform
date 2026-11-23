@@ -2,7 +2,7 @@ import {createHash, randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {test, expect} from '../fixtures.mjs';
 import {seededMfaAccount, seededLogin, query} from '../staff-rbac-helpers.mjs';
-import {password, submit} from '../helpers.mjs';
+import {csrfRejected, password, submit} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
 
 const action = 'registration.policy.changed';
@@ -16,6 +16,10 @@ test('staff confirm, close and reopen signup with bilingual reasons and change h
   await seededLogin(page, lang, staff);
 
   await page.goto(`/admin?lang=${lang}`);
+  const alternate = lang === 'pl' ? 'en' : 'pl';
+  const otherPanel = await page.request.get(`/admin?lang=${alternate}`);
+  expect(otherPanel.status()).toBe(200);
+  expect(await otherPanel.text()).toContain(`<html lang="${alternate}"`);
   const link = page.locator(`main nav a[href^="${route}"]`);
   await expect(link).toBeVisible();
   await link.click();
@@ -58,13 +62,28 @@ test('staff confirm, close and reopen signup with bilingual reasons and change h
     const [revision] = await query('SELECT revision FROM registration_abuse_policy WHERE singleton');
     const early = await post(page.request, `${route}?lang=${lang}`, {...requested, _csrf: csrf, revision: String(revision.revision)});
     expect(early.status()).toBe(403);
+    const wrongPassword = await post(page.request, `${route}/confirm?lang=${lang}`, {
+      _csrf: csrf, current_password: password(),
+    });
+    expect(wrongPassword.status()).toBe(422);
 
     await initialForm.locator('[name=current_password]').fill(staff.password);
     await initialForm.locator('button[type=submit]').click();
     await expect(page).toHaveURL(new RegExp(`/admin/registration-policy\\?lang=${lang}$`));
     const edit = page.locator(`form[action="${route}?lang=${lang}"]`);
     await expect(edit.locator('select[name=enabled]')).toBeEnabled();
-    expect(await edit.locator('input[name=_csrf]').inputValue()).not.toBe(csrf);
+    const editCsrf = await edit.locator('input[name=_csrf]').inputValue();
+    expect(editCsrf).not.toBe(csrf);
+    const settings = {...requested, _csrf: editCsrf, revision: String(revision.revision)};
+    await csrfRejected(page, `${route}?lang=${lang}`, settings);
+    const wrongFormat = await page.request.post(`${route}?lang=${lang}`, {
+      data: requested, headers: {origin: new URL(page.url()).origin, 'x-csrf-token': editCsrf},
+    });
+    expect(wrongFormat.status()).toBe(415);
+    const invalid = await post(page.request, `${route}?lang=${lang}`, {...settings, reason_en: '', work_bits: '19'});
+    expect(invalid.status()).toBe(422);
+    const [unchanged] = await query('SELECT enabled, revision FROM registration_abuse_policy WHERE singleton');
+    expect(unchanged).toEqual({enabled: true, revision: revision.revision});
     for (const [name, value] of Object.entries(requested)) {
       const field = edit.locator(`[name=${name}]`);
       if (name === 'enabled') await field.selectOption(value);
@@ -75,10 +94,16 @@ test('staff confirm, close and reopen signup with bilingual reasons and change h
     const [entry] = await query('SELECT before,after FROM audit_log WHERE actor=$1 AND action=$2 ORDER BY created_at DESC LIMIT 1', [staff.id, action]);
     expect(entry.before.enabled).toBe(true);
     expect(entry.after).toMatchObject({enabled: false, reason_pl: reason.pl, reason_en: reason.en, work_bits: 17, challenge_limit: 1, attempt_limit: 3});
+    expect((await post(page.request, `${route}?lang=${lang}`, settings)).status()).toBe(409);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
 
     const deniedSignup = await post(publicPage.request, `/${lang}/register`, {_csrf: presaveCsrf});
     expect(deniedSignup.status()).toBe(503);
+    const deniedChallenge = await publicPage.request.post(`/${lang}/register/abuse/challenge`, {headers: {
+      origin: new URL(publicPage.url()).origin, 'x-csrf-token': presaveCsrf,
+    }});
+    expect(deniedChallenge.status()).toBe(503);
+    expect(await deniedChallenge.text()).toContain(reason[lang].split(' <')[0]);
     const closed = await publicPage.goto(`/${lang}/register`);
     expect(closed.status()).toBe(503);
     expect(closed.headers()['cache-control']).toContain('no-store');
@@ -116,6 +141,22 @@ test('staff confirm, close and reopen signup with bilingual reasons and change h
       SELECT $1, id FROM roles WHERE key='support'`, [reader.id]);
     await seededLogin(publicPage, lang, reader);
     expect((await publicPage.goto(`${route}?lang=${lang}`)).status()).toBe(403);
+    const [role] = await query('INSERT INTO roles(key) VALUES($1) RETURNING id', [`regpolicy_${source}`]);
+    await query('INSERT INTO role_permissions VALUES($1,$2)', [role.id, 'registration.policy.manage']);
+    await query('INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)', [reader.id, role.id]);
+    expect((await publicPage.goto('/admin')).status()).toBe(200);
+    const readerCsrf = await publicPage.locator('form[action$="/logout"] input[name=_csrf]').first().inputValue();
+    const confirmPath = `${route}/confirm`;
+    const deniedConfirmation = await post(publicPage.request, `${confirmPath}?lang=${lang}`, {
+      _csrf: readerCsrf, current_password: reader.password,
+    });
+    expect(deniedConfirmation.status()).toBe(403);
+    const [refusal] = await query('SELECT action FROM audit_log WHERE actor=$1 AND target=$2', [reader.id, confirmPath]);
+    expect(refusal?.action).toBe('admin.access.denied');
+
+    await query('UPDATE role_permissions SET permission=$2 WHERE role_id=$1', [role.id, 'registration.policy.view']);
+    expect((await publicPage.goto(`${route}?lang=${lang}`)).status()).toBe(200);
+    await expect(publicPage.locator('main form[method=post]')).toHaveCount(0);
   } finally {
     await publicContext.close();
     await query(`UPDATE registration_abuse_policy SET enabled=$1,reason_pl=$2,reason_en=$3,work_bits=$4,

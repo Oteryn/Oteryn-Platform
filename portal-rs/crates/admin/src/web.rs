@@ -368,7 +368,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return Redirect::to("/login").into_response();
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        let lang = language(None, request.headers());
+        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{lang}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(lang, "mfa")))).into_response();
     }
     let proof = match (
         session.identity_hash().await,
@@ -407,7 +408,12 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             }
             _ => Permission::Access,
         });
-    for required in [Permission::Access, permission] {
+    let additional = (permission == Permission::ManageRegistrationPolicy)
+        .then_some(Permission::ViewRegistrationPolicy);
+    for required in [Permission::Access, permission]
+        .into_iter()
+        .chain(additional)
+    {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -443,11 +449,14 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
+fn language(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'static str {
+    if requested == Some("pl") {
+        "pl"
+    } else if requested == Some("en")
+        || headers
+            .get(header::ACCEPT_LANGUAGE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("en"))
     {
         "en"
     } else {
@@ -501,6 +510,7 @@ const ROLE_PAGE_SIZE: i64 = 50;
 #[derive(Deserialize, Default)]
 struct RolePageQuery {
     after: Option<Uuid>,
+    lang: Option<String>,
 }
 pub(crate) async fn role_page(
     pool: &PgPool,
@@ -551,7 +561,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = language(query.lang.as_deref(), &headers);
     let registration_policy_label = match s
         .auth
         .check(context, Permission::ViewRegistrationPolicy)
