@@ -854,7 +854,7 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
             StatusCode::FOUND,
         ),
         (
-            format!("_csrf={csrf}&body=stale&lock_version=1"),
+            format!("_csrf={csrf}&body=stale&lock_version=1&reason=Reviewed"),
             StatusCode::CONFLICT,
         ),
     ] {
