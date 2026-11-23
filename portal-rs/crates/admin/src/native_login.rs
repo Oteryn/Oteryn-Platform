@@ -1,5 +1,5 @@
 //! Read-only qualification status for production native login (N4P-5).
-use crate::web::{language, message, messages};
+use crate::web::{message, messages, panel_language};
 use askama::Template;
 use axum::{
     http::{HeaderMap, StatusCode},
@@ -60,7 +60,7 @@ struct Page {
 }
 
 pub(super) async fn page(headers: HeaderMap) -> Response {
-    render(language(&headers), |name| {
+    render(panel_language(&headers), |name| {
         std::env::var_os(name).map(|value| value.to_string_lossy().into_owned())
     })
 }

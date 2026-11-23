@@ -483,6 +483,19 @@ pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
         "pl"
     }
 }
+pub(super) fn panel_language(headers: &axum::http::HeaderMap) -> &'static str {
+    let preferred = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .find_map(|cookie| match cookie.trim().split_once('=') {
+            Some(("portal_language", "en")) => Some("en"),
+            Some(("portal_language", "pl")) => Some("pl"),
+            _ => None,
+        });
+    preferred.unwrap_or_else(|| language(headers))
+}
 pub(crate) fn messages(
     lang: &str,
 ) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
@@ -620,7 +633,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = panel_language(&headers);
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
