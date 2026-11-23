@@ -46,6 +46,8 @@ for (const path of ['crates/', 'templates/']) readCatalogs(new URL(path, workspa
 const signInProse = new Map([
   ['/en/account/passkeys', 'Adding or removing a passkey signs out all browser sessions. Your password remains available for sign-in.'],
   ['/en/account/passkeys/manage', 'Adding or removing a passkey signs out all browser sessions. Your password remains available for sign-in.'],
+  ['/en/legal/cookies', 'You can delete or block cookies in your browser settings. Blocking the session cookie may prevent you from signing in and submitting forms. Deleting the other cookies clears the saved language or means you have to verify your sign-in again.'],
+  ['/en/legal/terms', "Keep your details current, protect your sign-in credentials and report suspected account compromise. Do not share, sell or buy accounts. Minors may use the service subject to the rules on legal capacity that apply to them. Obtain a legal representative's consent before entering into an agreement or making a purchase whenever the law requires it."],
   ['/oauth/authorize', 'Authorize game sign-in'],
 ]);
 
@@ -1230,13 +1232,18 @@ test('invalid sign-in submits a localized server error', async ({ page }, info) 
 });
 
 
-test('raw Fluent tokens distinguish leaks from passkey prose', () => {
+test('raw Fluent tokens distinguish leaks from approved prose', () => {
   const passkeys = '/en/account/passkeys';
   const revoke = catalogText('templates/account/passkeys/en.ftl', 'passkeys-revoke');
   expect(rawKeysIn('Help: passkeys-help', passkeys)).toEqual(['passkeys-help']);
   expect(rawKeysIn(revoke, passkeys)).toEqual([]);
   expect(rawKeysIn(revoke + ' sign-in', passkeys)).toEqual(['sign-in', 'sign-in']);
   expect(rawKeysIn('Help: sign-in', '/en/atlas')).toEqual(['sign-in']);
+  for (const path of ['/en/legal/cookies', '/en/legal/terms']) {
+    expect(rawKeysIn(signInProse.get(path), path)).toEqual([]);
+    expect(rawKeysIn(signInProse.get(path), '/en/atlas')).toEqual(['sign-in']);
+    expect(rawKeysIn('sign-in', path)).toEqual(['sign-in']);
+  }
   expect(rawKeysIn('passkeys-help', '/pl/login')).toEqual(['passkeys-help']);
   expect(rawKeysIn('search', '/pl/search')).toEqual(['search']);
   expect(rawKeysIn('search', '/en/search')).toEqual(['search']);
