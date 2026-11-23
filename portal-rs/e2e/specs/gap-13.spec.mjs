@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
 import { login, submit, waitForLoginBudget } from '../helpers.mjs';
-import { cookie, expectSession, otherBrowser, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
+import { cookie, expectSession, otherBrowser, postForm, seedAccount, seedEntity } from '../security/auth-fixtures.mjs';
 
 test.use({ trace: 'off', screenshot: 'off' });
 
@@ -11,6 +11,7 @@ const labels = {
     current: 'Ta sesja',
     revoked: 'Wylogowano sesję',
     passkeyError: 'Nie udało się wykonać żądania. Odśwież stronę i spróbuj ponownie.',
+    loginError: 'Nie udało się zweryfikować żądania. Sprawdź dane i spróbuj ponownie.',
     codeError: 'Nie udało się potwierdzić kodu. Użyj aktualnego kodu z aplikacji, nieużytego kodu odzyskiwania albo poproś o kod e-mailem.',
   },
   en: {
@@ -18,13 +19,19 @@ const labels = {
     current: 'This session',
     revoked: 'Session signed out',
     passkeyError: 'The request could not be completed. Reload the page and try again.',
+    loginError: 'The request could not be verified. Check your details and try again.',
     codeError: 'The code could not be verified. Try a current authenticator code, an unused recovery code, or request a code by email.',
   },
 };
 
 async function expectFits(page, lang) {
+  await page.waitForLoadState('load');
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  const { viewportWidth, scrollWidth } = await page.evaluate(async () => {
+    await document.fonts.ready;
+    return { viewportWidth: innerWidth, scrollWidth: document.documentElement.scrollWidth };
+  });
+  expect(scrollWidth).toBeLessThanOrEqual(viewportWidth);
 }
 
 async function accountDestination(page, path) {
@@ -168,6 +175,24 @@ test('an unrecognized or used recovery code shows localized retry guidance', asy
 
   await login(page, lang, account);
   await expect(page).toHaveURL(challengeUrl);
+  const otherTab = await context.newPage();
+  try {
+    await otherTab.goto(`/${lang}/login`);
+    await waitForLoginBudget();
+    const response = await postForm(otherTab, 'main form', {
+      email: account.email, password: 'incorrect password',
+    });
+    expect(response.status()).toBe(302);
+    expect(response.headers().location).toBe(`/${lang}/login`);
+    await page.reload();
+    await expect(page).toHaveURL(challengeUrl);
+    await expect(page.getByRole('alert')).toHaveCount(0);
+    await expect(page.locator('#code')).not.toHaveAttribute('aria-invalid', 'true');
+    await otherTab.reload();
+    await expect(otherTab.getByRole('alert')).toHaveText(labels[lang].loginError);
+  } finally {
+    await otherTab.close();
+  }
   for (const code of ['invalid-code', used]) {
     await submit(page, form, { code });
     await expect(page).toHaveURL(challengeUrl);

@@ -4,7 +4,7 @@ use super::*;
 use tower::ServiceExt;
 
 #[test]
-fn challenge_links_localized_retry_guidance_to_the_code_field() {
+fn challenge_links_localized_retry_guidance_to_the_code_field() -> Result<(), askama::Error> {
     for (language, message) in [
         (Language::En, "The code could not be verified."),
         (Language::Pl, "Nie udało się potwierdzić kodu."),
@@ -15,18 +15,20 @@ fn challenge_links_localized_retry_guidance_to_the_code_field() {
             csrf: String::new(),
             mode: "challenge",
             failed: true,
+            passkeys_enabled: false,
             secret: String::new(),
             codes: vec![],
             devices: vec![],
         };
-        let rendered = page.render().unwrap();
+        let rendered = page.render()?;
         assert!(rendered.contains(&format!("role=\"alert\" id=\"mfa-error\">{message}")));
         assert!(rendered.contains("aria-describedby=\"mfa-error\" aria-invalid=\"true\""));
         page.failed = false;
-        let rendered = page.render().unwrap();
+        let rendered = page.render()?;
         assert!(!rendered.contains("id=\"mfa-error\""));
         assert!(!rendered.contains("aria-invalid"));
     }
+    Ok(())
 }
 
 #[tokio::test]
@@ -585,6 +587,7 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
             .env("R9_ADMIN_LOGIN_TEST", "1")
             .env("OTERYN_ACCOUNT_MFA", "true")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
+            .env("OTERYN_ACCOUNT_PASSKEYS", "true")
             .env("OTERYN_ADMIN_PANEL", "true")
             .env("OTERYN_ADMIN_HOST", "admin.example.test")
             .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
@@ -609,6 +612,19 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
         .confirm(id, "test password", &code)
         .await?
         .ok_or("confirm")?;
+    let public = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/en/login")
+                .header(header::HOST, "portal.example.test")
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+    assert_eq!(public.status(), StatusCode::OK);
+    let public = axum::body::to_bytes(public.into_body(), 32768).await?;
+    assert!(std::str::from_utf8(&public)?.contains("href=\"/en/account/passkeys\""));
+
     let response = app
         .clone()
         .oneshot(
@@ -630,6 +646,7 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
         .to_owned();
     let bytes = axum::body::to_bytes(response.into_body(), 32768).await?;
     let body = String::from_utf8(bytes.to_vec())?;
+    assert!(!body.contains("/account/passkeys"));
     let csrf = body
         .split("name=\"_csrf\" value=\"")
         .nth(1)

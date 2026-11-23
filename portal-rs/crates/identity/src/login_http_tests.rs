@@ -648,6 +648,7 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
             ])
             .env(CHILD, "1")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
+            .env("OTERYN_ACCOUNT_PASSKEYS", "true")
             .env("OTERYN_PUBLIC_ORIGIN", "https://pub.test")
             .env("OTERYN_ADMIN_HOST", "staff.test")
             .status()?;
@@ -658,12 +659,26 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
         .await?
         .ok_or("PostgreSQL required")?;
     let app = configured_router(db.pool.clone());
-    let response = app
-        .clone()
-        .oneshot(request("GET", "/login", "", "")?)
-        .await?;
+    let mut public = request("GET", "/en/login", "", "")?;
+    public
+        .headers_mut()
+        .insert(header::HOST, "pub.test".parse()?);
+    let public = app.clone().oneshot(public).await?;
+    assert_eq!(public.status(), StatusCode::OK);
+    assert!(
+        body(public)
+            .await?
+            .contains("href=\"/en/account/passkeys\"")
+    );
+
+    let mut staff = request("GET", "/login", "", "")?;
+    staff
+        .headers_mut()
+        .insert(header::HOST, "staff.test".parse()?);
+    let response = app.clone().oneshot(staff).await?;
     let guest = cookie(&response)?;
     let html = body(response).await?;
+    assert!(!html.contains("/account/passkeys"));
     let mut post = request(
         "POST",
         "/login",

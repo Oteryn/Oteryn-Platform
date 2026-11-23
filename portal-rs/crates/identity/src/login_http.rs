@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Uri},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -68,12 +68,9 @@ struct LoginPage {
     language: Language,
     csrf: String,
     failed: bool,
+    passkeys_enabled: bool,
 }
 impl LoginPage {
-    fn passkeys_enabled(&self) -> bool {
-        crate::passkeys_http::enabled()
-    }
-
     fn text(&self, key: &str) -> String {
         if !key.starts_with("login-") && key != "logout-submit" {
             return self.language.text(key);
@@ -106,6 +103,7 @@ async fn page(
     language: Language,
     session: &BrowserSession,
     failed: bool,
+    passkeys_enabled: bool,
 ) -> Result<Response, StatusCode> {
     let page = LoginPage {
         lang: language.code(),
@@ -115,12 +113,15 @@ async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         failed,
+        passkeys_enabled,
     };
     Ok(oteryn_web::render(&page))
 }
 async fn show(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    uri: Uri,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
     if session.account_id().await.is_some() {
         return Ok(redirect(&format!("/{}/", language.code())));
@@ -136,7 +137,13 @@ async fn show(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     }
-    page(language, &session, failed).await
+    page(
+        language,
+        &session,
+        failed,
+        crate::passkeys_http::sign_in_available(&uri, &headers),
+    )
+    .await
 }
 async fn submit(
     State(pool): State<PgPool>,

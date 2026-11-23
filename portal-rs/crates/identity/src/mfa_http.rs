@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, OriginalUri, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
@@ -24,6 +24,8 @@ use std::net::SocketAddr;
 pub(crate) const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
 const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 const FAILED: SessionKey<bool> = SessionKey::new("mfa_failed");
+const CHALLENGE_FAILED: SessionKey<bool> = SessionKey::new("mfa_challenge_failed");
+const CHALLENGE_PATH: &str = "/mfa/challenge";
 pub(crate) const GRANT: SessionKey<String> =
     SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY);
 const TRUSTED: &str = "__Host-oteryn_mfa_device";
@@ -202,15 +204,12 @@ struct Page {
     csrf: String,
     mode: &'static str,
     failed: bool,
+    passkeys_enabled: bool,
     secret: String,
     codes: Vec<String>,
     devices: Vec<String>,
 }
 impl Page {
-    fn passkeys_enabled(&self) -> bool {
-        crate::passkeys_http::enabled()
-    }
-
     fn text(&self, key: &str) -> String {
         let source = if self.language == Language::En {
             include_str!("../../../templates/account/mfa/en.ftl")
@@ -244,43 +243,61 @@ async fn page(
     codes: Vec<String>,
     devices: Vec<String>,
 ) -> Result<Response, StatusCode> {
-    let failed = failed
+    render_page(
+        Page {
+            lang: language.code(),
+            language,
+            csrf: String::new(),
+            mode,
+            failed,
+            passkeys_enabled: false,
+            secret,
+            codes,
+            devices,
+        },
+        session,
+    )
+    .await
+}
+async fn render_page(mut page: Page, session: &BrowserSession) -> Result<Response, StatusCode> {
+    let failed_key = if page.mode == "challenge" {
+        CHALLENGE_FAILED
+    } else {
+        FAILED
+    };
+    page.failed = page.failed
         || session
-            .get(FAILED)
+            .get(failed_key)
             .await
             .map_err(unavailable)?
             .unwrap_or(false);
-    if failed {
-        session.set(FAILED, &false).await.map_err(unavailable)?;
+    if page.failed {
+        session.set(failed_key, &false).await.map_err(unavailable)?;
     }
-    let csrf = if mode == "codes" {
-        String::new()
-    } else {
-        session.csrf_token().await.map_err(unavailable)?
-    };
-    Ok(oteryn_web::render(&Page {
-        lang: language.code(),
-        language,
-        csrf,
-        mode,
-        failed,
-        secret,
-        codes,
-        devices,
-    }))
+    if page.mode != "codes" {
+        page.csrf = session.csrf_token().await.map_err(unavailable)?;
+    }
+    Ok(oteryn_web::render(&page))
 }
 async fn show_login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    OriginalUri(uri): OriginalUri,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
-    page(
-        language,
+    render_page(
+        Page {
+            lang: language.code(),
+            language,
+            csrf: String::new(),
+            mode: "login",
+            failed: false,
+            passkeys_enabled: crate::passkeys_http::sign_in_available(&uri, &headers),
+            secret: String::new(),
+            codes: vec![],
+            devices: vec![],
+        },
         &session,
-        "login",
-        false,
-        String::new(),
-        vec![],
-        vec![],
     )
     .await
 }
@@ -289,7 +306,12 @@ async fn refusal(
     session: &BrowserSession,
     path: &str,
 ) -> Result<Response, StatusCode> {
-    session.set(FAILED, &true).await.map_err(unavailable)?;
+    let failed_key = if path == CHALLENGE_PATH {
+        CHALLENGE_FAILED
+    } else {
+        FAILED
+    };
+    session.set(failed_key, &true).await.map_err(unavailable)?;
     Ok(redirect(language, path))
 }
 async fn pending(
@@ -518,7 +540,7 @@ async fn login(
         {
             return establish(&context, language, &session, auth).await;
         }
-        return Ok(redirect(language, "/mfa/challenge"));
+        return Ok(redirect(language, CHALLENGE_PATH));
     }
     if let Some(authorization) = context
         .mfa
@@ -619,7 +641,7 @@ async fn challenge(
     {
         return establish(&context, language, &session, auth).await;
     }
-    refusal(language, &session, "/mfa/challenge").await
+    refusal(language, &session, CHALLENGE_PATH).await
 }
 async fn email(
     State(context): State<Context>,
@@ -683,6 +705,7 @@ async fn email(
         csrf: String::new(),
         mode: "",
         failed: false,
+        passkeys_enabled: false,
         secret: String::new(),
         codes: vec![],
         devices: vec![],
@@ -690,7 +713,7 @@ async fn email(
     let subject = text.text("mfa-email-subject");
     let body = format!("{}\n\n{code}", text.text("mfa-email-body"));
     send_email(&host, &from, &to, subject, body).await?;
-    Ok(redirect(language, "/mfa/challenge"))
+    Ok(redirect(language, CHALLENGE_PATH))
 }
 
 pub(crate) async fn send_email(
