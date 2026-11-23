@@ -446,14 +446,6 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
-        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
-    crate::test_staff::browser(&pool, actor, &cookie)
-        .await
-        .unwrap();
-    crate::test_staff::recent_password(&pool, &cookie)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
         .bind(target).bind(format!("{target}@example.test")).execute(&pool).await.unwrap();
     let ordinary: Uuid =
         sqlx::query_scalar("INSERT INTO roles(key) VALUES ('ordinary_staff') RETURNING id")

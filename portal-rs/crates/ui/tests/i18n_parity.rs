@@ -1,5 +1,3 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
@@ -9,27 +7,39 @@ use std::{
 use fluent_bundle::FluentResource;
 
 type Entries = BTreeMap<String, String>;
+type TemplateLiteral<'a> = (usize, bool, &'a str, Option<&'a str>);
 
-fn files(directory: &Path, result: &mut Vec<PathBuf>) {
-    for entry in fs::read_dir(directory).unwrap() {
-        let entry = entry.unwrap();
-        let kind = entry.file_type().unwrap();
+fn files(directory: &Path, result: &mut Vec<PathBuf>) -> std::io::Result<()> {
+    for entry in fs::read_dir(directory)? {
+        let entry = entry?;
+        let kind = entry.file_type()?;
         if kind.is_dir() {
-            files(&entry.path(), result);
+            files(&entry.path(), result)?;
         } else if kind.is_file() {
             result.push(entry.path());
         }
     }
+    Ok(())
 }
 
-fn catalogue_name(path: &Path) -> (&str, &str, &str) {
-    let file = path.file_stem().unwrap().to_str().unwrap();
-    let (prefix, lang) = file.split_at(file.len().saturating_sub(2));
+fn catalogue_name(path: &Path) -> Result<(&str, &str, &str), String> {
+    let invalid_name = || format!("invalid catalogue name {path:?}");
+    let file = path
+        .file_stem()
+        .and_then(|part| part.to_str())
+        .ok_or_else(invalid_name)?;
+    let (prefix, lang) = file
+        .split_at_checked(file.len().saturating_sub(2))
+        .ok_or_else(invalid_name)?;
     assert!(
         matches!(lang, "pl" | "en"),
         "unclassified catalogue {path:?}"
     );
-    (prefix, lang, path.extension().unwrap().to_str().unwrap())
+    let extension = path
+        .extension()
+        .and_then(|part| part.to_str())
+        .ok_or_else(invalid_name)?;
+    Ok((prefix, lang, extension))
 }
 
 fn catalogue(path: &Path, source: &str, fluent: bool) -> Entries {
@@ -163,7 +173,7 @@ fn is_embedded_catalogue(value: &str) -> bool {
         })
 }
 
-fn template_literals(source: &str) -> Vec<(usize, bool, &str, Option<&str>)> {
+fn template_literals(source: &str) -> Result<Vec<TemplateLiteral<'_>>, String> {
     let mut literals = Vec::new();
     let mut offset = 0;
     while let Some(start) = source[offset..].find("{%") {
@@ -190,18 +200,18 @@ fn template_literals(source: &str) -> Vec<(usize, bool, &str, Option<&str>)> {
         };
         // The current inline locale switches have literal arms. Refuse any new
         // shape so nested or more complex switches cannot silently escape the check.
-        let (first, rest) = body.split_once("{%").expect("locale switch without endif");
+        let (first, rest) = body.split_once("{%").ok_or("locale switch without endif")?;
         // Language-switcher URLs and active-link attributes carry no copy.
         if first.trim().starts_with('#') || first.trim().starts_with("aria-current=") {
             continue;
         }
         let (branch, rest) = rest
             .split_once("%}")
-            .expect("unfinished template directive");
+            .ok_or("unfinished template directive")?;
         let second = match branch.trim() {
             "endif" => None,
             "else" => {
-                let (second, end) = rest.split_once("{%").expect("locale switch without endif");
+                let (second, end) = rest.split_once("{%").ok_or("locale switch without endif")?;
                 assert!(
                     end.split_once("%}")
                         .is_some_and(|(tag, _)| tag.trim() == "endif"),
@@ -209,11 +219,11 @@ fn template_literals(source: &str) -> Vec<(usize, bool, &str, Option<&str>)> {
                 );
                 Some(second.trim())
             }
-            _ => panic!("unsupported locale switch directive: {branch}"),
+            _ => return Err(format!("unsupported locale switch directive: {branch}")),
         };
         literals.push((source[..start].lines().count(), lang, first.trim(), second));
     }
-    literals
+    Ok(literals)
 }
 
 // Simple inline Rust copy is expressed as a pair of string literals (or
@@ -348,17 +358,24 @@ fn rust_literals(source: &str) -> Vec<(String, Option<&str>, Option<&str>)> {
     pairs
 }
 
-fn owner(path: &Path) -> &str {
+fn owner(path: &Path) -> Result<&str, String> {
     let mut components = path.iter();
-    match components.next().unwrap().to_str().unwrap() {
-        "crates" | "bin" => components.next().unwrap().to_str().unwrap(),
-        "templates" => match components.next().unwrap().to_str().unwrap() {
+    let unclassified = || format!("classify translation owner for {path:?}");
+    let mut next = || {
+        components
+            .next()
+            .and_then(|part| part.to_str())
+            .ok_or_else(unclassified)
+    };
+    let owner = match next()? {
+        "crates" | "bin" => next()?,
+        "templates" => match next()? {
             "components" => "ui",
-            "account" => match components.next().unwrap().to_str().unwrap() {
+            "account" => match next()? {
                 "overview.pl.ftl" | "overview.en.ftl" => "characters",
                 _ => "identity",
             },
-            "admin" if components.next().is_some_and(|part| part == "world") => "world",
+            "admin" if next().is_ok_and(|part| part == "world") => "world",
             "atlas" => "atlas",
             "bazaar" => "bazaar",
             "badges" | "profile" | "services" => "characters",
@@ -370,27 +387,29 @@ fn owner(path: &Path) -> &str {
             "stats" => "stats",
             "wiki" => "wiki",
             "admin" => "admin",
-            other => panic!("classify translation owner for {other}"),
+            _ => return Err(unclassified()),
         },
         "static" => "design gallery",
-        other => panic!("classify translation owner for {other}"),
-    }
+        _ => return Err(unclassified()),
+    };
+    Ok(owner)
 }
 
 #[test]
-fn polish_and_english_translation_sources_stay_in_parity() {
+fn polish_and_english_translation_sources_stay_in_parity() -> Result<(), Box<dyn std::error::Error>>
+{
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let mut paths = Vec::new();
     for directory in ["crates", "bin", "templates", "static/design/locales"] {
-        files(&root.join(directory), &mut paths);
+        files(&root.join(directory), &mut paths)?;
     }
     paths.sort();
     let (mut errors, mut counts) = (Vec::new(), BTreeMap::new());
     for path in &paths {
-        let relative = path.strip_prefix(&root).unwrap();
+        let relative = path.strip_prefix(&root)?;
         match path.extension().and_then(|extension| extension.to_str()) {
             Some("ftl" | "tsv") => {
-                let (prefix, lang, extension) = catalogue_name(path);
+                let (prefix, lang, extension) = catalogue_name(path)?;
                 let other = if lang == "pl" { "en" } else { "pl" };
                 let counterpart = path.with_file_name(format!("{prefix}{other}.{extension}"));
                 if !counterpart.exists() {
@@ -401,26 +420,21 @@ fn polish_and_english_translation_sources_stay_in_parity() {
                     continue;
                 }
                 let fluent = extension == "ftl";
-                let pl = catalogue(path, &fs::read_to_string(path).unwrap(), fluent);
-                let en = catalogue(
-                    &counterpart,
-                    &fs::read_to_string(&counterpart).unwrap(),
-                    fluent,
-                );
-                *counts.entry(owner(relative)).or_insert(0) +=
+                let pl = catalogue(path, &fs::read_to_string(path)?, fluent);
+                let en = catalogue(&counterpart, &fs::read_to_string(&counterpart)?, fluent);
+                *counts.entry(owner(relative)?).or_insert(0) +=
                     check_catalogues(&relative.display().to_string(), &pl, &en, &mut errors);
             }
-            Some("html" | "rs") => {
-                let source = fs::read_to_string(path).unwrap();
-                if path.extension().unwrap() == "rs"
+            Some(extension @ ("html" | "rs")) => {
+                let source = fs::read_to_string(path)?;
+                if extension == "rs"
                     && !relative
                         .components()
                         .any(|part| part.as_os_str() == "tests")
                     && !relative
                         .file_name()
-                        .unwrap()
-                        .to_str()
-                        .unwrap()
+                        .and_then(|part| part.to_str())
+                        .ok_or_else(|| format!("invalid Rust source file name {relative:?}"))?
                         .ends_with("_tests.rs")
                 {
                     for (key, pl, en) in rust_literals(&source) {
@@ -443,11 +457,13 @@ fn polish_and_english_translation_sources_stay_in_parity() {
                             check_pair(&location, pl, en, &mut errors);
                             1
                         };
-                        *counts.entry(owner(relative)).or_insert(0) += count;
+                        *counts.entry(owner(relative)?).or_insert(0) += count;
                     }
                 }
-                for (line, polish_first, first, second) in template_literals(&source) {
-                    *counts.entry(owner(relative)).or_insert(0) += 1;
+                for (line, polish_first, first, second) in
+                    template_literals(&source).map_err(|error| format!("{relative:?}: {error}"))?
+                {
+                    *counts.entry(owner(relative)?).or_insert(0) += 1;
                     let (pl, en) = if polish_first {
                         (Some(first), second)
                     } else {
@@ -468,4 +484,5 @@ fn polish_and_english_translation_sources_stay_in_parity() {
         println!("{owner}: {count}");
     }
     assert!(errors.is_empty(), "{}", errors.join("\n"));
+    Ok(())
 }
