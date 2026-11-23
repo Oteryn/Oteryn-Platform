@@ -6,6 +6,7 @@ use std::{sync::Arc, time::Duration};
 use tokio::time::{Instant, timeout_at};
 use uuid::Uuid;
 
+mod operations;
 #[cfg(test)]
 mod tests;
 #[path = "web.rs"]
@@ -282,7 +283,7 @@ impl<P: Policy> Campaign<P> {
     async fn invitation_kind_attempt(&self, code: Uuid) -> Result<Kind, TransactionError<Error>> {
         valid(code)?;
         let mut tx = self.begin(&[]).await?;
-        let name: Option<String>=sqlx::query_scalar("SELECT 'new' FROM referral_links WHERE code=$1 UNION ALL SELECT kind FROM referral_email_invitations WHERE id=$1")
+        let name: Option<String>=sqlx::query_scalar("SELECT 'new' FROM referral_links WHERE code=$1 UNION ALL SELECT kind FROM referral_email_invitations WHERE id=$1 AND referral_email_code_open(id,created_at)")
             .bind(code).fetch_optional(&mut *tx).await?;
         match name.as_deref() {
             Some("new") => Ok(Kind::New),
@@ -304,7 +305,7 @@ impl<P: Policy> Campaign<P> {
             .bind(code).fetch_optional(&self.pool).await?;
         let mut tx = self.begin(&[actor, inviter.unwrap_or(actor)]).await?;
         self.actor(&mut tx, actor).await?;
-        let owner: Option<(Uuid,time::OffsetDateTime,Option<String>,String)>=sqlx::query_as("SELECT account_id,created_at,NULL::text,'new' FROM referral_links WHERE code=$1 UNION ALL SELECT inviter_id,created_at,recipient,kind FROM referral_email_invitations WHERE id=$1")
+        let owner: Option<(Uuid,time::OffsetDateTime,Option<String>,String)>=sqlx::query_as("SELECT account_id,created_at,NULL::text,'new' FROM referral_links WHERE code=$1 UNION ALL SELECT inviter_id,created_at,recipient,kind FROM referral_email_invitations WHERE id=$1 AND referral_email_code_open(id,created_at)")
             .bind(code).fetch_optional(&mut *tx).await?;
         let (owner, created, recipient, kind) = owner.ok_or(Error::Denied)?;
         if Some(owner) != inviter {

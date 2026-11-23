@@ -40,16 +40,7 @@ pub fn translate(lang: &str, key: &str) -> Result<String, Error> {
     }
 }
 #[derive(Template)]
-#[template(
-    source = r#"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/app.css"></head><body class="op-theme"><main class="op-stack" id="main"><h1>{{ title }}</h1>{% if !notice.is_empty() %}<p role="status">{{ notice }}</p>{% endif %}
-{% if landing %}<p>{{ accept_hint }}</p>{% if !csrf.is_empty() %}<form method="post" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit">{{ accept }}</button></form>{% endif %}
-{% else %}{% if link.is_empty() %}<form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" type="submit" name="kind" value="link">{{ create_link }}</button></form>{% else %}<label class="op-field" for="invite-link">{{ link_label }}</label><input class="op-input" id="invite-link" type="url" readonly value="{{ link }}">{% endif %}<p>{{ hint }}</p><p>{{ rewards_hint }}</p>
-<form class="op-stack" method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="new"><label class="op-field" for="new-email">{{ email }}</label><input class="op-input" id="new-email" name="email" type="email" maxlength="254" autocomplete="off" required><button class="op-button" type="submit">{{ send }}</button></form>
-<form class="op-stack" method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="kind" value="returning"><label class="op-field" for="buddy-email">{{ email }}</label><input class="op-input" id="buddy-email" name="email" type="email" maxlength="254" autocomplete="off" required><button class="op-button" type="submit">{{ buddy }}</button></form>
-<section aria-labelledby="invitations"><h2 id="invitations">{{ status }}</h2><ul>{% for entry in invitations %}<li>{{ entry }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul></section>
-<section aria-labelledby="rewards"><h2 id="rewards">{{ rewards_title }}</h2><p>{{ loyalty_label }}: {{ loyalty }}</p><ul>{% for entry in rewards %}<li>{{ entry }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul></section>{% endif %}</main></body></html>"#,
-    ext = "html"
-)]
+#[template(path = "community/referrals.html", config = "src/guilds_askama.toml")]
 struct Page {
     lang: String,
     title: String,
@@ -61,6 +52,10 @@ struct Page {
     link_label: String,
     create_link: String,
     link: String,
+    share_title: String,
+    expiry_hint: String,
+    game_unavailable: String,
+    attribution: Option<String>,
     hint: String,
     rewards_hint: String,
     email: String,
@@ -70,7 +65,7 @@ struct Page {
     rewards_title: String,
     empty: String,
     invitations: Vec<String>,
-    rewards: Vec<String>,
+    rewards: Vec<(&'static str, String)>,
     loyalty_label: String,
     loyalty: i64,
 }
@@ -88,6 +83,10 @@ impl Page {
             link_label: t("link")?,
             create_link: t("create-link")?,
             link: String::new(),
+            share_title: t("share-title")?,
+            expiry_hint: t("expiry-hint")?,
+            game_unavailable: t("game-unavailable")?,
+            attribution: None,
             hint: t("hint")?,
             rewards_hint: t("rewards-hint")?,
             email: t("email")?,
@@ -116,6 +115,9 @@ fn failure(lang: &str, error: Error) -> Response {
         Error::Denied | Error::Conflict => (StatusCode::FORBIDDEN, "denied"),
         Error::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
     };
+    message(lang, status, key)
+}
+fn message(lang: &str, status: StatusCode, key: &str) -> Response {
     match Page::new(lang, String::new()) {
         Ok(mut page) => {
             page.landing = true;
@@ -127,7 +129,8 @@ fn failure(lang: &str, error: Error) -> Response {
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let worker = Worker::configured(pool)?;
-    Ok(router(worker.campaign))
+    let operations = super::operations::configured_router(&worker)?;
+    Ok(router(worker.campaign).merge(operations))
 }
 pub fn routes(campaign: Campaign) -> Router {
     if !campaign.flags.enabled {
@@ -177,26 +180,108 @@ async fn page(
     let Some(actor) = session.account_id().await else {
         return Redirect::to(&format!("/{lang}/login")).into_response();
     };
-    let result=async {
-        let code=campaign.existing_link(actor).await?;
-        let mut page=Page::new(&lang,session.csrf_token().await.map_err(|_|Error::Unavailable)?)?;
-        if let Some(code) = code {page.link=format!("{}/{lang}/referrals/{code}",campaign.origin);}
-        if session.get(SessionKey::<bool>::new("referral.notice")).await.map_err(|_|Error::Unavailable)?.unwrap_or(false) {
-            page.notice=translate(&lang,"notice")?;
-            session.set(SessionKey::new("referral.notice"),&false).await.map_err(|_|Error::Unavailable)?;
-        }
-        let rows:Vec<(String,bool)>=sqlx::query_as("SELECT kind,first_paid_at IS NOT NULL FROM referral_campaign_invitations WHERE inviter_id=$1 AND (kind='new' OR EXISTS(SELECT 1 FROM referral_campaign_rewards r WHERE r.operation_key='welcome:'||referral_campaign_invitations.id)) ORDER BY created_at DESC LIMIT 100").bind(actor).fetch_all(&campaign.pool).await?;
-        for (kind,paid) in rows {page.invitations.push(format!("{} — {}",translate(&lang,&kind)?,translate(&lang,if paid {"qualified"} else {"waiting"})?));}
-        let rows:Vec<(String,i32,bool)>=sqlx::query_as("SELECT kind,amount,applied_at IS NOT NULL FROM referral_campaign_rewards WHERE account_id=$1 ORDER BY created_at DESC LIMIT 100").bind(actor).fetch_all(&campaign.pool).await?;
-        for (kind,amount,applied) in rows {page.rewards.push(format!("{}: {amount} — {}",translate(&lang,&kind)?,translate(&lang,if applied {"applied"} else {"pending"})?));}
-        page.loyalty=sqlx::query_scalar("SELECT COALESCE(sum(points),0)::bigint FROM referral_loyalty_credits WHERE account_id=$1").bind(actor).fetch_one(&campaign.pool).await?;
-        Ok::<_,Error>(page)
-    }.await;
+    let result = account_page(&campaign, &session, actor, &lang).await;
     match result {
         Ok(page) => page.response(StatusCode::OK),
         Err(error) => failure(&lang, error),
     }
 }
+async fn account_page(
+    campaign: &Campaign,
+    session: &BrowserSession,
+    actor: Uuid,
+    lang: &str,
+) -> Result<Page, Error> {
+    let code = campaign.existing_link(actor).await?;
+    let mut page = Page::new(
+        lang,
+        session.csrf_token().await.map_err(|_| Error::Unavailable)?,
+    )?;
+    if let Some(code) = code {
+        page.link = format!("{}/{lang}/referrals/{code}", campaign.origin);
+    }
+    if session
+        .get(SessionKey::<bool>::new("referral.notice"))
+        .await
+        .map_err(|_| Error::Unavailable)?
+        .unwrap_or(false)
+    {
+        page.notice = translate(lang, "notice")?;
+        session
+            .set(SessionKey::new("referral.notice"), &false)
+            .await
+            .map_err(|_| Error::Unavailable)?;
+    }
+    let attribution: Option<(String, bool)> = sqlx::query_as(
+        "SELECT i.kind,i.first_paid_at IS NOT NULL OR premium.id IS NOT NULL
+         FROM referral_campaign_invitations i
+         LEFT JOIN referral_campaign_rewards premium ON premium.operation_key='buddy-premium:'||i.id
+         WHERE i.invitee_id=$1",
+    )
+    .bind(actor)
+    .fetch_optional(&campaign.pool)
+    .await?;
+    if let Some((kind, paid)) = attribution {
+        let key = if paid {
+            "qualified"
+        } else if kind == "returning" {
+            "returning-accepted"
+        } else {
+            "invite-accepted"
+        };
+        page.attribution = Some(translate(lang, key)?);
+    }
+    let invitations: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT i.kind,i.first_paid_at IS NOT NULL OR premium.id IS NOT NULL
+         FROM referral_campaign_invitations i
+         LEFT JOIN referral_campaign_rewards premium ON premium.operation_key='buddy-premium:'||i.id
+         WHERE i.inviter_id=$1 AND (i.kind='new' OR premium.id IS NOT NULL OR EXISTS(
+             SELECT 1 FROM referral_campaign_rewards r WHERE r.operation_key='welcome:'||i.id))
+         ORDER BY i.created_at DESC,i.id DESC LIMIT 100",
+    )
+    .bind(actor)
+    .fetch_all(&campaign.pool)
+    .await?;
+    for (kind, paid) in invitations {
+        let status = if paid { "qualified" } else { "waiting" };
+        page.invitations.push(format!(
+            "{} — {}",
+            translate(lang, &kind)?,
+            translate(lang, status)?
+        ));
+    }
+    let rewards: Vec<(String, i32, bool, bool)> = sqlx::query_as(
+        "SELECT kind,amount,applied_at IS NOT NULL,COALESCE(expires_at<=statement_timestamp(),false)
+         FROM referral_campaign_rewards WHERE account_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100",
+    ).bind(actor).fetch_all(&campaign.pool).await?;
+    for (kind, amount, applied, expired) in rewards {
+        let status = reward_status(&kind, applied, expired);
+        let label = translate(lang, &kind)?;
+        let state = translate(lang, status)?;
+        page.rewards
+            .push((status, format!("{label}: {amount} — {state}")));
+    }
+    page.loyalty = sqlx::query_scalar(
+        "SELECT COALESCE(sum(points),0)::bigint FROM referral_loyalty_credits WHERE account_id=$1",
+    )
+    .bind(actor)
+    .fetch_one(&campaign.pool)
+    .await?;
+    Ok(page)
+}
+
+fn reward_status(kind: &str, applied: bool, expired: bool) -> &'static str {
+    if applied {
+        "applied"
+    } else if expired {
+        "expired"
+    } else if kind == "premium" {
+        "premium-pending"
+    } else {
+        "game-unavailable"
+    }
+}
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InvitationForm {
@@ -245,8 +330,12 @@ async fn submit(
 async fn landing(
     State(campaign): State<Campaign>,
     Extension(session): Extension<BrowserSession>,
-    Path((lang, code)): Path<(String, Uuid)>,
+    Path((lang, code)): Path<(String, String)>,
 ) -> Response {
+    let code = match invitation_code(&lang, &code) {
+        Ok(code) => code,
+        Err(error) => return code_failure(&lang, error),
+    };
     let result = async {
         campaign.invitation_kind(code).await?;
         let mut page = Page::new(
@@ -271,12 +360,13 @@ struct AcceptForm {
 async fn accept(
     State(campaign): State<Campaign>,
     Extension(session): Extension<BrowserSession>,
-    Path((lang, code)): Path<(String, Uuid)>,
+    Path((lang, code)): Path<(String, String)>,
     Form(_form): Form<AcceptForm>,
 ) -> Response {
-    if !matches!(lang.as_str(), "pl" | "en") {
-        return StatusCode::NOT_FOUND.into_response();
-    }
+    let code = match invitation_code(&lang, &code) {
+        Ok(code) => code,
+        Err(error) => return code_failure(&lang, error),
+    };
     let kind = match campaign.invitation_kind(code).await {
         Ok(kind) => kind,
         Err(error) => return failure(&lang, error),
@@ -300,4 +390,56 @@ async fn accept(
         "register"
     };
     Redirect::to(&format!("/{lang}/{destination}")).into_response()
+}
+
+fn invitation_code(lang: &str, raw: &str) -> Result<Uuid, Error> {
+    if !matches!(lang, "pl" | "en") {
+        return Err(Error::Disabled);
+    }
+    if raw.len() != 36 {
+        return Err(Error::Invalid);
+    }
+    let code = Uuid::parse_str(raw).map_err(|_| Error::Invalid)?;
+    valid(code)?;
+    Ok(code)
+}
+
+fn code_failure(lang: &str, error: Error) -> Response {
+    if error == Error::Invalid {
+        message(lang, StatusCode::BAD_REQUEST, "invalid-code")
+    } else {
+        failure(lang, error)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn referral_reward_status_matches_platform_records() {
+        assert_eq!(reward_status("starter", false, false), "game-unavailable");
+        assert_eq!(reward_status("starter", false, true), "expired");
+        assert_eq!(reward_status("outfit", false, false), "game-unavailable");
+        assert_eq!(reward_status("premium", false, false), "premium-pending");
+        assert_eq!(reward_status("premium", true, false), "applied");
+    }
+
+    #[test]
+    fn referral_codes_require_supported_locale_and_uuidv7() {
+        let valid = Uuid::now_v7();
+        assert_eq!(invitation_code("pl", &valid.to_string()), Ok(valid));
+        assert_eq!(
+            invitation_code("en", &valid.simple().to_string()),
+            Err(Error::Invalid)
+        );
+        assert_eq!(
+            invitation_code("en", &Uuid::nil().to_string()),
+            Err(Error::Invalid)
+        );
+        assert_eq!(
+            invitation_code("fr", &valid.to_string()),
+            Err(Error::Disabled)
+        );
+    }
 }

@@ -63,4 +63,12 @@ pub fn register(registry: &mut Registry) {
         Group::Community,
         false,
     );
+    registry.section(
+        on("PORTAL_REFERRALS_ENABLED"),
+        "account-referrals",
+        "shell-referrals",
+        "account/referrals",
+        Group::Account,
+        false,
+    );
 }
