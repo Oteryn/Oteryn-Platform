@@ -1,9 +1,24 @@
 # Staff player tools (T49)
 
-Routes: `GET /admin/players?q=...`, `GET /admin/players/{id}` and
-`POST /admin/players/{id}`. Search accepts an exact account UUID or email and
-never returns the email, credentials, network addresses or session tokens.
-Forms support `note`, `logout`, `request-reset` and `approve-reset` actions.
+Open **Players** in the staff panel. The page uses `GET /admin/players` for search
+and `GET /admin/players/{id}` for account details. The search form accepts exact
+or prefix matches on email, canonical account UUID and, when character reads
+are enabled, character name. The original exact email or UUID lookup remains
+available with just `?q=...`. Prefixes need at least three characters. Searches
+that match more than 50 accounts require a narrower query. Results link to
+account IDs, and the character lookup uses a fresh LCFA snapshot.
+
+`POST /admin/players/{id}` accepts one account field per edit and requires a
+reason. Support access and a separate capability for the field are required.
+The built-in platform admin receives the six `players.account.edit.*`
+capabilities for email, display name, locale, and the three account privacy
+flags. Edits are limited to active or pending-verification player accounts
+without staff roles or a pending closure. Changed fields record an audit entry
+with the actor, target, field and reason. An email edit reserves the address,
+returns the account to pending verification, queues a new verification link
+and revokes prior sessions and authorizations in the same transaction.
+
+The same route accepts `note`, `logout`, `request-reset` and `approve-reset` actions.
 The `kick` action needs the dedicated `account.security.kick` permission and
 staff MFA; it only advances the native security generation (security revocation
 stream cause 4) and audits actor, target, time and reason in one transaction.

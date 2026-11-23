@@ -434,6 +434,14 @@ async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestRe
         p.list_characters(account, NOW).await?.state,
         ReadState::Ready
     );
+    assert_eq!(p.search_accounts("ALDRIC", false, NOW).await?, [account]);
+    assert_eq!(p.search_accounts("ald", true, NOW).await?, [account]);
+    assert!(p.search_accounts("ald", false, NOW).await?.is_empty());
+    assert!(p.search_accounts("ald%", true, NOW).await?.is_empty());
+    assert_eq!(
+        p.search_accounts("ald", true, NOW + 60).await,
+        Err(Error::Unavailable)
+    );
     p.snapshot(
         Snapshot::decode(SNAPSHOT.replace("1790000000", "1790000004").as_bytes())?,
         NOW,
@@ -456,6 +464,7 @@ async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestRe
         p.list_characters(account, NOW).await?.state,
         ReadState::Invalid
     );
+    assert!(p.search_accounts("Aldric", false, NOW).await?.is_empty());
     assert_eq!(
         p.snapshot(Snapshot::decode(SNAPSHOT.as_bytes())?, NOW)
             .await,

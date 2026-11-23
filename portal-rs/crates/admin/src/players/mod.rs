@@ -9,15 +9,21 @@ use sqlx::{PgConnection, PgPool};
 use std::future::Future;
 use uuid::Uuid;
 
+mod edit;
 pub mod http;
 mod projection;
+mod search;
+
+pub use search::{MatchMode, SearchField, SearchQuery};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("access denied")]
     Denied,
-    #[error("stale hold")]
+    #[error("conflict with current state")]
     Conflict,
+    #[error("too many search results")]
+    TooManyResults,
     #[error("invalid input")]
     BadInput,
     #[error("not found")]
@@ -63,7 +69,10 @@ pub struct Character {
 /// accept a browser checkbox or free-text reason as proof. It must remain valid until
 /// reset commits, and reset must consume it in that same transaction.
 pub trait Accounts: Clone + Send + Sync + 'static {
-    fn search(&self, query: &str) -> impl Future<Output = Result<Vec<Account>, Error>> + Send;
+    fn search(
+        &self,
+        query: SearchQuery<'_>,
+    ) -> impl Future<Output = Result<Vec<Account>, Error>> + Send;
     fn account(&self, id: Uuid) -> impl Future<Output = Result<Option<Account>, Error>> + Send;
     fn sessions(&self, id: Uuid) -> impl Future<Output = Result<Vec<Session>, Error>> + Send;
     fn characters(&self, id: Uuid) -> impl Future<Output = Result<Vec<Character>, Error>> + Send;
@@ -109,19 +118,8 @@ impl IdentityAccounts {
     }
 }
 impl Accounts for IdentityAccounts {
-    async fn search(&self, query: &str) -> Result<Vec<Account>, Error> {
-        let account = if let Ok(id) = query.parse::<Uuid>() {
-            self.accounts.find_by_id(id).await?
-        } else {
-            if !query.contains('@') {
-                return Err(Error::BadInput);
-            }
-            self.accounts.find_by_email(query).await?
-        };
-        account
-            .map(Self::safe)
-            .transpose()
-            .map(|a| a.into_iter().collect())
+    async fn search(&self, query: SearchQuery<'_>) -> Result<Vec<Account>, Error> {
+        self.search_target(query).await
     }
     async fn account(&self, id: Uuid) -> Result<Option<Account>, Error> {
         self.accounts
@@ -222,13 +220,22 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         tx.commit().await?;
         Ok(())
     }
-    pub async fn search(&self, context: CheckContext, query: &str) -> Result<Vec<Account>, Error> {
+    pub async fn search(
+        &self,
+        context: CheckContext,
+        query: &str,
+        field: SearchField,
+        mode: MatchMode,
+    ) -> Result<Vec<Account>, Error> {
         self.check(context, Permission::ManageSupportTickets)
             .await?;
-        valid_text(query, 254)?;
-        let results = self.accounts.search(query.trim()).await?;
-        if results.len() > 50 {
-            return Err(Error::Unavailable);
+        let query = SearchQuery::parse(query, field, mode)?;
+        if matches!(query, SearchQuery::Character(..)) && !self.flags.characters {
+            return Err(Error::NotFound);
+        }
+        let results = self.accounts.search(query).await?;
+        if results.len() > search::LIMIT {
+            return Err(Error::TooManyResults);
         }
         // Search terms can be email addresses, so they never enter the audit log.
         self.record(context, "players.search", context.account)

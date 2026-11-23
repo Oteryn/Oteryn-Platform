@@ -5,3 +5,5 @@ role = Rola
 grant = Przypisz rolę
 revoke = Odbierz rolę
 mfa = Wymagane uwierzytelnianie wieloskładnikowe
+
+players = Gracze

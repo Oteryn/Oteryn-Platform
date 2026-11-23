@@ -135,6 +135,8 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            players_label: text(lang, "players"),
+            players: true,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,6 +150,7 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains("href=\"/admin/players\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));
@@ -421,6 +424,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let panel = Panel {
         config: PanelConfig::default(),
         required: None,
+        players_enabled: false,
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),

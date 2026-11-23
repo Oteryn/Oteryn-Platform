@@ -139,6 +139,7 @@ struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
     required: Option<Permission>,
+    players_enabled: bool,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -163,11 +164,12 @@ pub(crate) fn config_from(
 }
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+    Ok(panel_router(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
+        std::env::var("OTERYN_ADMIN_PLAYERS").is_ok_and(|value| value == "true"),
     ))
 }
 
@@ -217,6 +219,7 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     let state = Arc::new(Panel {
         config,
         required: Some(permission),
+        players_enabled: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -240,12 +243,23 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    panel_router(pool, config, identity, accounts, false)
+}
+
+fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    players_enabled: bool,
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
+        players_enabled,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -466,6 +480,8 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    players_label: String,
+    players: bool,
     account_label: String,
     role_label: String,
     grant: String,
@@ -518,6 +534,19 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let players = if s.players_enabled {
+        match s
+            .auth
+            .check(context, Permission::ManageSupportTickets)
+            .await
+        {
+            Ok(()) => true,
+            Err(Error::Denied) => false,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        false
+    };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
             Ok(v) => v,
@@ -539,6 +568,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        players_label: text(lang, "players"),
+        players,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

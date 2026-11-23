@@ -9,6 +9,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
+use oteryn_identity::staff_account::Field;
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -77,7 +78,7 @@ impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
             Self::Conflict => StatusCode::CONFLICT,
-            Self::BadInput => StatusCode::BAD_REQUEST,
+            Self::BadInput | Self::TooManyResults => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
             Self::Denied | Self::Authorization(crate::rbac::Error::Denied) => StatusCode::FORBIDDEN,
             _ => StatusCode::SERVICE_UNAVAILABLE,
@@ -87,8 +88,11 @@ impl IntoResponse for Error {
 }
 #[derive(Deserialize)]
 struct Search {
+    q: Option<String>,
     #[serde(default)]
-    q: String,
+    field: SearchField,
+    #[serde(default)]
+    r#match: MatchMode,
 }
 #[derive(Deserialize)]
 struct Action {
@@ -101,6 +105,7 @@ struct Action {
     request: Option<Uuid>,
     hold: Option<Uuid>,
     ticket: Option<Uuid>,
+    value: Option<String>,
 }
 #[derive(Template)]
 #[template(path = "page.html", config = "src/players/askama.toml")]
@@ -110,6 +115,12 @@ struct Page {
     search: String,
     query_label: String,
     query: String,
+    search_field: &'static str,
+    prefix: bool,
+    characters_search: bool,
+    feedback: String,
+    edit_fields: Vec<EditField>,
+    edit_target: Option<Uuid>,
     accounts: Vec<Account>,
     account: Option<Account>,
     sessions: Vec<Session>,
@@ -144,6 +155,11 @@ struct Page {
     coin_hold: Option<CoinHold>,
     /// `Some(id)` when the viewer may only kick that account.
     kick_target: Option<String>,
+}
+struct EditField {
+    key: &'static str,
+    label: String,
+    value: String,
 }
 struct CoinHold {
     id: String,
@@ -186,6 +202,10 @@ fn text(lang: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 impl Page {
+    fn t(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+
     fn new(lang: &'static str) -> Self {
         Self {
             lang,
@@ -193,6 +213,12 @@ impl Page {
             search: text(lang, "search"),
             query_label: text(lang, "query"),
             query: String::new(),
+            search_field: "auto",
+            prefix: false,
+            characters_search: false,
+            feedback: String::new(),
+            edit_fields: Vec::new(),
+            edit_target: None,
             accounts: vec![],
             account: None,
             sessions: vec![],
@@ -236,16 +262,45 @@ async fn search<A: AccountStateReader, I: Accounts>(
 ) -> Result<Response, Error> {
     s.check(context, Permission::ManageSupportTickets).await?;
     let mut page = Page::new(language(&headers));
-    if !query.q.is_empty() {
-        page.accounts = s.search(context, &query.q).await?;
+    page.characters_search = s.flags.characters;
+    page.search_field = query.field.key();
+    page.prefix = matches!(query.r#match, MatchMode::Prefix);
+    let mut status = StatusCode::OK;
+    if let Some(term) = query.q {
+        match s.search(context, &term, query.field, query.r#match).await {
+            Ok(rows) => {
+                if rows.is_empty() {
+                    page.feedback = page.t("search-empty");
+                }
+                page.accounts = rows;
+            }
+            Err(Error::BadInput) => {
+                status = StatusCode::BAD_REQUEST;
+                page.feedback = page.t("search-invalid");
+            }
+            Err(Error::TooManyResults) => {
+                status = StatusCode::BAD_REQUEST;
+                page.feedback = page.t("search-limit");
+            }
+            Err(Error::Unavailable) => {
+                status = StatusCode::SERVICE_UNAVAILABLE;
+                page.feedback = page.t("unavailable");
+            }
+            Err(error) => return Err(error),
+        }
+        page.query = term.chars().take(254).collect();
     }
-    page.query = query.q;
-    Ok(oteryn_web::render(&page))
+    let mut response = oteryn_web::render(&page);
+    if response.status().is_success() {
+        *response.status_mut() = status;
+    }
+    Ok(response)
 }
 #[derive(Deserialize)]
 struct ResultQuery {
     request: Option<Uuid>,
     coin_hold: Option<String>,
+    edited: Option<bool>,
     evidence: Option<Uuid>,
 }
 async fn detail<A: AccountStateReader, I: Accounts>(
@@ -267,6 +322,24 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         }
         Err(e) => return Err(e),
     };
+    page.characters_search = s.flags.characters;
+    page.edit_fields = s
+        .editable_fields(context, id)
+        .await?
+        .into_iter()
+        .map(|(field, value)| EditField {
+            key: field.key(),
+            label: page.t(field.key()),
+            value,
+        })
+        .collect();
+    if let Some(changed) = query.edited {
+        page.feedback = page.t(if changed {
+            "edit-saved"
+        } else {
+            "edit-unchanged"
+        });
+    }
     account.status = text(page.lang, &format!("status-{}", account.status));
     page.account = Some(account);
     page.notes = s.notes(context, id).await?;
@@ -315,9 +388,41 @@ async fn change<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
+    headers: HeaderMap,
     Form(form): Form<Action>,
 ) -> Result<Response, Error> {
     let mut location = format!("/admin/players/{id}");
+    if let Some(key) = form.action.strip_prefix("edit-") {
+        let field = Field::ALL
+            .into_iter()
+            .find(|field| field.key() == key)
+            .ok_or(Error::BadInput)?;
+        let value = form.value.as_deref().ok_or(Error::BadInput)?;
+        match s.edit(context, id, field, value, &form.reason).await {
+            Ok(changed) => location.push_str(if changed {
+                "?edited=true"
+            } else {
+                "?edited=false"
+            }),
+            Err(error @ (Error::BadInput | Error::Conflict)) => {
+                let (status, message) = if matches!(error, Error::BadInput) {
+                    (StatusCode::BAD_REQUEST, "edit-invalid")
+                } else {
+                    (StatusCode::CONFLICT, "edit-conflict")
+                };
+                let mut page = Page::new(language(&headers));
+                page.feedback = page.t(message);
+                page.edit_target = Some(id);
+                let mut response = oteryn_web::render(&page);
+                if response.status().is_success() {
+                    *response.status_mut() = status;
+                }
+                return Ok(response);
+            }
+            Err(error) => return Err(error),
+        }
+        return Ok(Redirect::to(&location).into_response());
+    }
     match form.action.as_str() {
         "note" => s.note(context, id, &form.body).await?,
         "logout" => s.logout_all(context, id, &form.reason).await?,

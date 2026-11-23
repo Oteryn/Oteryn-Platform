@@ -342,7 +342,7 @@ impl Terminations {
         sqlx::query("UPDATE tickets SET status='closed',closed_at=now(),updated_at=now(),lock_version=lock_version+1 WHERE account_id=$1 AND status IN ('open','waiting_staff','waiting_user')")
             .bind(account).execute(&mut *tx).await?;
         // Closed status and a non-PHC password prevent credential use even after a retry.
-        sqlx::query("UPDATE accounts SET email=$2,password_hash='!closed',status='closed',email_verified_at=NULL,public_account_association=false,public_status_visible=false,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
+        sqlx::query("UPDATE accounts SET email=$2,password_hash='!closed',status='closed',email_verified_at=NULL,display_name='',public_account_association=false,public_status_visible=false,native_security_generation=native_security_generation+1,updated_at=now() WHERE id=$1")
             .bind(account).bind(format!("terminated+{account}")).execute(&mut *tx).await?;
         sqlx::query(
             "UPDATE account_terminations SET finalized_at=now(),updated_at=now() WHERE id=$1",
