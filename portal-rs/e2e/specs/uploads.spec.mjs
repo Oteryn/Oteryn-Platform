@@ -9,6 +9,7 @@ import { disposableDatabaseUrl, password, pool, submit } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 
 const route = '/admin/media';
+const mediaUrl = lang => lang === 'en' ? `${route}?lang=en` : route;
 const form = `main form[enctype="multipart/form-data"][action^="${route}"]`;
 const maxFileBytes = 8 * 1024 * 1024;
 const file = (ext, mimeType, basename = 'editorial') => ({
@@ -115,7 +116,7 @@ for (const { image, width, height, thumbnailHeight, responseBudget = 30_000 } of
       submit(page, form, { alt_text: alt }, { timeout: responseBudget }),
     ]);
     expect(uploaded.status()).toBe(302);
-    expect(uploaded.headers().location).toBe(lang === 'en' ? `${route}?lang=en` : route);
+    expect(uploaded.headers().location).toBe(mediaUrl(lang));
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     const thumbnail = page.getByRole('img', { name: alt, exact: true });
     await expect(thumbnail).toBeVisible();
@@ -137,7 +138,7 @@ for (const { image, width, height, thumbnailHeight, responseBudget = 30_000 } of
     }
     const localeQuery = `?lang=${lang}`;
     await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
-    await expect(page).toHaveURL(`${route}${localeQuery}`);
+    await expect(page).toHaveURL(mediaUrl(lang));
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(thumbnail).toHaveCount(0);
     expect((await page.request.get(`${media}/content`)).status()).toBe(404);
@@ -178,7 +179,7 @@ test('retrying a rendered upload returns success with one media row', async ({ p
   await expectNoMedia(changed);
   const localeQuery = `?lang=${lang}`;
   const back = backToMedia(page, lang);
-  await expect(back).toHaveAttribute('href', `${route}${localeQuery}`);
+  await expect(back).toHaveAttribute('href', mediaUrl(lang));
   await back.click();
   await expect(page.locator(form)).toBeVisible();
   await submit(page, `main form[action="${route}/${before[0].id}/delete${localeQuery}"]`);
@@ -216,7 +217,7 @@ test('a native upload timeout shows a localized link back to the form', async ({
   await expect(page.getByRole('heading', { name: lang === 'en' ? 'Upload timed out' : 'Przesyłanie trwało zbyt długo' })).toBeVisible();
   await expectNoMedia(alt);
   const back = backToMedia(page, lang);
-  await expect(back).toHaveAttribute('href', lang === 'en' ? `${route}?lang=en` : route);
+  await expect(back).toHaveAttribute('href', mediaUrl(lang));
   await back.click();
   await expect(page.locator(form)).toBeVisible();
 });
@@ -310,9 +311,10 @@ test('signed-in editor submits a 7 MiB native form over a 10 Mbps uplink', async
     ]);
     expect(await uploaded.request().headerValue('x-csrf-token')).toBeNull();
     expect(uploaded.status()).toBe(302);
+    expect(uploaded.headers().location).toBe(mediaUrl(lang));
     expect(performance.now() - started).toBeGreaterThan(5000);
     const localeQuery = `?lang=${lang}`;
-    await expect(page).toHaveURL(`${route}${localeQuery}`);
+    await expect(page).toHaveURL(mediaUrl(lang));
     await expect(page.getByRole('img', { name: alt, exact: true })).toBeVisible();
     const rows = await query('SELECT id, mime_type FROM media WHERE alt_text=$1', [alt]);
     expect(rows).toEqual([{ id: expect.any(String), mime_type: 'image/png' }]);
