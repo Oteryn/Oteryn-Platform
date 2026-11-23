@@ -936,3 +936,32 @@ async fn encoded_entity_kind_shares_page_budget() {
     }
     db.close().await;
 }
+
+#[tokio::test]
+async fn unlocalized_article_alias_uses_the_legacy_redirect()
+-> Result<(), Box<dyn std::error::Error>> {
+    let pool = PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+    let state = EntityState::new(pool, true);
+    let router = mount(Router::new(), state);
+    for method in [axum::http::Method::GET, axum::http::Method::HEAD] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri("/wiki/beginner-guide?page=2&next=ignored")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), StatusCode::MOVED_PERMANENTLY);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            "/pl/wiki/articles/beginner-guide?page=2"
+        );
+    }
+    let localized = router
+        .oneshot(Request::get("/en/wiki/beginner-guide").body(Body::empty())?)
+        .await?;
+    assert_eq!(localized.status(), StatusCode::NOT_FOUND);
+    Ok(())
+}

@@ -1,0 +1,803 @@
+[
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-analytics/commit",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/admin/src/analytics/mod.rs:82",
+    "localLimit": "The standard private harness leaves admin analytics ingestion disabled.",
+    "limitSource": "crates/admin/src/analytics/mod.rs:93"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-analytics/page",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/admin/src/analytics/mod.rs:82",
+    "localLimit": "The standard private harness leaves admin analytics ingestion disabled.",
+    "limitSource": "crates/admin/src/analytics/mod.rs:93"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-analytics/watermark",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/admin/src/analytics/mod.rs:82",
+    "localLimit": "The standard private harness leaves admin analytics ingestion disabled.",
+    "limitSource": "crates/admin/src/analytics/mod.rs:93"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/channel",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:183",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/heartbeat",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:186",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/hello",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:182",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/results",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:184",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/rollups",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:185",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/stream",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:187",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/admin-control/{endpoint}",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/admin/src/control/http.rs:215",
+    "localLimit": "The standard private harness disables admin-control dispatch. The browser-backed private listener exercises the bound agent CN and SAN.",
+    "limitSource": "crates/admin/src/control/http.rs:226"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/bazaar/commands/pending",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/bazaar/src/game/authority_http.rs:53",
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/bazaar/commands/read",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/bazaar/src/game/authority_http.rs:53",
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/bazaar/commands/reconcile",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/bazaar/src/game/authority_http.rs:53",
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/bazaar/status",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/bazaar/src/game/authority_http.rs:53",
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/bazaar/transferability",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/bazaar/src/game/authority_http.rs:53",
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/bazaar/watermark",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/bazaar/src/game/authority_http.rs:53",
+    "localLimit": "The standard private harness has no Bazaar Game trust. The browser-backed private listener exercises the Game peer policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:73"
+  },
+  {
+    "method": "GET",
+    "path": "/internal/v1/coins/accounts/{account_id}/balance",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "HEAD",
+    "path": "/internal/v1/coins/accounts/{account_id}/balance",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "GET",
+    "path": "/internal/v1/coins/accounts/{account_id}/history",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "HEAD",
+    "path": "/internal/v1/coins/accounts/{account_id}/history",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/coins/market/cancellations",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/coins/market/offers",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/coins/market/settlements",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "GET",
+    "path": "/internal/v1/coins/operations/{operation_id}",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "HEAD",
+    "path": "/internal/v1/coins/operations/{operation_id}",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/coins/transfers",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/wallet/src/wire.rs:76",
+    "localLimit": "The standard private harness leaves coin transfers and the market disabled.",
+    "limitSource": "crates/wallet/src/wire.rs:563"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/character-bootstrap-intents/read",
+    "peer": "runtime-status",
+    "status": 401,
+    "source": "crates/characters/src/bootstrap/http.rs:31",
+    "authorizedPeer": "bootstrap-intents",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/character-commands/pending",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/commands/http.rs:56",
+    "authorizedPeer": "character-commands",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/character-commands/read",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/commands/http.rs:56",
+    "authorizedPeer": "character-commands",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/character-commands/receipt",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/bazaar/src/game/authority_http.rs:82",
+    "authorizedPeer": "character-commands",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/game-restore/notice",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/restore/http.rs:97",
+    "authorizedPeer": "restore-notice",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-account-characters",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/lcfa/http.rs:74",
+    "authorizedPeer": "lcfa",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-account-characters/watermark",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/lcfa/http.rs:74",
+    "authorizedPeer": "lcfa",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-evidence",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/gameauth/src/evidence.rs:788",
+    "authorizedPeer": "native-evidence",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-recovery-locators",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/gameauth/src/locator.rs:354",
+    "localLimit": "The standard private harness does not bind a recovery-locator authority and node scope.",
+    "limitSource": "crates/gameauth/src/locator.rs:365"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-runtime-status",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/gameauth/src/runtime.rs:548",
+    "authorizedPeer": "runtime-status",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-scope-assignments",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/gameauth/src/scopes.rs:308",
+    "authorizedPeer": "scope-assignment",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-auth/native-scope-revocations",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/gameauth/src/scopes.rs:312",
+    "authorizedPeer": "scope-assignment",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/character-deaths",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/character-profile",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/guild",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/guild-season",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/minigames/src/league/config.rs:213",
+    "localLimit": "The standard private harness does not configure the League publisher. The browser-backed private listener exercises its SPKI policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:85"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/highscores",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/house",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/league-watermark",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/minigames/src/league/config.rs:213",
+    "localLimit": "The standard private harness does not configure the League publisher. The browser-backed private listener exercises its SPKI policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:85"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/watermark",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/world-event-outcome",
+    "peer": "bootstrap-intents",
+    "status": 404,
+    "source": "crates/minigames/src/league/config.rs:213",
+    "localLimit": "The standard private harness does not configure the League publisher. The browser-backed private listener exercises its SPKI policy.",
+    "limitSource": "bin/oteryn-portal/src/game_ingress.rs:85"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/game-public/world-online",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/community/src/ingest.rs:99",
+    "authorizedPeer": "public-projections",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/identity/security-revocations/stream/read",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/identity/src/security_revocations.rs:286",
+    "authorizedPeer": "security-revocations",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/journal/commands/pending",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:359",
+    "localLimit": "The standard private harness does not enable journal command replay with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:355"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/journal/commands/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:359",
+    "localLimit": "The standard private harness does not enable journal command replay with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:355"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/journal/commands/receipt",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:359",
+    "localLimit": "The standard private harness does not enable journal command replay with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:355"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/journal/cursor",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/playerdata/src/store/http.rs:356",
+    "localLimit": "The standard private harness does not enable journal ingestion with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:361"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/journal/records",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/playerdata/src/sessions.rs:168",
+    "localLimit": "The standard private harness does not enable journal session ingestion with qualified authority.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:354"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/progress/record",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/playerdata/src/deaths/http.rs:58",
+    "localLimit": "The standard private harness leaves progress ingestion disabled.",
+    "limitSource": "crates/playerdata/src/deaths/http.rs:97"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/playerdata/progress/watermark",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/playerdata/src/deaths/http.rs:59",
+    "localLimit": "The standard private harness leaves progress ingestion disabled.",
+    "limitSource": "crates/playerdata/src/deaths/http.rs:97"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/loyalty-snapshots/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/loyalty_http.rs:117",
+    "localLimit": "The standard private profile cannot qualify the loyalty snapshot settings for admission.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:318"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/loyalty-snapshots/stream",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/store/src/loyalty_stream_http.rs:183",
+    "authorizedPeer": "loyalty-stream",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/premium-snapshots/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/premium_http.rs:112",
+    "localLimit": "The standard private profile cannot qualify the premium snapshot settings for admission.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:290"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/profile-b/authority/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/premium_profile_b_http.rs:211",
+    "localLimit": "The standard private profile does not configure Profile B and the binary has no generic Profile B entitlement ledger.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:302"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/profile-b/changes/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/premium_profile_b_http.rs:225",
+    "localLimit": "The standard private profile does not configure Profile B and the binary has no generic Profile B entitlement ledger.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:302"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/balance/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/purchase_http.rs:84",
+    "localLimit": "The standard private profile includes Store delivery but leaves the Store purchase authority disabled.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:326"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/history/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/purchase_http.rs:84",
+    "localLimit": "The standard private profile includes Store delivery but leaves the Store purchase authority disabled.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:326"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/operations/pending",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/store/src/delivery_http.rs:80",
+    "authorizedPeer": "store",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/operations/read",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/store/src/delivery_http.rs:80",
+    "authorizedPeer": "store",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/operations/receipt",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/store/src/delivery_http.rs:80",
+    "authorizedPeer": "store",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/operations/reconcile",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/store/src/delivery_http.rs:80",
+    "authorizedPeer": "store",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/products-entitlements/store/purchases",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/store/src/purchase_http.rs:84",
+    "localLimit": "The standard private profile includes Store delivery but leaves the Store purchase authority disabled.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:326"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/support/enforcement-commands/commands/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/support/src/sanctions/enforcement.rs:832",
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/support/enforcement-commands/reconcile/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/support/src/sanctions/enforcement.rs:833",
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/support/enforcement-commands/results",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/support/src/sanctions/enforcement.rs:838",
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/support/enforcement-commands/stream/read",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/support/src/sanctions/enforcement.rs:831",
+    "localLimit": "The standard private profile does not enable enforcement readers and enables the mutually exclusive Game restore path.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:367"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v1/support/sanctions/stream/read",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/support/src/sanctions/export.rs:273",
+    "authorizedPeer": "sanctions",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-auth/character-commands/pending",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/services/transport.rs:83",
+    "authorizedPeer": "character-commands",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-auth/character-commands/read",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/services/transport.rs:83",
+    "authorizedPeer": "character-commands",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-auth/character-commands/receipt",
+    "peer": "bootstrap-intents",
+    "status": 401,
+    "source": "crates/characters/src/services/transport.rs:83",
+    "authorizedPeer": "character-commands",
+    "authorizedInvalidBodyStatus": 400
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-auth/character-services/state",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/characters/src/services/transport.rs:83",
+    "localLimit": "The standard private profile cannot qualify the signed Character Services projection settings for admission.",
+    "limitSource": "crates/characters/src/services/transport.rs:66"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-auth/character-services/watermark",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/characters/src/services/transport.rs:83",
+    "localLimit": "The standard private profile cannot qualify the signed Character Services projection settings for admission.",
+    "limitSource": "crates/characters/src/services/transport.rs:66"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/character-achievements",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:382",
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/character-deaths",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/community/src/deaths.rs:70",
+    "localLimit": "The standard private profile leaves the character death projection disabled.",
+    "limitSource": "crates/community/src/deaths.rs:79"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/character-equipment",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:382",
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/character-online-session",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:408",
+    "localLimit": "The standard private profile does not qualify the online projection settings.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:388"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/character-outfit",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:382",
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/character-skills",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:382",
+    "localLimit": "The standard private profile does not enable the T24-qualified character family projections.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:372"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/guild",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/community/src/guilds.rs:49",
+    "localLimit": "The standard private profile leaves guild projection ingestion disabled.",
+    "limitSource": "crates/community/src/guilds.rs:58"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/house",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:91",
+    "localLimit": "The standard private profile leaves house projection ingestion disabled.",
+    "limitSource": "crates/community/src/houses.rs:100"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/watermark",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/community/src/deaths.rs:70",
+    "localLimit": "The standard private profile leaves the character death projection used for this watermark disabled.",
+    "limitSource": "crates/community/src/deaths.rs:79"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/world-daily",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "crates/community/src/today/http.rs:47",
+    "localLimit": "The standard private profile leaves Today projection ingestion disabled.",
+    "limitSource": "crates/community/src/today/http.rs:59"
+  },
+  {
+    "method": "POST",
+    "path": "/internal/v2/game-public/world-daily-kills",
+    "peer": "bootstrap-intents",
+    "status": 503,
+    "source": "bin/oteryn-portal/src/game_routes.rs:409",
+    "localLimit": "The standard private profile does not qualify the kill totals projection settings.",
+    "limitSource": "bin/oteryn-portal/src/game_routes.rs:388"
+  }
+]

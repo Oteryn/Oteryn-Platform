@@ -309,6 +309,57 @@ impl CheckoutPage {
     }
 }
 
+fn checkout_language<'a>(chrome: Option<&'a Extension<Chrome>>, headers: &HeaderMap) -> &'a str {
+    chrome.map_or_else(
+        || oteryn_web::negotiate(headers).code(),
+        |Extension(chrome)| chrome.lang.as_str(),
+    )
+}
+
+fn checkout_login(lang: &str) -> Redirect {
+    Redirect::to(&format!("/{lang}/login"))
+}
+
+#[cfg(test)]
+#[test]
+fn checkout_localizes_login_and_failed_payment() -> Result<(), askama::Error> {
+    for (preference, lang, title, failed) in [
+        ("en-GB", "en", "Sandbox coin checkout", "Failed"),
+        (
+            "pl-PL",
+            "pl",
+            "Zakup monet w trybie testowym",
+            "Niepowodzenie",
+        ),
+    ] {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::ACCEPT_LANGUAGE,
+            HeaderValue::from_static(preference),
+        );
+        assert_eq!(checkout_language(None, &headers), lang);
+        assert_eq!(
+            checkout_login(lang).into_response().headers()[header::LOCATION],
+            format!("/{lang}/login"),
+        );
+        let html = CheckoutPage {
+            lang: lang.to_owned(),
+            labels: CheckoutPage::labels(lang),
+            csrf: String::new(),
+            order_id: Uuid::nil(),
+            coins: 10,
+            price: "1.00 PLN".to_owned(),
+            state: OrderState::Failed,
+        }
+        .render()?;
+        assert!(html.contains(&format!("<html lang=\"{lang}\">")));
+        assert!(html.contains(&format!("<h1>{title}</h1>")));
+        assert!(html.contains(&format!("<dd>{failed}</dd>")));
+        assert!(!html.contains("<form"));
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 struct Decision {
     action: String,
@@ -319,8 +370,9 @@ async fn page(
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
     chrome: Option<Extension<Chrome>>,
+    headers: HeaderMap,
 ) -> Response {
-    let chrome = chrome.map(|Extension(chrome)| chrome).unwrap_or_default();
+    let lang = checkout_language(chrome.as_ref(), &headers);
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -331,7 +383,7 @@ async fn page(
         if session.set(RETURN_KEY, &target).await.is_err() {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
-        return Redirect::to("/pl/login").into_response();
+        return checkout_login(lang).into_response();
     };
     let order = match service.checkout(account, order).await {
         Ok(order) => order,
@@ -340,10 +392,10 @@ async fn page(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let price = order.price.display_for_locale(&chrome.lang);
+    let price = order.price.display_for_locale(lang);
     CheckoutPage {
-        labels: CheckoutPage::labels(&chrome.lang),
-        lang: chrome.lang,
+        labels: CheckoutPage::labels(lang),
+        lang: lang.to_owned(),
         csrf,
         order_id: order.order_id,
         coins: order.coins,
@@ -363,7 +415,7 @@ async fn act(
     Form(decision): Form<Decision>,
 ) -> Response {
     let Some(account) = session.account_id().await else {
-        return Redirect::to("/pl/login").into_response();
+        return checkout_login(checkout_language(chrome.as_ref(), &headers)).into_response();
     };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();

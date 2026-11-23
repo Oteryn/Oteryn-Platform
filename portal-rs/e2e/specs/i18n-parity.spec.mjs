@@ -999,18 +999,19 @@ async function assertCheckout(page, locale, state) {
   }
 }
 
-async function assertAnonymousCheckoutRedirects(page) {
-  const target = sample(`${checkoutPrefix}{id}`, 'en');
-  await assertRouteResponse(await page.goto('/language/en'), '/language/en', { pathname: '/en/' });
-  expect((await page.goto('/en/login')).status()).toBe(200);
+async function assertAnonymousCheckoutRedirects(page, locale) {
+  const target = sample(`${checkoutPrefix}{id}`, locale);
+  const languagePath = `/language/${locale}`;
+  await assertRouteResponse(await page.goto(languagePath), languagePath, { pathname: `/${locale}/` });
+  expect((await page.goto(`/${locale}/login`)).status()).toBe(200);
   const csrf = await page.locator('main form input[name=_csrf]').first().inputValue();
-  const options = { maxRedirects: 0, headers: { origin: new URL(page.url()).origin, 'accept-language': 'en' } };
+  const options = { maxRedirects: 0, headers: { origin: new URL(page.url()).origin, 'accept-language': opposite(locale) } };
   for (const response of [
     await page.request.get(target, options),
     await page.request.post(target, { ...options, form: { _csrf: csrf, action: 'pay' } }),
   ]) {
     expect(response.status()).toBe(303);
-    expect(response.headers().location).toBe('/pl/login');
+    expect(response.headers().location).toBe(`/${locale}/login`);
   }
 }
 
@@ -1074,7 +1075,7 @@ for (const { actor, group } of crawls) {
     }
     if (actor === 'anonymous') {
       await seedPasswordRange(password());
-      await assertAnonymousCheckoutRedirects(page);
+      await assertAnonymousCheckoutRedirects(page, locale);
     }
     const origin = new URL(`/${locale}/`, portalOrigin);
     const languagePath = `/language/${locale}`;

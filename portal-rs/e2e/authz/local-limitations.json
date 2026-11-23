@@ -1,0 +1,420 @@
+[
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/account/journal/{character}/deaths",
+    "source": "crates/playerdata/src/deaths/http.rs:121",
+    "reason": "Only the embedding service can attach the trusted ReadContext required by this owner router. The portal binary does not compose this browser router."
+  },
+  {
+    "listener": "embedded",
+    "method": "POST",
+    "path": "/",
+    "source": "crates/gameauth/src/runtime.rs:481",
+    "reason": "Runtime authorization uses this router as an in-process probe. There is no HTTP listener for this registration."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "A request on the real native TLS listener charges the PostgreSQL device-session source budget before verifying the bearer. With the 19 browser actors, a missing bearer refusal inherently changes a non-exempt table."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions/native-characters",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions/tickets",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  },
+  {
+    "listener": "native",
+    "method": "POST",
+    "path": "/api/v1/game-auth/device-sessions/revoke",
+    "source": "crates/gameauth/src/devices_http.rs:222",
+    "reason": "The shared dispatch charges the native source budget before checking a device credential. A direct TLS denial with a browser-only actor would change a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/email-change/confirm/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/email-change/revert/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/email-change/confirm/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/email-change/revert/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/email-change/confirm/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/email-change/revert/{token}",
+    "source": "crates/identity/src/email_change_http.rs:298",
+    "reason": "The email-token handler charges a persisted rate-limit bucket before verifying the opaque link. Browser sessions alone do not supply a link, and a refused link attempt changes a non-exempt table under the strict mutation assertion."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/unsubscribe",
+    "source": "crates/identity/src/account_lifecycle_http.rs:435",
+    "reason": "The one-click endpoint charges a persisted rate-limit bucket before it verifies the signed unsubscribe token. None of the browser actors holds that credential, and its refusal changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/mfa/challenge",
+    "source": "crates/identity/src/mfa_http.rs:569",
+    "reason": "A browser without a pending MFA challenge is redirected to login only after the persisted challenge source budget is charged. The anonymous actor has no pending grant."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/mfa/challenge",
+    "source": "crates/identity/src/mfa_http.rs:569",
+    "reason": "A browser without a pending MFA challenge is redirected to login only after the persisted challenge source budget is charged. The anonymous actor has no pending grant."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/mfa/challenge",
+    "source": "crates/identity/src/mfa_http.rs:569",
+    "reason": "A browser without a pending MFA challenge is redirected to login only after the persisted challenge source budget is charged. The anonymous actor has no pending grant."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/mfa/email",
+    "source": "crates/identity/src/mfa_http.rs:634",
+    "reason": "The anonymous browser lacks a pending MFA grant. The handler persists the challenge source charge before refusing the request."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/mfa/email",
+    "source": "crates/identity/src/mfa_http.rs:634",
+    "reason": "The anonymous browser lacks a pending MFA grant. The handler persists the challenge source charge before refusing the request."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/mfa/email",
+    "source": "crates/identity/src/mfa_http.rs:634",
+    "reason": "The anonymous browser lacks a pending MFA grant. The handler persists the challenge source charge before refusing the request."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/forgot-password",
+    "source": "crates/identity/src/reset_http.rs:271",
+    "reason": "The handler persists the password recovery rate charge before it refuses signed-in actors. Its refusal therefore changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/forgot-password",
+    "source": "crates/identity/src/reset_http.rs:271",
+    "reason": "The handler persists the password recovery rate charge before it refuses signed-in actors. Its refusal therefore changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/forgot-password",
+    "source": "crates/identity/src/reset_http.rs:271",
+    "reason": "The handler persists the password recovery rate charge before it refuses signed-in actors. Its refusal therefore changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/reset-password",
+    "source": "crates/identity/src/reset_http.rs:311",
+    "reason": "The reset submits the persisted recovery rate charge before refusing an authenticated actor or verifying an anonymous actor's opaque reset token."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/reset-password",
+    "source": "crates/identity/src/reset_http.rs:311",
+    "reason": "The reset submits the persisted recovery rate charge before refusing an authenticated actor or verifying an anonymous actor's opaque reset token."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/reset-password",
+    "source": "crates/identity/src/reset_http.rs:311",
+    "reason": "The reset submits the persisted recovery rate charge before refusing an authenticated actor or verifying an anonymous actor's opaque reset token."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/verify-email",
+    "source": "crates/web/src/routes/verify.rs:112",
+    "reason": "A missing verification token is rejected only after the persisted verification source budget is charged. Browser sessions do not provide a verification link."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/verify-email",
+    "source": "crates/web/src/routes/verify.rs:112",
+    "reason": "A missing verification token is rejected only after the persisted verification source budget is charged. Browser sessions do not provide a verification link."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/verify-email",
+    "source": "crates/web/src/routes/verify.rs:112",
+    "reason": "A missing verification token is rejected only after the persisted verification source budget is charged. Browser sessions do not provide a verification link."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/recovery-key",
+    "source": "crates/identity/src/recovery_key_http.rs:306",
+    "reason": "The browser actor does not hold a recovery key for this public recovery flow. The handler persists a rate charge before authenticating the recovery key."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/recovery-key",
+    "source": "crates/identity/src/recovery_key_http.rs:306",
+    "reason": "The browser actor does not hold a recovery key for this public recovery flow. The handler persists a rate charge before authenticating the recovery key."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/recovery-key",
+    "source": "crates/identity/src/recovery_key_http.rs:306",
+    "reason": "The browser actor does not hold a recovery key for this public recovery flow. The handler persists a rate charge before authenticating the recovery key."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/register",
+    "source": "crates/identity/src/abuse/http.rs:124",
+    "reason": "The real registration preflight persists an attempt budget before checking work or allowing the handler to refuse an authenticated actor."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/mfa/enroll",
+    "source": "crates/identity/src/mfa_http.rs:765",
+    "reason": "Enrolled staff are refused on repeat enrollment after a persisted enrollment charge. Removing enrollment to obtain a success would change the defined staff actor."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/mfa/confirm",
+    "source": "crates/identity/src/mfa_http.rs:821",
+    "reason": "Staff in the matrix already have confirmed MFA. The confirmation handler persists an enrollment charge before deciding whether a pending enrollment can be confirmed."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/mfa/devices",
+    "source": "crates/identity/src/mfa_http.rs:881",
+    "reason": "An authenticated player lacking an MFA grant is refused only after the persisted security mutation budget is charged."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/register",
+    "source": "crates/identity/src/abuse/http.rs:124",
+    "reason": "The real registration preflight persists an attempt budget before checking work or allowing the handler to refuse an authenticated actor."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/mfa/enroll",
+    "source": "crates/identity/src/mfa_http.rs:765",
+    "reason": "Enrolled staff are refused on repeat enrollment after a persisted enrollment charge. Removing enrollment to obtain a success would change the defined staff actor."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/mfa/confirm",
+    "source": "crates/identity/src/mfa_http.rs:821",
+    "reason": "Staff in the matrix already have confirmed MFA. The confirmation handler persists an enrollment charge before deciding whether a pending enrollment can be confirmed."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/pl/mfa/devices",
+    "source": "crates/identity/src/mfa_http.rs:881",
+    "reason": "An authenticated player lacking an MFA grant is refused only after the persisted security mutation budget is charged."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/register",
+    "source": "crates/identity/src/abuse/http.rs:124",
+    "reason": "The real registration preflight persists an attempt budget before checking work or allowing the handler to refuse an authenticated actor."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/mfa/enroll",
+    "source": "crates/identity/src/mfa_http.rs:765",
+    "reason": "Enrolled staff are refused on repeat enrollment after a persisted enrollment charge. Removing enrollment to obtain a success would change the defined staff actor."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/mfa/confirm",
+    "source": "crates/identity/src/mfa_http.rs:821",
+    "reason": "Staff in the matrix already have confirmed MFA. The confirmation handler persists an enrollment charge before deciding whether a pending enrollment can be confirmed."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/en/mfa/devices",
+    "source": "crates/identity/src/mfa_http.rs:881",
+    "reason": "An authenticated player lacking an MFA grant is refused only after the persisted security mutation budget is charged."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/passkeys/register/start",
+    "source": "crates/identity/src/passkeys_http.rs:241",
+    "reason": "The shared passkey dispatcher persists source and account budgets and appends passkey.attempt before it checks the actor or verifies ceremony credentials."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/passkeys/register/finish",
+    "source": "crates/identity/src/passkeys_http.rs:241",
+    "reason": "The shared passkey dispatcher persists source and account budgets and appends passkey.attempt before it checks the actor or verifies ceremony credentials."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/passkeys/authenticate/start",
+    "source": "crates/identity/src/passkeys_http.rs:241",
+    "reason": "The shared passkey dispatcher persists source and account budgets and appends passkey.attempt before it checks the actor or verifies ceremony credentials."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/passkeys/authenticate/finish",
+    "source": "crates/identity/src/passkeys_http.rs:241",
+    "reason": "The shared passkey dispatcher persists source and account budgets and appends passkey.attempt before it checks the actor or verifies ceremony credentials."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/passkeys/{id}/remove",
+    "source": "crates/identity/src/passkeys_http.rs:241",
+    "reason": "The shared passkey dispatcher persists source and account budgets and appends passkey.attempt before it checks the actor or verifies ceremony credentials."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{lang}/bazaar/{listing}",
+    "source": "bin/oteryn-portal/src/main.rs:225",
+    "reason": "The generic Character Market router is outside both executable portal branches. The game runtime and authority-unavailable routers register their own locale paths."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/bazaar/sell",
+    "source": "bin/oteryn-portal/src/main.rs:225",
+    "reason": "The generic Character Market router is outside both executable portal branches. The game runtime and authority-unavailable routers register their own locale paths."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{lang}/account/bazaar/{listing}/bids",
+    "source": "bin/oteryn-portal/src/main.rs:225",
+    "reason": "The generic Character Market router is outside both executable portal branches. The game runtime and authority-unavailable routers register their own locale paths."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/account/bazaar/{listing}/control",
+    "source": "crates/bazaar/src/game/runtime/browser.rs:564",
+    "reason": "The isolated matrix does not have a Game-backed listing in an actionable lifecycle state. The browser middleware persists a budget charge before invoking the authority check, so a refused request without that local prerequisite changes a non-exempt table."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/admin/control/approvals/{id}",
+    "source": "crates/admin/src/control/controls_http.rs:319",
+    "reason": "The configured SessionAuthority has no target-specific catalog authorization. A legitimate R4 preview comes from verified Game dry-run evidence, which is unavailable in this profile."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/admin/control/approvals/{id}",
+    "source": "crates/admin/src/control/controls_http.rs:319",
+    "reason": "A legitimate approval requires a verified Game dry-run result, catalog authorization and a second actor with request-bound step-up. The configured SessionAuthority always refuses catalog authorization."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/bazaar/items",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:96",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/bazaar/items",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:96",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/bazaar/items/new",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:100",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "GET",
+    "path": "/{locale}/bazaar/items/{id}",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:101",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  },
+  {
+    "listener": "public",
+    "method": "POST",
+    "path": "/{locale}/bazaar/items/{id}/{action}",
+    "profile": "bazaar-qualified-embedding",
+    "source": "crates/bazaar/src/items/web.rs:102",
+    "reason": "The generic qualified item router requires an embedding service supplying Accounts, Reservations and ItemAuthority. The portal binary selects the unavailable router or the distinct Game-backed browser router and has no startup profile mounting this registration. See bin/oteryn-portal/src/main.rs:262."
+  }
+]

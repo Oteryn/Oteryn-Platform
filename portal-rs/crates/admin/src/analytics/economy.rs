@@ -286,7 +286,11 @@ mod presentation_tests {
                 }],
             }
             .render()?;
-            assert!(html.contains(&format!("data-state=\"available\">{state}</p>")));
+            let status = html
+                .split_once("data-state=\"available\">")
+                .and_then(|(_, content)| content.split_once("</p>"))
+                .map(|(label, _)| label.trim());
+            assert_eq!(status, Some(state));
             assert!(html.contains(&format!("{revision}: 1 / 2")));
             assert!(html.contains(explanation));
         }

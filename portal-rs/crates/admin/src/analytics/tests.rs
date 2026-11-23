@@ -1260,11 +1260,11 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         "depot source coverage not yet delivered by Game",
         "Gold in / gold out",
         "median unit price",
-        "purchased",
-        "Platform wallet ledger",
+        "Purchased",
+        "Platform wallet ledger (all worlds)",
         "spent_in_game/coin",
         "refund/coin",
-        "Data cut / age",
+        "Data cut (UTC) / freshness",
     ] {
         assert!(body.contains(text), "{text}");
     }
