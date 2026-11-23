@@ -17,7 +17,7 @@ function checkRegistration(method, path, expected) {
   return route.registrations[0].source;
 }
 
-async function waitForRegistrationBudget(name) {
+async function waitForIdentityBudget(name) {
   await expect.poll(async () => {
     const [row] = await query(`
       SELECT COALESCE(max(count),0) AS used FROM web_rate_limits
@@ -34,7 +34,7 @@ async function exerciseRegistration(request, locale, anonymous) {
     const challenge = `${prefix}/register/abuse/challenge`;
     checkRegistration('POST', challenge, 'anonymous');
     await test.step(`POST ${challenge}`, async () => {
-      await waitForRegistrationBudget('identity-registration-challenge');
+      await waitForIdentityBudget('identity-registration-challenge');
       const response = await request.post(challenge, {
         headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
       });
@@ -53,7 +53,7 @@ async function exerciseRegistration(request, locale, anonymous) {
     await test.step(`POST ${resend}`, async () => {
       const { account, accountId } = seedBrowserAccount(locale);
       await query("UPDATE accounts SET email_verified_at=NULL,status='pending_verification' WHERE id=$1", [accountId]);
-      await waitForRegistrationBudget('identity-registration');
+      await waitForIdentityBudget('identity-registration');
       const response = await request.post(resend, {
         form: { email: account.email, _csrf: token },
         headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
@@ -147,12 +147,14 @@ test.describe('authenticated password changes', () => {
                 [accountId],
               ))[0].fingerprint;
               const previous = anonymous ? null : await stored();
+              if (!anonymous) await waitForIdentityBudget('identity-password-change');
               const response = await request.fetch(path, {
-                method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+                method, headers: { origin, 'x-csrf-token': token, connection: 'close' }, maxRedirects: 0,
                 form: { current_password: account?.password ?? 'unused', password: replacement, password_confirmation: replacement },
               });
               try {
-                expect(response.status(), 'crates/identity/src/credentials_http.rs:260').toBe(anonymous ? 401 : 302);
+                const successStatus = method === 'PUT' ? 303 : 302;
+                expect(response.status(), `${method} ${path}`).toBe(anonymous ? 401 : successStatus);
                 if (before) {
                   assertRefusalState(before, await db.snapshot(hash));
                 } else {
