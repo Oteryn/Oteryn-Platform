@@ -16,3 +16,5 @@ delete = Request account deletion
 unsubscribed = Optional e-mail disabled.
 
 restoration-pending = Deletion was cancelled. Game restoration is pending; old game sessions stay revoked.
+operational = Operational email
+operational-opt-in = Email me about planned downtime and events.

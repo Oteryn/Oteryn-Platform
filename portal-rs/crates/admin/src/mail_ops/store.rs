@@ -67,7 +67,7 @@ pub(super) async fn list(
             recipient IS NOT NULL AS has_recipient,attempts,last_error,
             created_at, to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS queued_at
          FROM admin_mail_outbox
-         WHERE ($2 = '' OR state = $2) AND ($3 = '' OR kind = $3)
+         WHERE kind <> 'notify.operational' AND ($2 = '' OR state = $2) AND ($3 = '' OR kind = $3)
            AND (NULLIF($4,'') IS NULL OR created_at >= NULLIF($4,'')::date::timestamp AT TIME ZONE 'UTC')
            AND (NULLIF($5,'') IS NULL OR created_at < (NULLIF($5,'')::date + 1)::timestamp AT TIME ZONE 'UTC')
            AND (NOT $1 OR $6 = '' OR lower(recipient) = $6)
@@ -99,7 +99,7 @@ pub(super) async fn counts(pool: &PgPool) -> Result<Vec<Count>, Error> {
         "WITH totals AS (
             SELECT state, count(*) FILTER (WHERE created_at >= now() - interval '24 hours') AS day,
                 count(*) AS week
-            FROM admin_mail_outbox WHERE created_at >= now() - interval '168 hours' AND created_at <= now()
+            FROM admin_mail_outbox WHERE kind <> 'notify.operational' AND created_at >= now() - interval '168 hours' AND created_at <= now()
             GROUP BY state
          )
          SELECT states.state, coalesce(day,0) AS day, coalesce(week,0) AS week
@@ -224,6 +224,7 @@ pub(super) async fn apply(
         "WITH candidates AS (
             SELECT o.id, m.kind FROM outbox o JOIN admin_mail_outbox m ON m.id = o.id
             WHERE o.kind IN ('email.account_exists', 'email.verify', 'email.password-reset', 'notify.email')
+              AND m.kind <> 'notify.operational'
               AND o.state = 'pending' AND (o.last_error IS NULL) = $1
               AND ($2::uuid IS NULL OR o.id = $2) AND ($3::text IS NULL OR m.kind = $3)
               AND ($5::integer IS NULL OR o.attempts = $5)

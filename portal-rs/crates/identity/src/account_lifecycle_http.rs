@@ -115,19 +115,15 @@ impl termination::Boundary for TerminationBoundary {
     }
 }
 pub fn configured_router(pool: PgPool, termination: termination::Terminations) -> Router {
-    let key = std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY").unwrap_or_default();
-    let notifications = oteryn_notify::Unsubscribe::new(
-        key.into_bytes(),
-        std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_URL").unwrap_or_default(),
-    )
-    .ok()
-    .map(|unsubscribe| {
-        Arc::new(oteryn_notify::Notifications {
-            pool: pool.clone(),
-            accounts: Arc::new(AccountState(pool.clone())),
-            unsubscribe,
-        })
-    });
+    let notifications = oteryn_notify::Unsubscribe::configured()
+        .ok()
+        .map(|unsubscribe| {
+            Arc::new(oteryn_notify::Notifications {
+                pool: pool.clone(),
+                accounts: Arc::new(AccountState(pool.clone())),
+                unsubscribe,
+            })
+        });
     let mut sessions = SessionLayer::new(pool.clone());
     sessions.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
         .ok()
@@ -209,6 +205,7 @@ struct Page {
     news_portal: bool,
     support_email: bool,
     support_portal: bool,
+    operational_email: bool,
 }
 impl Page {
     fn shell_text(&self, key: &str) -> String {
@@ -270,6 +267,7 @@ async fn page(
         news_portal: true,
         support_email: false,
         support_portal: true,
+        operational_email: false,
     })
 }
 fn render(p: Page) -> Response {
@@ -287,18 +285,21 @@ async fn preferences(
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     let mut p = page(l, &s, "", false, false, false, String::new()).await?;
-    (p.news_email, p.news_portal) = st
+    let notifications = st
         .notifications
         .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .preference(id, oteryn_notify::Category::News)
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    use oteryn_notify::Category;
+    (p.news_email, p.news_portal) = notifications
+        .preference(id, Category::News)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    (p.support_email, p.support_portal) = st
-        .notifications
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .preference(id, oteryn_notify::Category::Support)
+    (p.support_email, p.support_portal) = notifications
+        .preference(id, Category::Support)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    (p.operational_email, _) = notifications
+        .preference(id, Category::Operational)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(render(p))
@@ -311,6 +312,8 @@ struct PreferenceInput {
     news_portal: Option<String>,
     support_email: Option<String>,
     support_portal: Option<String>,
+    operational_email: Option<String>,
+    operational_present: Option<String>,
 }
 fn boolean(v: Option<String>) -> Result<bool, StatusCode> {
     match v.as_deref() {
@@ -390,6 +393,10 @@ async fn save(
     {
         return Err(StatusCode::FORBIDDEN);
     }
+    let notifications = st
+        .notifications
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     for (category, email, portal) in [
         (
             oteryn_notify::Category::News,
@@ -402,12 +409,24 @@ async fn save(
             input.support_portal,
         ),
     ] {
-        st.notifications
-            .as_ref()
-            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
+        notifications
             .preferences(&mut tx, id, category, boolean(email)?, boolean(portal)?)
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    }
+    if boolean(input.operational_present)? {
+        notifications
+            .preferences(
+                &mut tx,
+                id,
+                oteryn_notify::Category::Operational,
+                boolean(input.operational_email)?,
+                false,
+            )
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    } else if input.operational_email.is_some() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     tx.commit()
         .await
@@ -427,7 +446,12 @@ async fn unsubscribe_page(
     if q.token.len() > 512 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    Ok(render(page(l, &s, "", false, false, true, q.token).await?))
+    let mut response = render(page(l, &s, "", false, false, true, q.token).await?);
+    response.headers_mut().insert(
+        axum::http::header::REFERRER_POLICY,
+        axum::http::HeaderValue::from_static("no-referrer"),
+    );
+    Ok(response)
 }
 async fn unsubscribe(
     State(st): State<Services>,

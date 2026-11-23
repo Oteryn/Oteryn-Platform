@@ -50,6 +50,8 @@ workspace = true
 workspace = true
 [dependencies.oteryn-payments]
 workspace = true
+[dependencies.oteryn-notify]
+workspace = true
 [dependencies.oteryn-db]
 workspace = true
 [dependencies.sha2]

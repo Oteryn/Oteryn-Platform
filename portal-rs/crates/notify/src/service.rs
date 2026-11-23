@@ -23,6 +23,7 @@ pub enum Category {
     Security,
     News,
     Support,
+    Operational,
 }
 impl Category {
     pub fn as_str(self) -> &'static str {
@@ -30,6 +31,7 @@ impl Category {
             Self::Security => "security",
             Self::News => "news",
             Self::Support => "support",
+            Self::Operational => "operational",
         }
     }
     fn parse(s: &str) -> Result<Self> {
@@ -37,6 +39,7 @@ impl Category {
             "security" => Ok(Self::Security),
             "news" => Ok(Self::News),
             "support" => Ok(Self::Support),
+            "operational" => Ok(Self::Operational),
             _ => Err(invalid()),
         }
     }
@@ -178,6 +181,37 @@ impl Unsubscribe {
         }
         Ok(Self { key, base })
     }
+    pub fn configured() -> Result<Self> {
+        Self::new(
+            std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY")?.into_bytes(),
+            std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_URL")?,
+        )
+    }
+
+    pub fn operational_ready(&self) -> bool {
+        self.operational_base(Locale::En).is_ok()
+    }
+
+    pub(crate) fn operational_base(&self, locale: Locale) -> Result<url::Url> {
+        let mut base = url::Url::parse(&self.base)?;
+        if base.scheme() != "https"
+            || base.host().is_none()
+            || !base.username().is_empty()
+            || base.password().is_some()
+            || !matches!(
+                base.path(),
+                "/unsubscribe" | "/en/unsubscribe" | "/pl/unsubscribe"
+            )
+        {
+            return Err(invalid());
+        }
+        base.set_path(match locale {
+            Locale::Pl => "/pl/unsubscribe",
+            Locale::En => "/en/unsubscribe",
+        });
+        Ok(base)
+    }
+
     pub fn token(&self, account: Uuid, category: Category, expires: i64) -> Result<String> {
         if category == Category::Security {
             return Err(invalid());
@@ -241,6 +275,15 @@ pub struct SmtpSender {
     from: String,
 }
 impl SmtpSender {
+    pub fn configured() -> Result<Self> {
+        Self::new(
+            &std::env::var("OTERYN_SMTP_HOST")?,
+            std::env::var("OTERYN_SMTP_USERNAME")?,
+            std::env::var("OTERYN_SMTP_PASSWORD")?,
+            std::env::var("OTERYN_SMTP_FROM")?,
+        )
+    }
+
     /// Uses the shared TLS/port policy with certificate validation.
     pub fn new(host: &str, username: String, password: String, from: String) -> Result<Self> {
         let _: lettre::message::Mailbox = from.parse()?;
@@ -284,7 +327,7 @@ impl Notifications {
         }
         let value = outbox::query_as("SELECT email_enabled,portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2")
             .bind(account).bind(category.as_str()).fetch_optional(&self.pool).await?;
-        Ok(value.unwrap_or((false, true)))
+        Ok(value.unwrap_or((false, category != Category::Operational)))
     }
     pub async fn preferences(
         &self,
@@ -298,7 +341,10 @@ impl Notifications {
         if category == Category::Security && (!email || !portal) {
             return Err(invalid());
         }
-        outbox::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=$3,portal_enabled=$4,updated_at=now()")
+        if category == Category::Operational && portal {
+            return Err(invalid());
+        }
+        outbox::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=$3,portal_enabled=$4,updated_at=clock_timestamp() WHERE (account_notification_prefs.email_enabled,account_notification_prefs.portal_enabled) IS DISTINCT FROM ($3,$4)")
             .bind(account).bind(category.as_str()).bind(email).bind(portal).execute(&mut **tx).await?;
         Ok(())
     }
@@ -361,9 +407,21 @@ impl Notifications {
         let (account, category) = self
             .unsubscribe
             .verify(token, OffsetDateTime::now_utc().unix_timestamp())?;
-        self.account_in(tx, account).await?;
-        outbox::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled) VALUES($1,$2,false) ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=false,updated_at=now()")
-            .bind(account).bind(category.as_str()).execute(&mut **tx).await?;
+        if category == Category::Operational {
+            // The signed link can withdraw existing consent even when sign-in is
+            // disabled. Creating a new preference requires an active account.
+            outbox::query(
+                "UPDATE account_notification_prefs SET email_enabled=false,updated_at=clock_timestamp()
+                 WHERE account_id=$1 AND category='operational' AND email_enabled",
+            )
+            .bind(account)
+            .execute(&mut **tx)
+            .await?;
+        } else {
+            self.account_in(tx, account).await?;
+            outbox::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled) VALUES($1,$2,false) ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=false,updated_at=now()")
+                .bind(account).bind(category.as_str()).execute(&mut **tx).await?;
+        }
         Ok(())
     }
     pub async fn list(
@@ -402,30 +460,33 @@ impl Notifications {
         if delivered.is_some() {
             return Ok(());
         }
+        let category = Category::parse(&category)?;
+        let email = Email {
+            id,
+            recipient,
+            subject,
+            text,
+            html,
+            unsubscribe,
+        };
+        if category == Category::Operational {
+            return crate::operational::deliver(&self.pool, account, &email, sender).await;
+        }
         let state = self
             .accounts
-            .recipient(account, Category::parse(&category)?)
+            .recipient(account, category)
             .await?
             .ok_or_else(invalid)?;
-        if state.email != recipient {
+        if state.email != email.recipient {
             return Err(invalid());
         }
-        if Category::parse(&category)? != Category::Security {
-            let enabled: Option<bool> = outbox::query_scalar("SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category).fetch_optional(&self.pool).await?;
+        if category != Category::Security {
+            let enabled: Option<bool> = outbox::query_scalar("SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category.as_str()).fetch_optional(&self.pool).await?;
             if enabled != Some(true) {
                 return Ok(());
             }
         }
-        sender
-            .send(&Email {
-                id,
-                recipient,
-                subject,
-                text,
-                html,
-                unsubscribe,
-            })
-            .await?;
+        sender.send(&email).await?;
         outbox::query("UPDATE email_outbox SET delivered_at=now(),updated_at=now() WHERE id=$1")
             .bind(id)
             .execute(&self.pool)
@@ -448,7 +509,7 @@ pub struct Delivery {
     pub sender: Arc<dyn EmailSender>,
 }
 
-fn translate(locale: Locale, key: &str) -> Result<String> {
+pub(crate) fn translate(locale: Locale, key: &str) -> Result<String> {
     use fluent_bundle::{FluentBundle, FluentResource};
     let (language, source) = match locale {
         Locale::Pl => ("pl", include_str!("../locales/pl.ftl")),

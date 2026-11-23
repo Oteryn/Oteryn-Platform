@@ -138,6 +138,7 @@ fn localized_responsive_labelled_template() {
             reports_label: text(lang, "reports"),
             moderate_reports: true,
             mail_link: None,
+            operational_mail_link: Some(text(lang, "operational-mail-title")),
             players_label: text(lang, "players"),
             players: true,
             account_label: text(lang, "account"),
@@ -153,6 +154,7 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains("href=\"/admin/operational-mail\""));
         assert!(html.contains("href=\"/admin/moderation/reports\""));
         assert!(html.contains(if lang == "pl" {
             "Moderacja zgłoszeń"

@@ -16,3 +16,5 @@ delete = Poproś o usunięcie konta
 unsubscribed = Opcjonalne wiadomości e-mail są wyłączone.
 
 restoration-pending = Usunięcie anulowano. Przywracanie konta w grze trwa; stare sesje gry pozostają unieważnione.
+operational = Wiadomości organizacyjne
+operational-opt-in = Chcę otrzymywać e-maile o planowanych przerwach i wydarzeniach.

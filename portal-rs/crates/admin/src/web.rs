@@ -295,6 +295,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             "/admin/mail-outbox/cancel",
             post(crate::mail_ops::cancel::<I, A>),
         )
+        .merge(crate::operational_mail::http::routes::<I, A>())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -520,6 +521,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    operational_mail_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -623,6 +625,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let operational_mail_link = match crate::operational_mail::http::visible(&s.auth, context).await
+    {
+        Ok(visible) => visible.then(|| text(lang, "operational-mail-title")),
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +637,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        operational_mail_link,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

@@ -42,7 +42,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 80);
+    assert_eq!(Permission::ALL.len(), 82);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
@@ -69,7 +69,12 @@ fn permission_catalog_is_stable_unique_and_covered() {
             BuiltInRole::ALL
                 .iter()
                 .any(|role| role.permissions().contains(permission)),
-            *permission != Permission::MailRecipient
+            !matches!(
+                permission,
+                Permission::MailRecipient
+                    | Permission::ComposeOperationalMail
+                    | Permission::ReviewOperationalMail
+            )
         );
     }
     for invalid in [

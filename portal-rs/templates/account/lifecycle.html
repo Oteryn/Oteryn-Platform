@@ -14,6 +14,10 @@
 <p>{{ self.text("security") }}</p>
 <fieldset><legend>{{ self.text("news") }}</legend><label><input type="checkbox" name="news_email" value="true"{% if news_email %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="news_portal" value="true"{% if news_portal %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
 <fieldset><legend>{{ self.text("support") }}</legend><label><input type="checkbox" name="support_email" value="true"{% if support_email %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="support_portal" value="true"{% if support_portal %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
+<fieldset><legend>{{ self.text("operational") }}</legend>
+<input type="hidden" name="operational_present" value="true">
+<label><input type="checkbox" name="operational_email" value="true"{% if operational_email %} checked{% endif %}>{{ self.text("operational-opt-in") }}</label>
+</fieldset>
 <button class="op-button" type="submit">{{ self.text("save") }}</button>
 {% endif %}</form>
 {% if !unsubscribe && self.overview_enabled() %}<p><a href="/account">{{ self.shell_text("shell-account-overview-back") }}</a></p>{% endif %}
