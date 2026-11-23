@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { expect, test } from '../fixtures.mjs';
 import { action, query, seededStaff } from '../staff-rbac-helpers.mjs';
 
@@ -12,9 +13,8 @@ test('an assigned investigator finds the incident response timeline', async ({ p
     locale: lang,
   });
   try {
-    await page.setViewportSize({ width: 390, height: 844 });
     const investigator = await seededStaff(page, lang, 'platform_admin');
-    const world = `incident-${randomUUID()}`;
+    const world = `incident-${randomUUID()}`.padEnd(128, 'x');
     const [{ id: alarm }] = await query(
       `INSERT INTO audit_log (action,target,before,after,request_id)
        VALUES ('ops.playerdata_binding_conflict','binding-reference','null',
@@ -73,10 +73,46 @@ test('an assigned investigator finds the incident response timeline', async ({ p
     await expect(timeline).toContainText(approval);
     await expect(timeline).not.toContainText('alarm-evidence-internal');
     await expect(page.locator('section[aria-labelledby="incident-game"]')).toContainText(lang === 'pl' ? 'Niedostępne' : 'Unavailable');
-    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth))
+      .toBeLessThanOrEqual(info.project.use.viewport.width);
     expect((await otherPage.request.get(detail)).status()).toBe(404);
     expect((await page.request.get(`${detail}?from=2026-11-02&through=2026-11-01`)).status()).toBe(400);
+    expect((await page.request.get(`${detail}?before=invalid`)).status()).toBe(400);
+
+    await query(
+      `INSERT INTO audit_log (action,target,before,after,request_id,created_at,actor)
+       SELECT 'incident.assigned',$1,'null','null',uuidv7(),date_trunc('day',now(),'UTC'),uuidv7()
+       FROM generate_series(1,101)`,
+      [caseId],
+    );
+    expect((await page.reload()).status()).toBe(200);
+    const first = await timeline.locator('ol > li').allTextContents();
+    expect(first).toHaveLength(100);
+    await timeline.locator('a[rel=next]').click();
+    await expect(page).toHaveURL(/before=/);
+    const remaining = timeline.locator('ol > li');
+    await expect(remaining).toHaveCount(7);
+    for (const event of await remaining.allTextContents()) {
+      expect(first).not.toContain(event);
+    }
+    await expect(timeline.locator('a[rel=next]')).toHaveCount(0);
   } finally {
     await otherContext.close();
+  }
+});
+
+test('i18n-parity for incident dossiers', () => {
+  const labels = lang => new Map(
+    [...readFileSync(new URL(`../../templates/admin/${lang}.ftl`, import.meta.url), 'utf8')
+      .matchAll(/^(incident-[\w-]+)[ \t]*=[ \t]*(\S.*)$/gm)]
+      .map(([, key, value]) => [key, value]),
+  );
+  const en = labels('en');
+  const pl = labels('pl');
+  expect([...pl.keys()].sort()).toEqual([...en.keys()].sort());
+  const template = readFileSync(new URL('../../templates/admin/incidents.html', import.meta.url), 'utf8');
+  for (const [, key] of template.matchAll(/self\.label\("(incident-[\w-]+)"\)/g)) {
+    expect(en.get(key), key).toBeTruthy();
+    expect(pl.get(key), key).toBeTruthy();
   }
 });

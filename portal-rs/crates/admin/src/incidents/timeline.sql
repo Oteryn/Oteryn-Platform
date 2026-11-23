@@ -48,8 +48,9 @@ WITH scoped AS (
     WHERE NOT r.dry_run AND preview.dry_run AND preview.actor = r.actor
       AND preview.operation = r.operation AND a.approver <> r.actor AND a.decision = 'approved'
 )
-SELECT at, kind, actor, request_id, operation, status, approval_id
+SELECT event_id, at, kind, actor, request_id, operation, status, approval_id
 FROM events
 WHERE at >= $2 AND at < $3
-ORDER BY at DESC, event_id DESC, kind
+  AND ($5::timestamptz IS NULL OR (at, event_id, kind) < ($5, $6::uuid, $7::text))
+ORDER BY at DESC, event_id DESC, kind DESC
 LIMIT $4

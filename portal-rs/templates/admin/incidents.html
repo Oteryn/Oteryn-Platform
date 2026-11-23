@@ -42,7 +42,6 @@
   <section class="op-panel op-stack" aria-labelledby="incident-timeline">
     <h2 id="incident-timeline">{{ self.label("incident-timeline") }}</h2>
     {% if events.is_empty() %}<p>{{ self.label("incident-no-events") }}</p>{% endif %}
-    {% if more %}<p>{{ self.label("incident-event-limit") }}</p>{% endif %}
     <ol class="op-stack">
       {% for event in events %}
       <li>
@@ -65,6 +64,9 @@
       </li>
       {% endfor %}
     </ol>
+    {% if let Some(url) = next %}
+    <a href="{{ url }}" rel="next">{{ self.label("incident-older-events") }}</a>
+    {% endif %}
   </section>
   <section class="op-panel op-stack" aria-labelledby="incident-game">
     <h2 id="incident-game">{{ self.label("incident-game") }}</h2>

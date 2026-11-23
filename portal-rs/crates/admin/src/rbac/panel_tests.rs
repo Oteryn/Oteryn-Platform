@@ -878,6 +878,50 @@ async fn incident_index_uses_staff_session_boundary() -> TestResult {
 }
 
 #[tokio::test]
+async fn incident_read_uses_current_staff_grants() -> TestResult {
+    let db = Fixture::open(5).await?;
+    insert_account(&db, db.actor.account, "active").await?;
+    let (cookie, _) = browser(&db).await?;
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO admin_incident_cases(investigator, world_id) VALUES($1, 'world-1') RETURNING id",
+    )
+    .bind(db.actor.account)
+    .fetch_one(&db.pool)
+    .await?;
+    let mut change = db.pool.begin().await?;
+    super::lock_accounts_and_mutation(&mut change, &[db.actor.account]).await?;
+    let request = Request::get(format!("/admin/incidents/{id}"))
+        .header("host", "staff.test")
+        .header("cookie", cookie)
+        .body(Body::empty())?;
+    let router = app(&db);
+    let read = tokio::spawn(async move { router.oneshot(request).await });
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if staff_waiters(&db).await? == 1 {
+                break Ok::<(), sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(db.actor.account)
+        .execute(&mut *change)
+        .await?;
+    change.commit().await?;
+    assert_eq!(read.await??.status(), StatusCode::FORBIDDEN);
+    let views: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='incident.viewed' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(views, 0);
+    db.close().await
+}
+
+#[tokio::test]
 async fn incident_case_and_response_history_follow_assignment() -> TestResult {
     let db = Fixture::open(5).await?;
     let investigator = Uuid::now_v7();
@@ -893,7 +937,7 @@ async fn incident_case_and_response_history_follow_assignment() -> TestResult {
     )
     .fetch_one(&db.pool)
     .await?;
-    let create = |world: &str, authorized: bool| {
+    let create = |world: &str, alarm: Uuid, authorized: bool| {
         let mut request = Request::post("/admin/incidents")
             .header("host", "staff.test")
             .header("cookie", &cookie)
@@ -907,13 +951,17 @@ async fn incident_case_and_response_history_follow_assignment() -> TestResult {
             db.actor.account,
         )))
     };
-    let missing_token = app(&db).oneshot(create("world-1", false)?).await?;
+    let missing_token = app(&db).oneshot(create("world-1", alarm, false)?).await?;
     assert_eq!(missing_token.status(), StatusCode::FORBIDDEN);
-    let bad_scope = app(&db).oneshot(create("world%2F1", true)?).await?;
+    let bad_scope = app(&db).oneshot(create("world%2F1", alarm, true)?).await?;
     assert_eq!(bad_scope.status(), StatusCode::BAD_REQUEST);
-    let opened = app(&db).oneshot(create("world-1", true)?).await?;
+    let unknown_alarm = app(&db)
+        .oneshot(create("world-1", Uuid::now_v7(), true)?)
+        .await?;
+    assert_eq!(unknown_alarm.status(), StatusCode::BAD_REQUEST);
+    let opened = app(&db).oneshot(create("world-1", alarm, true)?).await?;
     assert_eq!(opened.status(), StatusCode::SEE_OTHER);
-    let duplicate = app(&db).oneshot(create("world-1", true)?).await?;
+    let duplicate = app(&db).oneshot(create("world-1", alarm, true)?).await?;
     assert_eq!(duplicate.status(), StatusCode::CONFLICT);
     let path = opened
         .headers()
@@ -1024,5 +1072,27 @@ async fn incident_case_and_response_history_follow_assignment() -> TestResult {
         app(&db).oneshot(get(path)?).await?.status(),
         StatusCode::NOT_FOUND
     );
+    sqlx::query(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT policy.name,sha256(uuid_send($1)),window_start,policy.quota
+         FROM (VALUES ('incident-read',60), ('incident-change',30)) AS policy(name,quota)
+         CROSS JOIN generate_series(date_trunc('minute',statement_timestamp()),
+             date_trunc('minute',statement_timestamp()) + interval '1 minute',
+             interval '1 minute') AS windows(window_start)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE SET count=excluded.count",
+    )
+    .bind(db.actor.account)
+    .execute(&db.pool)
+    .await?;
+    for request in [
+        get("/admin/incidents")?,
+        get(path)?,
+        create("world-1", alarm, true)?,
+    ] {
+        let response = app(&db).oneshot(request).await?;
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        let retry: u64 = response.headers()["retry-after"].to_str()?.parse()?;
+        assert!((1..=60).contains(&retry));
+    }
     db.close().await
 }

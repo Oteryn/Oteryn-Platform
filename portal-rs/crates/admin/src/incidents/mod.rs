@@ -8,14 +8,14 @@ use askama::Template;
 use axum::{
     Extension, Form,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::{Postgres, Transaction};
+use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::Arc;
 use time::{Date, Duration, OffsetDateTime, format_description::well_known::Iso8601};
 use uuid::Uuid;
@@ -33,6 +33,8 @@ pub(super) enum Error {
     Missing,
     #[error("incident assignment conflicts with current state")]
     Conflict,
+    #[error("incident request limit reached")]
+    Limited(i64),
     #[error("incident service unavailable")]
     Unavailable,
 }
@@ -44,6 +46,13 @@ impl IntoResponse for Error {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::Missing => StatusCode::NOT_FOUND,
             Self::Conflict => StatusCode::CONFLICT,
+            Self::Limited(retry_after) => {
+                return (
+                    StatusCode::TOO_MANY_REQUESTS,
+                    [(header::RETRY_AFTER, retry_after.to_string())],
+                )
+                    .into_response();
+            }
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
         }
         .into_response()
@@ -82,6 +91,7 @@ pub(super) struct Search {
 pub(super) struct Dates {
     from: Option<String>,
     through: Option<String>,
+    before: Option<String>,
 }
 
 #[derive(Debug)]
@@ -89,6 +99,40 @@ struct Window {
     from: Date,
     through: Date,
     end: Date,
+}
+
+struct Cursor {
+    at: OffsetDateTime,
+    id: Uuid,
+    kind: String,
+}
+
+impl Cursor {
+    fn parse(value: &str, window: &Window) -> Result<Self, Error> {
+        let mut parts = value.splitn(3, ',');
+        let micros: i64 = parts
+            .next()
+            .and_then(|part| part.parse().ok())
+            .ok_or(Error::Invalid)?;
+        let at = OffsetDateTime::from_unix_timestamp_nanos(i128::from(micros) * 1_000)
+            .map_err(|_| Error::Invalid)?;
+        let id = parts
+            .next()
+            .and_then(|part| part.parse().ok())
+            .ok_or(Error::Invalid)?;
+        let kind = parts
+            .next()
+            .filter(|part| identifier(part))
+            .ok_or(Error::Invalid)?;
+        if at.date() < window.from || at.date() > window.through {
+            return Err(Error::Invalid);
+        }
+        Ok(Self {
+            at,
+            id,
+            kind: kind.to_owned(),
+        })
+    }
 }
 
 impl Dates {
@@ -195,7 +239,14 @@ struct Case {
 }
 
 #[derive(sqlx::FromRow)]
+struct CaseSummary {
+    id: Uuid,
+    world_id: String,
+}
+
+#[derive(sqlx::FromRow)]
 struct Event {
+    event_id: Uuid,
     at: OffsetDateTime,
     kind: String,
     actor: Option<Uuid>,
@@ -206,6 +257,15 @@ struct Event {
 }
 
 impl Event {
+    fn cursor(&self) -> String {
+        format!(
+            "{},{},{}",
+            self.at.unix_timestamp_nanos() / 1_000,
+            self.event_id,
+            self.kind
+        )
+    }
+
     fn timestamp(&self) -> String {
         self.at
             .to_offset(time::UtcOffset::UTC)
@@ -219,10 +279,11 @@ impl Event {
 struct Page {
     lang: &'static str,
     bundle: FluentBundle<FluentResource>,
-    cases: Vec<Case>,
+    cases: Vec<CaseSummary>,
     detail: Option<(Case, Window)>,
     receipt: Option<Uuid>,
     events: Vec<Event>,
+    next: Option<String>,
     more: bool,
     csrf: Option<String>,
     unavailable: String,
@@ -238,6 +299,7 @@ impl Page {
             detail: None,
             receipt: None,
             events: Vec::new(),
+            next: None,
             more: false,
             csrf: None,
             unavailable: crate::console::access::tr(lang, "unavailable"),
@@ -273,17 +335,58 @@ async fn manage_form<I, A: AccountStateReader + 'static>(
     }
 }
 
+enum Quota {
+    Read,
+    Change,
+}
+
+async fn charge(pool: &PgPool, actor: Uuid, quota: Quota) -> Result<(), Error> {
+    let (name, limit) = match quota {
+        Quota::Read => ("incident-read", 60_i64),
+        Quota::Change => ("incident-change", 30_i64),
+    };
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES($1,sha256(uuid_send($2)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$3+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(name)
+    .bind(actor)
+    .bind(limit)
+    .fetch_one(pool)
+    .await?;
+    if count > limit {
+        return Err(Error::Limited(retry_after));
+    }
+    Ok(())
+}
+
 pub(super) async fn index<I: StaffSession, A: AccountStateReader + 'static>(
     State(state): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Extension(session): Extension<BrowserSession>,
     headers: HeaderMap,
     Query(query): Query<Search>,
 ) -> Result<Response, Error> {
+    charge(&state.pool, context.account, Quota::Read).await?;
     if let Some(id) = query.case_id {
         return Ok(Redirect::to(&format!("/admin/incidents/{}", case_id(id)?)).into_response());
     }
     let csrf = manage_form(&state, context, &session).await?;
+    let mut tx = state.pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
+    rbac::authorize_mutation(
+        &mut tx,
+        &[],
+        &auth,
+        context,
+        &[Permission::Access, Permission::ViewAudit],
+    )
+    .await?;
     let receipt = if let Some(id) = query.receipt {
         let id = case_id(id)?;
         let recorded: bool = sqlx::query_scalar(
@@ -292,7 +395,7 @@ pub(super) async fn index<I: StaffSession, A: AccountStateReader + 'static>(
         )
         .bind(id.to_string())
         .bind(context.account)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
         if !recorded {
             return Err(Error::Missing);
@@ -301,14 +404,15 @@ pub(super) async fn index<I: StaffSession, A: AccountStateReader + 'static>(
     } else {
         None
     };
-    let mut cases: Vec<Case> = sqlx::query_as(
-        "SELECT id, world_id, node_id, character_id, account_ref FROM admin_incident_cases
+    let mut cases: Vec<CaseSummary> = sqlx::query_as(
+        "SELECT id, world_id FROM admin_incident_cases
          WHERE investigator=$1 ORDER BY id DESC LIMIT $2",
     )
     .bind(context.account)
     .bind((CASE_LIMIT + 1) as i64)
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
+    tx.commit().await?;
     let mut page = Page::new(&headers)?;
     page.csrf = csrf;
     page.receipt = receipt;
@@ -323,21 +427,16 @@ async fn load_timeline(
     id: Uuid,
     actor: Uuid,
     window: &Window,
-) -> Result<(Case, Vec<Event>, bool), Error> {
-    let case = sqlx::query_as(
-        "SELECT id, world_id, node_id, character_id, account_ref
-         FROM admin_incident_cases WHERE id=$1 AND investigator=$2 FOR SHARE",
-    )
-    .bind(id)
-    .bind(actor)
-    .fetch_optional(&mut **tx)
-    .await?
-    .ok_or(Error::Missing)?;
+    cursor: Option<Cursor>,
+) -> Result<(Vec<Event>, bool), Error> {
     let mut events: Vec<Event> = sqlx::query_as(include_str!("timeline.sql"))
         .bind(id)
         .bind(window.from.midnight().assume_utc())
         .bind(window.end.midnight().assume_utc())
         .bind((EVENT_LIMIT + 1) as i64)
+        .bind(cursor.as_ref().map(|cursor| cursor.at))
+        .bind(cursor.as_ref().map(|cursor| cursor.id))
+        .bind(cursor.as_ref().map(|cursor| cursor.kind.as_str()))
         .fetch_all(&mut **tx)
         .await?;
     let more = events.len() > EVENT_LIMIT;
@@ -349,28 +448,73 @@ async fn load_timeline(
         "incident.viewed",
         json!(null),
         json!({"from":window.from.to_string(),"through":window.through.to_string(),
-               "returned":events.len(),"truncated":more,"projection":"platform-summary-v1"}),
+               "returned":events.len(),"truncated":more,"continuation":cursor.is_some(),
+               "projection":"platform-summary-v1"}),
     )
     .await?;
-    Ok((case, events, more))
+    Ok((events, more))
 }
 
 pub(super) async fn detail<I: StaffSession, A: AccountStateReader + 'static>(
     State(state): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     Query(dates): Query<Dates>,
 ) -> Result<Response, Error> {
+    charge(&state.pool, context.account, Quota::Read).await?;
     let id = case_id(id)?;
     let window = dates.window(OffsetDateTime::now_utc().date())?;
+    let cursor = dates
+        .before
+        .as_deref()
+        .map(|value| Cursor::parse(value, &window))
+        .transpose()?;
     let mut tx = state.pool.begin().await?;
-    let (case, events, more) = load_timeline(&mut tx, id, context.account, &window).await?;
+    rbac::mutation_budget(&mut tx).await?;
+    rbac::authorize_mutation_with_resources(
+        &mut tx,
+        &[],
+        |connection| {
+            Box::pin(async move {
+                sqlx::query(
+                    "SELECT id FROM admin_incident_cases WHERE id=$1 AND investigator=$2 FOR SHARE",
+                )
+                .bind(id)
+                .bind(context.account)
+                .execute(connection)
+                .await?;
+                Ok(())
+            })
+        },
+        &auth,
+        context,
+        &[Permission::Access, Permission::ViewAudit],
+    )
+    .await?;
+    let case = sqlx::query_as(
+        "SELECT id, world_id, node_id, character_id, account_ref
+         FROM admin_incident_cases WHERE id=$1 AND investigator=$2 FOR SHARE",
+    )
+    .bind(id)
+    .bind(context.account)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(Error::Missing)?;
+    let (events, more) = load_timeline(&mut tx, id, context.account, &window, cursor).await?;
     tx.commit().await?;
     let mut page = Page::new(&headers)?;
+    if more && let Some(last) = events.last() {
+        page.next = Some(format!(
+            "/admin/incidents/{id}?from={}&through={}&before={}",
+            window.from,
+            window.through,
+            last.cursor()
+        ));
+    }
     page.detail = Some((case, window));
     page.events = events;
-    page.more = more;
     Ok(oteryn_web::render(&page))
 }
 
@@ -422,10 +566,12 @@ pub(super) async fn create<I: StaffSession, A: AccountStateReader + 'static>(
     Extension(auth): Extension<MutationAuthorization>,
     Form(form): Form<Create>,
 ) -> Result<Redirect, Error> {
+    charge(&state.pool, context.account, Quota::Change).await?;
     form.validate()?;
     let account_ref = optional_uuid(&form.account_ref)?;
     let alarm_id = optional_uuid(&form.alarm_id)?;
     let mut tx = state.pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
     rbac::authorize_mutation(&mut tx, &[form.investigator], &auth, context, &MANAGE).await?;
     eligible(&mut tx, &state.auth, form.investigator).await?;
     if let Some(alarm) = alarm_id {
@@ -475,11 +621,13 @@ pub(super) async fn assign<I: StaffSession, A: AccountStateReader + 'static>(
     Extension(auth): Extension<MutationAuthorization>,
     Form(form): Form<Assign>,
 ) -> Result<Redirect, Error> {
+    charge(&state.pool, context.account, Quota::Change).await?;
     let id = case_id(form.case_id)?;
     if form.investigator.is_nil() {
         return Err(Error::Invalid);
     }
     let mut tx = state.pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
     rbac::authorize_mutation_with_resources(
         &mut tx,
         &[form.investigator],

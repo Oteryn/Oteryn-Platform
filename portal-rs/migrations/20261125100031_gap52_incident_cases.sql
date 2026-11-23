@@ -5,7 +5,8 @@ CREATE TABLE admin_incident_cases (
     node_id text CHECK (node_id ~ '^[A-Za-z0-9_.-]{1,128}$'),
     character_id text CHECK (character_id ~ '^[A-Za-z0-9_.-]{1,128}$'),
     account_ref uuid CHECK (account_ref <> '00000000-0000-0000-0000-000000000000'),
-    alarm_id uuid UNIQUE REFERENCES audit_log(id),
+    -- Case creation checks the alarm against the append-only audit log.
+    alarm_id uuid UNIQUE,
     created_at timestamptz NOT NULL DEFAULT now()
 );
 

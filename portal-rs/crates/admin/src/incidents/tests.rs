@@ -9,6 +9,7 @@ fn dates_are_inclusive_utc_and_bounded() -> Result<(), Box<dyn std::error::Error
     let window = Dates {
         from: Some("2026-10-24".into()),
         through: Some("2026-11-23".into()),
+        ..Dates::default()
     }
     .window(today)?;
     assert_eq!((window.end - window.from).whole_days(), 31);
@@ -24,7 +25,8 @@ fn dates_are_inclusive_utc_and_bounded() -> Result<(), Box<dyn std::error::Error
         assert!(matches!(
             Dates {
                 from: Some(from.into()),
-                through: Some(through.into())
+                through: Some(through.into()),
+                ..Dates::default()
             }
             .window(today),
             Err(Error::Invalid)
