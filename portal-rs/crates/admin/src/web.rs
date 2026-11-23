@@ -803,7 +803,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language_for(query.lang.as_deref(), &headers);
+    let lang = language_for(query.lang.as_deref(), request.headers());
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
