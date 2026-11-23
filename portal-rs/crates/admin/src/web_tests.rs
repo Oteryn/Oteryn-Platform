@@ -135,6 +135,7 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            system_label: None,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -239,6 +240,30 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+    for path in ["/admin/system", "/admin/system/data"] {
+        assert_eq!(
+            request(app(pool.clone(), identity, true), path, "staff.test")
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.system.view')")
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for path in ["/admin/system", "/admin/system/data"] {
+        assert_eq!(
+            request(app(pool.clone(), identity, true), path, "public.test")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let response = request(app(pool.clone(), identity, true), path, "staff.test").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
     // Feature routes require their own permission on top of panel access.
     assert_eq!(
         request(

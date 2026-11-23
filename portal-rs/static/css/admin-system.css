@@ -1,0 +1,33 @@
+.system-status {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.system-status .op-card {
+  background-color: var(--op-surface);
+}
+.system-dependencies {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: var(--op-space-4);
+}
+.system-status dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--op-space-2) var(--op-space-3);
+}
+.system-status dd {
+  margin: 0;
+}
+.system-table {
+  table-layout: fixed;
+  min-width: 0;
+}
+.system-table :is(th, td):last-child {
+  width: 7rem;
+}
+.system-table td {
+  vertical-align: top;
+}
+.system-table p {
+  margin: var(--op-space-1) 0 0;
+}

@@ -267,7 +267,19 @@ async fn run_until(
     shutdown: impl Future<Output = ()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tokio::pin!(shutdown);
+    let mut next_heartbeat = tokio::time::Instant::now();
     loop {
+        if tokio::time::Instant::now() >= next_heartbeat {
+            let heartbeat = tokio::select! {
+                biased;
+                () = &mut shutdown => return Ok(()),
+                result = oteryn_admin::system::record_worker_heartbeat(&pool) => result,
+            };
+            if let Err(error) = heartbeat {
+                tracing::warn!(%error, "worker heartbeat could not be recorded");
+            }
+            next_heartbeat = tokio::time::Instant::now() + Duration::from_secs(15);
+        }
         tokio::select! {
             biased;
             () = &mut shutdown => return Ok(()),

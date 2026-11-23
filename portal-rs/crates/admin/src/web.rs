@@ -248,11 +248,12 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
         required: None,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
-        pool,
+        pool: pool.clone(),
     });
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::system::routes(pool))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -384,13 +385,11 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
+    let permission = s.required.unwrap_or(match request.uri().path() {
+        "/admin/roles" => Permission::ManageRoles,
+        "/admin/system" | "/admin/system/data" => Permission::ViewSystem,
+        _ => Permission::Access,
+    });
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
@@ -427,7 +426,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -443,12 +442,7 @@ fn text(lang: &str, key: &str) -> String {
         return String::new();
     };
     let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
-    let source = if lang == "en" {
-        include_str!("../../../templates/admin/en.ftl")
-    } else {
-        include_str!("../../../templates/admin/pl.ftl")
-    };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
+    let Ok(resource) = fluent_bundle::FluentResource::try_new(locale_source(lang).into()) else {
         return String::new();
     };
     if bundle.add_resource(resource).is_err() {
@@ -460,12 +454,21 @@ fn text(lang: &str, key: &str) -> String {
         .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
+pub(crate) fn locale_source(lang: &str) -> &'static str {
+    if lang == "en" {
+        include_str!("../../../templates/admin/en.ftl")
+    } else {
+        include_str!("../../../templates/admin/pl.ftl")
+    }
+}
+
 #[derive(Template)]
 #[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    system_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -535,10 +538,17 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         String::new()
     };
     let lang = language(&headers);
+    let system_label = s
+        .auth
+        .check(context, Permission::ViewSystem)
+        .await
+        .ok()
+        .map(|()| text(lang, "system-title"));
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        system_label,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

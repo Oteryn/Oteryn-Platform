@@ -79,7 +79,7 @@ version = "1.9"
 path = "../internal-api"
 [dependencies.tokio]
 version = "1.54.1"
-features = ["time"]
+features = ["macros", "time"]
 [dependencies.tower]
 version = "0.5.3"
 features = ["util"]
