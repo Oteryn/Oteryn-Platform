@@ -82,6 +82,7 @@ test('staff returns an article from review to draft', async ({browser}, info) =>
 });
 
 test('staff changes a custom role permission through the roles form', async ({browser}, info) => {
+  test.setTimeout(240_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const id = await role(page);

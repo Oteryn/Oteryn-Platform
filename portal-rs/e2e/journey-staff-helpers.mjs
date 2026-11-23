@@ -4,7 +4,7 @@ import * as OTPAuth from 'otpauth';
 import { expect } from '@playwright/test';
 import { action, loginWithRecoveryCode, membership, query } from './staff-rbac-helpers.mjs';
 import { login, password, submit } from './helpers.mjs';
-import { fixtureProcessEnv } from './staff-fixture-database.mjs';
+import { fixtureDatabase, fixtureProcessEnv } from './staff-fixture-database.mjs';
 
 export function actorContext(browser, info) {
   return browser.newContext({
@@ -105,8 +105,37 @@ export async function denied(page, locator, values, player, anonymous, button) {
   expect(guest.headers().location).toBe('/login');
 }
 
+const legalPolicies = [
+  ['terms-of-service', 'terms', 'Journey terms', 'Regulamin wyprawy'],
+  ['privacy-policy', 'privacy', 'Journey privacy policy', 'Polityka prywatności wyprawy'],
+  ['cookie-policy', 'cookies', 'Journey cookie policy', 'Polityka plików cookie wyprawy'],
+];
+
 export async function publishEditorial(editor, visitor, player, lang, evidence) {
   const key = `staff-${randomUUID()}`;
+  const database = fixtureDatabase().href;
+  const preserved = await query(`
+    SELECT to_jsonb(e) AS publication
+      FROM editorial_pages e JOIN pages p ON p.id=e.page_id
+     WHERE p.slug=ANY($1::text[]) AND e.locale IN ('en','pl')
+  `, [legalPolicies.map(([slug]) => slug)], database);
+  expect(preserved).toHaveLength(2 * legalPolicies.length);
+  try {
+    await publishEditorialFixtures(editor, visitor, player, lang, evidence, key);
+  } finally {
+    // Restore the editions ordinary registration requires. Keep audit and version history.
+    await query(`
+      UPDATE editorial_pages e
+         SET title=prior.title, body=prior.body, published_at=prior.published_at,
+             legal_version=prior.legal_version, legal_effective_date=prior.legal_effective_date,
+             revision=prior.revision, source_revision=prior.source_revision, updated_at=prior.updated_at
+        FROM jsonb_populate_recordset(NULL::editorial_pages,$1::jsonb) AS prior
+       WHERE e.page_id=prior.page_id AND e.locale=prior.locale AND e.legal_version=$2
+    `, [JSON.stringify(preserved.map(row => row.publication)), key], database);
+  }
+}
+
+async function publishEditorialFixtures(editor, visitor, player, lang, evidence, key) {
   const now = Date.now();
   const date = new Date(now - 60_000).toISOString();
   const translated = {
@@ -165,12 +194,7 @@ export async function publishEditorial(editor, visitor, player, lang, evidence) 
   await expect(editor.locator('main form[action$="/unpublish"]')).toBeVisible();
   evidence.push(['wiki.created', guide], ['wiki.submit-review', guide], ['wiki.publish', guide]);
 
-  const policies = [
-    ['terms-of-service', 'terms', 'Journey terms', 'Regulamin wyprawy'],
-    ['privacy-policy', 'privacy', 'Journey privacy policy', 'Polityka prywatności wyprawy'],
-    ['cookie-policy', 'cookies', 'Journey cookie policy', 'Polityka plików cookie wyprawy'],
-  ];
-  for (const [slug, , enTitle, plTitle] of policies) {
+  for (const [slug, , enTitle, plTitle] of legalPolicies) {
     for (const [locale, title] of [['en', enTitle], ['pl', plTitle]]) {
       await open(editor, '/admin/pages');
       const form = editor.locator('main form[method=get]');
@@ -226,7 +250,7 @@ export async function publishEditorial(editor, visitor, player, lang, evidence) 
     await open(visitor, `/${locale}/wiki/articles/${key}`);
     await verify(copy.wiki);
 
-    for (const [, policy, english, polish] of policies) {
+    for (const [, policy, english, polish] of legalPolicies) {
       const path = `/${locale}/legal/${policy}`;
       if (policy === 'cookies') await open(visitor, path);
       else await visitor.locator(`footer a[href="${path}"]`).click();
