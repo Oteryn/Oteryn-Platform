@@ -1,4 +1,5 @@
 //! Browser adapter for personal-data exports.
+use crate::export::navigation::{self, SudoReturn};
 use crate::export::{ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until};
 use askama::Template;
 use axum::{
@@ -41,13 +42,26 @@ pub(super) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
 
 #[derive(Template)]
 #[template(
-    source = r#"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/app.css"></head><body class="op-theme"><main><h1>{{ title }}</h1><form method="post"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">{{ title }}</button></form></main></body></html>"#,
-    ext = "html"
+    path = "account/export.html",
+    config = "../../templates/account/lifecycle/askama.toml"
 )]
-struct Confirmation<'a> {
-    lang: &'a str,
-    title: &'a str,
-    csrf: String,
+struct Confirmation {
+    language: Language,
+    csrf: Option<String>,
+}
+
+impl Confirmation {
+    fn text(&self, key: &str) -> String {
+        self.language.text(key)
+    }
+
+    fn sudo_path(&self) -> String {
+        SudoReturn::Export.sudo_path(self.language.code())
+    }
+
+    fn overview_enabled(&self) -> bool {
+        navigation::overview_enabled()
+    }
 }
 
 async fn confirmation(
@@ -57,23 +71,30 @@ async fn confirmation(
     headers: HeaderMap,
 ) -> Response {
     let session = session_cookie(&headers).unwrap_or_default();
-    let result = async {
-        export_account(&state.pool, &state.config, session).await?;
-        let csrf = browser
-            .csrf_token()
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        Ok::<_, StatusCode>(oteryn_web::render(&Confirmation {
-            lang: language.code(),
-            title: match language {
-                Language::Pl => "Pobierz dane konta",
-                Language::En => "Download account data",
-            },
-            csrf,
-        }))
-    }
-    .await;
-    private_response(result.into_response())
+    let result = export_account(&state.pool, &state.config, session).await;
+    let response = match result {
+        Ok(_) => match browser.csrf_token().await {
+            Ok(csrf) => oteryn_web::render(&Confirmation {
+                language,
+                csrf: Some(csrf),
+            }),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        },
+        Err(StatusCode::FORBIDDEN)
+            if navigation::sudo_enabled() && browser.account_id().await.is_some() =>
+        {
+            (
+                StatusCode::FORBIDDEN,
+                oteryn_web::render(&Confirmation {
+                    language,
+                    csrf: None,
+                }),
+            )
+                .into_response()
+        }
+        Err(status) => status.into_response(),
+    };
+    private_response(response)
 }
 
 async fn handler(

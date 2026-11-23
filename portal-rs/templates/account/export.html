@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="{{ language.code() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ self.text("shell-account-export") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+<h1>{{ self.text("shell-account-export") }}</h1>
+{% if let Some(token) = csrf %}
+<form method="post">
+<input type="hidden" name="_csrf" value="{{ token }}">
+<button class="op-button op-button--primary" type="submit">{{ self.text("shell-account-export") }}</button>
+</form>
+{% else %}
+<p>{{ self.text("shell-account-export-sudo") }}</p>
+<p><a href="{{ self.sudo_path() }}">{{ self.text("shell-account-sudo") }}</a></p>
+{% endif %}
+{% if self.overview_enabled() %}<p><a href="/account">{{ self.text("shell-account-overview-back") }}</a></p>{% endif %}
+</main>
+</body>
+</html>

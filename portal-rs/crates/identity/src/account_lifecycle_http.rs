@@ -211,6 +211,19 @@ struct Page {
     support_portal: bool,
 }
 impl Page {
+    fn shell_text(&self, key: &str) -> String {
+        oteryn_ui::text(&self.lang, key)
+    }
+
+    fn overview_enabled(&self) -> bool {
+        oteryn_identity::navigation::overview_enabled()
+    }
+
+    fn sudo_path(&self) -> Option<String> {
+        use oteryn_identity::navigation::{SudoReturn, sudo_enabled};
+        sudo_enabled().then(|| SudoReturn::Closure.sudo_path(&self.lang))
+    }
+
     fn text(&self, key: &str) -> String {
         text(
             if self.lang == "en" {
@@ -578,8 +591,12 @@ async fn cancel(
         .map_err(failure)?;
     let destination = if st.termination.accepts_requests() {
         format!("/{}/account/privacy/delete", l.code())
+    } else if oteryn_identity::navigation::overview_enabled() {
+        "/account".to_owned()
+    } else if std::env::var("OTERYN_ACCOUNT_PRIVACY_ENABLED").as_deref() == Ok("true") {
+        format!("/{}/account/privacy", l.code())
     } else {
-        format!("/{}/account/dashboard", l.code())
+        format!("/{}/", l.code())
     };
     Ok(Redirect::to(&destination).into_response())
 }

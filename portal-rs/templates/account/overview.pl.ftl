@@ -9,7 +9,7 @@ profession = Profesja
 unavailable = Niedostępne
 linked = Aktualne powiązanie z grą
 shortcuts = Skróty
-security = Bezpieczeństwo
+security = Bezpieczeństwo i prywatność
 premium = Premium
 balance = Saldo
 loyalty = Punkty lojalności
@@ -26,3 +26,5 @@ available = Dostępna
 
 main-character = Główna postać
 profile-preferences = Preferencje profilu
+termination-none = Brak zaplanowanego zamknięcia
+termination-pending = Zamknięcie w toku

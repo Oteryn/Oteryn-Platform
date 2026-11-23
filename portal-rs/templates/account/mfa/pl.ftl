@@ -17,3 +17,5 @@ mfa-email-subject = Twój kod weryfikacyjny Oteryn
 mfa-email-body = Wpisz ten kod wyłącznie na stronie logowania Oteryn. Kod wygasa za pięć minut. Zignoruj wiadomość, jeśli nie proszono o kod.
 mfa-no-account = Nie masz konta?
 mfa-register = Zarejestruj się
+mfa-settings-back = Wróć do uwierzytelniania dwuskładnikowego
+mfa-devices-empty = Brak zapamiętanych urządzeń do wyświetlenia.

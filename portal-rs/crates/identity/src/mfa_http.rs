@@ -207,6 +207,10 @@ struct Page {
     devices: Vec<String>,
 }
 impl Page {
+    fn overview_enabled(&self) -> bool {
+        oteryn_identity::navigation::overview_enabled()
+    }
+
     fn text(&self, key: &str) -> String {
         let source = if self.language == Language::En {
             include_str!("../../../templates/account/mfa/en.ftl")
@@ -907,16 +911,10 @@ async fn remove_device(
         )
         .await
         .map_err(unavailable)?;
-    page(
-        language,
-        &session,
-        settings_mode(&context.mfa, id).await?,
-        !removed,
-        String::new(),
-        vec![],
-        context.mfa.devices(id).await.map_err(unavailable)?,
-    )
-    .await
+    if !removed {
+        return refusal(language, &session, "/mfa#remembered-devices").await;
+    }
+    Ok(redirect(language, "/mfa#remembered-devices"))
 }
 #[cfg(test)]
 #[path = "mfa_http_tests.rs"]

@@ -278,8 +278,21 @@ async fn browser_flow(
                 )))?,
         )
         .await?;
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/en/mfa#remembered-devices"
+    );
     assert!(mfa.devices(id).await?.is_empty());
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::get("/en/mfa")
+                .header(header::COOKIE, authenticated_cookie)
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
     let settings = String::from_utf8(
         axum::body::to_bytes(response.into_body(), 32768)
             .await?

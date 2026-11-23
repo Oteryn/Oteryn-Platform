@@ -17,3 +17,5 @@ mfa-email-subject = Your Oteryn verification code
 mfa-email-body = Enter this code only on the Oteryn sign-in page. It expires in five minutes. Ignore this email if you did not request it.
 mfa-no-account = Don’t have an account?
 mfa-register = Register
+mfa-settings-back = Back to two-factor authentication
+mfa-devices-empty = No remembered devices to show.

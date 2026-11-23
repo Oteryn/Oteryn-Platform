@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -11,6 +11,7 @@ use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
     accounts::Accounts,
     credentials::{self, Credentials, Outcome, PasswordChange},
+    navigation::SudoReturn,
 };
 use oteryn_web::{
     Language,
@@ -126,7 +127,7 @@ async fn security_landing(Extension(lang): Extension<Language>) -> Redirect {
 
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form></main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form>{% if !back.is_empty() %}<p><a href=\"{{ back }}\">{{ back_label }}</a></p>{% endif %}</main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -140,6 +141,8 @@ struct Page {
     change: bool,
     failed: bool,
     error: String,
+    back: String,
+    back_label: String,
 }
 fn text(lang: Language, key: &str) -> String {
     let source = if lang == Language::En {
@@ -167,6 +170,7 @@ async fn page(
     lang: Language,
     session: BrowserSession,
     change: bool,
+    return_to: SudoReturn,
 ) -> Result<Response, StatusCode> {
     if session.account_id().await.is_none() {
         return Ok(redirect("/login"));
@@ -201,6 +205,17 @@ async fn page(
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .unwrap_or(false),
         error: text(lang, if breached { "breached" } else { "refused" }),
+        back: match return_to {
+            SudoReturn::Security if oteryn_identity::navigation::overview_enabled() => {
+                "/account".into()
+            }
+            SudoReturn::Security => String::new(),
+            target => target.path(lang.code()),
+        },
+        back_label: match return_to {
+            SudoReturn::Security => lang.text("shell-account-overview-back"),
+            _ => text(lang, "back-to-action"),
+        },
     };
     session
         .set(FAILED, &false)
@@ -220,13 +235,20 @@ async fn show_password(
     Extension(lang): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, true).await
+    page(lang, session, true, SudoReturn::default()).await
 }
+#[derive(serde::Deserialize)]
+struct SudoQuery {
+    #[serde(default)]
+    return_to: SudoReturn,
+}
+
 async fn show_sudo(
     Extension(lang): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    Query(query): Query<SudoQuery>,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, false).await
+    page(lang, session, false, query.return_to).await
 }
 fn session_hash(headers: &HeaderMap) -> Option<Vec<u8>> {
     let mut values = headers
@@ -326,9 +348,11 @@ async fn sudo(
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
     oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
-    headers: HeaderMap,
+    parts: axum::http::request::Parts,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
+    let Query(query) =
+        Query::<SudoQuery>::try_from_uri(&parts.uri).map_err(|_| StatusCode::BAD_REQUEST)?;
     if let Err(response) = check(
         &limiter,
         &session,
@@ -340,7 +364,7 @@ async fn sudo(
     {
         return Ok(*response);
     }
-    let hash = session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let hash = session_hash(&parts.headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let mut tx = service
         .pool
         .begin()
@@ -359,7 +383,12 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(lang, &session, "account/sudo").await;
+        return refuse(
+            lang,
+            &session,
+            &format!("account/sudo{}", query.return_to.query()),
+        )
+        .await;
     }
     let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
     sqlx::query(
@@ -376,7 +405,7 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&format!("/{}/account/security", lang.code())))
+    Ok(redirect(&query.return_to.path(lang.code())))
 }
 
 #[cfg(test)]

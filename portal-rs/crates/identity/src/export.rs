@@ -1,5 +1,7 @@
 //! Owner-only JSON export. T08 integration seam: existing browser sessions with sudo.
 //! Only explicitly selected fields are exported; credentials and session data never are.
+#[doc(hidden)]
+pub use crate::navigation;
 use axum::http::StatusCode;
 use serde_json::Value;
 use sha2::{Digest, Sha256};

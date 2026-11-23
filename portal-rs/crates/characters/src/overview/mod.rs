@@ -54,6 +54,7 @@ struct Page {
     unavailable: String,
     shortcuts: String,
     security: String,
+    security_actions: Vec<oteryn_ui::NavLink>,
     premium: String,
     balance: String,
 }
@@ -129,13 +130,15 @@ async fn load(
     let Ok(id) = AccountId::parse(&account.to_string()) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let record = sqlx::query_as::<_, (String, String)>(
-        "SELECT status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' FROM accounts WHERE id=$1",
+    let record = sqlx::query_as::<_, (String, String, bool, bool)>(
+        "SELECT status, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC',
+         email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
+         FROM accounts WHERE id=$1",
     )
     .bind(account)
     .fetch_optional(pool)
     .await;
-    let (status, created) = match record {
+    let (status, created, verified, mfa_required) = match record {
         Ok(Some(row)) if row.0 == "active" => row,
         Ok(_) => return StatusCode::FORBIDDEN.into_response(),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -160,9 +163,16 @@ async fn load(
     let read_state = view.as_ref().map(|view| view.state);
     let t = |key| text(lang, key);
     let mut facts = vec![(t("created"), created), (t("status"), t(&status))];
-    for key in ["web-login", "game-login", "loyalty", "title", "termination"] {
+    for key in ["web-login", "game-login", "loyalty", "title"] {
         facts.push((t(key), t("unavailable")));
     }
+    let pending = oteryn_identity::termination::pending_closure(pool, account).await;
+    let closure_state = match pending {
+        Ok(true) => "termination-pending",
+        Ok(false) => "termination-none",
+        Err(_) => "unavailable",
+    };
+    facts.push((t("termination"), t(closure_state)));
     let limits = configured_limits();
     facts.push((
         t("limit"),
@@ -226,6 +236,11 @@ async fn load(
         unavailable: t("unavailable"),
         shortcuts: t("shortcuts"),
         security: t("security"),
+        security_actions: oteryn_identity::navigation::overview_actions(
+            lang,
+            oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required),
+            matches!(pending, Ok(true)),
+        ),
         premium: t("premium"),
         balance: t("balance"),
     };

@@ -336,3 +336,13 @@ thais-foot-player-help = Player support
 thais-foot-legal = Legal information
 thais-foot-report = Report a bug
 thais-foot-language = Portal language
+
+shell-account-mfa = Two-factor authentication
+shell-account-remembered-devices = Remembered devices
+shell-account-email-change = Change email address
+shell-account-export = Download account data
+shell-account-closure = Close account
+shell-account-closure-pending = Pending account closure
+shell-account-overview-back = Back to account overview
+shell-account-sudo = Confirm your password
+shell-account-export-sudo = Confirm your password to download your account data.

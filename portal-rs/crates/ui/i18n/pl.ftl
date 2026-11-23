@@ -336,3 +336,13 @@ thais-foot-player-help = Pomoc dla graczy
 thais-foot-legal = Informacje prawne
 thais-foot-report = Zgłoś błąd
 thais-foot-language = Język portalu
+
+shell-account-mfa = Uwierzytelnianie dwuskładnikowe
+shell-account-remembered-devices = Zapamiętane urządzenia
+shell-account-email-change = Zmień adres e-mail
+shell-account-export = Pobierz dane konta
+shell-account-closure = Zamknij konto
+shell-account-closure-pending = Oczekujące zamknięcie konta
+shell-account-overview-back = Wróć do przeglądu konta
+shell-account-sudo = Potwierdź hasło
+shell-account-export-sudo = Potwierdź hasło, aby pobrać dane konta.

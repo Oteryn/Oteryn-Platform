@@ -81,6 +81,10 @@ struct Page {
     ids: Vec<Uuid>,
 }
 impl Page {
+    fn overview_enabled(&self) -> bool {
+        oteryn_identity::navigation::overview_enabled()
+    }
+
     fn text(&self, key: &str) -> String {
         if !key.starts_with("passkeys-") {
             return if self.lang == "en" {
@@ -273,12 +277,13 @@ async fn end_register(
     session: &BrowserSession,
     binding: &str,
     input: Completion,
-    _: &std::collections::HashMap<String, String>,
+    path: &std::collections::HashMap<String, String>,
 ) -> Result<serde_json::Value, Error> {
     let account = session.account_id().await.ok_or(Error::Refused)?;
     service.finish_registration(binding, account, input).await?;
     session::rotate(session, PrivilegeChange::Logout).await?;
-    Ok(serde_json::json!({"ok":true}))
+    let lang = path.get("lang").ok_or(Error::Refused)?;
+    Ok(serde_json::json!({"ok":true, "location":format!("/{lang}/login")}))
 }
 async fn begin_authenticate(
     service: &Passkeys,
@@ -342,7 +347,8 @@ async fn delete_key(
     let account = confirm(service, session, input).await?;
     service.remove_authorized(binding, account, id).await?;
     session::rotate(session, PrivilegeChange::Logout).await?;
-    Ok(serde_json::json!({"ok":true}))
+    let lang = path.get("lang").ok_or(Error::Refused)?;
+    Ok(serde_json::json!({"ok":true, "location":format!("/{lang}/login")}))
 }
 endpoint!(register_start, begin_register, Password);
 endpoint!(register_finish, end_register, Completion);

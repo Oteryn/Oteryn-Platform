@@ -34,7 +34,16 @@
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-enroll") }}</button></form>
 {% endif %}
-<h2>{{ self.text("mfa-devices") }}</h2>
+<section aria-labelledby="remembered-devices">
+<h2 id="remembered-devices">{{ self.text("mfa-devices") }}</h2>
+{% if devices.is_empty() %}<p>{{ self.text("mfa-devices-empty") }}</p>{% endif %}
 {% for device in devices %}<form method="post" action="/{{ lang }}/mfa/devices"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="device" value="{{ device }}"><button class="op-button">{{ self.text("mfa-remove") }} {{ loop.index }}</button></form>{% endfor %}
+</section>
+{% endif %}
+{% if mode == "enrollment" %}
+<p><a href="/{{ lang }}/mfa">{{ self.text("mfa-settings-back") }}</a></p>
+{% endif %}
+{% if (mode == "settings" || mode == "enabled" || mode == "enrollment") && self.overview_enabled() %}
+<p><a href="/account">{{ self.text("shell-account-overview-back") }}</a></p>
 {% endif %}
 {% endblock %}

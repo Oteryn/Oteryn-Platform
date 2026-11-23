@@ -204,6 +204,20 @@ async fn check_role_survivors(
     Ok(())
 }
 
+/// Read the same open lifecycle record that the closure page uses.
+pub async fn pending_closure(
+    pool: &PgPool,
+    account: Uuid,
+) -> std::result::Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM account_terminations
+         WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)",
+    )
+    .bind(account)
+    .fetch_one(pool)
+    .await
+}
+
 impl Terminations {
     pub fn new(pool: PgPool, config: Config, boundary: Arc<dyn Boundary>) -> Result<Self> {
         Ok(Self {
@@ -216,8 +230,7 @@ impl Terminations {
         self.config.enabled
     }
     pub async fn has_pending(&self, account: AccountId) -> Result<bool> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_terminations WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)")
-            .bind(account).fetch_one(&self.pool).await?)
+        Ok(pending_closure(&self.pool, account).await?)
     }
     fn enabled(&self) -> Result<()> {
         if !self.config.enabled {
