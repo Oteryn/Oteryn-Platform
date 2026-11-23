@@ -119,7 +119,9 @@ test('senior GM role assignment, MFA, and cold console journey', async ({browser
     await test.step('Select and refresh the four Game console pages, including world and node details', async () => {
       expect((await page.goto(`/console/dashboard?lang=${lang}`)).status()).toBe(200);
       const nav = page.locator('header nav.op-tabs');
-      await expect(nav.locator('a')).toHaveText(operations.filter(op => !op.target && op.operation !== 'db.migrations.list').map(op => op.label[language]));
+      await expect(nav.locator('a')).toHaveText(lang === 'pl'
+        ? ['Przegląd gry', 'Światy', 'Węzły', 'Baza danych']
+        : ['Game overview', 'Worlds', 'Nodes', 'Database']);
       for (const op of operations) {
         await nav.locator(`a[href="/console/${op.path}?lang=${lang}"]`).click();
         const selection = page.locator('main form[method="get"]');
