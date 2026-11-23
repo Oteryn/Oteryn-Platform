@@ -423,6 +423,7 @@ test('Game console selection, refresh and query refusal on all four pages', asyn
     await guestContext.close();
   }
   const titles = polish ? ['Pulpit', 'Światy', 'Węzły i hosty', 'Baza danych'] : ['Dashboard', 'Worlds', 'Nodes and hosts', 'Database'];
+  const navLabels = polish ? ['Przegląd gry', 'Światy', 'Węzły', 'Baza danych'] : ['Game overview', 'Worlds', 'Nodes', 'Database'];
   const key = `console_${manager.id.replaceAll('-', '')}`;
   await staff.goto('/admin/roles');
   await roleAction(staff, 'create', {
@@ -441,8 +442,8 @@ test('Game console selection, refresh and query refusal on all four pages', asyn
   for (const [index, [section, operations]] of Object.entries(consoleOperations).entries()) {
     const path = `/console/${section}`;
     const nav = page.locator('header nav.op-tabs');
-    await expect(nav.getByRole('link')).toHaveText(titles);
-    await nav.getByRole('link', { name: titles[index], exact: true }).click();
+    await expect(nav.getByRole('link')).toHaveText(navLabels);
+    await nav.getByRole('link', { name: navLabels[index], exact: true }).click();
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(titles[index]);
     const skip = page.locator('a[href="#content"]');
