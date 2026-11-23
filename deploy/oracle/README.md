@@ -554,13 +554,15 @@ install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.y
 
 The host needs Python 3.11+, Git, OpenSSL, Docker Engine 28+ with BuildKit and
 Compose v2, at least four CPUs and 10 GiB RAM. The largest running staging
-workload, including the stack and one test container, is capped at two CPUs
-and under 5 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
+workload, including the stack and browser qualification, is capped at 2.4 CPUs
+and under 6 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
 The CLI refuses a held production deployment lock or a pending production
 deployment when it starts, before building, and before replacing staging.
 Each check releases its shared read lock immediately.
 
 ```sh
+python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha>
+python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> ''
 python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs
 python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs --pg-tests oteryn-db,oteryn-web
 python3 /opt/oteryn-staging/staging-deploy.py status
@@ -576,34 +578,46 @@ Keep the generated environment files and captured mail private.
 
 Each replacement recreates PostgreSQL, migrates it, installs the testing legal
 pages and seeds a disposable account through the portal CLI. The staging portal
-is reachable on `127.0.0.1:18080` on the host, including `/readyz`. The browser
-container connects through its own loopback HTTPS origin and trusts the generated
-staging CA. Port 18080 is served by `portal-public`, a second `serve` on the
+is reachable on `127.0.0.1:18080` on the host, including `/readyz`. Port 18080
+is served by `portal-public`, a second `serve` on the
 same database whose origin comes from `/opt/oteryn-staging/public-origin`
 (one `https://<hostname>` line; without the file it is the loopback origin).
 Put the tunnel hostname there when staging is published behind Cloudflare
-Access, so CSRF, passkeys and mail links match the address people use; the
-in-stack E2E keeps the loopback origin. The staff panel runs only on its own
+Access, so CSRF, passkeys and mail links match the address people use. The
+staff panel runs only on its own
 host, named in `/opt/oteryn-staging/admin-origin` (one `https://<hostname>`
 line, different from `public-origin`, routed by the same tunnel to port 18080).
 Cookies are host-only, so staff sign in there separately from the player
 portal; without the file the staff panel stays off. Passkeys are bound to the
 public host, so staff use TOTP on the staff host. Mail goes to the stack's authenticated
-STARTTLS catcher. Game,
-store and payment features are disabled. With no spec argument Playwright
-runs every collected spec except those in `STAGING_IGNORED` in
-`staging-deploy.py`; each entry names what it needs that staging does not have
-(a running Game, money features, or a local-harness control endpoint). A spec
-named on the command line always runs. The in-stack E2E portal enables the same
-read-only features as `portal-public` plus the staff panel on its loopback
-origin, and the browser container shares its MFA key so the seed CLI can
-provision MFA accounts.
+STARTTLS catcher. Game, store and payment features are disabled on this deployment.
+
+Default deploys build the serving image and finish once staging is ready. An
+explicit qualification releases the deployment lock after readiness and uses
+its own lock and Compose project so another branch can reach staging while
+tests run. The qualification summary stays in the run directory for its SHA.
+
+Browser qualification runs the deployed revision's portal binary in a disposable
+CI fixture stack via `portal-rs/e2e/local.mjs` and `run.mjs`. The browser and its
+temporary PostgreSQL cluster share an isolated network namespace and never
+connect to the tunnel-facing deployment. The synthetic Game producers and
+payment fixture run there with throwaway keys. The launcher owns the flags,
+legal pages, test CA, mail sink and seed data. The browser database also gets
+the staging password-range fixture for password changes and recovery on the
+offline network. A read of the sandbox admin page once a minute keeps the
+shared staff fixture active during the full project. The character creation
+harness runs generated scripts from the browser's private executable tmpfs.
+A default deploy builds
+and starts the runtime without a test job. On the host CLI an explicit empty spec
+argument requests the full `pl-1440` project, and a spec path requests that file.
+The separate Portal RS E2E workflow covers all four projects. The staging
+report retains counts, test names and failure types.
 
 ### Staging from GitHub Actions
 
 `oracle-staging.yml` deploys every push to a `staging/**` branch (and, by
 dispatch, any eligible `codex/*` or `staging/*` head) and waits for the
-Playwright result. It runs only on the third runner service in
+deployment result. A dispatch that supplies a spec also waits for that spec. It runs only on the third runner service in
 `runners.compose.yml`, `oteryn-oracle-staging`, registered in its own org
 runner group `staging-runners` with labels `oteryn-staging` and
 `oteryn-oracle-staging`. That runner volume holds one key,

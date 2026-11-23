@@ -6,6 +6,7 @@ import io
 import json
 import os
 from pathlib import Path
+from contextlib import nullcontext
 import subprocess
 import tempfile
 import unittest
@@ -37,6 +38,8 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual(staging.parse(['deploy', SHA, 'specs/foo.spec.mjs',
                                         '--pg-tests', 'oteryn-db,oteryn-web']),
                          ('deploy', SHA, 'specs/foo.spec.mjs', ['oteryn-db', 'oteryn-web']))
+        self.assertEqual(staging.parse(['deploy', SHA])[2], staging.DEPLOY_ONLY)
+        self.assertEqual(staging.parse(['deploy', SHA, ''])[2], '')
         self.assertEqual(staging.parse(['status'])[0], 'status')
         self.assertEqual(staging.parse(['logs'])[0], 'logs')
         with patch.object(staging, 'production_idle') as idle, patch('sys.stderr', new=io.StringIO()):
@@ -156,8 +159,26 @@ class StagingDeploy(unittest.TestCase):
         detach.assert_called_once()
         move.assert_called_once_with(self.root)
         self.assertEqual([item.args[1] for item in redirect.call_args_list], [0, 1, 2])
-        deploy.assert_called_once_with(self.root / 'run' / SHA, SHA, 'spec', ['oteryn-db'])
+        deploy.assert_called_once_with(self.root / 'run' / SHA, SHA, 'spec', ['oteryn-db'],
+                                       deploy.call_args.args[-1])
+        self.assertEqual(Path(deploy.call_args.args[-1].name), self.root / 'deployment.lock')
         self.assertEqual(exit_process.call_args_list[0], call(0))
+
+    def test_another_branch_can_deploy_during_qualification(self):
+        staging = self.staging
+        (self.root / 'run').mkdir()
+        (self.root / 'run' / 'qualifying').write_text(SHA)
+        other = 'b' * 40
+        with staging.qualification_lock(), patch.object(staging, 'production_idle'), \
+                patch.object(staging.os, 'fork', return_value=123), \
+                patch('sys.stdout', new=io.StringIO()):
+            self.assertEqual(staging.launch(other, staging.DEPLOY_ONLY, []), 0)
+            self.assertEqual(staging.pointer('latest'), other)
+            with self.assertRaisesRegex(ValueError, 'revision is already being qualified'):
+                staging.launch(SHA, staging.DEPLOY_ONLY, [])
+            with self.assertRaisesRegex(ValueError, 'qualification holds the lock'):
+                staging.launch(other, '', [])
+        self.assertIsNone(staging.active_qualification())
 
     def test_compose_is_scoped_and_confined(self):
         staging = self.staging
@@ -188,11 +209,29 @@ class StagingDeploy(unittest.TestCase):
                 self.assertGreater(int(service['mem_limit']), 0)
                 for volume in service.get('volumes', []):
                     self.assertEqual(volume['type'], 'volume')
-                if name != 'ingress':
+                if name not in ('ingress', 'browser', 'browser-postgres', 'pg-tests'):
                     self.assertEqual(set(service['networks']), {'net'})
+        self.assertTrue(config['networks']['browser']['internal'])
+        self.assertEqual(config['networks']['browser']['driver_opts'],
+                         {'com.docker.network.bridge.gateway_mode_ipv4': 'isolated'})
+        self.assertEqual(set(services['browser-postgres']['networks']), {'browser'})
         for job in ('browser', 'pg-tests'):
-            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in (*core, job)), 2)
-            self.assertLess(sum(int(services[name]['mem_limit']) for name in (*core, job)), 5 * 1024**3)
+            self.assertEqual(services[job]['network_mode'], 'service:browser-postgres')
+            self.assertNotIn('networks', services[job])
+        self.assertEqual(services['browser-postgres']['image'], services['postgres']['image'])
+        self.assertIn('listen_addresses=127.0.0.1', services['browser-postgres']['command'])
+        self.assertEqual(len(services['browser-postgres']['volumes']), 1)
+        database_volume, = services['browser-postgres']['volumes']
+        self.assertEqual(database_volume['target'], '/var/lib/postgresql')
+        self.assertNotIn('source', database_volume)
+        self.assertNotIn('volumes', services['browser'])
+        self.assertEqual(services['browser']['environment']['TMPDIR'], '/run/portal-e2e')
+        self.assertIn('/run/portal-e2e:size=256m,uid=10001,gid=10001,mode=0700,exec,nosuid,nodev',
+                      services['browser']['tmpfs'])
+        for job in ('browser', 'pg-tests'):
+            names = (*core, job, 'browser-postgres')
+            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in names), 2.4)
+            self.assertLess(sum(int(services[name]['mem_limit']) for name in names), 6 * 1024**3)
         self.assertIn('postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42',
                       services['postgres']['image'])
         self.assertEqual(services['mail']['environment']['MP_SMTP_REQUIRE_STARTTLS'], 'true')
@@ -326,7 +365,7 @@ class StagingDeploy(unittest.TestCase):
         ready.assert_called_once()
         self.assert_isolated(commands)
 
-    def assert_isolated(self, commands):
+    def assert_isolated(self, commands, project='oteryn-staging'):
         denied = ('/opt/oteryn-portal', '/opt/oteryn-oracle', 'oteryn-oracle_private',
                   'oteryn-portal', 'platform.env', 'platform-migrate.env', 'prune')
         for args in commands:
@@ -336,7 +375,7 @@ class StagingDeploy(unittest.TestCase):
                 for forbidden in denied:
                     self.assertNotIn(forbidden, str(arg))
             if args[:2] == ['docker', 'compose']:
-                self.assertEqual(args[2:4], ['-p', 'oteryn-staging'])
+                self.assertEqual(args[2:4], ['-p', project])
 
     def test_readiness_deadline_and_recovery(self):
         staging = self.staging
@@ -353,19 +392,26 @@ class StagingDeploy(unittest.TestCase):
         for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
             self.assertIn(option, self.staging.BROWSER)
 
-    def test_e2e_ignores_only_named_existing_specs_and_shares_the_mfa_key(self):
+    def test_e2e_uses_ci_launcher_and_a_separate_database(self):
         staging = self.staging
-        e2e = HERE.parents[1] / 'portal-rs' / 'e2e'
-        for spec, reason in staging.STAGING_IGNORED.items():
-            with self.subTest(spec=spec):
-                self.assertTrue((e2e / spec).is_file())
-                self.assertTrue(reason)
         staging.configure(self.root, SHA)
         browser = (self.root / 'browser.env').read_text()
         portal = (self.root / 'portal.env').read_text()
-        key = next(line for line in portal.splitlines() if line.startswith('OTERYN_MFA_KEY='))
-        self.assertIn(key + '\n', browser)
-        self.assertIn('testIgnore: ignored', staging.BROWSER)
+        source = (self.root / 'browser-postgres.env').read_text()
+        password = next(line.split('=', 1)[1] for line in source.splitlines()
+                        if line.startswith('POSTGRES_PASSWORD='))
+        self.assertIn(f'PORTAL_E2E_ADMIN_DATABASE_URL=postgres://portal:{password}@127.0.0.1:5432/postgres\n',
+                      browser)
+        self.assertNotIn(password, portal)
+        self.assertNotIn('OTERYN_MFA_KEY', browser)
+        self.assertIn("['local.mjs']", staging.BROWSER)
+        self.assertIn('await seedPasswordRanges()', staging.BROWSER)
+        self.assertIn('await client.query(process.argv[2])', staging.BROWSER)
+        self.assertIn('PORTAL_E2E_AUTH_DIRECTORY: authDirectory', staging.BROWSER)
+        self.assertIn("portalGet('/admin', {cookie:", staging.BROWSER)
+        self.assertIn('clearInterval(heartbeat)', staging.BROWSER)
+        self.assertIn("'run.mjs', envFile, 'test'", staging.BROWSER)
+        self.assertNotIn('testIgnore', staging.BROWSER)
 
     def test_playwright_runs_one_project_within_the_cap(self):
         self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
@@ -381,14 +427,23 @@ class StagingDeploy(unittest.TestCase):
                        'tests': [{'status': 'skipped', 'projectName': 'en-390', 'results': []}] * 2}]}]}],
                   'errors': []}
         result = subprocess.CompletedProcess([], 1, stdout=json.dumps(report).encode())
-        with patch.object(staging, 'run', return_value=result) as command:
+        with patch.object(staging, 'run', return_value=result) as command, \
+                staging.qualification_database(self.root):
             ok, summary = staging.playwright(self.root, 'specs/a.spec.mjs', ['redaction'])
         self.assertFalse(ok)
         self.assertEqual(summary, ['Playwright passed 3, failed 1, skipped 2',
                                    'specs/a.spec.mjs: can register [en-390] — Expected [redacted]',
                                    'skipped 2 in specs/a.spec.mjs'])
-        self.assertEqual(command.call_args.args[0][-2:], ['--', r'specs/a\.spec\.mjs'])
-        self.assert_isolated([command.call_args.args[0]])
+        cleanup = ['rm', '--stop', '--force', '--volumes', 'browser-postgres']
+        self.assertEqual(command.call_args_list[0].args[0][-5:], cleanup)
+        self.assertEqual(command.call_args_list[1].args[0][-6:],
+                         ['up', '-d', '--wait', '--wait-timeout', '90', 'browser-postgres'])
+        self.assertEqual(command.call_args_list[2].args[0][-3:],
+                         ['--', r'specs/a\.spec\.mjs', staging.REGISTRATION_POLICY.decode()])
+        self.assertEqual(command.call_args_list[2].kwargs['timeout'], 7200)
+        self.assertEqual(command.call_args_list[3].args[0][-5:], cleanup)
+        self.assert_isolated([item.args[0] for item in command.call_args_list],
+                             'oteryn-staging-qualification')
         report.update(suites=[], stats={'expected': 1, 'unexpected': 0, 'flaky': 0, 'skipped': 0})
         self.assertTrue(staging.playwright_summary(
             subprocess.CompletedProcess([], 0, stdout=json.dumps(report).encode()), [])[0])
@@ -414,22 +469,27 @@ class StagingDeploy(unittest.TestCase):
         commands = [entry.args[0] for entry in command.call_args_list]
         create_role = command.call_args_list[0].kwargs['data']
         self.assertIn(b'LOGIN CREATEDB', create_role)
-        self.assertIn(b'REVOKE CONNECT ON DATABASE portal_e2e_staging FROM PUBLIC', create_role)
+        self.assertNotIn(b'portal_e2e_staging', create_role)
+        self.assertTrue(all('browser-postgres' in item for item in commands if 'exec' in item))
         self.assertEqual([item[-1] for item in commands if 'dropdb' in item], [staging.TEST_DB] * 2)
         self.assertEqual([item[-3:] for item in commands if 'pg-tests' in item],
                          [['--locked', '-p', 'oteryn-db'], ['--locked', '-p', 'oteryn-web']])
         self.assertNotIn('private', repr(commands))
-        self.assert_isolated(commands)
+        self.assert_isolated(commands, 'oteryn-staging-qualification')
 
     def test_timeout_removes_only_the_named_test_container(self):
         staging = self.staging
         timeout = subprocess.TimeoutExpired(['docker'], 3600)
-        with patch.object(staging, 'run', side_effect=[timeout, None]) as command:
+        with patch.object(staging, 'run', side_effect=[None, None, timeout, None, None]) as command, \
+                staging.qualification_database(self.root):
             self.assertEqual(staging.playwright(self.root, '', []),
                              (False, ['Playwright timed out']))
-        self.assertEqual(command.call_args.args[0],
-                         ['docker', 'container', 'rm', '--force', 'oteryn-staging_browser_job'])
-        self.assert_isolated([item.args[0] for item in command.call_args_list])
+        self.assertEqual(command.call_args_list[3].args[0],
+                         ['docker', 'container', 'rm', '--force', 'oteryn-staging-qualification_browser_job'])
+        self.assertEqual(command.call_args_list[4].args[0][-5:],
+                         ['rm', '--stop', '--force', '--volumes', 'browser-postgres'])
+        self.assert_isolated([item.args[0] for item in command.call_args_list],
+                             'oteryn-staging-qualification')
 
     def test_deploy_rechecks_boundaries_before_replacement_and_saves_both_results(self):
         staging = self.staging
@@ -444,13 +504,23 @@ class StagingDeploy(unittest.TestCase):
             for name, method in methods.items():
                 sequence.attach_mock(method, name)
             methods['source'].return_value = checkout
-            methods['playwright'].return_value = (False, ['Playwright failed'])
+
+            def run_browser(*args):
+                with staging.deploy_lock():
+                    self.assertEqual(staging.active_qualification(), SHA)
+                return False, ['Playwright failed']
+
+            methods['playwright'].side_effect = run_browser
             methods['pg_tests'].return_value = (True, ['PG oteryn-db PASS'])
-            self.assertFalse(staging.deploy(directory, SHA, 'spec', ['oteryn-db']))
+            with staging.qualification_lock(), staging.deploy_lock() as lock, \
+                    patch.object(staging, 'qualification_database', side_effect=lambda _: nullcontext()) as db:
+                self.assertFalse(staging.deploy(directory, SHA, 'spec', ['oteryn-db'], lock))
+                self.assertIsNone(staging.active_qualification())
+            self.assertEqual(db.call_args_list, [call(directory), call(directory)])
         self.assertEqual([item[0] for item in sequence.mock_calls], [
             'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
-            'build', 'build', 'build', 'qualify', 'production_idle', 'replace_stack',
-            'playwright', 'pg_tests',
+            'build', 'qualify', 'production_idle', 'replace_stack', 'build_context',
+            'build', 'playwright', 'build', 'pg_tests',
         ])
         self.assertEqual((directory / 'summary.txt').read_text(), 'Playwright failed\nPG oteryn-db PASS\n')
         self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'failed')
@@ -468,10 +538,13 @@ class StagingDeploy(unittest.TestCase):
             for name, method in methods.items():
                 sequence.attach_mock(method, name)
             methods['source'].return_value = checkout
-            self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db']))
+            with staging.deploy_lock() as lock:
+                self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db'], lock))
+            methods['build_context'].assert_called_once_with(checkout, browser=False)
+            methods['build'].assert_called_once_with(checkout, SHA, 'runtime')
         self.assertEqual([item[0] for item in sequence.mock_calls], [
             'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
-            'build', 'build', 'build', 'qualify', 'production_idle', 'replace_stack',
+            'build', 'qualify', 'production_idle', 'replace_stack',
         ])
         self.assertEqual((directory / 'summary.txt').read_text(), 'Deployed without test runs\n')
         self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'passed')
@@ -496,6 +569,10 @@ class StagingDeploy(unittest.TestCase):
             status.touch()
             os.utime(status, (index + 1, index + 1))
         (self.root / 'run' / 'current').write_text(heads[1])
+        (self.root / 'run' / 'qualifying').write_text(heads[0])
+        with staging.qualification_lock(), patch.object(staging, 'run') as command:
+            staging.retain(heads[-1])
+            command.assert_not_called()
         with patch.object(staging, 'run', return_value=subprocess.CompletedProcess([], 0)) as command, \
                 patch.object(staging, 'verify_image') as verify:
             staging.retain(heads[-1])

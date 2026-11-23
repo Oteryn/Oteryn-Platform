@@ -46,7 +46,7 @@ ENTRYPOINT ["/app/oteryn-portal"]
 
 FROM mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d AS browser
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libnss3-tools \
+    && apt-get install -y --no-install-recommends openssl python3 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -u 10001 browser
 WORKDIR /workspace/e2e
@@ -60,6 +60,9 @@ COPY --from=build /usr/lib/*-linux-gnu/ld-linux-*.so.* /usr/lib/*-linux-gnu/libc
 RUN printf '%s\n' '#!/bin/sh' 'exec /portal-lib/ld-linux-*.so.* --library-path /portal-lib /app/oteryn-portal "$@"' > /usr/local/bin/staging-portal \
     && chmod 0755 /usr/local/bin/staging-portal
 COPY crates /workspace/crates
+COPY bin /workspace/bin
 COPY templates /workspace/templates
+COPY --from=contracts fixtures /docs/contracts/fixtures
+RUN ln -s /app/static /workspace/static
 USER 10001:10001
 ENTRYPOINT ["node"]
