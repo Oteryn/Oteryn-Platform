@@ -142,7 +142,9 @@ impl IntoResponse for Error {
         match self {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::Invalid => StatusCode::BAD_REQUEST,
-            Self::Read(error) => return (error.status(), text("en", error.key())).into_response(),
+            Self::Read(error) => {
+                return locale::localized_error(error.status(), "en", text("en", error.key()));
+            }
             _ => StatusCode::SERVICE_UNAVAILABLE,
         }
         .into_response()
@@ -562,7 +564,11 @@ async fn render<P: Permissions, C: Channel>(
             .all(|op| matches!(op, Operation::World | Operation::Node))
     {
         let error = GameReadError::InvalidTarget;
-        return Ok((error.status(), text(language, error.key())).into_response());
+        return Ok(locale::localized_error(
+            error.status(),
+            language,
+            text(language, error.key()),
+        ));
     }
     s.permissions.navigation(context).await?;
     let mut allowed = true;
@@ -783,7 +789,11 @@ async fn submit<P: Permissions, C: Channel>(
     if matches!(form.operation, Operation::World | Operation::Node) != target.is_some() {
         let language = if form.lang == "en" { "en" } else { "pl" };
         let error = GameReadError::InvalidTarget;
-        return Ok((error.status(), text(language, error.key())).into_response());
+        return Ok(locale::localized_error(
+            error.status(),
+            language,
+            text(language, error.key()),
+        ));
     }
     s.permissions.check(context, form.operation).await?;
     let view = s

@@ -39,7 +39,7 @@ impl IntoResponse for Error {
             Self::BadInput => StatusCode::BAD_REQUEST,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
             Self::Read(error, lang) => {
-                return (error.status(), tr(lang, error.key())).into_response();
+                return super::locale::localized_error(error.status(), lang, tr(lang, error.key()));
             }
         }
         .into_response()
