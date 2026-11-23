@@ -197,6 +197,13 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn("const MAIL = '/__mailpit/api/v1/';", ingress)
         self.assertIn("request.method !== 'GET'", ingress)
         self.assertIn("hostname: 'mail', port: 8025, method: 'GET'", ingress)
+        # portal-public trusts only ingress, which replaces any client-sent
+        # X-Forwarded-For with Cloudflare's client address.
+        self.assertEqual(services['portal-public']['environment']['TRUSTED_PROXIES'],
+                         services['ingress']['networks']['net']['ipv4_address'])
+        self.assertNotIn('TRUSTED_PROXIES', services['portal'].get('environment', {}))
+        self.assertIn("delete headers['x-forwarded-for'];", ingress)
+        self.assertIn("headers['cf-connecting-ip']", ingress)
         with patch.object(staging, 'run') as command:
             staging.compose(directory, 'ps')
         self.assertEqual(command.call_args.args[0][:4], ['docker', 'compose', '-p', 'oteryn-staging'])

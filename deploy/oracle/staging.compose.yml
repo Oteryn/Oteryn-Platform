@@ -64,6 +64,9 @@ services:
   portal-public:
     <<: *app
     env_file: [portal.env, public.env]
+    environment:
+      # Only ingress may name the client; it sets one X-Forwarded-For.
+      TRUSTED_PROXIES: 172.21.255.250
     cpus: 0.1
     mem_limit: 256m
     command: [serve]
@@ -78,12 +81,16 @@ services:
     user: '1000:1000'
     cpus: 0.1
     mem_limit: 128m
-    networks: [net, ingress]
+    networks:
+      net:
+        ipv4_address: 172.21.255.250
+      ingress: {}
     ports: ['127.0.0.1:18080:8080']
     entrypoint: [node, -e]
     command:
       - |
         const http = require('node:http');
+        const net = require('node:net');
         // Read-only view of the stack's mail catcher for black-box tests that
         // reach staging through Cloudflare Access: GET /__mailpit/api/v1/...
         // maps to the catcher's API. Only GET; no delete, no UI, no websocket.
@@ -108,9 +115,15 @@ services:
             mail.end();
             return;
           }
+          // Only the local tunnel reaches this port, so Cloudflare's client
+          // address is the one X-Forwarded-For; any client-sent value is dropped.
+          const headers = { ...request.headers };
+          const client = headers['cf-connecting-ip'];
+          delete headers['x-forwarded-for'];
+          headers['x-forwarded-for'] = net.isIP(client || '') ? client : request.socket.remoteAddress;
           const upstream = http.request({
             hostname: 'portal-public', port: 8080, method: request.method,
-            path: request.url, headers: request.headers,
+            path: request.url, headers,
           }, result => {
             response.writeHead(result.statusCode, result.headers);
             result.pipe(response);
@@ -165,6 +178,8 @@ networks:
     name: oteryn-staging_net
     driver: bridge
     internal: true
+    ipam:
+      config: [{subnet: 172.21.0.0/16}]
     driver_opts:
       com.docker.network.bridge.gateway_mode_ipv4: isolated
   ingress:
