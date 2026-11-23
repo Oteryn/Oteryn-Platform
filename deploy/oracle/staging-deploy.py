@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Root-operated Oracle staging, with checkout code confined to staging containers."""
 import argparse
+import base64
 from contextlib import contextmanager, nullcontext
 import fcntl
 import hashlib
@@ -12,6 +13,7 @@ from pathlib import Path
 import re
 import secrets
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -42,7 +44,7 @@ OFF = (
     'GATEWAY_NATIVE_LOGIN_ENABLED', 'GATEWAY_NATIVE_PROTOCOL3_ENABLED',
     'GAME_AUTH_NATIVE_EVIDENCE_ENABLED', 'OTERYN_CHARACTER_COMMANDS_ENABLED',
     'OTERYN_CHARACTER_COMMAND_CREATE_ENABLED', 'OTERYN_CHARACTER_CREATE_WEB_ENABLED',
-    'OTERYN_LCFA_ENABLED', 'OTERYN_ACCOUNT_BALANCE_ENABLED', 'OTERYN_PREMIUM_ENABLED',
+    'OTERYN_ACCOUNT_BALANCE_ENABLED',
     'OTERYN_SHOP_ENABLED', 'OTERYN_SHOP_TOP_UPS_ENABLED', 'OTERYN_SHOP_TEST_PAYMENTS_ENABLED',
     'OTERYN_STORE_ENABLED', 'OTERYN_PAYMENTS_ENABLED', 'OTERYN_REFUNDS_ENABLED',
     'OTERYN_ADMIN_COMMERCE', 'OTERYN_SEASON_PASS_ENABLED', 'OTERYN_SEASON_PASS_WALLET_ENABLED',
@@ -67,13 +69,14 @@ PUBLIC_FLAGS = (
     'OTERYN_SECURITY_WIZARD_ENABLED', 'OTERYN_SUPPORT_TICKETS', 'OTERYN_WORLD_ENABLED',
     # The rest of the production read-only profile (/opt/oteryn-portal/portal.env).
     'OTERYN_PLAYERDATA_HUNTS_READ', 'OTERYN_PLAYERDATA_PLACES_AGGREGATE',
-    'PORTAL_ATLAS_DELIVERY_ENABLED', 'PORTAL_CALCULATORS_ENABLED', 'PORTAL_CHARACTER_STATS_ENABLED',
+    'PORTAL_CALCULATORS_ENABLED', 'PORTAL_CHARACTER_STATS_ENABLED',
     'PORTAL_DEATHS_ENABLED', 'PORTAL_GROWTH_RANKINGS_ENABLED', 'PORTAL_GUILDS_ENABLED',
     'PORTAL_GUILD_STATS_ENABLED', 'PORTAL_HIRELINGS_ENABLED', 'PORTAL_HOUSES_SERVING_ENABLED',
+    'PORTAL_PUBLIC_PROJECTIONS_ENABLED', 'OTERYN_LCFA_ENABLED', 'OTERYN_PREMIUM_ENABLED',
     'PORTAL_ONLINE_ENABLED', 'PORTAL_PARTY_ENABLED', 'PORTAL_PUBLIC_PROFILES_ENABLED',
     'PORTAL_PUBLIC_RANKINGS_ENABLED', 'PORTAL_STATS_ENABLED', 'PORTAL_STATS_WORLD_TOTALS_ENABLED',
     'PORTAL_WIKI_ENTITIES_ENABLED', 'PORTAL_WIKI_PLACES_ENABLED', 'PORTAL_WORLDS_ENABLED',
-    'PORTAL_WORLD_DAILY_PUBLIC_ENABLED', 'PORTAL_WORLD_ENABLED', 'PORTAL_WORLD_STATS_ENABLED',
+    'PORTAL_WORLD_DAILY_PUBLIC_ENABLED', 'PORTAL_WORLD_STATS_ENABLED',
 )
 # Staff panel only on its own host from ROOT/admin-origin (owner decision
 # 2026-11-23: the staff login is never on the player portal's host). Cookies
@@ -84,22 +87,19 @@ ADMIN_FLAGS = (
     'OTERYN_ADMIN_PANEL', 'OTERYN_ADMIN_PLAYERS', 'OTERYN_ADMIN_PLAYER_CHARACTERS',
     'OTERYN_ADMIN_CONSOLE', 'OTERYN_ADMIN_CONTROL', 'OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED',
 )
-# One staff account per built-in role (staff-<role>@example.invalid, plus
-# founder@example.invalid as platform_admin). Passwords are random and
-# discarded: each black-box tester takes over its own account through the
-# password-reset mail, so parallel testers never share a credential or MFA.
 STAFF_ROLES = (
     'platform_admin', 'security_admin', 'content_editor', 'moderator', 'support', 'operations',
     'game_admin', 'game_analyst', 'game_dba', 'game_master_senior', 'game_operator',
     'game_release', 'game_security', 'game_support', 'game_viewer',
 )
-FOUNDER = 'founder@example.invalid'
-STAFF = {FOUNDER: 'platform_admin', **{f'staff-{role.replace("_", "-")}@example.invalid': role
+FOUNDER = 'founder@staging.invalid'
+STAFF = {FOUNDER: 'platform_admin', **{f'staff-{role.replace("_", "-")}@staging.invalid': role
                                       for role in STAFF_ROLES}}
-GRANT_STAFF = ''.join(
-    "INSERT INTO account_roles(account_id, role_id) SELECT a.id, r.id FROM accounts a "
-    f"CROSS JOIN roles r WHERE a.email = '{email}' AND r.key = '{role}' ON CONFLICT DO NOTHING;\n"
-    for email, role in STAFF.items()).encode()
+PLAYERS = tuple(f'player-{kind}@staging.invalid' for kind in
+                ('basic', 'mfa', 'premium', 'guild-leader', 'new', 'restricted'))
+TOTP_ACCOUNTS = {*STAFF, 'player-mfa@staging.invalid'}
+SAMPLE_SQL = 'deploy/oracle/staging-sample-data.sql'
+
 # Staging has no egress, so the breached-password check could never reach the
 # range API and registration and reset would fail closed (503). Every prefix is
 # cached as complete; only these documented passwords count as breached, so
@@ -370,6 +370,60 @@ def random_hex_key():
     return hashlib.sha256(secrets.token_urlsafe(32).encode()).hexdigest()
 
 
+def test_accounts():
+    path = ROOT / 'test-accounts.json'
+    emails = (*PLAYERS, *STAFF)
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        accounts = {}
+        for email in emails:
+            entry = {'password': secrets.token_urlsafe(32)}
+            if email in TOTP_ACCOUNTS:
+                entry['totpSecret'] = base64.b32encode(secrets.token_bytes(20)).decode('ascii')
+            accounts[email] = entry
+        # Publish a complete file without replacing an existing one.
+        with tempfile.NamedTemporaryFile(mode='w', dir=ROOT) as stream:
+            if os.geteuid() == 0:
+                os.fchown(stream.fileno(), 0, 0)
+            json.dump(accounts, stream, indent=2)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+            try:
+                os.link(stream.name, path)
+            except FileExistsError:
+                pass
+        directory_fd = os.open(ROOT, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        owner = (0, 0) if os.geteuid() == 0 else (os.geteuid(), os.getegid())
+        if (not stat.S_ISREG(info.st_mode) or stat.S_IMODE(info.st_mode) != 0o600
+                or (info.st_uid, info.st_gid) != owner):
+            raise Refusal('test-accounts.json must be an owner-only (0600) regular file')
+        try:
+            accounts = json.load(stream)
+        except (ValueError, UnicodeError):
+            raise Refusal('test-accounts.json is invalid') from None
+    if not isinstance(accounts, dict) or accounts.keys() != set(emails):
+        raise Refusal('test-accounts.json has an unexpected account list')
+    for email, entry in accounts.items():
+        expected = {'password', 'totpSecret'} if email in TOTP_ACCOUNTS else {'password'}
+        if (not isinstance(entry, dict) or entry.keys() != expected
+                or not isinstance(entry['password'], str)
+                or not re.fullmatch(r'[A-Za-z0-9_-]{43}', entry['password'])
+                or ('totpSecret' in entry and
+                    (not isinstance(entry['totpSecret'], str)
+                     or not re.fullmatch(r'[A-Z2-7]{32}', entry['totpSecret'])))):
+            raise Refusal('test-accounts.json has an invalid credential')
+    return accounts
+
+
 def configure(directory, sha):
     db_password, smtp_password, test_password = (secrets.token_urlsafe(32) for _ in range(3))
     browser_password = secrets.token_urlsafe(32)
@@ -386,6 +440,15 @@ def configure(directory, sha):
     portal.update({flag: 'true' for flag in PUBLIC_FLAGS + ADMIN_FLAGS})
     portal['OTERYN_ADMIN_HOST'] = ORIGIN.split('://', 1)[1]
     portal.update({
+        'PORTAL_WORLDS_FRESHNESS_SECONDS': '120',
+        'PORTAL_WORLD_ENABLED': '1', 'PORTAL_ATLAS_DELIVERY_ENABLED': '1',
+        'PORTAL_WORLD_DAILY_WORLDS': ','.join(f'019a0000-0000-7001-8000-{n:012}' for n in range(1, 4)),
+        'OTERYN_ATLAS_DIRECTORY': '/app/staging-atlas',
+        'PORTAL_PUBLIC_PROJECTIONS_AUTHORITY': 'staging-sample',
+        'OTERYN_LCFA_SOURCE_AUTHORITY': 'staging-sample',
+        'PORTAL_STAGING_SAMPLE_DATA': 'true',
+        'PORTAL_CALCULATORS_EXPERIENCE_SOURCE': 'StagingPolicy|experience',
+        'PORTAL_CALCULATORS_TRAINING_SOURCE': 'StagingPolicy|training',
         'OTERYN_ENV': 'testing', 'APP_ENV': 'testing', 'OTERYN_BIND': '0.0.0.0:8080',
         'OTERYN_STATIC_DIR': '/app/static', 'OTERYN_PUBLIC_ORIGIN': ORIGIN,
         'OTERYN_WEBAUTHN_RP_ID': 'localhost', 'OTERYN_MFA_KEY': random_hex_key(),
@@ -422,11 +485,12 @@ def configure(directory, sha):
     env_file(directory, 'pg-tests.env', {
         'DATABASE_URL': test_db, 'PORTAL_TEST_DATABASE_URL': test_db, 'RUST_TEST_THREADS': '1',
     })
-    seed_password = secrets.token_urlsafe(32)
-    sensitive = [db_password, smtp_password, test_password, seed_password, browser_password,
+    accounts = test_accounts()
+    sensitive = [db_password, smtp_password, test_password, browser_password,
                  portal['OTERYN_MFA_KEY'], portal['OTERYN_RESET_DELIVERY_KEY'],
                  portal['OTERYN_NOTIFY_UNSUBSCRIBE_KEY']]
-    return smtp_password, test_password, seed_password, sensitive
+    sensitive.extend(value for entry in accounts.values() for value in entry.values())
+    return smtp_password, test_password, accounts, sensitive
 
 
 def compose(directory, *args, qualification=False, **kwargs):
@@ -481,7 +545,26 @@ def wait_ready(timeout=90):
     raise Refusal('portal readiness deadline expired')
 
 
-def replace_stack(directory, sha, smtp_password, seed_password):
+def seed_accounts(directory, accounts):
+    for email, entry in accounts.items():
+        args = {'email': email, 'password': entry['password'],
+                'verified': email != 'player-new@staging.invalid'}
+        if email in STAFF:
+            args['role'] = STAFF[email]
+        try:
+            seeded = seed(directory, 'account', args, output='totpSecret' in entry)
+            if 'totpSecret' in entry:
+                seed(directory, 'account-mfa', {'accountId': json.loads(seeded)['accountId'], **entry})
+        except (subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            raise Refusal(f'account seed failed for {email}') from None
+
+
+def seed(directory, entity, args, *, output=False):
+    return compose(directory, 'run', '--rm', '--no-deps', '-T', 'portal',
+                   'seed', entity, '-', data=json.dumps(args).encode(), output=output)
+
+
+def replace_stack(directory, sha, smtp_password, accounts, sample_sql):
     compose(directory, 'down', '--remove-orphans', '--timeout', '15')
     for suffix in ('data', 'trust', 'mail_tls', 'browser_tls'):
         volume = f'{PROJECT}_{suffix}'
@@ -493,18 +576,15 @@ def replace_stack(directory, sha, smtp_password, seed_password):
     oneoff = ('run', '--rm', '--no-deps', '-T', 'portal')
     compose(directory, *oneoff, 'migrate')
     compose(directory, *oneoff, 'install-legal-pages')
-    compose(directory, *oneoff, 'seed', 'account',
-            json.dumps({'email': 'player1@example.invalid', 'password': seed_password}))
-    # Staff accounts for black-box tests through Cloudflare Access (STAFF).
-    for email in STAFF:
-        compose(directory, *oneoff, 'seed', 'account',
-                json.dumps({'email': email, 'password': secrets.token_urlsafe(32)}))
-    compose(directory, 'up', '-d', '--wait', 'postgres')
-    compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
-            '-U', 'portal', '-d', PORTAL_DB, data=GRANT_STAFF)
-    compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
-            '-U', 'portal', '-d', PORTAL_DB, data=REGISTRATION_POLICY, timeout=600)
-    compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress')
+    seed_accounts(directory, accounts)
+    psql = ('exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
+            '-U', 'portal', '-d', PORTAL_DB)
+    compose(directory, *psql, data=REGISTRATION_POLICY, timeout=600)
+    try:
+        compose(directory, *psql, data=sample_sql)
+    except subprocess.SubprocessError:
+        raise Refusal('staging sample data could not be applied') from None
+    compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress', 'sample-feed')
     wait_ready()
 
 
@@ -817,6 +897,7 @@ def deploy(directory, sha, spec, crates, lock):
     outcome = 'failed'
     qualifying = ROOT / 'run' / 'qualifying'
     released = False
+    sensitive = []
     try:
         progress(directory, sha, 'qualifying source')
         qualify(sha)
@@ -829,8 +910,10 @@ def deploy(directory, sha, spec, crates, lock):
         progress(directory, sha, 'starting fresh staging stack')
         qualify(sha)
         production_idle()
-        smtp_password, test_password, seed_password, sensitive = configure(directory, sha)
-        replace_stack(directory, sha, smtp_password, seed_password)
+        # Read the verified Git blob, avoiding host filesystem traversal through checkout links.
+        sample_sql = git(checkout, 'show', f'{sha}:{SAMPLE_SQL}').encode()
+        smtp_password, test_password, accounts, sensitive = configure(directory, sha)
+        replace_stack(directory, sha, smtp_password, accounts, sample_sql)
         outcome = 'passed'
         if spec == DEPLOY_ONLY:
             summary.append('Deployed without test runs')
@@ -856,7 +939,7 @@ def deploy(directory, sha, spec, crates, lock):
             summary.append(f'Staging retention failed ({type(error).__name__})')
             outcome = 'failed'
     try:
-        write(directory / 'summary.txt', '\n'.join(summary) + '\n')
+        write(directory / 'summary.txt', '\n'.join(safe_line(line, sensitive) for line in summary) + '\n')
         progress(directory, sha, outcome)
     finally:
         if released:

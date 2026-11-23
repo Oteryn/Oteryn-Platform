@@ -41,6 +41,7 @@ WORKDIR /app
 COPY --from=build /out/oteryn-portal /app/oteryn-portal
 COPY static /app/static
 COPY migrations /app/migrations
+COPY test-support/staging-atlas /app/staging-atlas
 USER 10001:10001
 ENTRYPOINT ["/app/oteryn-portal"]
 
