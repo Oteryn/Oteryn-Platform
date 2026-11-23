@@ -194,11 +194,49 @@ enum PublicationPolicy {
 #[derive(Debug, sqlx::FromRow)]
 struct PublishedDocument {
     slug: String,
-    version: String,
+    locale: String,
+    version: Option<String>,
+    revision: i64,
+    source_revision: i64,
+    published: bool,
     title: String,
     body: String,
     page_id: Option<Uuid>,
     final_approved: bool,
+}
+
+const SIGNUP_LOCALES: [&str; 2] = ["en", "pl"];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum SignupEditionIssue {
+    #[error("invalid configured signup legal version")]
+    InvalidConfiguration,
+    #[error("legal edition is missing or unpublished")]
+    Unpublished,
+    #[error("translation must be reviewed against the published English edition")]
+    StaleTranslation,
+    #[error("published legal document has no visible body text")]
+    EmptyBody,
+    #[error("placeholder legal document must be replaced before live signup")]
+    Placeholder,
+    #[error("published legal edition contains an invalid operator NIP")]
+    InvalidNip,
+    #[error("configured consent version does not match published legal document")]
+    VersionMismatch,
+    #[error("published legal edition has no matching immutable snapshot")]
+    MissingSnapshot,
+    #[error("published legal edition requires explicit final approval")]
+    Unapproved,
+}
+
+/// Readiness of an individual edition under the live signup policy.
+#[derive(Debug)]
+pub struct SignupEditionStatus {
+    pub slug: &'static str,
+    pub locale: &'static str,
+    pub expected_version: String,
+    pub edition_version: Option<String>,
+    pub issue: Option<SignupEditionIssue>,
 }
 
 #[derive(Debug)]
@@ -242,102 +280,169 @@ impl ConsentConfig {
         }
     }
 
-    /// In a registration transaction the row locks hold through consent recording.
+    fn signup_documents(&self) -> [(&'static str, &str); 2] {
+        [
+            ("terms-of-service", &self.terms_version),
+            ("privacy-policy", &self.privacy_version),
+        ]
+    }
+
+    /// Report all four editions against the active configuration using the live policy,
+    /// even when the running profile allows draft editions for test registrations.
+    pub async fn live_readiness<'e>(
+        &self,
+        db: impl PgExecutor<'e>,
+    ) -> Result<Vec<SignupEditionStatus>, sqlx::Error> {
+        let documents = published_documents(db).await?;
+        let mut report = Vec::with_capacity(4);
+        for (slug, expected) in self.signup_documents() {
+            for locale in SIGNUP_LOCALES {
+                let document = find_document(&documents, slug, locale);
+                report.push(SignupEditionStatus {
+                    slug,
+                    locale,
+                    expected_version: expected.into(),
+                    edition_version: document.and_then(|row| row.version.clone()),
+                    issue: check_edition(
+                        document,
+                        find_document(&documents, slug, "en"),
+                        expected,
+                        PublicationPolicy::FinalOnly,
+                    )
+                    .err(),
+                });
+            }
+        }
+        Ok(report)
+    }
+
+    /// Live signup requires both locales. In a registration transaction the
+    /// edition row locks hold through consent recording.
     pub async fn check_publication<'e>(
         &self,
         db: impl PgExecutor<'e>,
         locale: &str,
     ) -> Result<SignupEditions, sqlx::Error> {
-        if !self.validate() {
-            tracing::error!(locale, "sign-up blocked: invalid configured legal versions");
+        if !self.validate() || !SIGNUP_LOCALES.contains(&locale) {
+            tracing::error!(locale, "sign-up blocked: invalid legal versions or locale");
             return Err(sqlx::Error::Protocol(
-                "invalid configured signup legal versions".into(),
+                "invalid configured signup legal versions or locale".into(),
             ));
         }
-        let documents: Vec<PublishedDocument> = sqlx::query_as(
-            "SELECT p.slug,e.legal_version AS version,e.title,e.body,v.page_id,
-                    COALESCE(v.content @> '{\"final_approved\":true}'::jsonb,false) AS final_approved
-             FROM pages p
-             JOIN editorial_pages e ON e.page_id=p.id
-             JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
-             LEFT JOIN page_legal_versions v
-                ON v.page_id=e.page_id AND v.locale=e.locale AND v.version=e.legal_version
-                AND v.content @> jsonb_build_object(
-                    'title',e.title,'body',e.body,'effective',e.legal_effective_date::text
-                )
-             WHERE p.slug IN ('terms-of-service','privacy-policy') AND e.locale=$1
-                AND e.published_at<=now() AND source.published_at<=now()
-                AND (e.locale='en' OR e.source_revision=source.revision)
-                AND e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL
-             ORDER BY p.slug FOR SHARE OF e,source",
-        )
-        .bind(locale)
-        .fetch_all(db)
-        .await
-        .inspect_err(|_| {
-            tracing::error!(locale, "sign-up blocked: cannot read published legal documents")
+        let documents = published_documents(db).await.inspect_err(|_| {
+            tracing::error!(
+                locale,
+                "sign-up blocked: cannot read published legal documents"
+            );
         })?;
-
-        let checked = |slug: &str, expected: &str| {
-            let document = documents.iter().find(|row| row.slug == slug);
-            let reason = match document.map(|row| {
-                (
-                    row,
-                    inspect_legal_edition(&row.version, &row.title, &row.body),
-                )
-            }) {
-                None => "published legal document missing for signup locale",
-                Some((_, text)) if !text.has_visible_body => {
-                    "published legal document has no visible body text"
-                }
-                Some((_, text))
-                    if matches!(self.publication, PublicationPolicy::FinalOnly)
-                        && text.has_placeholder =>
-                {
-                    "placeholder legal document must be replaced before live signup"
-                }
-                Some((_, text))
-                    if matches!(self.publication, PublicationPolicy::FinalOnly)
-                        && text.has_invalid_nip =>
-                {
-                    "published legal edition contains an invalid operator NIP"
-                }
-                Some((row, _))
-                    if matches!(self.publication, PublicationPolicy::FinalOnly)
-                        && !row.final_approved =>
-                {
-                    "published legal edition requires explicit final approval"
-                }
-                Some((row, _)) if row.version != expected => {
-                    "configured consent version does not match published legal document"
-                }
-                Some((row, _)) => {
-                    if let Some(page_id) = row.page_id {
-                        return Ok(EditionKey {
-                            page_id,
-                            version: row.version.clone(),
-                        });
-                    }
-                    "published legal edition has no matching immutable snapshot"
-                }
+        let checked = |slug, expected: &str| {
+            let source = find_document(&documents, slug, "en");
+            let check = |locale| {
+                let document = find_document(&documents, slug, locale);
+                check_edition(document, source, expected, self.publication).map_err(|issue| {
+                    tracing::error!(locale, slug, expected, published = ?document.and_then(|row| row.version.as_deref()), reason = %issue, "sign-up blocked by legal document configuration");
+                    sqlx::Error::Protocol(issue.to_string())
+                })
             };
-            tracing::error!(locale, slug, expected, published = ?document.map(|row| &row.version), reason, "sign-up blocked by legal document configuration");
-            Err(sqlx::Error::Protocol(reason.into()))
+            let edition = check(locale)?;
+            if matches!(self.publication, PublicationPolicy::FinalOnly) {
+                let other = if locale == "en" { "pl" } else { "en" };
+                check(other)?;
+            }
+            Ok::<_, sqlx::Error>(edition)
         };
-
+        let [(terms, terms_version), (privacy, privacy_version)] = self.signup_documents();
         Ok(SignupEditions {
             locale: locale.into(),
-            terms: checked("terms-of-service", &self.terms_version)?,
-            privacy: checked("privacy-policy", &self.privacy_version)?,
+            terms: checked(terms, terms_version)?,
+            privacy: checked(privacy, privacy_version)?,
         })
     }
 
     pub fn validate(&self) -> bool {
-        [&self.terms_version, &self.privacy_version]
+        self.signup_documents()
             .into_iter()
-            .all(|v| !v.trim().is_empty() && v.chars().count() <= 128)
+            .all(|(_, version)| valid_version(version))
     }
 }
+
+fn valid_version(version: &str) -> bool {
+    !version.trim().is_empty() && version.chars().count() <= 128
+}
+
+async fn published_documents<'e>(
+    db: impl PgExecutor<'e>,
+) -> Result<Vec<PublishedDocument>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT p.slug,e.locale,e.legal_version AS version,e.revision,e.source_revision,
+                COALESCE(e.published_at<=now() AND e.legal_version IS NOT NULL
+                    AND e.legal_effective_date IS NOT NULL,false) AS published,
+                e.title,e.body,v.page_id,
+                COALESCE(v.content @> '{\"final_approved\":true}'::jsonb,false) AS final_approved
+         FROM pages p
+         JOIN editorial_pages e ON e.page_id=p.id
+         LEFT JOIN page_legal_versions v
+            ON v.page_id=e.page_id AND v.locale=e.locale AND v.version=e.legal_version
+            AND v.content @> jsonb_build_object(
+                'title',e.title,'body',e.body,'effective',e.legal_effective_date::text
+            )
+         WHERE p.slug IN ('terms-of-service','privacy-policy') AND e.locale IN ('en','pl')
+         ORDER BY p.slug,e.locale FOR SHARE OF e",
+    )
+    .fetch_all(db)
+    .await
+}
+
+fn find_document<'a>(
+    documents: &'a [PublishedDocument],
+    slug: &str,
+    locale: &str,
+) -> Option<&'a PublishedDocument> {
+    documents
+        .iter()
+        .find(|row| row.slug == slug && row.locale == locale)
+}
+
+fn check_edition(
+    document: Option<&PublishedDocument>,
+    source: Option<&PublishedDocument>,
+    expected: &str,
+    policy: PublicationPolicy,
+) -> Result<EditionKey, SignupEditionIssue> {
+    use SignupEditionIssue::*;
+    if !valid_version(expected) {
+        return Err(InvalidConfiguration);
+    }
+    let row = document.filter(|row| row.published).ok_or(Unpublished)?;
+    let version = row.version.as_deref().ok_or(Unpublished)?;
+    let source = source.filter(|row| row.published).ok_or(Unpublished)?;
+    if row.locale == "pl" && row.source_revision != source.revision {
+        return Err(StaleTranslation);
+    }
+    let text = inspect_legal_edition(version, &row.title, &row.body);
+    if !text.has_visible_body {
+        return Err(EmptyBody);
+    }
+    let final_only = matches!(policy, PublicationPolicy::FinalOnly);
+    if final_only && text.has_placeholder {
+        return Err(Placeholder);
+    }
+    if final_only && text.has_invalid_nip {
+        return Err(InvalidNip);
+    }
+    if version != expected {
+        return Err(VersionMismatch);
+    }
+    let page_id = row.page_id.ok_or(MissingSnapshot)?;
+    if final_only && !row.final_approved {
+        return Err(Unapproved);
+    }
+    Ok(EditionKey {
+        page_id,
+        version: version.into(),
+    })
+}
+
 pub(crate) async fn record(
     tx: &mut PgTransaction<'_>,
     id: AccountId,

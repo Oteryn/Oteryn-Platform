@@ -10,14 +10,33 @@
 <body class="op-theme">
 <main class="op-panel op-stack">
   <h1>{{ title }}</h1>
+  <section class="op-stack" aria-labelledby="signup-legal-title" id="signup-legal">
+  <h2 id="signup-legal-title">{{ self.text("signup-legal-title") }}</h2>
+  <p>{{ self.readiness_summary() }}</p>
+  {% if let Some(editions) = readiness %}
+  <ul class="op-stack">
+    {% for edition in editions %}
+    <li>
+      <a href="/admin/pages/{{ edition.slug }}/{{ edition.locale }}">{{ self.text(edition.slug) }} ({{ self.text(edition.locale) }})</a>
+      <dl>
+        <dt>{{ self.text("signup-configured-version") }}</dt><dd>{{ edition.expected_version }}</dd>
+        <dt>{{ self.text("signup-current-version") }}</dt>
+        <dd>{% if let Some(version) = edition.edition_version %}{{ version }}{% else %}{{ self.text("signup-no-edition") }}{% endif %}</dd>
+        <dt>{{ self.text("signup-status") }}</dt><dd>{{ self.edition_status(edition.issue) }}</dd>
+      </dl>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
   <p id="faq-editor-help">{{ faq_help }}</p>
   <form method="get" class="op-stack">
     <label for="slug">{{ slug_label }}</label>
     <input class="op-input" name="slug" id="slug" aria-describedby="faq-editor-help" required maxlength="160" pattern="[a-z0-9]+(-[a-z0-9]+)*">
     <label for="locale">{{ locale_label }}</label>
     <select class="op-input" name="locale" id="locale">
-      <option value="pl" lang="pl">Polski</option>
-      <option value="en" lang="en">English</option>
+      <option value="pl" lang="pl">{{ self.text("pl") }}</option>
+      <option value="en" lang="en">{{ self.text("en") }}</option>
     </select>
     <button class="op-button">{{ create_label }}</button>
   </form>

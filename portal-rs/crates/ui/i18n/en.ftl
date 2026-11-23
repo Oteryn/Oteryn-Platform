@@ -408,3 +408,6 @@ discovery-stale = The settings changed while you were editing. Reopen the editor
 discovery-unpublished = Publish both translations before adding the document to a menu.
 discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
+
+register-paused-title = Registration is temporarily unavailable.
+register-paused-description = Try again later. You can still read the terms and privacy policy.

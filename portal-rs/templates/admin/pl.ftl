@@ -298,3 +298,5 @@ native-login-grant-switch = Wydawanie zezwoleń na wejście do gry
 native-login-on = Włączone
 native-login-off = Wyłączone
 native-login-invalid = Nieprawidłowa konfiguracja
+
+pages-link = Strony

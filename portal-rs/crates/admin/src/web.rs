@@ -660,6 +660,7 @@ struct Page {
     moderate_reports: bool,
     mail_link: Option<String>,
     native_login_link: Option<String>,
+    pages_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -800,7 +801,6 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     let mut editorial_links = Vec::new();
     for (permission, href, label) in [
         (Permission::ManageNews, "/admin/news", "cms-news"),
-        (Permission::ManagePages, "/admin/pages", "cms-pages"),
         (Permission::ManageEvents, "/admin/events", "cms-events"),
         (
             Permission::ManagePortalAnnouncements,
@@ -819,7 +819,13 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let pages_link = match s.auth.check(context, Permission::ManagePages).await {
+        Ok(()) => Some(text(lang, "pages-link")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
+        pages_link,
         lang,
         editorial_links,
         registration_policy_label,

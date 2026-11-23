@@ -894,25 +894,44 @@ async fn registration_requires_current_localized_legal_versions_and_refuses_live
 
     let final_config = ConsentConfig::published("final-v1".into(), "final-v1".into(), false);
     let live = db.app().layer(axum::Extension(final_config.clone()));
-    sqlx::query(
-        "UPDATE editorial_pages SET legal_version='final-v1',body='Approved legal text'
-         WHERE locale='en'",
-    )
-    .execute(&db.pool)
-    .await?;
-    assert_eq!(
-        load(live.clone(), "en").await?.status(),
-        StatusCode::SERVICE_UNAVAILABLE
-    );
-    sqlx::query(
-        "INSERT INTO page_legal_versions(page_id,locale,version,content)
-         SELECT page_id,locale,legal_version,jsonb_build_object(
-             'title',title,'body',body,'effective',legal_effective_date::text,'final_approved',true)
-         FROM editorial_pages WHERE locale='en'",
-    )
-    .execute(&db.pool)
-    .await?;
-    assert_eq!(load(live, "en").await?.status(), StatusCode::OK);
+    for locale in ["en", "pl"] {
+        sqlx::query(
+            "UPDATE editorial_pages edition
+             SET legal_version='final-v1',body=$2,source_revision=source.revision
+             FROM editorial_pages source
+             WHERE edition.page_id=source.page_id AND source.locale='en' AND edition.locale=$1",
+        )
+        .bind(locale)
+        .bind(if locale == "en" {
+            "Approved legal text"
+        } else {
+            "Zatwierdzony tekst"
+        })
+        .execute(&db.pool)
+        .await?;
+        assert_eq!(
+            load(live.clone(), locale).await?.status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        sqlx::query(
+            "INSERT INTO page_legal_versions(page_id,locale,version,content)
+             SELECT page_id,locale,legal_version,jsonb_build_object(
+                 'title',title,'body',body,'effective',legal_effective_date::text,'final_approved',true)
+             FROM editorial_pages WHERE locale=$1",
+        )
+        .bind(locale)
+        .execute(&db.pool)
+        .await?;
+        if locale == "en" {
+            assert_eq!(
+                load(live.clone(), locale).await?.status(),
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+        }
+    }
+    for locale in ["en", "pl"] {
+        assert_eq!(load(live.clone(), locale).await?.status(), StatusCode::OK);
+    }
     let mut final_input = input();
     final_input.email = "Final@Example.test".into();
     final_input.terms = Some("final-v1".into());

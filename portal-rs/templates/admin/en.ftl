@@ -298,3 +298,5 @@ native-login-grant-switch = Native grant issuance
 native-login-on = On
 native-login-off = Off
 native-login-invalid = Invalid configuration
+
+pages-link = Pages
