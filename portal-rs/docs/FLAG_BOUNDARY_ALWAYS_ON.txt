@@ -107,3 +107,10 @@ public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}
 admission G /health
+public G /events/calendar.css
+public G /{lang}/changelog
+public G /{lang}/news/rss.xml
+public G /{locale}/events/calendar/month
+public P /{locale}/events/calendar/month
+public G /{locale}/events/upcoming.ics
+public G /{locale}/events/{slug}/event.ics
