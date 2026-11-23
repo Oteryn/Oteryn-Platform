@@ -716,7 +716,9 @@
     "target": "/{lang}/pass",
     "status": 503,
     "anonymousStatus": 303,
-    "source": "crates/minigames/src/pass/web.rs:115"
+    "source": "crates/minigames/src/pass/web.rs:115",
+    "restrictedStatus": 403,
+    "restrictedSource": "crates/minigames/src/pass/platform.rs:26"
   },
   {
     "path": "/{lang}/puzzles",

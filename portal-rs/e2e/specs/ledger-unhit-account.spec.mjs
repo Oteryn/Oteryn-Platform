@@ -266,7 +266,7 @@ test('player changes the password through both PUT routes after sudo', async ({p
       form: {_csrf: csrf, current_password: account.password, password: next, password_confirmation: next},
       headers: {origin: new URL(page.url()).origin}, maxRedirects: 0,
     });
-    expect(response.status()).toBe(302);
+    expect(response.status()).toBe(303);
     expect(response.headers().location).toBe('/login');
     const denied = await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0});
     expect(denied.status()).toBe(303);
