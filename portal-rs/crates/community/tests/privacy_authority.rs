@@ -581,7 +581,11 @@ async fn stale_online_watermark_withholds_presence_with_fresh_profiles() -> Resu
         assert!(!html.contains("Aldric"), "watermark age: {age:?}");
         assert!(!html.contains(&world));
         assert!(!html.contains("Visible characters online:"));
-        assert!(html.contains("Data is stale"));
+        assert!(html.contains(if age.is_some() {
+            "Data is stale"
+        } else {
+            "Temporarily unavailable"
+        }));
     }
     fixture.finish().await
 }

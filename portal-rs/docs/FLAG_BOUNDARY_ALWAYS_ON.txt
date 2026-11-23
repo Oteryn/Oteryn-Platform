@@ -133,3 +133,7 @@ public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}
 admission G /health
+public G /{lang}/worlds/{world}/uptime
+public G /admin/world-status/{lang}/{world}
+public P /admin/world-status/{lang}/{world}
+public P /admin/world-status/{lang}/{world}/{incident}/resolve
