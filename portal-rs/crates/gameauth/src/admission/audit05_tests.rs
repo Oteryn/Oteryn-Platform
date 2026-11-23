@@ -932,8 +932,8 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
     let timer = tokio::spawn(async move {
         let entered = tokio::time::timeout(Duration::from_secs(5), storage_start.recv())
             .await
-            .expect("admission did not enter custody storage")
-            .expect("custody storage dropped before the write");
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Unavailable)?;
         // Another request prepares while the first holds the custody mutex.
         concurrent.prepare().await?;
         assert!(
