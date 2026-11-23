@@ -913,6 +913,7 @@ async fn postgres_offer_filter_renders_matching_results_and_validation() -> Test
         let locale = Locale::parse(lang).unwrap();
         for (query, status, matches) in [
             ("q=PACK", StatusCode::OK, true),
+            ("q=-PACK", StatusCode::OK, true),
             ("q=missing", StatusCode::OK, false),
             ("q=%00", StatusCode::UNPROCESSABLE_ENTITY, false),
         ] {
@@ -951,7 +952,7 @@ fn offer_filter_normalizes_keys_and_rejects_bad_queries() {
 
     let mut available = unavailable.clone();
     available.units[0].unit_kind = "PREMIUM_TIME".into();
-    for raw in ["", "q=", "q=+PACK-10+", "q=potion-pack-10"] {
+    for raw in ["", "q=", "q=+PACK-10+", "q=potion-pack-10", "q=-pack"] {
         assert!(OfferQuery::parse(raw).unwrap().matches(&available), "{raw}");
     }
     assert!(!OfferQuery::parse("q=missing").unwrap().matches(&available));

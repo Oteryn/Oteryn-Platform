@@ -128,7 +128,12 @@ impl OfferQuery {
         }
         let mut query: Self = serde_urlencoded::from_str(raw).map_err(|_| Error::Invalid)?;
         query.q = query.q.trim().to_ascii_lowercase();
-        if !query.q.is_empty() && !crate::purchase::offer_key(&query.q) {
+        if query.q.len() > 128
+            || !query
+                .q
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.:-".contains(&b))
+        {
             return Err(Error::Invalid);
         }
         Ok(query)

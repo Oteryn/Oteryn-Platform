@@ -444,6 +444,11 @@ async fn compare(
         if q.target.is_some() {
             return Err(Error::Invalid);
         }
+        page.start = start.to_string();
+        page.end = end.to_string();
+        let raw_ids = q.ids.as_deref().ok_or(Error::Invalid)?;
+        let ids = raw_ids.split(',').map(id).collect::<Result<Vec<_>, _>>()?;
+        page.ids = raw_ids.into();
         let metric_name = q.metric.as_deref().unwrap_or("level");
         if ![
             "level",
@@ -462,12 +467,7 @@ async fn compare(
             return Err(Error::Invalid);
         }
         page.selected_metric = metric_name.into();
-        let raw_ids = q.ids.as_deref().ok_or(Error::Invalid)?;
-        let ids = raw_ids.split(',').map(id).collect::<Result<Vec<_>, _>>()?;
         let reports = state.compare(&ids, start, end).await?;
-        page.start = start.to_string();
-        page.end = end.to_string();
-        page.ids = raw_ids.into();
         let maximum = reports
             .iter()
             .flat_map(|r| {

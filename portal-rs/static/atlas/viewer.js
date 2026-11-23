@@ -149,7 +149,15 @@ async function atlasSpawns(redraw, install) {
   panel.append(controls,count,notice,outcome,list);
   let state, points=[], privateMarkers=[], csrf=null, timer, controller, requestKey='', loadedKey='';
   let listed = [], listedZoom;
-  toggle.onchange=redraw;
+  toggle.onchange=() => {
+    if (!toggle.checked && loadedKey !== requestKey) {
+      clearTimeout(timer);
+      controller?.abort();
+      requestKey = '';
+      announce(notice, '');
+    }
+    redraw();
+  };
   function link(cell, label) {
     const a=element('a',label), url=new URL(location.href);
     for(const [key,value] of Object.entries({x:cell.x,y:cell.y,z:cell.floor,zoom:state.zoom})) url.searchParams.set(key,value);
@@ -180,18 +188,24 @@ async function atlasSpawns(redraw, install) {
     clearTimeout(timer); if(controller) controller.abort();
     announce(notice, text.loading);
     timer=setTimeout(async () => {
-      controller=new AbortController();
+      const request = new AbortController();
+      controller = request;
       try {
-        const response=await fetch(`/atlas/spawns?${key}`, {signal:controller.signal,cache:'no-store'});
+        const response=await fetch(`/atlas/spawns?${key}`, {signal:request.signal,cache:'no-store'});
         if(!response.ok) throw new Error('unavailable');
         const result=await response.json();
-        if(requestKey!==key) return;
+        if(request.signal.aborted) return;
         points=result; loadedKey=key; announce(notice, ''); redraw();
-      } catch(error) { if(error.name!=='AbortError' && requestKey===key) { points=[]; announce(notice, text['spawns-unavailable']); redraw(); } }
+      } catch {
+        if (!request.signal.aborted) {
+          points=[]; announce(notice, text['spawns-unavailable']); redraw();
+        }
+      }
     },180);
   }
   install(current => {
-    state=current; place.href=location.href; requestSpawns();
+    state=current; place.href=location.href;
+    if (toggle.checked) requestSpawns();
     const shown=toggle.checked ? points.filter(p=>visible(p.cell)) : [];
     announce(count, toggle.checked && loadedKey===requestKey
       ? `${text.monsters}: ${shown.length}; ${text.sites}: ${new Set(shown.map(p=>p.spawn)).size}` : '');

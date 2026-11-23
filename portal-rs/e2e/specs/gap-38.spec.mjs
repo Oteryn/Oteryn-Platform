@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
-import { messages, seedPlayer } from '../public-depth-helpers.mjs';
+import { messages, missingId, seedPlayer } from '../public-depth-helpers.mjs';
 import { waitForLoginBudget } from '../helpers.mjs';
 
 async function enterMain(page) {
@@ -88,7 +89,8 @@ test('sign-in validation and shop result are reachable by keyboard', async ({ pa
   await page.keyboard.type('premium');
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: shop['apply-filter'] })).toBeFocused();
-  await page.keyboard.press('Enter');
+  const [filtered] = await Promise.all([page.waitForNavigation(), page.keyboard.press('Enter')]);
+  expect(filtered.status()).toBe(200);
   await expect(page).toHaveURL(/\/shop\?q=premium$/);
   const result = page.getByRole('status').filter({ hasText: shop.unavailable });
   await expect(result).toBeFocused();
@@ -99,7 +101,8 @@ test('sign-in validation and shop result are reachable by keyboard', async ({ pa
 
   await page.keyboard.press('Control+A');
   await page.keyboard.type('<invalid>');
-  await page.keyboard.press('Enter');
+  const [rejected] = await Promise.all([page.waitForNavigation(), page.keyboard.press('Enter')]);
+  expect(rejected.status()).toBe(422);
   const invalid = page.getByRole('alert').filter({ hasText: shop.invalid });
   await expect(invalid).toBeFocused();
   await page.keyboard.press('Tab');
@@ -142,12 +145,30 @@ test('comparison validation is exposed before unavailable chart data', async ({ 
   const lang = info.project.metadata.locale;
   const copy = messages('templates/stats/character', lang);
   const target = `/${lang}/stats/compare`;
-  const response = await page.goto(`${target}?metric=unsupported`);
+  const ids = `${missingId},019a0000-0000-7000-8000-00000000deee`;
+  const fields = `start=2026-01-01&end=2026-01-02&ids=${ids}`;
+  const unavailable = await page.goto(`${target}?${fields}&metric=level`);
+  expect(unavailable.status()).toBe(503);
+  const response = await page.goto(`${target}?${fields}&metric=unsupported`);
   expect(response.status()).toBe(400);
   await expect(page.getByRole('alert').filter({ hasText: copy.invalid })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.getByLabel(copy.start, { exact: true })).toBeFocused();
+  await expect(page.getByLabel(copy.start, { exact: true })).toHaveValue('2026-01-01');
+  await expect(page.getByLabel(copy.end, { exact: true })).toHaveValue('2026-01-02');
+  await expect(page.locator('#ids')).toHaveValue(ids);
   await expect(page.getByLabel(copy.metric, { exact: true })).toBeVisible();
   await expect(page.getByRole('table')).toHaveCount(0);
   await expect(page.locator('main figure')).toHaveCount(0);
+});
+
+test('i18n-parity for Atlas, character stats and shop controls', () => {
+  const keys = (stem, lang) => {
+    const source = readFileSync(new URL(`../../${stem}${lang}.ftl`, import.meta.url), 'utf8');
+    return [...source.matchAll(/^([\w-]+)\s*=/gm)].map(([, key]) => key).sort();
+  };
+  for (const stem of ['templates/atlas/', 'crates/atlas/src/spawns_',
+    'templates/stats/character/', 'crates/store/src/web_']) {
+    expect(keys(stem, 'pl'), stem).toEqual(keys(stem, 'en'));
+  }
 });
