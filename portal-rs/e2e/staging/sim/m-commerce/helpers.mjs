@@ -87,6 +87,18 @@ export async function ready(context) {
 }
 
 export class AccountSetupUnavailable extends Error {}
+export class AccountStepFailed extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function checkStatus(actual, expected, step) {
+  if (actual !== expected) {
+    throw new AccountStepFailed(`${step} returned HTTP ${actual}, expected ${expected}`, actual);
+  }
+}
 
 export async function mailAvailable(context) {
   const response = await stagingRequest(context, '/__mailpit/api/v1/messages?limit=100');
@@ -186,7 +198,7 @@ async function guardedStep(label, action) {
   try {
     return await action();
   } catch (error) {
-    if (error instanceof AccountSetupUnavailable) throw error;
+    if (error instanceof AccountSetupUnavailable || error instanceof AccountStepFailed) throw error;
     // Credentials, reset links and form values are kept out of assertion output.
     throw new Error(label);
   }
@@ -218,9 +230,11 @@ function totp(provisioning) {
 
 async function login(page, lang, email, pass) {
   await guardedStep('Login did not establish an account session', async () => {
-    expect((await page.goto(`/${lang}/login`)).status()).toBe(200);
-    expect(await form(page, '/login', { email, password: pass })).toBe(302);
-    expect(new URL(page.url()).pathname.endsWith('/login')).toBe(false);
+    checkStatus((await page.goto(`/${lang}/login`)).status(), 200, 'Login form');
+    checkStatus(await form(page, '/login', { email, password: pass }), 302, 'Login submission');
+    if (new URL(page.url()).pathname.endsWith('/login')) {
+      throw new AccountStepFailed('Login submission returned to the login form');
+    }
   });
 }
 
@@ -232,7 +246,7 @@ export async function registerPlayer(page, lang, suffix) {
   const status = await guardedStep('Registration form did not submit', () => form(page, '/register', {
     email, password: pass, password_confirmation: pass, terms: true, privacy: true,
   }));
-  expect(status, 'registration submission').toBe(303);
+  checkStatus(status, 303, 'Registration submission');
   await expect(page).toHaveURL(`/${lang}/register/check-inbox`);
   await expect(page.locator('main')).toContainText(lang === 'pl'
     ? 'Sprawdź skrzynkę odbiorczą — wysłaliśmy wiadomość z dalszymi krokami.'
@@ -258,35 +272,40 @@ export async function resetStaff(page, lang, role) {
     () => form(page, '/forgot-password', { email }));
   expect(status, 'password reset request submission').toBe(302);
   const link = await mailLink(page.request, email, since, /^\/(pl|en)\/reset-password\/[a-f0-9]+$/);
-  await guardedStep('Staff password reset or MFA setup did not complete', async () => {
-    expect((await page.goto(link)).status()).toBe(200);
-    expect(await form(page, '/reset-password', {
+  await guardedStep('Staff password reset did not complete', async () => {
+    checkStatus((await page.goto(link)).status(), 200, 'Reset link');
+    checkStatus(await form(page, '/reset-password', {
       email, password: pass, password_confirmation: pass,
-    })).toBe(302);
-    await expect(page).toHaveURL(`/${lang}/login`);
-    await login(page, lang, email, pass);
+    }), 302, 'Password reset submission');
+    if (new URL(page.url()).pathname !== `/${lang}/login`) {
+      throw new AccountStepFailed('Password reset submission returned to the reset form');
+    }
+  });
+  await login(page, lang, email, pass);
+  await guardedStep('Staff MFA setup did not establish a verified account session', async () => {
     if (new URL(page.url()).pathname.endsWith('/mfa/challenge')) {
       // A pre-existing enrollment can be challenged by the built-in mail factor if offered.
       const challengeSince = Math.floor(Date.now() / 1000) * 1000;
       const sent = await form(page, '/mfa/email', {});
-      expect(sent).toBe(302);
+      checkStatus(sent, 302, 'Request email MFA code');
       const subject = lang === 'pl' ? 'Twój kod weryfikacyjny Oteryn' : 'Your Oteryn verification code';
       const code = await latestMail(page.request, email, challengeSince,
         text => text.match(/(?:^|\n)([a-f0-9]{64})\s*$/)?.[1], subject);
-      await form(page, '/mfa/challenge', { code });
+      checkStatus(await form(page, '/mfa/challenge', { code }), 302, 'Email MFA challenge');
     }
     await page.goto(`/${lang}/mfa`);
     const enroll = page.locator('main form[action$="/mfa/enroll"]');
     if (await enroll.count()) {
-      await form(page, '/mfa/enroll', { password: pass });
+      checkStatus(await form(page, '/mfa/enroll', { password: pass }), 200, 'TOTP enrollment');
       const provisioning = (await page.locator('main .op-prose').innerText()).trim();
-      await form(page, '/mfa/confirm', { password: pass, code: totp(provisioning) });
+      checkStatus(await form(page, '/mfa/confirm', { password: pass, code: totp(provisioning) }),
+        200, 'TOTP enrollment confirmation');
       await expect(page.locator('main textarea[readonly]').first()).toBeVisible();
       await login(page, lang, email, pass);
       await expect(page).toHaveURL(`/${lang}/mfa/challenge`);
       // The enrollment consumes the current counter.
       await delay(30_000 - (Date.now() % 30_000) + 500);
-      await form(page, '/mfa/challenge', { code: totp(provisioning) });
+      checkStatus(await form(page, '/mfa/challenge', { code: totp(provisioning) }), 302, 'TOTP challenge');
     }
     expect(new URL(page.url()).pathname.endsWith('/mfa/challenge')).toBe(false);
     await expect(page.locator('#portal-navigation a[data-account-link]')).toBeAttached();

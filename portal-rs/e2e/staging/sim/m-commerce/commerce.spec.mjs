@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import {
-  AccountSetupUnavailable, origin, ready, registerPlayer, resetStaff, stagingBrowser, stagingRequest,
+  AccountSetupUnavailable, AccountStepFailed, origin, ready, registerPlayer, resetStaff, stagingBrowser,
+  stagingRequest,
 } from './helpers.mjs';
 
 const id = '019a0000-0000-7000-8000-000000000001';
@@ -174,6 +175,16 @@ async function unavailableBazaar(page, lang) {
   await expect(page.locator('main form')).toHaveCount(0);
 }
 
+async function captureAccountRefusal(page, error, info, name) {
+  if (!(error instanceof AccountStepFailed) || error.status !== 503) return;
+  const url = new URL(page.url());
+  if (url.origin !== origin || url.search || url.hash || !/^\/(pl|en)\/(register|reset-password)$/.test(url.pathname)) return;
+  const main = page.locator('main');
+  const title = main.getByRole('heading', { name: /^(Temporarily unavailable|Usługa chwilowo niedostępna)$/ });
+  if (await main.locator('form, input, textarea').count() || !await title.isVisible()) return;
+  await page.screenshot({ path: info.outputPath(`${name}.png`) }).catch(() => {});
+}
+
 async function navigation(page, lang, info) {
   const landing = `/${lang}/news`;
   const path = `/${lang}/bazaar`;
@@ -257,7 +268,10 @@ test('commerce disabled for two fresh players', async ({ browser, context, page 
       await navigation(page, lang, info);
       await navigation(secondPage, lang, info);
     } catch (error) {
-      if (!(error instanceof AccountSetupUnavailable)) throw error;
+      if (!(error instanceof AccountSetupUnavailable)) {
+        await captureAccountRefusal(page, error, info, 'registration-unavailable');
+        throw error;
+      }
       console.log(`Player setup blocked: ${error.message}`);
       test.skip(true, error.message);
     }
@@ -279,7 +293,10 @@ for (const role of ['platform-admin', 'moderator', 'support']) {
       try {
         await resetStaff(page, info.project.metadata.lang, role);
       } catch (error) {
-        if (!(error instanceof AccountSetupUnavailable)) throw error;
+        if (!(error instanceof AccountSetupUnavailable)) {
+          await captureAccountRefusal(page, error, info, 'reset-unavailable');
+          throw error;
+        }
         console.log(`Staff setup blocked: ${error.message}`);
         test.skip(true, error.message);
       }
