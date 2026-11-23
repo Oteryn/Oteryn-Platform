@@ -1,0 +1,16 @@
+test-results/
+playwright-report/
+artifacts/
+*.har
+*.log
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.webm
+*.trace
+*.eml
+*mail-body*
+*reset-link*
+*token*
+*storage-state*
