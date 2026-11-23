@@ -1,4 +1,3 @@
-title = Mapa dostaw zadań i gdzie wypada
 unavailable = Niedostępne
 invalid = Nieprawidłowe filtry
 version = Wersja świata

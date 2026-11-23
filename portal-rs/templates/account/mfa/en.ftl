@@ -1,8 +1,6 @@
 mfa-title = Account security
 mfa-error = The request could not be verified. Check your details and try again.
-mfa-email = Email address
 mfa-password = Current password
-mfa-login = Sign in
 mfa-code = Authenticator, recovery or email code
 mfa-remember = Trust this device for 30 days
 mfa-verify = Verify code
@@ -16,4 +14,3 @@ mfa-remove = Remove device
 mfa-email-subject = Your Oteryn verification code
 mfa-email-body = Enter this code only on the Oteryn sign-in page. It expires in five minutes. Ignore this email if you did not request it.
 mfa-no-account = Don’t have an account?
-mfa-register = Register

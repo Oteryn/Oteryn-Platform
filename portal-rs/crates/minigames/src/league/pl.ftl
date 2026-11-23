@@ -1,4 +1,3 @@
-title = Wydarzenia świata i sezony gildii
 unavailable = Autorytatywne wyniki są obecnie niedostępne.
 pending = Typowanie pozostaje zamknięte. Wyniki nie wiążą się z nagrodami ani stawkami.
 outcomes = Rozstrzygnięte wydarzenia świata

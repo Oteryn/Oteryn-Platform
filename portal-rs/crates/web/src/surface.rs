@@ -187,7 +187,11 @@ async fn localized_home(request: Request) -> Response {
     oteryn_ui::home(&chrome, &resolve(data).await)
 }
 pub(crate) fn path_language(path: &str) -> Option<Language> {
-    Language::parse(path.split('/').nth(1).unwrap_or_default())
+    match path {
+        "/static/thais/shop-pl.html" => Some(Language::Pl),
+        "/static/thais/shop-en.html" => Some(Language::En),
+        _ => Language::parse(path.split('/').nth(1).unwrap_or_default()),
+    }
 }
 async fn switch_language(Path(lang): Path<String>) -> Response {
     let Some(language) = Language::parse(&lang) else {
@@ -449,7 +453,8 @@ mod tests {
             "<main ",
             "<footer ",
             "href=\"#main\"",
-            "<h1 id=\"hero-title\">News</h1>",
+            "<h1 id=\"hero-title\">Home</h1>",
+            "<h2>News</h2>",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");

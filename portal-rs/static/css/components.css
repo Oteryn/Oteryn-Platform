@@ -44,9 +44,10 @@
 .op-table thead { background: var(--op-raised); }
 .op-table tr:last-child td { border-bottom: none; }
 .op-tabs, .op-pagination, .op-breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: var(--op-space-2); }
+ul.op-tabs { padding-inline-start: 0; list-style: none; }
 .op-tabs { border-bottom: var(--op-line) solid var(--op-border); padding-bottom: var(--op-space-2); }
-.op-tabs a, .op-pagination :where(a, span), .op-breadcrumbs a { display: inline-flex; align-items: center; justify-content: center; min-height: var(--op-target); padding: var(--op-space-2) var(--op-space-3); border-radius: var(--op-radius-sm); }
-.op-tabs a[aria-current="page"], .op-pagination [aria-current="page"] { background: var(--op-accent); color: var(--op-on-accent); font-weight: var(--op-weight-bold); text-decoration: none; }
+.op-tabs :is(a, span[aria-disabled]), .op-pagination :where(a, span), .op-breadcrumbs a { display: inline-flex; align-items: center; justify-content: center; min-height: var(--op-target); padding: var(--op-space-2) var(--op-space-3); border-radius: var(--op-radius-sm); }
+.op-tabs [aria-current="page"], .op-pagination [aria-current="page"] { background: var(--op-accent); color: var(--op-on-accent); font-weight: var(--op-weight-bold); text-decoration: none; }
 .op-pagination [aria-disabled="true"] { color: var(--op-muted); }
 .op-breadcrumbs { list-style: none; margin: var(--op-space-0); padding: var(--op-space-0); }
 .op-breadcrumbs li { display: inline-flex; align-items: center; gap: var(--op-space-2); }
@@ -99,8 +100,9 @@
 .op-table tbody tr:hover { background: var(--op-hairline); }
 .op-tabs { border-bottom-color: var(--op-hairline); }
 .op-tabs a { color: var(--op-nav); text-decoration: none; border-radius: var(--op-radius-sm); }
+.op-tabs span[aria-disabled]:not([aria-current]) { color: var(--op-muted); }
 .op-tabs a:hover { background: var(--op-hairline); color: var(--op-text); }
-.op-tabs a[aria-current="page"], .op-pagination [aria-current="page"] { background: linear-gradient(180deg, var(--op-cta-hi), var(--op-cta-lo)); color: var(--op-cta-text); }
+.op-tabs [aria-current="page"], .op-pagination [aria-current="page"] { background: linear-gradient(180deg, var(--op-cta-hi), var(--op-cta-lo)); color: var(--op-cta-text); }
 .op-input { border-color: var(--op-border); border-radius: var(--op-radius-md); background: var(--op-surface); }
 .op-input:focus-visible { border-color: var(--op-accent); }
 .op-badge { border-radius: 999px; }

@@ -375,7 +375,12 @@ svg {
   border-inline-start: 2px solid var(--gilt-edge);
   padding: 14px 18px;
 }
-.hero-news h1 { margin: 0 0 8px; font: 650 clamp(24px, 2vw, 28px)/1.1 Alegreya, Georgia, serif; letter-spacing: normal; }
+#hero-title {
+  margin: 0 0 .35em;
+  font: 600 clamp(1.95rem, 4vw, 3.5rem)/1.1 Alegreya, Georgia, serif;
+  color: #f5ebd8;
+  text-shadow: 0 2px 12px #081614;
+}
 .hero-news p, .hero-news-all, .hero-story, .hero-today { font-size: .9375rem; line-height: 1.5; }
 .hero-story { border-block-start: 1px solid var(--line); }
 .hero-story summary {
@@ -401,7 +406,7 @@ svg {
 .hero-story[open] > summary .hero-story-toggle::after { display: none; }
 .hero-story-body { padding-block: 0 8px; overflow-wrap: anywhere; }
 .hero-news a:hover, .hero-today a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.hero-news-all, .hero-story-body a, .hero-today a { display: inline-block; padding-block: 6px; color: var(--gilt-light); }
+.hero-news-all, .hero-story-body a, .hero-today a { display: inline-flex; align-items: center; min-height: var(--op-target); padding-block: 6px; color: var(--gilt-light); }
 .hero-today { width: fit-content; max-width: 100%; padding-block: 5px; margin-top: 8px; }
 .hero-today summary { cursor: pointer; padding-block: 4px; }
 .hero-today aside { margin-block: 6px; }
@@ -496,11 +501,11 @@ svg {
   inset: -3rem -3rem -3rem -4rem;
   background: radial-gradient(ellipse closest-side, #081614ed 22%, #091814cf 70%, transparent 100%);
 }
-.hero .front-news h1 {
+.hero .front-news h2 {
   display: flex; align-items: center; gap: .7rem; margin: 0 0 .6rem;
   font: 600 1.45rem/1.2 Alegreya, Georgia, serif; color: #f5ebd8;
 }
-.hero .front-news h1::before {
+.hero .front-news h2::before {
   content: ""; width: 1.65rem; height: 1px; background: linear-gradient(90deg,#8a734c,#dac39a);
 }
 .hero .front-news summary {

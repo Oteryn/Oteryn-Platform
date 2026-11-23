@@ -121,6 +121,8 @@ struct Page {
     hint: String,
     labels: Vec<String>,
     kinds: Vec<(String, String)>,
+    kind: String,
+    unavailable: bool,
     rows: Vec<(usize, String, String, String)>,
     worlds: Vec<(String, String)>,
     vocations: Vec<String>,
@@ -157,6 +159,8 @@ async fn handle(
             .iter()
             .map(|(_, k)| (k.to_string(), text.get(k)))
             .collect(),
+        kind: kind.clone(),
+        unavailable: false,
         rows: vec![],
         worlds: vec![],
         vocations: (0..=5)
@@ -219,6 +223,7 @@ async fn handle(
     let status = match result {
         Ok(()) => StatusCode::OK,
         Err(e) => {
+            page.unavailable = matches!(e, Error::Disabled | Error::Unavailable);
             page.message = text.get(match e {
                 Error::Disabled | Error::NotFound => "not-found",
                 Error::Invalid => "invalid",

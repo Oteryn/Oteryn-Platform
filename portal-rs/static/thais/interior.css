@@ -288,6 +288,16 @@ body.op-shell::before {
   .op-shell > :is(.op-shell__page, main.op-main) { --interior-edge: 1.15rem; padding-block: 2rem 3rem; }
   .op-shell :is(.op-shell__page, main.op-main) :is(.op-card,.op-panel,.op-empty) { padding: 1rem; }
   .op-shell .op-shell__page > main:is(.op-panel,.op-card) { padding: 0; }
+  .op-shell :is(.op-shell__page, main.op-main) :is(li > a:only-child, .op-field > a, label:has(> input:is([type="checkbox"], [type="radio"]))) {
+    display: inline-flex;
+    align-items: center;
+    min-inline-size: var(--op-target);
+    min-block-size: var(--op-target);
+  }
+  .op-shell :is(.op-shell__page, main.op-main) label > input:is([type="checkbox"], [type="radio"]) {
+    flex: none;
+    margin-inline-end: .5rem;
+  }
   /* Standalone modules sometimes have no dedicated table scroller. */
   .op-shell :is(.op-shell__page, main.op-main) table:not(.op-table-wrap table) {
     display: block; overflow-x: auto; overscroll-behavior-x: contain;

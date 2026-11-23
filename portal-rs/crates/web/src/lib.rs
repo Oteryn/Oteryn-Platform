@@ -717,7 +717,8 @@ mod tests {
         let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
         let html = String::from_utf8(body.to_vec())?;
         assert!(html.contains("<html lang=\"pl\" data-theme=\"dark\">"));
-        assert!(html.contains("<h1 id=\"hero-title\">Aktualności</h1>"));
+        assert!(html.contains("<h1 id=\"hero-title\">Strona główna</h1>"));
+        assert!(html.contains("<h2>Aktualności</h2>"));
         Ok(())
     }
 

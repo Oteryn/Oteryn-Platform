@@ -1,8 +1,6 @@
 mfa-title = Bezpieczeństwo konta
 mfa-error = Nie udało się zweryfikować żądania. Sprawdź dane i spróbuj ponownie.
-mfa-email = Adres e-mail
 mfa-password = Obecne hasło
-mfa-login = Zaloguj się
 mfa-code = Kod z aplikacji, odzyskiwania lub e-maila
 mfa-remember = Zaufaj temu urządzeniu na 30 dni
 mfa-verify = Potwierdź kod
@@ -16,4 +14,3 @@ mfa-remove = Usuń urządzenie
 mfa-email-subject = Twój kod weryfikacyjny Oteryn
 mfa-email-body = Wpisz ten kod wyłącznie na stronie logowania Oteryn. Kod wygasa za pięć minut. Zignoruj wiadomość, jeśli nie proszono o kod.
 mfa-no-account = Nie masz konta?
-mfa-register = Zarejestruj się
