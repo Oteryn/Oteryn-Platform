@@ -1,4 +1,5 @@
 import { randomBytes, createHash, randomUUID } from 'node:crypto';
+import { rateKey } from '../authz/database.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { login, pool, register, waitForLoginBudget } from '../helpers.mjs';
 
@@ -12,17 +13,6 @@ const titles = {
   429: ['Zbyt wiele żądań', 'Too many requests'],
   503: ['Usługa chwilowo niedostępna', 'Temporarily unavailable'],
 };
-
-function rateKey(...parts) {
-  const hash = createHash('sha256');
-  for (const part of parts) {
-    const bytes = Buffer.from(part);
-    const length = Buffer.alloc(8);
-    length.writeBigUInt64BE(BigInt(bytes.length));
-    hash.update(length).update(bytes);
-  }
-  return hash.digest();
-}
 
 async function assertError(page, lang, status, response) {
   expect(response.status()).toBe(status);
@@ -118,8 +108,8 @@ test('login throttling and a cold account dependency use localized error pages',
     accept: 'text/html', origin: new URL(page.url()).origin, connection: 'close',
     'x-portal-e2e-login-peer': source,
   };
-  const identityKey = rateKey('identity-login', form.email, source);
-  const sourceKey = rateKey('identity-login-source', source);
+  const identityKey = Buffer.from(rateKey('identity-login', form.email, source), 'hex');
+  const sourceKey = Buffer.from(rateKey('identity-login-source', source), 'hex');
   const db = pool();
   try {
     const bucket = async () => {
