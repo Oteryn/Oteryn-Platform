@@ -321,6 +321,10 @@ test('team onboarding, permission matrix, audit and admin navigation', async ({ 
     for (let attempt = 0; attempt < 2; attempt++) {
       const page = await actors();
       const admin = await founder(page, request, lang);
+      if ((await stagingRequest(page.request, '/admin')).status() === 403) {
+        await enroll(page, lang, admin);
+      }
+      await visit(page, '/admin');
       try {
         await teamJourney(page, actors, lang, request, admin);
         return;

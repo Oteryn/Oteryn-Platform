@@ -38,16 +38,24 @@ async function protect(context) {
       return;
     }
     // Sending these headers through continue() would also send them on redirects.
+    let response;
     try {
-      const response = await route.fetch({
+      response = await route.fetch({
         headers: { ...await request.allHeaders(), ...headers },
         maxRedirects: 0,
         timeout: 15_000,
       });
-      await route.fulfill({ response });
     } catch {
       // Playwright transport errors can include request headers.
-      await route.abort();
+    }
+    try {
+      if (response) await route.fulfill({ response });
+      else await route.abort();
+    } catch (error) {
+      // Reloads and closing a tab can cancel in-flight resources.
+      if (!/already handled|has been closed|Invalid InterceptionId|Invalid requestId/i.test(error.message)) {
+        throw new Error('Could not finish the routed staging request');
+      }
     }
   });
 }
@@ -264,17 +272,21 @@ export async function founder(page, request, lang) {
   test.skip(!link, 'No founder reset mail arrived within 60 seconds');
   const resetLang = link.split('/')[1];
   await visit(page, link);
-  const reset = await form(page, 'main form', {
+  const fields = {
     email: account.email, password: account.password, password_confirmation: account.password,
+  };
+  const rejected = await form(page, 'main form', {
+    ...fields, password_confirmation: account.password + 'x',
   }, 'button', { sensitive: true });
+  expect(rejected.status(), 'Mismatched reset confirmation response').toBe(302);
+  await expect(page.getByRole('alert')).toHaveText(language(resetLang,
+    'Link jest nieprawidłowy lub wygasł albo hasła nie są identyczne. W razie potrzeby poproś o nowy link.',
+    'This password reset link is invalid or expired, or the passwords do not match. Request a new link if needed.'));
+  const reset = await form(page, 'main form', fields, 'button', { sensitive: true });
   expect(reset.status()).toBe(302);
   expect((await reset.headerValue('location')) === '/' + resetLang + '/login',
     'Password reset returned to sign-in').toBe(true);
   await signIn(page, lang, account, request);
-  if ((await stagingRequest(page.request, '/admin')).status() === 403) {
-    await enroll(page, lang, account);
-  }
-  await visit(page, '/admin');
   return account;
 }
 
