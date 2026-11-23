@@ -35,3 +35,4 @@ market-history = Market history
 trade-history = Trade history
 create-character = Create character
 recent-character-requests = Recent creation requests
+character-service-operations = Character service operations

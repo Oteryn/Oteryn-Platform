@@ -36,6 +36,7 @@ impl AccountStateLookup for Accounts {
     }
 }
 
+
 #[derive(Template)]
 #[template(path = "account/overview.html", config = "src/overview/askama.toml")]
 struct Page {
@@ -49,6 +50,8 @@ struct Page {
     main_label: String,
     state: String,
     characters: Vec<Character>,
+    operator_status: bool,
+    operator_label: String,
     world: String,
     availability: String,
     level: String,
@@ -206,7 +209,14 @@ async fn load(
         Some(now) => profiles.main_character(account, now).await,
         None => None,
     };
+    let operator_status = match pool.acquire().await {
+        Ok(mut db) => crate::services::operator::allowed(&mut db, account)
+            .await
+            .unwrap_or(false),
+        Err(_) => false,
+    };
     let mut characters = Vec::new();
+    let services_mounted = crate::services::browser_enabled();
     let services = crate::services::Services::new(pool.clone(), crate::services::configured());
     let public_profiles = enabled("PORTAL_PUBLIC_PROFILES_ENABLED");
     let items_source = std::env::var("PORTAL_PLAYERDATA_G10_SOURCE_AUTHORITY")
@@ -226,7 +236,7 @@ async fn load(
                     label: t("profile-preferences"),
                 });
             }
-            if services.has_owner_view(account, character).await {
+            if services_mounted && services.has_owner_view(account, character).await {
                 links.push(Link {
                     url: format!("/{lang}/account/characters/{character}/services"),
                     label: t("character-services"),
@@ -301,6 +311,8 @@ async fn load(
             _ => "unavailable",
         }),
         characters,
+        operator_status,
+        operator_label: t("character-service-operations"),
         world: t("world"),
         availability: t("availability"),
         level: t("level"),

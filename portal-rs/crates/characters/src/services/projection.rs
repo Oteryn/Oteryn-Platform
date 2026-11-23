@@ -207,7 +207,21 @@ impl Services {
             return Err(Error::Unavailable);
         }
         let row=sqlx::query("SELECT f.highest_epoch,s.epoch::text,s.snapshot_json,s.invalid AS state_invalid,w.epoch::text AS watermark_epoch,w.complete_through,w.observed_at,w.invalid FROM account_character_feed f CROSS JOIN character_service_feed w JOIN character_service_states s ON s.account_id=$1 AND s.character_id=$2 WHERE f.id=1 AND w.id=1 FOR SHARE OF f,w,s")
-            .bind(account).bind(character).fetch_optional(&mut **tx).await?.ok_or(Error::Denied)?;
+            .bind(account).bind(character).fetch_optional(&mut **tx).await?;
+        let Some(row) = row else {
+            let known: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_characters WHERE account_id=$1 AND character_id=$2)",
+            )
+            .bind(account)
+            .bind(character)
+            .fetch_one(&mut **tx)
+            .await?;
+            return Err(if known {
+                Error::Unavailable
+            } else {
+                Error::Denied
+            });
+        };
         let epoch: String = row.try_get("epoch")?;
         if row.try_get::<bool, _>("invalid")?
             || row.try_get::<bool, _>("state_invalid")?
