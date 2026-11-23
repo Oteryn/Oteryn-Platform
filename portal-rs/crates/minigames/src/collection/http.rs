@@ -9,11 +9,12 @@ use axum::{
     routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_identity::mfa::{Mfa, SESSION_GRANT_KEY};
 use oteryn_playerdata::authority::CollectionEvidence;
-use oteryn_playerdata::progress::{Authority, Payload, ProgressStore, Subject};
+use oteryn_playerdata::progress::{Authority, Payload, Subject};
 use oteryn_web::{
     csrf::CsrfConfig,
-    session::{BrowserSession, SessionLayer},
+    session::{BrowserSession, SessionKey, SessionLayer},
 };
 use oteryn_world::{WorldOptions, WorldStore};
 use sqlx::PgPool;
@@ -49,23 +50,11 @@ impl Authority for Ownership {
         self.0.catalog_accepts(family, payload)
     }
 }
-struct Unavailable;
-impl Authority for Unavailable {
-    fn permits(&self, _: Subject<'_>) -> bool {
-        false
-    }
-    fn source(&self) -> &str {
-        ""
-    }
-    fn catalog_accepts(&self, _: &str, _: &Payload) -> bool {
-        false
-    }
-}
 #[derive(Debug, Clone)]
 struct HttpState {
     service: Collection,
-    authority: Ownership,
     evidence: Option<EvidenceSources>,
+    mfa: Option<Mfa>,
     pool: PgPool,
 }
 
@@ -76,21 +65,14 @@ pub(super) struct EvidenceSources {
 }
 /// Does not register routes when disabled. All browser mutations retain the
 /// shared synchronizer-token CSRF and current authenticated session middleware.
-pub fn router(
-    pool: PgPool,
-    service: Collection,
-    flags: Flags,
-    authority: Ownership,
-    csrf: CsrfConfig,
-) -> Router {
-    router_with_evidence(pool, service, flags, authority, csrf, None)
+pub fn router(pool: PgPool, service: Collection, flags: Flags, csrf: CsrfConfig) -> Router {
+    router_with_evidence(pool, service, flags, csrf, None)
 }
 
 pub(super) fn router_with_evidence(
     pool: PgPool,
     service: Collection,
     flags: Flags,
-    authority: Ownership,
     csrf: CsrfConfig,
     evidence: Option<EvidenceSources>,
 ) -> Router {
@@ -125,8 +107,8 @@ pub(super) fn router_with_evidence(
         .layer(axum::middleware::from_fn(crate::browser::deadline))
         .with_state(HttpState {
             service,
-            authority,
             evidence,
+            mfa: Mfa::configured(pool.clone()).ok(),
             pool,
         })
 }
@@ -140,21 +122,22 @@ pub fn configured_router(pool: PgPool) -> Router {
             enabled: std::env::var("OTERYN_WORLD_ENABLED").as_deref() == Ok("true"),
         },
     );
-    // Card unlocks and battle mutations still need accepted catalogue mappings.
-    // The journal evidence view reads timestamps only.
-    let progress = ProgressStore::new(pool.clone(), Default::default(), Vec::new());
-    let service = Collection::new(pool.clone(), world, progress, flags);
     let evidence = (std::env::var("OTERYN_COLLECTION_JOURNAL_READ_ENABLED").as_deref()
         == Ok("true"))
     .then(|| EvidenceSources {
         inventory: std::env::var(oteryn_playerdata::journal::ITEMS_SOURCE).unwrap_or_default(),
         progress: std::env::var(oteryn_playerdata::journal::PROGRESS_SOURCE).unwrap_or_default(),
     });
+    let service = Collection::with_journal(
+        pool.clone(),
+        world,
+        evidence.as_ref().map(|sources| sources.progress.clone()),
+        flags,
+    );
     router_with_evidence(
         pool,
         service,
         flags,
-        Ownership(Arc::new(Unavailable)),
         CsrfConfig {
             trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")
                 .ok()
@@ -197,7 +180,7 @@ async fn response_policy(request: Request, next: Next) -> Response {
             "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
+        (header::REFERRER_POLICY, "same-origin"),
         (
             header::STRICT_TRANSPORT_SECURITY,
             "max-age=63072000; includeSubDomains",
@@ -251,15 +234,66 @@ async fn account(session: &BrowserSession) -> std::result::Result<Uuid, StatusCo
     path = "collection/evidence.html",
     config = "src/collection/askama.toml"
 )]
-struct EvidencePage<'a> {
-    lang: &'a str,
+struct EvidencePage {
+    lang: String,
     characters: Vec<(Uuid, String)>,
     evidence: Option<CollectionEvidence>,
+    operator: Option<OperatorStatus>,
+    verified_progress: bool,
+    cleanup: Option<(Uuid, String)>,
 }
 
-impl EvidencePage<'_> {
+struct OperatorStatus {
+    journal_reads: bool,
+    progress_source: bool,
+    mapping_accepted: bool,
+    published_cards: Option<bool>,
+}
+
+async fn operator_status(
+    s: &HttpState,
+    session: &BrowserSession,
+    account: Uuid,
+) -> Result<Option<OperatorStatus>> {
+    let Some(mfa) = &s.mfa else {
+        return Ok(None);
+    };
+    let Ok(Some(grant)) = session
+        .get(SessionKey::<String>::new(SESSION_GRANT_KEY))
+        .await
+    else {
+        return Ok(None);
+    };
+    if !mfa.satisfied(account, &grant).await? {
+        return Ok(None);
+    }
+    let permitted: bool = sqlx::query_scalar(
+        "SELECT count(DISTINCT p.permission)=2
+         FROM account_roles r JOIN role_permissions p ON p.role_id=r.role_id
+         JOIN accounts a ON a.id=r.account_id
+         WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL
+           AND p.permission IN ('admin.access','game.world.admin')",
+    )
+    .bind(account)
+    .fetch_one(&s.pool)
+    .await?;
+    if !permitted {
+        return Ok(None);
+    }
+    Ok(Some(OperatorStatus {
+        journal_reads: s.evidence.is_some(),
+        progress_source: s
+            .evidence
+            .as_ref()
+            .is_some_and(|sources| !sources.progress.is_empty()),
+        mapping_accepted: CollectionEvidence::bestiary_mapping_accepted(),
+        published_cards: s.service.published_cards().await,
+    }))
+}
+
+impl EvidencePage {
     fn label(&self, key: &str) -> String {
-        text(self.lang, key)
+        text(&self.lang, key)
     }
 
     fn updated(&self, millis: &Option<i64>) -> String {
@@ -281,37 +315,48 @@ impl EvidencePage<'_> {
     }
 }
 
-fn evidence_status(error: oteryn_playerdata::store::Error) -> StatusCode {
-    use oteryn_playerdata::store::Error;
-    match error {
-        Error::Invalid => StatusCode::BAD_REQUEST,
-        Error::Denied => StatusCode::FORBIDDEN,
-        _ => StatusCode::SERVICE_UNAVAILABLE,
-    }
-}
-
 async fn index(
     State(s): State<HttpState>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
 ) -> std::result::Result<Html<String>, StatusCode> {
+    let account = account(&session).await?;
     let characters = if s.evidence.is_some() {
-        let account = account(&session).await?;
         let tx = crate::browser::begin(&s.pool)
             .await
             .map_err(|e| status(e.into()))?;
         match CollectionEvidence::characters(tx, account).await {
             Ok(characters) => characters,
             Err(oteryn_playerdata::store::Error::Unavailable) => Vec::new(),
-            Err(error) => return Err(evidence_status(error)),
+            Err(error) => return Err(status(journal_error(error))),
         }
     } else {
         Vec::new()
     };
+    let cleanup = match s
+        .service
+        .find_active_battle(account, None)
+        .await
+        .map_err(status)?
+    {
+        Some(id) => Some((
+            id,
+            session
+                .csrf_token()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        )),
+        None => None,
+    };
     EvidencePage {
-        lang: &lang,
+        lang: lang.clone(),
         characters,
         evidence: None,
+        operator: operator_status(&s, &session, account)
+            .await
+            .map_err(status)?,
+        verified_progress: false,
+        cleanup,
     }
     .html()
 }
@@ -324,6 +369,7 @@ struct CardView {
 struct DeckView {
     id: Uuid,
     name: String,
+    playable: bool,
 }
 #[derive(Template)]
 #[template(path = "collection/index.html", config = "src/collection/askama.toml")]
@@ -334,6 +380,7 @@ struct Page {
     forfeit: String,
     lang: String,
     character: Uuid,
+    new_deck: Uuid,
     csrf: String,
     title: String,
     rules: String,
@@ -347,6 +394,9 @@ struct Page {
     empty: String,
     cards: Vec<CardView>,
     decks: Vec<DeckView>,
+    cards_available: bool,
+    has_unlocked: bool,
+    sources: EvidencePage,
 }
 async fn page(
     State(s): State<HttpState>,
@@ -354,31 +404,57 @@ async fn page(
     Extension(session): Extension<BrowserSession>,
 ) -> std::result::Result<Html<String>, StatusCode> {
     let account = account(&session).await?;
-    if let Some(sources) = &s.evidence {
+    let evidence = if let Some(sources) = &s.evidence {
         let tx = crate::browser::begin(&s.pool)
             .await
             .map_err(|e| status(e.into()))?;
-        let evidence = CollectionEvidence::read(
-            tx,
-            account,
-            character,
-            &sources.inventory,
-            &sources.progress,
+        Some(
+            CollectionEvidence::read(
+                tx,
+                account,
+                character,
+                &sources.inventory,
+                &sources.progress,
+            )
+            .await
+            .map_err(|error| status(journal_error(error)))?,
         )
-        .await
-        .map_err(evidence_status)?;
-        return EvidencePage {
-            lang: &lang,
-            characters: Vec::new(),
-            evidence: Some(evidence),
-        }
-        .html();
-    }
-    let cards = s
+    } else {
+        None
+    };
+    let mut sources = EvidencePage {
+        lang: lang.clone(),
+        characters: Vec::new(),
+        evidence,
+        operator: None,
+        verified_progress: false,
+        cleanup: None,
+    };
+    let cards = match s
         .service
-        .cards(account, character, &s.authority, now().map_err(status)?)
+        .cards(account, character, now().map_err(status)?)
         .await
-        .map_err(status)?;
+    {
+        Ok(cards) => Some(cards),
+        Err(Error::Unavailable) if sources.evidence.is_some() => None,
+        Err(error) => return Err(status(error)),
+    };
+    let cards_available = cards.is_some();
+    let empty = text(
+        &lang,
+        if cards_available {
+            "empty"
+        } else {
+            "unavailable"
+        },
+    );
+    let cards = cards.unwrap_or_default();
+    sources.verified_progress = cards.iter().any(|c| c.state != CardState::Unavailable);
+    let unlocked: std::collections::HashSet<_> = cards
+        .iter()
+        .filter(|c| c.state == CardState::Unlocked)
+        .map(|c| c.card.id)
+        .collect();
     let decks = s
         .service
         .decks(account)
@@ -389,6 +465,7 @@ async fn page(
         .map(|d| DeckView {
             id: d.id,
             name: d.name,
+            playable: d.cards.iter().all(|id| unlocked.contains(id)),
         })
         .collect();
     let cards = cards
@@ -400,8 +477,15 @@ async fn page(
             } else {
                 c.card.name.en
             },
-            unlocked: c.unlocked,
-            state: text(&lang, if c.unlocked { "unlocked" } else { "locked" }),
+            unlocked: c.state == CardState::Unlocked,
+            state: text(
+                &lang,
+                match c.state {
+                    CardState::Unlocked => "unlocked",
+                    CardState::Locked => "locked",
+                    CardState::Unavailable => "source-unavailable",
+                },
+            ),
         })
         .collect();
     let page = Page {
@@ -414,6 +498,7 @@ async fn page(
         delete: text(&lang, "delete"),
         forfeit: text(&lang, "forfeit"),
         character,
+        new_deck: Uuid::now_v7(),
         csrf: session
             .csrf_token()
             .await
@@ -427,10 +512,13 @@ async fn page(
         save: text(&lang, "save"),
         fight: text(&lang, "fight"),
         skip: text(&lang, "skip"),
-        empty: text(&lang, "empty"),
+        empty,
         lang,
         cards,
         decks,
+        cards_available,
+        has_unlocked: !unlocked.is_empty(),
+        sources,
     };
     Ok(Html(
         page.render().map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
@@ -464,7 +552,6 @@ async fn save(
                     .flatten()
                     .collect(),
             },
-            &s.authority,
             now().map_err(status)?,
         )
         .await
@@ -484,12 +571,7 @@ async fn start(
 ) -> std::result::Result<Redirect, StatusCode> {
     let id = s
         .service
-        .start(
-            account(&session).await?,
-            id,
-            &s.authority,
-            now().map_err(status)?,
-        )
+        .start(account(&session).await?, id, now().map_err(status)?)
         .await
         .map_err(status)?;
     Ok(Redirect::to(&format!("/{lang}/collection/battles/{id}")))
@@ -521,12 +603,7 @@ async fn battle_page(
 ) -> std::result::Result<Html<String>, StatusCode> {
     let state = s
         .service
-        .battle(
-            account(&session).await?,
-            id,
-            &s.authority,
-            now().map_err(status)?,
-        )
+        .battle(account(&session).await?, id, now().map_err(status)?)
         .await
         .map_err(status)?;
     let key = match state.outcome {
@@ -583,7 +660,6 @@ async fn turn(
             id,
             f.expected,
             f.action,
-            &s.authority,
             now().map_err(status)?,
         )
         .await
@@ -601,7 +677,6 @@ async fn image(
             account(&session).await?,
             character,
             id,
-            &s.authority,
             now().map_err(status)?,
         )
         .await
@@ -622,12 +697,11 @@ async fn forfeit(
     Extension(session): Extension<BrowserSession>,
     Form(_): Form<StartForm>,
 ) -> std::result::Result<Redirect, StatusCode> {
-    let character = s
-        .service
+    s.service
         .forfeit(account(&session).await?, id)
         .await
         .map_err(status)?;
-    Ok(Redirect::to(&format!("/{lang}/collection/{character}")))
+    Ok(Redirect::to(&format!("/{lang}/collection")))
 }
 
 async fn delete_deck(

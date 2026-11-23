@@ -258,7 +258,13 @@ impl Database {
             vec!["bestiary".into()],
         );
         publish_bestiary(&progress, &trust, &card, trust.account, trust.character).await;
-        let service = Collection::new(pool.clone(), world, progress, Flags { collection: true });
+        let service = Collection::new(
+            pool.clone(),
+            world,
+            progress,
+            Flags { collection: true },
+            Ownership(Arc::new(trust.clone())),
+        );
         let mut bytes = Vec::new();
         image::ImageEncoder::write_image(
             image::codecs::webp::WebPEncoder::new_lossless(&mut bytes),
@@ -315,36 +321,39 @@ async fn postgres_collection_success_and_concurrent_retry() {
     };
     let t = &db.trust;
     let s = &db.service;
-    assert!(s.cards(t.account, t.character, t, now()).await.unwrap()[0].unlocked);
+    assert_eq!(
+        s.cards(t.account, t.character, now()).await.unwrap()[0].state,
+        CardState::Unlocked
+    );
     let deck = db.deck();
     let id = deck.id;
-    s.save_deck(t.account, deck, t, now()).await.unwrap();
-    let battle = s.start(t.account, id, t, now()).await.unwrap();
+    s.save_deck(t.account, deck, now()).await.unwrap();
+    let battle = s.start(t.account, id, now()).await.unwrap();
     assert!(matches!(
-        s.start(t.account, id, t, now()).await,
+        s.start(t.account, id, now()).await,
         Err(Error::Conflict)
     ));
     let (a, b) = tokio::join!(
-        s.turn(t.account, battle, 0, Action::Strike, t, now()),
-        s.turn(t.account, battle, 0, Action::Strike, t, now())
+        s.turn(t.account, battle, 0, Action::Strike, now()),
+        s.turn(t.account, battle, 0, Action::Strike, now())
     );
     a.unwrap();
     b.unwrap();
-    assert_eq!(s.battle(t.account, battle, t, now()).await.unwrap().turn, 1);
+    assert_eq!(s.battle(t.account, battle, now()).await.unwrap().turn, 1);
     assert!(matches!(
-        s.turn(t.account, battle, 0, Action::Guard, t, now()).await,
+        s.turn(t.account, battle, 0, Action::Guard, now()).await,
         Err(Error::Conflict)
     ));
     loop {
-        let state = s.battle(t.account, battle, t, now()).await.unwrap();
+        let state = s.battle(t.account, battle, now()).await.unwrap();
         if state.outcome != Outcome::Active {
             break;
         }
-        s.turn(t.account, battle, state.turn, Action::Strike, t, now())
+        s.turn(t.account, battle, state.turn, Action::Strike, now())
             .await
             .unwrap();
     }
-    let next = s.start(t.account, id, t, now()).await.unwrap();
+    let next = s.start(t.account, id, now()).await.unwrap();
     assert_eq!(
         s.active_battle(t.account, t.character).await.unwrap(),
         Some(next)
@@ -352,7 +361,7 @@ async fn postgres_collection_success_and_concurrent_retry() {
     s.delete_deck(t.account, id).await.unwrap();
     assert!(s.decks(t.account).await.unwrap().is_empty());
     assert_eq!(
-        s.battle(t.account, next, t, now()).await.unwrap().outcome,
+        s.battle(t.account, next, now()).await.unwrap().outcome,
         Outcome::Active
     );
     s.forfeit(t.account, next).await.unwrap();
@@ -369,29 +378,29 @@ async fn postgres_collection_refusal_and_bad_input() {
     let s = &db.service;
     let deck = db.deck();
     let id = deck.id;
-    s.save_deck(t.account, deck, t, now()).await.unwrap();
-    let battle = s.start(t.account, id, t, now()).await.unwrap();
+    s.save_deck(t.account, deck, now()).await.unwrap();
+    let battle = s.start(t.account, id, now()).await.unwrap();
     let mut bad = db.deck();
     bad.cards.push(db.card.id);
     assert!(matches!(
-        s.save_deck(t.account, bad, t, now()).await,
+        s.save_deck(t.account, bad, now()).await,
         Err(Error::BadInput)
     ));
     let mut bad = db.deck();
     bad.cards = vec![Uuid::now_v7()];
     assert!(matches!(
-        s.save_deck(t.account, bad, t, now()).await,
+        s.save_deck(t.account, bad, now()).await,
         Err(Error::Denied)
     ));
-    assert!(s.battle(Uuid::now_v7(), battle, t, now()).await.is_err());
+    assert!(s.battle(Uuid::now_v7(), battle, now()).await.is_err());
     assert!(
-        s.cards(t.account, t.character, t, now() + 86400001)
+        s.cards(t.account, t.character, now() + 86400001)
             .await
             .is_err()
     );
     t.allow.store(false, Ordering::SeqCst);
     assert!(
-        s.turn(t.account, battle, 0, Action::Strike, t, now())
+        s.turn(t.account, battle, 0, Action::Strike, now())
             .await
             .is_err()
     );
@@ -401,7 +410,7 @@ async fn postgres_collection_refusal_and_bad_input() {
         .await
         .unwrap();
     assert!(matches!(
-        s.turn(t.account, battle, 0, Action::Strike, t, now()).await,
+        s.turn(t.account, battle, 0, Action::Strike, now()).await,
         Err(Error::Denied)
     ));
     WorldStore::new(db.pool.clone(), WorldOptions { enabled: true })
@@ -414,7 +423,7 @@ async fn postgres_collection_refusal_and_bad_input() {
         .await
         .unwrap();
     assert!(matches!(
-        s.cards(t.account, t.character, t, now()).await,
+        s.cards(t.account, t.character, now()).await,
         Err(Error::Denied)
     ));
     db.close().await;
@@ -498,7 +507,6 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
         db.pool.clone(),
         db.service.clone(),
         Flags { collection: true },
-        Ownership(Arc::new(db.trust.clone())),
         CsrfConfig::default(),
         Some(http::EvidenceSources {
             inventory: "items".into(),
@@ -561,14 +569,16 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
     publish_bestiary(&progress, &trust, &db.card, foreign.id, foreign_character).await;
     let app = router(
         db.pool.clone(),
-        db.service.clone(),
+        db.service
+            .clone()
+            .with_ownership(Ownership(Arc::new(trust))),
         Flags { collection: true },
-        Ownership(Arc::new(trust)),
         CsrfConfig {
             trusted_origins: vec!["https://portal.example.invalid".into()],
             ..CsrfConfig::default()
         },
     );
+    let mut deck_id = Uuid::nil();
     for (lang, label) in [("en", "Monster collection"), ("pl", "Kolekcja potworów")] {
         let response = app
             .clone()
@@ -604,8 +614,15 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
         assert!(html.contains(&csrf));
         assert!(html.contains("name=\"first\""));
         assert!(html.contains("initial-scale=1"));
+        let (_, value) = html.split_once("name=\"id\" value=\"").unwrap();
+        deck_id = value.split('"').next().unwrap().parse().unwrap();
+        assert_eq!(deck_id.get_version_num(), 7);
     }
     let path = format!("/en/collection/{}/decks", db.trust.character);
+    let save = format!(
+        "name=Deck&first={}&second=&third=&id={deck_id}&_csrf={csrf}",
+        db.card.id
+    );
     for (body, status) in [
         (
             format!("name=Deck&first={}", db.card.id),
@@ -619,10 +636,8 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
             format!("name=Deck&first={}&owner=bad&_csrf={csrf}", db.card.id),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
-        (
-            format!("name=Deck&first={}&second=&third=&_csrf={csrf}", db.card.id),
-            StatusCode::SEE_OTHER,
-        ),
+        (save.clone(), StatusCode::SEE_OTHER),
+        (save, StatusCode::SEE_OTHER),
     ] {
         let response = app
             .clone()
@@ -638,7 +653,10 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
             .unwrap();
         assert_eq!(response.status(), status);
     }
-    let deck = db.service.decks(db.trust.account).await.unwrap().remove(0);
+    let mut decks = db.service.decks(db.trust.account).await.unwrap();
+    assert_eq!(decks.len(), 1);
+    let deck = decks.remove(0);
+    assert_eq!(deck.id, deck_id);
     let response = app
         .clone()
         .oneshot(
@@ -833,7 +851,7 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
 }
 
 #[tokio::test]
-async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
+async fn postgres_only_visible_cards_count_towards_catalogue_limit() {
     let started = std::time::Instant::now();
     let db = Database::new().await.unwrap();
     let retired = Uuid::now_v7();
@@ -845,14 +863,19 @@ async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
         .unwrap();
     // One statement: the progress stream seeded by the fixture turns stale after ten
     // seconds, and a thousand round trips can exceed that on a loaded database.
-    let (ids, definitions): (Vec<Uuid>, Vec<serde_json::Value>) = (0..1000)
-        .map(|_| {
+    let (ids, definitions): (Vec<Uuid>, Vec<serde_json::Value>) = (0..2000)
+        .map(|i| {
             let mut c = db.card.clone();
             c.id = Uuid::now_v7();
-            c.world_version = retired;
+            if i < 1000 {
+                c.world_version = retired;
+            } else {
+                c.key = "not-published".into();
+            }
             (c.id, serde_json::to_value(c).unwrap())
         })
         .unzip();
+    let missing_sprite = ids[1000];
     sqlx::query("INSERT INTO collection_cards(id,definition,sprite) SELECT u.id,u.definition,c.sprite FROM UNNEST($1::uuid[],$2::jsonb[]) AS u(id,definition) CROSS JOIN (SELECT sprite FROM collection_cards WHERE id=$3) AS c")
         .bind(ids)
         .bind(definitions)
@@ -862,18 +885,36 @@ async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
         .unwrap();
     let cards = db
         .service
-        .cards(db.trust.account, db.trust.character, &db.trust, now())
+        .cards(db.trust.account, db.trust.character, now())
         .await
         .unwrap();
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].card.id, db.card.id);
+    assert!(matches!(
+        db.service
+            .sprite(db.trust.account, db.trust.character, missing_sprite, now())
+            .await,
+        Err(Error::Denied)
+    ));
     db.service
-        .save_deck(db.trust.account, db.deck(), &db.trust, now())
+        .save_deck(db.trust.account, db.deck(), now())
         .await
         .unwrap();
+    sqlx::query("UPDATE world_active_version SET version_id=NULL WHERE singleton")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for id in [db.card.id, missing_sprite] {
+        assert!(matches!(
+            db.service
+                .sprite(db.trust.account, db.trust.character, id, now())
+                .await,
+            Err(Error::Unavailable)
+        ));
+    }
     db.close().await;
     eprintln!(
-        "postgres_retired_catalogue_does_not_exhaust_active_limit duration={:?}",
+        "postgres_only_visible_cards_count_towards_catalogue_limit duration={:?}",
         started.elapsed()
     );
 }
@@ -884,15 +925,8 @@ async fn postgres_collection_rechecks_account_after_wait() {
     let account = db.trust.account;
     let deck = db.deck();
     let id = deck.id;
-    db.service
-        .save_deck(account, deck, &db.trust, now())
-        .await
-        .unwrap();
-    let battle = db
-        .service
-        .start(account, id, &db.trust, now())
-        .await
-        .unwrap();
+    db.service.save_deck(account, deck, now()).await.unwrap();
+    let battle = db.service.start(account, id, now()).await.unwrap();
     for operation in 0..5 {
         let mut suspension = db.pool.begin().await.unwrap();
         sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
@@ -907,18 +941,12 @@ async fn postgres_collection_rechecks_account_after_wait() {
                         let mut replacement = db.deck();
                         replacement.id = id;
                         replacement.name = "Changed".into();
-                        db.service
-                            .save_deck(account, replacement, &db.trust, now())
-                            .await
+                        db.service.save_deck(account, replacement, now()).await
                     }
-                    1 => db
-                        .service
-                        .start(account, id, &db.trust, now())
-                        .await
-                        .map(|_| ()),
+                    1 => db.service.start(account, id, now()).await.map(|_| ()),
                     2 => {
                         db.service
-                            .turn(account, battle, 0, Action::Strike, &db.trust, now())
+                            .turn(account, battle, 0, Action::Strike, now())
                             .await
                     }
                     3 => db.service.forfeit(account, battle).await.map(|_| ()),
@@ -952,11 +980,7 @@ async fn postgres_collection_rechecks_account_after_wait() {
     let decks = db.service.decks(account).await.unwrap();
     assert_eq!(decks.len(), 1);
     assert_eq!(decks[0].name, "My deck");
-    let state = db
-        .service
-        .battle(account, battle, &db.trust, now())
-        .await
-        .unwrap();
+    let state = db.service.battle(account, battle, now()).await.unwrap();
     assert_eq!(state.turn, 0);
     assert_eq!(state.outcome, Outcome::Active);
     db.close().await;
@@ -993,10 +1017,7 @@ async fn postgres_collection_rechecks_source_and_unlock_after_account_wait() {
         }
         let service = db.service.clone();
         let trust = db.trust.clone();
-        let save =
-            tokio::spawn(
-                async move { service.save_deck(trust.account, deck, &trust, now()).await },
-            );
+        let save = tokio::spawn(async move { service.save_deck(trust.account, deck, now()).await });
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
                 let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.wait_event_type='Lock' AND EXISTS(SELECT 1 FROM pg_locks l WHERE l.pid=a.pid AND l.relation='accounts'::regclass))").fetch_one(&db.pool).await.unwrap();
@@ -1021,4 +1042,210 @@ async fn postgres_collection_rechecks_source_and_unlock_after_account_wait() {
         "postgres_collection_rechecks_source_and_unlock_after_account_wait duration={:?}",
         started.elapsed()
     );
+}
+
+#[tokio::test]
+async fn postgres_journal_collection_completes_battle_from_published_progress() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::new().await else {
+        return;
+    };
+    let account = db.trust.account;
+    let character = db.trust.character;
+    let world = Uuid::now_v7();
+    let other = Uuid::now_v7();
+    let source = "synthetic:collection";
+    let service = Collection::with_journal(
+        db.pool.clone(),
+        WorldStore::new(db.pool.clone(), WorldOptions { enabled: true }),
+        Some(source.to_owned()),
+        Flags { collection: true },
+    );
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale)
+                 VALUES($1,'other@example.invalid','unused','active',now(),'en')",
+    )
+    .bind(other)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',
+                 source_authority=$1,complete_through=floor(extract(epoch FROM clock_timestamp()))::bigint,
+                 observed_at=floor(extract(epoch FROM clock_timestamp()))::bigint WHERE id=1")
+        .bind(source)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,
+                 projection_revision,source_observed_at,content_digest)
+                 VALUES($1,$2,'1','1',0,decode(repeat('00',32),'hex'))",
+    )
+    .bind(account)
+    .bind(source)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+                 VALUES($1,$2,$3,'Fox Keeper','AVAILABLE')",
+    )
+    .bind(account)
+    .bind(character)
+    .bind(world)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,
+                 from_projection_revision,to_projection_revision,projection_epoch,recovery_generation,accepted_at)
+                 VALUES($1,$2,$3,1,1,1,1,1,now()-interval '1 hour')")
+        .bind(character)
+        .bind(account)
+        .bind(world)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+    let deck = db.deck();
+    assert!(matches!(
+        service.cards(other, character, now()).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        service.save_deck(account, deck.clone(), now()).await,
+        Err(Error::Unavailable)
+    ));
+    let mut invalid = deck.clone();
+    invalid.cards.push(db.card.id);
+    assert!(matches!(
+        service.save_deck(account, invalid, now()).await,
+        Err(Error::BadInput)
+    ));
+
+    // Isolated reader fixture representing the receiver's committed cut.
+    let stream = format!("{}:{source}|36:{account}|1:1|8:bestiary", source.len());
+    let subject = format!("36:{character}|36:{world}|1:1|1:1|1:1");
+    let observed = now() as i64;
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "race_key": db.card.race_key,
+        "race_definition_revision": db.card.race_revision,
+        "kill_count": db.card.final_kill_threshold,
+        "final_kill_threshold": db.card.final_kill_threshold,
+        "charm_points_awarded": 0,
+    }))
+    .unwrap();
+    sqlx::query("INSERT INTO pd_streams(stream_key,authority,account_id,family,progress,highest_seen,
+                stored_through,applied_through,published_through,observed_ms,baseline_complete,watermark_recovery)
+                VALUES($1,$2,$3,'bestiary',true,1,1,1,0,$4,true,1)")
+        .bind(&stream)
+        .bind(source)
+        .bind(account.to_string())
+        .bind(observed)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,
+                 entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision)
+                 VALUES($1,1,$2,'',$3,$4,$5,$6,'UPSERT',$7,$7,decode(repeat('00',32),'hex'),$8,$7+60000,'1')")
+        .bind(&stream)
+        .bind(source)
+        .bind(Uuid::now_v7().to_string())
+        .bind(&db.card.race_key)
+        .bind(character.to_string())
+        .bind(subject)
+        .bind(observed)
+        .bind(payload)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+    let state = service.cards(account, character, now()).await.unwrap()[0].state;
+    assert_eq!(state, CardState::Unavailable);
+    sqlx::query("UPDATE pd_streams SET published_through=1 WHERE stream_key=$1")
+        .bind(&stream)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+
+    let state = service.cards(account, character, now()).await.unwrap()[0].state;
+    assert_eq!(state, CardState::Unlocked);
+    let id = deck.id;
+    service.save_deck(account, deck, now()).await.unwrap();
+    let battle = service.start(account, id, now()).await.unwrap();
+    assert!(matches!(
+        service.start(account, id, now()).await,
+        Err(Error::Conflict)
+    ));
+    assert!(matches!(
+        service
+            .turn(account, battle, 1, Action::Strike, now())
+            .await,
+        Err(Error::Conflict)
+    ));
+    for turn in 0..100 {
+        service
+            .turn(account, battle, turn, Action::Strike, now())
+            .await
+            .unwrap();
+        let state = service.battle(account, battle, now()).await.unwrap();
+        if state.outcome != Outcome::Active {
+            break;
+        }
+    }
+    let state = service.battle(account, battle, now()).await.unwrap();
+    assert_ne!(state.outcome, Outcome::Active);
+
+    // A retained expiry marker has no race key. New published evidence can
+    // establish a card again without using values from before that marker.
+    sqlx::query(
+        "INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,
+             entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision)
+         SELECT stream_key,2,authority,recovery_generation,uuidv7()::text,
+             '',NULL,scope_key,'REMOVE',0,0,digest,NULL,occurred_ms-1,ownership_revision
+         FROM pd_records WHERE stream_key=$1 AND source_revision=1",
+    )
+    .bind(&stream)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE pd_streams SET stored_through=2,applied_through=2,published_through=2,highest_seen=2 WHERE stream_key=$1")
+        .bind(&stream)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        service.cards(account, character, now()).await.unwrap()[0].state,
+        CardState::Unavailable
+    );
+    sqlx::query(
+        "INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,
+             entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision)
+         SELECT stream_key,3,authority,recovery_generation,uuidv7()::text,
+             entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision
+         FROM pd_records WHERE stream_key=$1 AND source_revision=1",
+    )
+    .bind(&stream)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE pd_streams SET stored_through=3,applied_through=3,published_through=3,highest_seen=3 WHERE stream_key=$1")
+        .bind(&stream)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        service.cards(account, character, now()).await.unwrap()[0].state,
+        CardState::Unlocked
+    );
+
+    sqlx::query("UPDATE pd_streams SET observed_ms=observed_ms-11000 WHERE stream_key=$1")
+        .bind(&stream)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        service.battle(account, battle, now()).await,
+        Err(Error::Unavailable)
+    ));
+    db.close().await;
 }

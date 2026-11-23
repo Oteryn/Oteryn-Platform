@@ -32,9 +32,9 @@ Publication is immutable and idempotent. A missing mapping is unavailable.
 
 `OTERYN_COLLECTION_ENABLED` and `OTERYN_WORLD_ENABLED` accept only exact `true`;
 both default off. Disabled collection mounts no routes. The separate journal
-read flag controls the character selector and private source availability view.
-Card unlocks still require a verified catalogue mapping and a configured progress
-store.
+read flag controls the character selector, private source availability view and
+G-11 card eligibility. Card unlocks require a published world card and a matching
+record in the current T72 bestiary cut.
 
 Every private card/deck/battle action requires an active verified account.
 Card unlocks are derived anew from complete fresh owner-only T77 progress with
@@ -95,6 +95,21 @@ a cancelled operation rolls back its transaction.
 view when `OTERYN_COLLECTION_ENABLED=true`. It uses the configured T72 G-10 and
 G-11 source authorities and displays the time of the completed inventory
 snapshot at the current custody cut and the account-wide bestiary watermark.
-Both sources display unavailable while the catalogue mapping remains a
+The bestiary data remains unavailable while its catalogue mapping is a
 candidate. Missing evidence has an unknown update time. The read flag defaults
-to off and the view performs only local PostgreSQL reads.
+to off and the journal adapter performs only local PostgreSQL reads. Operators
+with `admin.access`, `game.world.admin` and a current MFA grant can see the
+collection readiness summary on the landing page.
+
+Before enabling Collection for players, qualify authenticated LCFA and G-11
+bestiary delivery for the target runtime. Cover complete baselines, corrections,
+transfers, replay and restore. Configure the confirmed source with
+`PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY`, approve the revision-bound
+bestiary and appearance mappings, and publish verified cards and sprites through
+the trusted Platform publisher. The bestiary receiver still awaits mapping
+approval. Qualify the complete unlock, deck and battle flow using two accounts,
+including foreign-account refusal and the read flag disabled.
+
+The Rust integration test uses a synthetic published cut to verify eligibility,
+deck save and a terminal battle. The browser spec covers the owner and operator
+flows while mapping approval is pending.
