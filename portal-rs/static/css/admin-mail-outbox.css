@@ -1,0 +1,28 @@
+.mail-outbox {
+  width: min(100%, 78rem);
+  margin-inline: auto;
+  padding: var(--op-space-4);
+}
+
+.mail-outbox :where(h1, h2, h3, p) { margin: 0; }
+
+.mail-counts,
+.mail-filter-grid,
+.mail-outbox .mail-job-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr));
+  gap: var(--op-space-4);
+  min-width: 0;
+}
+
+.mail-counts {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.mail-counts dl { grid-template-columns: minmax(0, 1fr) auto; }
+.mail-counts dd { font-variant-numeric: tabular-nums; }
+.mail-outbox .op-input { min-width: 0; width: 100%; }
+.mail-job-meta dt { color: var(--op-muted); }
+.mail-job-meta dd { overflow-wrap: anywhere; }
