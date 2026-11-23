@@ -21,7 +21,7 @@ pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, request: Request, next: Next) -> Response {
-    with_chrome(shell, request, next, |_| {}).await
+    with_chrome(shell, request, next, None, |_| {}).await
 }
 
 /// Customize the rendered navigation before any handler extracts the shared shell.
@@ -29,9 +29,11 @@ pub async fn with_chrome(
     shell: Shell,
     mut request: Request,
     next: Next,
+    language: Option<crate::surface::Language>,
     customize: impl FnOnce(&mut oteryn_ui::Chrome),
 ) -> Response {
-    let lang = crate::surface::path_language(request.uri().path())
+    let lang = language
+        .or_else(|| crate::surface::path_language(request.uri().path()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
@@ -57,14 +59,7 @@ pub async fn with_chrome(
     let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
     customize(&mut chrome);
     request.extensions_mut().insert(chrome.clone());
-    let browser = request.method() == axum::http::Method::GET
-        && !request.uri().path().starts_with("/api/")
-        && !request.uri().path().starts_with("/internal/")
-        && request
-            .headers()
-            .get(header::ACCEPT)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.contains("text/html"));
+    let browser = accepts_html(&request);
     let mut response = next.run(request).await;
     if browser && (response.status().is_client_error() || response.status().is_server_error()) {
         let html = response
@@ -136,6 +131,18 @@ pub async fn with_chrome(
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+/// Whether this request expects the shared browser document.
+pub fn accepts_html(request: &Request) -> bool {
+    request.method() == axum::http::Method::GET
+        && !request.uri().path().starts_with("/api/")
+        && !request.uri().path().starts_with("/internal/")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"))
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit

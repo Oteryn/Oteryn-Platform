@@ -58,6 +58,23 @@ async fn editorial_discovery_lifecycle() -> crate::last_wait_tests::TestResult {
         title_en: "Editorial calendar".into(),
         ..Settings::default()
     };
+    let start_page: Uuid = sqlx::query_scalar(
+        "INSERT INTO pages (id, slug) VALUES (uuidv7(), 'getting-started') RETURNING id",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(matches!(
+        save(
+            &db.pool,
+            &auth,
+            db.context,
+            Kind::Pages,
+            start_page,
+            &Settings::default()
+        )
+        .await,
+        Err(Error::Missing)
+    ));
     assert!(matches!(
         save(&db.pool, &auth, db.context, Kind::News, draft, &settings).await,
         Err(Error::Unpublished)
@@ -170,5 +187,46 @@ async fn editorial_discovery_lifecycle() -> crate::last_wait_tests::TestResult {
             .fetch_one(&db.pool)
             .await?;
     assert!(!retained);
+    db.close().await
+}
+
+#[tokio::test]
+async fn sitemap_splits_large_catalogues() -> crate::last_wait_tests::TestResult {
+    use oteryn_web::seo::EditorialSitemap;
+
+    if std::env::var_os("PORTAL_TEST_DATABASE_URL").is_none() {
+        return Ok(());
+    }
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = crate::last_wait_tests::TestDb::open().await?;
+    sqlx::query(
+        "INSERT INTO news(slug,title,body,published_at)
+         SELECT 'discovery-' || n, 'News', 'Body', now() FROM generate_series(1,1001) n",
+    )
+    .execute(&db.pool)
+    .await?;
+    assert!(matches!(
+        super::public::sitemap(&db.pool, None).await,
+        Ok(EditorialSitemap::Index(2))
+    ));
+    let first = super::public::sitemap(&db.pool, Some(1)).await;
+    let second = super::public::sitemap(&db.pool, Some(2)).await;
+    match (first, second) {
+        (
+            Ok(EditorialSitemap::Pages {
+                rows: first,
+                include_static: true,
+            }),
+            Ok(EditorialSitemap::Pages {
+                rows: second,
+                include_static: false,
+            }),
+        ) => {
+            assert_eq!(first.len(), 1_000);
+            assert_eq!(second.len(), 1);
+            assert!(first.iter().all(|row| row.en != second[0].en));
+        }
+        result => return Err(format!("unexpected sitemap documents: {result:?}").into()),
+    }
     db.close().await
 }

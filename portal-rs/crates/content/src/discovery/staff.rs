@@ -2,7 +2,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -47,7 +47,7 @@ impl Kind {
     fn lock_query(self) -> &'static str {
         match self {
             Self::Pages => {
-                "SELECT pg_advisory_xact_lock(hashtextextended(slug,71102)) FROM pages WHERE id=$1"
+                "SELECT pg_advisory_xact_lock(hashtextextended(slug,71102)) FROM pages WHERE id=$1 AND slug<>'getting-started'"
             }
             Self::News => "SELECT 1 FROM news WHERE id=$1 FOR UPDATE",
             Self::Events => "SELECT 1 FROM events WHERE id=$1 FOR UPDATE",
@@ -58,7 +58,7 @@ impl Kind {
         match self {
             Self::Pages => "SELECT slug, coalesce(
                 (SELECT title FROM editorial_pages WHERE page_id=p.id ORDER BY (locale=$2) DESC LIMIT 1), slug)
-                FROM pages p WHERE id=$1",
+                FROM pages p WHERE id=$1 AND slug<>'getting-started'",
             Self::News => "SELECT '', CASE WHEN $2='pl' THEN coalesce(title_pl, title) ELSE title END FROM news WHERE id=$1",
             Self::Events => "SELECT '', title FROM event_translations WHERE event_id=$1 ORDER BY (locale=$2) DESC LIMIT 1",
             Self::Announcements => "SELECT '', CASE WHEN $2='pl' THEN coalesce(title_pl, title) ELSE title END FROM announcements WHERE id=$1",
@@ -325,22 +325,12 @@ struct Locale {
     saved: Option<String>,
 }
 impl Locale {
-    fn language(&self, headers: &HeaderMap) -> Result<&'static str, StatusCode> {
+    fn language(&self, chrome: &oteryn_ui::Chrome) -> Result<&'static str, StatusCode> {
         match self.lang.as_deref() {
             Some("pl") => Ok("pl"),
             Some("en") => Ok("en"),
             Some(_) => Err(StatusCode::BAD_REQUEST),
-            None => Ok(
-                if headers
-                    .get(header::ACCEPT_LANGUAGE)
-                    .and_then(|h| h.to_str().ok())
-                    .is_some_and(|s| s.starts_with("en"))
-                {
-                    "en"
-                } else {
-                    "pl"
-                },
-            ),
+            None => Ok(if chrome.lang == "en" { "en" } else { "pl" }),
         }
     }
 }
@@ -408,15 +398,28 @@ impl Target {
 async fn edit(
     State(pool): State<PgPool>,
     Extension(kind): Extension<Kind>,
-    Extension(session): Extension<BrowserSession>,
+    (Extension(context), Extension(auth), Extension(session)): (
+        Extension<CheckContext>,
+        Extension<MutationAuthorization>,
+        Extension<BrowserSession>,
+    ),
     Path(id): Path<Uuid>,
     Query(query): Query<Locale>,
-    headers: HeaderMap,
+    Extension(chrome): Extension<oteryn_ui::Chrome>,
 ) -> Result<Response, StatusCode> {
+    if matches!(kind, Kind::Events) {
+        let mut connection = pool
+            .acquire()
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        auth.check(&mut connection, context, Permission::PublishEvents)
+            .await
+            .map_err(|error| Error::Authorization(error).status())?;
+    }
     let target = Target {
         kind,
         id,
-        lang: query.language(&headers)?,
+        lang: query.language(&chrome)?,
     };
     let settings = load(&pool, kind, id)
         .await
@@ -441,13 +444,13 @@ async fn update(
     ),
     Path(id): Path<Uuid>,
     Query(query): Query<Locale>,
-    headers: HeaderMap,
+    Extension(chrome): Extension<oteryn_ui::Chrome>,
     Form(settings): Form<Settings>,
 ) -> Result<Response, StatusCode> {
     let target = Target {
         kind,
         id,
-        lang: query.language(&headers)?,
+        lang: query.language(&chrome)?,
     };
     match save(&pool, &auth, context, kind, id, &settings).await {
         Ok(()) => Ok(

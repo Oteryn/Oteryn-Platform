@@ -40,11 +40,11 @@
       <label for="title_pl">{{ self.text("discovery-title-pl") }}</label>
       <input class="op-input" id="title_pl" name="title_pl" lang="pl" maxlength="200" value="{{ settings.title_pl }}">
       <label for="description_pl">{{ self.text("discovery-description-pl") }}</label>
-      <textarea class="op-input" id="description_pl" name="description_pl" lang="pl" maxlength="320" rows="2">{{ settings.description_pl }}</textarea>
+      <input class="op-input" id="description_pl" name="description_pl" lang="pl" maxlength="320" value="{{ settings.description_pl }}">
       <label for="title_en">{{ self.text("discovery-title-en") }}</label>
       <input class="op-input" id="title_en" name="title_en" lang="en" maxlength="200" value="{{ settings.title_en }}">
       <label for="description_en">{{ self.text("discovery-description-en") }}</label>
-      <textarea class="op-input" id="description_en" name="description_en" lang="en" maxlength="320" rows="2">{{ settings.description_en }}</textarea>
+      <input class="op-input" id="description_en" name="description_en" lang="en" maxlength="320" value="{{ settings.description_en }}">
       <button class="op-button" type="submit">{{ self.text("discovery-save") }}</button>
     </form>
   </main>

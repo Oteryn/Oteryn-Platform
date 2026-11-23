@@ -164,7 +164,6 @@ body.op-shell a.skip:focus {
   letter-spacing: .115em;
 }
 .om-heading::before { content: ""; width: 13px; height: 1px; background: var(--gilt-edge); }
-.om-editorial a { overflow-wrap: anywhere; }
 .om-column ul { list-style: none; margin: 0; padding: 0; }
 .om-column a {
   position: relative;

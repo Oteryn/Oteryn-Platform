@@ -24,7 +24,13 @@ pub struct SitemapPage {
 
 /// Publication data provided by the editorial module at request time.
 #[derive(Clone, Debug)]
-pub struct EditorialSitemap(pub Vec<SitemapPage>);
+pub enum EditorialSitemap {
+    Pages {
+        rows: Vec<SitemapPage>,
+        include_static: bool,
+    },
+    Index(usize),
+}
 
 fn valid_date(value: &str) -> bool {
     let date = value.as_bytes();
@@ -125,14 +131,16 @@ impl Seo {
         )
     }
     pub fn sitemap(&self) -> String {
-        self.sitemap_with(&[])
+        self.sitemap_with(&[], true)
     }
-    fn sitemap_with(&self, editorial: &[SitemapPage]) -> String {
+    fn sitemap_with(&self, editorial: &[SitemapPage], include_static: bool) -> String {
         let mut xml = String::from(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">",
         );
-        for entry in &self.entries {
-            self.write_pages(&mut xml, Some(&entry.pl), Some(&entry.en), &entry.lastmod);
+        if include_static {
+            for entry in &self.entries {
+                self.write_pages(&mut xml, Some(&entry.pl), Some(&entry.en), &entry.lastmod);
+            }
         }
         for entry in editorial {
             self.write_pages(
@@ -143,6 +151,19 @@ impl Seo {
             );
         }
         xml.push_str("</urlset>");
+        xml
+    }
+    fn sitemap_index(&self, pages: usize) -> String {
+        let origin = escape(&self.origin);
+        let mut xml = String::from(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?><sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">",
+        );
+        for page in 1..=pages {
+            xml.push_str(&format!(
+                "<sitemap><loc>{origin}/sitemap.xml?page={page}</loc></sitemap>"
+            ));
+        }
+        xml.push_str("</sitemapindex>");
         xml
     }
     fn write_pages(&self, xml: &mut String, pl: Option<&str>, en: Option<&str>, lastmod: &str) {
@@ -189,11 +210,16 @@ pub fn router(config: Seo) -> Router {
                             (header::CONTENT_TYPE, "application/xml; charset=utf-8"),
                             (header::CACHE_CONTROL, "no-cache"),
                         ],
-                        s.sitemap_with(
-                            dynamic
-                                .as_ref()
-                                .map_or(&[], |Extension(entries)| &entries.0),
-                        ),
+                        match dynamic {
+                            Some(Extension(EditorialSitemap::Pages {
+                                rows,
+                                include_static,
+                            })) => s.sitemap_with(&rows, include_static),
+                            Some(Extension(EditorialSitemap::Index(pages))) => {
+                                s.sitemap_index(pages)
+                            }
+                            None => s.sitemap(),
+                        },
                     )
                 },
             ),

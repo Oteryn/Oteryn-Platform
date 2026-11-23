@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto';
 import {test, expect} from '../fixtures.mjs';
 import {submit} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {seededStaff} from '../staff-rbac-helpers.mjs';
+import {query, seededStaff} from '../staff-rbac-helpers.mjs';
 
 const form = 'main form[data-discovery]';
 
@@ -25,7 +25,13 @@ test('staff place a published editorial document in both menus and the sitemap',
   const position = ['pl-1440', 'pl-390', 'en-1440', 'en-390'].indexOf(info.project.name) + 1;
   const key = `calendar-${randomUUID()}`;
   const paths = {en: `/en/events/${key}-en`, pl: `/pl/events/${key}-pl`};
-  await seededStaff(page, locale, 'platform_admin');
+  const role = key.replaceAll('-', '_');
+  await query('INSERT INTO roles(key) VALUES ($1)', [role]);
+  await query(
+    "INSERT INTO role_permissions(role_id, permission) SELECT id, unnest(ARRAY['admin.access', 'portal.access', 'events.manage', 'events.publish']) FROM roles WHERE key=$1",
+    [role],
+  );
+  await seededStaff(page, locale, role);
   await page.goto('/admin/events/create');
   await submit(page, 'main form', {
     starts_at: new Date(Date.now() - 3_600_000).toISOString().slice(0, 16),
@@ -59,6 +65,10 @@ test('staff place a published editorial document in both menus and the sitemap',
       expect((await visitor.request.get(path)).status()).toBe(404);
       expect(await sitemap()).not.toContain(path);
     }
+    for (const invalid of ['0', '50001', 'abc']) {
+      expect((await visitor.request.get(`/sitemap.xml?page=${invalid}`)).status()).toBe(400);
+    }
+    expect((await visitor.request.get('/sitemap.xml?page=50000')).status()).toBe(404);
     const refused = page.waitForResponse(r => new URL(r.url()).pathname === discovery && r.request().method() === 'POST' && r.status() !== 403);
     await configure(page, key, position);
     expect((await refused).status()).toBe(409);
@@ -102,7 +112,19 @@ test('staff place a published editorial document in both menus and the sitemap',
     await expect(page).toHaveURL(/[?&]saved=1$/);
     await visitor.reload();
     await expect(visitor.locator('meta[name=robots]')).toHaveAttribute('content', 'noindex');
-    for (const path of Object.values(paths)) expect(await sitemap()).not.toContain(path);
+    for (const path of Object.values(paths)) {
+      expect(await sitemap()).not.toContain(path);
+      const lang = path.split('/')[1];
+      const alias = path.replace(`/${lang}/`, `/%${lang.charCodeAt(0).toString(16)}${lang[1]}/`)
+        .replace('/events/calendar-', '/events/%63alendar-');
+      const aliasResponse = await visitor.request.get(alias);
+      expect(aliasResponse.status()).toBe(200);
+      expect(aliasResponse.headers()['x-robots-tag']).toBe('noindex');
+      expect(aliasResponse.headers()['content-language']).toBe(lang);
+      const canonical = await visitor.goto(alias);
+      expect(canonical.status()).toBe(200);
+      await expect(visitor.locator('link[rel=canonical]')).toHaveAttribute('href', origin + path);
+    }
 
     await page.goto(edit);
     await page.locator('main form[action$="/status"] select[name=status]').selectOption('archived');
@@ -115,6 +137,14 @@ test('staff place a published editorial document in both menus and the sitemap',
     await page.locator(`${form} select[name=placement]`).selectOption('');
     await submit(page, form);
     await expect(page).toHaveURL(/\?lang=[a-z]+&saved=1$/);
+
+    await query(
+      "DELETE FROM role_permissions USING roles WHERE role_id=roles.id AND roles.key=$1 AND permission='events.publish'",
+      [role],
+    );
+    expect((await page.goto(edit)).status()).toBe(200);
+    await expect(page.locator('main a[href^="/admin/discovery/events/"]')).toHaveCount(0);
+    expect((await page.request.get(discovery)).status()).toBe(403);
   } finally {
     await context.close();
   }
@@ -131,12 +161,22 @@ test('i18n-parity for discovery controls and feedback', async ({page}, info) => 
   for (const lang of ['pl', 'en']) {
     await page.goto(`${settings}?lang=${lang}`);
     await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Menu i wyszukiwarki' : 'Menu and search engines');
+    const other = lang === 'pl' ? 'en' : 'pl';
+    await expect(page.locator(`footer a[hreflang=${other}]`)).toHaveAttribute('href', `${settings}?lang=${other}`);
     await expect(page.locator(`${form} label`)).toHaveCount(10);
     for (const label of await page.locator(`${form} label`).all()) {
       await expect(label).not.toHaveText('');
       const field = await label.getAttribute('for');
       await expect(page.locator(`${form} #${field}`)).toBeVisible();
     }
+    const {action, fields} = await page.locator(form).evaluate(element => ({
+      action: element.action, fields: Object.fromEntries(new FormData(element)),
+    }));
+    const invalid = await page.request.post(action, {
+      form: {...fields, menu_position: '9'}, headers: {origin: new URL(page.url()).origin},
+    });
+    expect(invalid.status()).toBe(422);
+    expect(await invalid.text()).toContain(lang === 'pl' ? 'Sprawdź' : 'Check');
     await submit(page, form);
     await expect(page.getByRole('status')).toHaveText(lang === 'pl' ? 'Zapisano ustawienia.' : 'Settings saved.');
     await assertShell(page);
