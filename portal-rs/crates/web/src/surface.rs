@@ -2,7 +2,7 @@
 
 use axum::{
     Router,
-    body::Body,
+    body::{Body, HttpBody},
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -473,6 +473,12 @@ async fn policy(mut request: Request, next: Next) -> Response {
         crate::chrome::ensure_no_store(headers);
     }
     if is_head {
+        if let Some(length) = response.body().size_hint().exact().filter(|&size| size > 0) {
+            response
+                .headers_mut()
+                .entry(header::CONTENT_LENGTH)
+                .or_insert(HeaderValue::from(length));
+        }
         *response.body_mut() = Body::empty();
     }
     response
