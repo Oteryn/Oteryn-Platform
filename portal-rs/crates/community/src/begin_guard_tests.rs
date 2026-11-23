@@ -36,7 +36,7 @@ const EXEMPT: &[(&str, usize, &str)] = &[
     ),
     (
         "party.rs",
-        4,
+        3,
         "active_in arms mutation_budget before any lock",
     ),
     (

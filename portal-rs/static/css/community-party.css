@@ -1,0 +1,7 @@
+.op-party :is(h3, p) {
+  overflow-wrap: anywhere;
+}
+
+.op-party__note {
+  white-space: pre-wrap;
+}

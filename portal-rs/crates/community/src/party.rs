@@ -1,5 +1,4 @@
-//! Recruitment board. PORTAL_PARTY_ENABLED=true enables reads; mutations additionally
-//! require a trusted dependency adapter. The unavailable default never grants access.
+//! Platform recruitment board behind PORTAL_PARTY_ENABLED (off by default).
 //! Routes: /{pl|en}/party; the staff queue lives at /admin/{pl|en}/party.
 //! Browser origins use OTERYN_PUBLIC_ORIGIN, as in the main server.
 //! No game command is sent: contact is exclusively through the character's in-game name.
@@ -107,9 +106,19 @@ impl Authority for ProductionAuthority {
 
     fn moderator(&self, account: Uuid) -> CheckFuture<'_, ()> {
         Box::pin(async move {
-            let mut tx = self.db.begin().await.ok()?;
-            self.moderator_in(&mut tx, account).await?;
-            tx.commit().await.ok()?;
+            self.active(account).await?;
+            // Queue reads run behind the staff MFA guard. Mutation authority
+            // comes from that guard's context/proof on the caller transaction.
+            let identity = oteryn_admin::web::PortalIdentity::configured(self.db.clone());
+            let auth = oteryn_admin::rbac::Authorizer::new(self.db.clone(), identity);
+            let mut context = oteryn_admin::rbac::CheckContext::new(account);
+            context.mfa_verified = true;
+            for permission in [
+                oteryn_admin::rbac::Permission::Access,
+                oteryn_admin::rbac::Permission::ManageSupportReports,
+            ] {
+                auth.check(context, permission).await.ok()?;
+            }
             Some(())
         })
     }
@@ -199,28 +208,6 @@ impl Authority for ProductionAuthority {
             })
         })
     }
-    fn moderator_in<'a>(
-        &'a self,
-        tx: &'a mut sqlx::PgConnection,
-        account: Uuid,
-    ) -> CheckFuture<'a, ()> {
-        Box::pin(async move {
-            self.active_in(tx, account).await?;
-            // Queue reads run behind the staff MFA guard. Mutation authority
-            // comes from that guard's context/proof on the caller transaction.
-            let identity = oteryn_admin::web::PortalIdentity::configured(self.db.clone());
-            let auth = oteryn_admin::rbac::Authorizer::new(self.db.clone(), identity);
-            let mut context = oteryn_admin::rbac::CheckContext::new(account);
-            context.mfa_verified = true;
-            for permission in [
-                oteryn_admin::rbac::Permission::Access,
-                oteryn_admin::rbac::Permission::ManageSupportReports,
-            ] {
-                auth.check(context, permission).await.ok()?;
-            }
-            Some(())
-        })
-    }
 }
 #[derive(Clone, Debug)]
 pub struct Board {
@@ -299,11 +286,30 @@ pub fn router(board: Board, enabled: bool) -> Router {
 #[derive(Debug, Deserialize, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct Filter {
+    #[serde(deserialize_with = "optional_filter")]
     pub world: Option<Uuid>,
+    #[serde(deserialize_with = "optional_filter")]
     pub purpose: Option<String>,
+    #[serde(deserialize_with = "optional_filter")]
     pub level: Option<i32>,
+    #[serde(deserialize_with = "optional_filter")]
     pub profession: Option<String>,
 }
+fn optional_filter<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: std::str::FromStr,
+{
+    let value = String::deserialize(deserializer)?;
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse()
+        .map(Some)
+        .map_err(|_| serde::de::Error::custom("invalid recruitment filter"))
+}
+
 fn profession(value: &str) -> bool {
     matches!(
         value,
@@ -329,12 +335,27 @@ pub struct Draft {
     pub min_level: i32,
     pub max_level: i32,
     pub profession: String,
+    #[serde(deserialize_with = "utc_time")]
     pub starts_at: i64,
+    #[serde(deserialize_with = "utc_time")]
     pub expires_at: i64,
     pub note: String,
     #[serde(rename = "_csrf")]
     pub csrf: Option<String>,
 }
+// The browser submits datetime-local values labelled UTC. Existing callers
+// can continue to submit Unix seconds.
+fn utc_time<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i64, D::Error> {
+    let value = String::deserialize(deserializer)?;
+    if let Ok(seconds) = value.parse() {
+        return Ok(seconds);
+    }
+    let format = time::macros::format_description!("[year]-[month]-[day]T[hour]:[minute]");
+    time::PrimitiveDateTime::parse(&value, format)
+        .map(|date| date.assume_utc().unix_timestamp())
+        .map_err(serde::de::Error::custom)
+}
+
 impl Draft {
     fn valid(&self, now: i64) -> bool {
         !self.character.is_nil()
@@ -345,9 +366,22 @@ impl Draft {
             && self.starts_at >= now
             && self.expires_at > self.starts_at
             && self.expires_at <= now.saturating_add(7 * 86400)
-            && text(&self.note, 0, 500)
+            && !self.note.trim().is_empty()
+            && self.note.chars().count() <= 500
+            && self
+                .note
+                .chars()
+                .all(|c| !c.is_control() || matches!(c, '\r' | '\n'))
     }
 }
+fn valid_character(character: &Character) -> bool {
+    !character.world.is_nil()
+        && text(&character.name, 1, 64)
+        && (1..=100000).contains(&character.level)
+        && profession(&character.profession)
+        && character.profession != "any"
+}
+
 fn text(value: &str, min: usize, max: usize) -> bool {
     (min..=max).contains(&value.trim().chars().count())
         && value.chars().count() <= max
@@ -413,13 +447,31 @@ async fn page(
 ) -> Result<Response, Error> {
     language(&lang)?;
     let rows = board.list(&filter).await?;
-    let token = session.csrf_token().await?;
+    let actor = account(&board, &session).await.ok();
+    let mut public = party_view::PublicPage {
+        worlds: board.worlds().await?,
+        filter,
+        actor,
+        ..Default::default()
+    };
+    if let Some(actor) = actor {
+        public.characters = board.characters(actor).await?;
+        public.owned = board.owned(actor).await?;
+        public.can_report = rows.iter().any(|row| row.owner != actor)
+            && board.authority.reporting_allowed(actor).await.is_some();
+        if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
+            && let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
+            && let Ok(host) = host.parse::<axum::http::uri::Authority>()
+            && board.authority.moderator(actor).await.is_some()
+        {
+            public.staff_url = Some(format!("https://{host}/admin/{lang}/party"));
+        }
+    }
     party_view::page(
         &lang,
-        &token,
+        &session.csrf_token().await?,
         rows,
-        false,
-        account(&board, &session).await.is_ok(),
+        party_view::View::Public(public),
     )
 }
 async fn create(
@@ -474,7 +526,12 @@ async fn moderation(
         .await
         .ok_or(Error::Denied)?;
     let rows = board.reports().await?;
-    party_view::page(&lang, &session.csrf_token().await?, rows, true, false)
+    party_view::page(
+        &lang,
+        &session.csrf_token().await?,
+        rows,
+        party_view::View::Staff(board.feed_status().await?),
+    )
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
