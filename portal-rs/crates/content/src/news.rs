@@ -10,6 +10,7 @@ use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{CheckContext, MutationAuthorization, Permission},
 };
+use oteryn_web::ratelimit::{self, PublicGameData, RateLimit, RateLimiter};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use serde_json::json;
@@ -108,9 +109,9 @@ enum Kind {
 #[derive(Debug, Default, Deserialize)]
 struct Input {
     #[serde(default)]
-    kind: Kind,
+    kind: Option<Kind>,
     #[serde(default)]
-    tags: String,
+    tags: Option<String>,
     #[serde(default)]
     expected_revision: String,
     slug: String,
@@ -171,13 +172,23 @@ pub fn public_router(pool: PgPool) -> Router {
 }
 
 fn public_router_at(pool: PgPool, origin: &str) -> Router {
-    Router::new()
+    let archive = Router::new()
         .route("/news", get(public::index))
-        .route("/news/{slug}", get(show))
         .route("/{lang}/news", get(public::local_index))
-        .route("/{lang}/news/{slug}", get(local_show))
         .route("/{lang}/news/rss.xml", get(public::rss))
         .route("/{lang}/changelog", get(public::changelog))
+        .route_layer(axum::middleware::from_fn(
+            |_: RateLimit<PublicGameData>, request, next: axum::middleware::Next| async move {
+                next.run(request).await
+            },
+        ))
+        .route_layer(axum::middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            ratelimit::supply,
+        ));
+    archive
+        .route("/news/{slug}", get(show))
+        .route("/{lang}/news/{slug}", get(local_show))
         .with_state(pool)
         .layer(Extension(public::FeedOrigin(
             origin.trim_end_matches('/').to_owned(),
@@ -372,12 +383,12 @@ async fn edit(
         q.lang(),
         Some(id),
         Input {
-            kind: if row.get("is_changelog") {
+            kind: Some(if row.get("is_changelog") {
                 Kind::Changelog
             } else {
                 Kind::News
-            },
-            tags: row.get::<Vec<String>, _>("tags").join(", "),
+            }),
+            tags: Some(row.get::<Vec<String>, _>("tags").join(", ")),
             expected_revision: row.get("expected_revision"),
             slug: row.get("slug"),
             title: row.get("title"),
@@ -403,7 +414,7 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
         "<input type=\"hidden\" name=\"expected_revision\" value=\"{}\">",
         escape(&input.expected_revision)
     ));
-    let (news_selected, changelog_selected) = match input.kind {
+    let (news_selected, changelog_selected) = match input.kind.unwrap_or_default() {
         Kind::News => (" selected", ""),
         Kind::Changelog => ("", " selected"),
     };
@@ -417,7 +428,7 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
         label(lang, "news"),
         label(lang, "changelog"),
         label(lang, "tags"),
-        escape(&input.tags),
+        escape(input.tags.as_deref().unwrap_or_default()),
         label(lang, "tags-help"),
     ));
     let expected_revision = input.expected_revision.clone();
@@ -503,8 +514,8 @@ async fn save(
     if !input.valid() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let tags = parse_tags(&input.tags)?;
-    let is_changelog = matches!(input.kind, Kind::Changelog);
+    let tags = input.tags.as_deref().map(parse_tags).transpose()?;
+    let is_changelog = input.kind.map(|kind| matches!(kind, Kind::Changelog));
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
@@ -554,8 +565,8 @@ async fn save(
     } else {
         "cms.news_created"
     };
-    let id: Uuid = if let Some(id) = id {
-        sqlx::query_scalar(
+    let (id, is_changelog, tags): (Uuid, bool, Vec<String>) = if let Some(id) = id {
+        sqlx::query_as(
             "WITH revision AS MATERIALIZED (
                 SELECT greatest(clock_timestamp(), updated_at + interval '1 microsecond') AS stamp
                   FROM news WHERE id=$1
@@ -572,8 +583,9 @@ async fn save(
                            (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision)
                        WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision)
                        ELSE NULL END,
-                   is_changelog=$9, tags=$10, updated_at=(SELECT stamp FROM revision)
-             WHERE id=$1 RETURNING id",
+                   is_changelog=coalesce($9,is_changelog), tags=coalesce($10,tags),
+                   updated_at=(SELECT stamp FROM revision)
+             WHERE id=$1 RETURNING id,is_changelog,tags",
         )
         .bind(id)
         .bind(&input.slug)
@@ -590,11 +602,11 @@ async fn save(
         .map_err(storage)?
         .ok_or(StatusCode::NOT_FOUND)?
     } else {
-        sqlx::query_scalar(
+        sqlx::query_as(
             "INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,
                               translation_source_updated_at,is_changelog,tags)
              VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),
-                    NULLIF($7,'')::timestamptz,now(),$8,$9) RETURNING id",
+                    NULLIF($7,'')::timestamptz,now(),$8,$9) RETURNING id,is_changelog,tags",
         )
         .bind(&input.slug)
         .bind(&input.title)
@@ -603,8 +615,8 @@ async fn save(
         .bind(&input.title_pl)
         .bind(&input.body_pl)
         .bind(&input.translation_published_at)
-        .bind(is_changelog)
-        .bind(&tags)
+        .bind(is_changelog.unwrap_or_default())
+        .bind(tags.unwrap_or_default())
         .fetch_one(&mut *tx)
         .await
         .map_err(storage)?

@@ -87,9 +87,9 @@ struct Entry {
     slug: String,
     title: String,
     excerpt: String,
-    day: String,
+    day: Option<String>,
     display_date: String,
-    rss_date: String,
+    rss_date: Option<String>,
     tags: Vec<String>,
 }
 
@@ -105,8 +105,10 @@ async fn entries(
         "SELECT id, slug, tags,
                 CASE WHEN $1='pl' THEN title_pl ELSE title END AS local_title,
                 CASE WHEN $1='pl' THEN body_pl ELSE body END AS local_body,
-                to_char(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
-                to_char(published_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') AS rss_date
+                CASE WHEN published_at >= TIMESTAMPTZ '0001-01-01 00:00:00+00'
+                     THEN to_char(published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') END AS day,
+                CASE WHEN published_at >= TIMESTAMPTZ '0001-01-01 00:00:00+00'
+                     THEN to_char(published_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') END AS rss_date
            FROM news
           WHERE is_changelog=$2 AND published_at<=now()
             AND ($1='en' OR (translation_published_at<=now()
@@ -128,13 +130,13 @@ async fn entries(
     .bind(limit)
     .bind(offset)
     .try_map(|row| {
-        let day: String = row.try_get("day")?;
+        let day: Option<String> = row.try_get("day")?;
         Ok(Entry {
             id: row.try_get("id")?,
             slug: row.try_get("slug")?,
             title: row.try_get("local_title")?,
             excerpt: excerpt(row.try_get("local_body")?, 200),
-            display_date: display_date(lang, &day),
+            display_date: day.as_deref().map(|date| display_date(lang, date)).unwrap_or_default(),
             day,
             rss_date: row.try_get("rss_date")?,
             tags: row.try_get("tags")?,
@@ -300,13 +302,15 @@ pub(super) async fn rss(
     for item in items {
         let _ = write!(
             feed,
-            "<item><title>{}</title><link>{channel}/{}</link><guid isPermaLink=\"false\">urn:uuid:{}</guid><pubDate>{} +0000</pubDate><description>{}</description>",
+            "<item><title>{}</title><link>{channel}/{}</link><guid isPermaLink=\"false\">urn:uuid:{}</guid><description>{}</description>",
             xml(&item.title),
             xml(&item.slug),
             item.id,
-            item.rss_date,
             xml(&escape(&item.excerpt)),
         );
+        if let Some(date) = item.rss_date {
+            let _ = write!(feed, "<pubDate>{date} +0000</pubDate>");
+        }
         for tag in item.tags {
             let _ = write!(feed, "<category>{}</category>", xml(&tag));
         }

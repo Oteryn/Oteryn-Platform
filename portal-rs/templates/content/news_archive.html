@@ -56,7 +56,9 @@
   {% for entry in entries %}
   <article class="op-panel op-stack">
     <h2><a href="/{{ lang }}/news/{{ entry.slug }}">{{ entry.title }}</a></h2>
-    <time datetime="{{ entry.day }}">{{ entry.display_date }}</time>
+    {% if let Some(day) = entry.day %}
+    <time datetime="{{ day }}">{{ entry.display_date }}</time>
+    {% endif %}
     <p>{{ entry.excerpt }}</p>
     {% if section == "news" && !entry.tags.is_empty() %}
     <ul class="op-row" aria-label="{{ self.text("tags") }}">

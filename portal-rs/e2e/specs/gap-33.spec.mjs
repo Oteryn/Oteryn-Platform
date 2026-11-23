@@ -45,7 +45,9 @@ test('staff publications reach the localized news archive, feed and changelog', 
     await create('release', '2022-02-10T12:00:00Z', true);
     await create('draft-release', '', true);
 
-    expect((await page.goto(news)).status()).toBe(200);
+    expect((await page.goto(`${root}/`)).status()).toBe(200);
+    await page.locator(`main a[href="${news}"]`).first().click();
+    await expect(page).toHaveURL(new RegExp(`${news}$`));
     await expect(page.locator('head link[rel=alternate][type="application/rss+xml"]')).toHaveAttribute('href', feed);
     await page.getByLabel(t.year, { exact: true }).fill('2022');
     await page.getByLabel(t.month, { exact: true }).fill('2');
@@ -61,6 +63,7 @@ test('staff publications reach the localized news archive, feed and changelog', 
     expect((await page.request.get(`${news}/${slug('future')}`)).status()).toBe(404);
 
     const response = await page.request.get(feed);
+    expect(response.status()).toBe(200);
     expect(response.headers()['content-type']).toContain('application/rss+xml');
     const rss = await page.evaluate(xml => {
       const doc = new DOMParser().parseFromString(xml, 'application/xml');
@@ -102,4 +105,30 @@ test('staff publications reach the localized news archive, feed and changelog', 
       await editor.context.close();
     }
   }
+});
+
+test('i18n-parity for the news archive, changelog and RSS feed', async ({ page }, info) => {
+  const lang = info.project.metadata.locale;
+  const t = messages('templates/content', lang);
+  const other = messages('templates/content', lang === 'pl' ? 'en' : 'pl');
+  expect(Object.keys(t).sort()).toEqual(Object.keys(other).sort());
+  for (const [section, labels] of [
+    ['news', ['year', 'month', 'tag']],
+    ['changelog', ['search']],
+  ]) {
+    expect((await page.goto(`/${lang}/${section}`)).status()).toBe(200);
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.locator('main h1')).toHaveText(t[section]);
+    for (const label of labels) {
+      await expect(page.getByLabel(t[label], { exact: true })).toBeVisible();
+    }
+  }
+  const response = await page.request.get(`/${lang}/news/rss.xml`);
+  expect(response.status()).toBe(200);
+  const channel = await page.evaluate(xml => {
+    const doc = new DOMParser().parseFromString(xml, 'application/xml');
+    return ['title', 'description', 'language'].map(tag =>
+      doc.querySelector(`channel > ${tag}`)?.textContent);
+  }, await response.text());
+  expect(channel).toEqual([t['feed-title'], t['feed-description'], lang]);
 });
