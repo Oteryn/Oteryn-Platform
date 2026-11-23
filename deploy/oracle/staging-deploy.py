@@ -513,8 +513,10 @@ async function start() {
       use: {...base.use, ignoreHTTPSErrors: false,
         launchOptions: {...base.use.launchOptions, executablePath: chromium.executablePath()}}};
   `);
+  // One project: all four run serially for over two hours, past the one-hour cap.
+  // Portal RS E2E runs every project on each change; staging proves the deployed stack.
   const args = ['node_modules/@playwright/test/cli.js', 'test', '--config=/tmp/staging.config.mjs',
-                '--reporter=json'];
+                '--project=pl-1440', '--reporter=json'];
   if (process.argv[1]) args.push('--', process.argv[1]);
   const child = spawn(process.execPath, args, {stdio: 'ignore'});
   child.on('exit', code => {

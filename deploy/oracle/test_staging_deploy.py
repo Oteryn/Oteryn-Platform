@@ -324,6 +324,9 @@ class StagingDeploy(unittest.TestCase):
                 patch.object(staging.time, 'sleep'), self.assertRaisesRegex(ValueError, 'deadline'):
             staging.wait_ready(1)
 
+    def test_playwright_runs_one_project_within_the_cap(self):
+        self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
+
     def test_playwright_filters_literal_path_and_reports_assertions(self):
         staging = self.staging
         failed = {'status': 'unexpected', 'projectName': 'en-390',
