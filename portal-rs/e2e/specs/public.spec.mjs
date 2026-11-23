@@ -77,7 +77,8 @@ test('Thais homepage opens the world menu and selects a profession', async ({pag
   });
   const archive = await page.goto(`/${lang}/news`);
   expect(archive.status()).toBe(200);
-  const leadStory = await page.locator(`main a[href^="/${lang}/news/"]`).evaluateAll(links =>
+  // The archive also links to the RSS feed under the same URL prefix.
+  const leadStory = await page.locator(`main article h2 a[href^="/${lang}/news/"]`).evaluateAll(links =>
     links.length ? {href: links[0].getAttribute('href'), title: links[0].textContent.trim()} : null
   );
   await page.goto(`/${lang}/`);

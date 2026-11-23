@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {query} from '../staff-rbac-helpers.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
 let cookies,account;
@@ -17,6 +18,20 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
    await context.addCookies(staff.cookies);
  }else await context.addCookies(cookies);
  const target=sample(row.route,lang);
+ if (row.route.endsWith('/account/characters/{name}/profile')) {
+   // Publish a current portfolio for this player so the missing name is checked against a healthy feed.
+   const [portfolio] = await query(
+     "SELECT a.id AS account_id, uuidv7() AS character_id, w.id AS world_id FROM accounts a CROSS JOIN world_status w WHERE a.email=$1 AND w.name='Local Bazaar World'",
+     [account.email],
+   );
+   expect(portfolio, 'route player and fixture world are present').toBeDefined();
+   const publication = await fetch(`${process.env.PORTAL_E2E_GAME_CLOSURE_CONTROL_URL}/portfolio`, {
+     method: 'POST',
+     headers: {'content-type': 'application/json'},
+     body: JSON.stringify(portfolio),
+   });
+   expect(publication.status, 'ownership fixture is published').toBe(200);
+ }
  const errors=[];
  let documentPath=new URL(target,'https://localhost:18443').pathname;
  page.on('pageerror',e=>errors.push(e.message));
