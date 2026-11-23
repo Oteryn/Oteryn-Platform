@@ -123,9 +123,27 @@ impl Error {
     }
 }
 
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Locale {
+    Pl,
+    En,
+}
+
+impl Locale {
+    fn code(self) -> &'static str {
+        match self {
+            Self::Pl => "pl",
+            Self::En => "en",
+        }
+    }
+}
+
 #[derive(Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct Filters {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    lang: Option<Locale>,
     #[serde(skip_serializing_if = "String::is_empty")]
     state: String,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -289,7 +307,11 @@ pub(super) async fn page<I: StaffSession, A: rbac::AccountStateReader>(
     headers: HeaderMap,
     query: Result<Query<Filters>, QueryRejection>,
 ) -> Response {
-    let lang = language(&headers);
+    let lang = query
+        .as_ref()
+        .ok()
+        .and_then(|Query(filters)| filters.lang)
+        .map_or_else(|| language(&headers), Locale::code);
     let result = async {
         let Query(mut filters) = query.map_err(|_| Error::Invalid)?;
         filters.validate()?;

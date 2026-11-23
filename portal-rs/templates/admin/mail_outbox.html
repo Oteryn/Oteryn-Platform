@@ -34,6 +34,7 @@
   <section class="op-panel op-stack" aria-labelledby="jobs">
     <h2 id="jobs">{{ self.tr("mail-jobs") }}</h2>
     <form class="op-stack" method="get" action="/admin/mail-outbox">
+      <input type="hidden" name="lang" value="{{ lang }}">
       <div class="op-paths">
         <div class="op-field">
           <label for="filter-state">{{ self.tr("mail-state") }}</label>
@@ -70,7 +71,7 @@
       </div>
       <div class="op-row">
         <button class="op-button" type="submit">{{ self.tr("mail-filter") }}</button>
-        <a href="/admin/mail-outbox">{{ self.tr("mail-clear") }}</a>
+        <a href="/admin/mail-outbox?lang={{ lang }}">{{ self.tr("mail-clear") }}</a>
       </div>
     </form>
     {% if retry_batch %}

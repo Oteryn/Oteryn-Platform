@@ -35,6 +35,18 @@ fn validates_filter_fields_and_calendar_range() {
     assert!(serde_urlencoded::from_str::<Filters>("after=invalid").is_err());
 }
 
+#[test]
+fn localized_filter_round_trips_with_the_admin_language() {
+    for lang in ["pl", "en"] {
+        let query = format!("lang={lang}&state=failed");
+        let mut filters = serde_urlencoded::from_str::<Filters>(&query).unwrap();
+        filters.validate().unwrap();
+        assert_eq!(filters.query().unwrap(), query);
+    }
+    assert!(serde_urlencoded::from_str::<Filters>("lang=de").is_err());
+    assert!(serde_urlencoded::from_str::<Filters>("lang=pl&unknown=value").is_err());
+}
+
 #[tokio::test]
 async fn delivery_operations_respect_state_scope_and_batch_size() {
     let Some(_guard) = oteryn_db::test_support::global_lock_guard().await.unwrap() else {
