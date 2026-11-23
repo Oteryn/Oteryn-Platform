@@ -139,6 +139,7 @@ fn localized_responsive_labelled_template() {
             moderate_reports: true,
             mail_link: None,
             projections_link: None,
+            operations_link: Some(text(lang, "ops-title")),
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -172,6 +173,7 @@ fn localized_responsive_labelled_template() {
         }));
         assert!(html.contains("href=\"/admin/players\""));
         assert!(html.contains(&format!(r#"href="/admin/status?lang={lang}""#)));
+        assert!(html.contains("href=\"/admin/world-operations\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));

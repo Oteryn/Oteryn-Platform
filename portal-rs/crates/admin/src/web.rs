@@ -320,6 +320,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::world_operations::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
             "/admin/mail-outbox/retry",
@@ -658,6 +659,7 @@ struct Page {
     mail_link: Option<String>,
     projections_link: Option<String>,
     players_label: String,
+    operations_link: Option<String>,
     players: bool,
     registration_policy_label: Option<String>,
     errors_label: Option<String>,
@@ -814,6 +816,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     let projections_link = match s.auth.check(context, Permission::GameCatalogAccess).await {
         Ok(()) => Some(text(lang, "public-projections-title")),
         Err(Error::Denied) => None,
+    let operations_link = match crate::world_operations::has_scope(&s.pool, context.account).await {
+        Ok(true) => Some(text(lang, "ops-title")),
+        Ok(false) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     oteryn_web::render(&Page {
@@ -826,6 +831,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         moderate_reports,
         mail_link,
         projections_link,
+        operations_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s

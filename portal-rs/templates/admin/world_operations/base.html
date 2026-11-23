@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="{{ l.lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ l.text("ops-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <nav class="op-row" aria-label="{{ l.text("title") }}">
+    <a href="/admin">{{ l.text("title") }}</a>
+    {% block nav %}<a href="/admin/world-operations">{{ l.text("ops-title") }}</a>{% endblock %}
+  </nav>
+  {% block content %}{% endblock %}
+</main>
+</body>
+</html>

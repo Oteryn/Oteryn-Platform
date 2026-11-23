@@ -9,6 +9,7 @@ pub mod web;
 pub mod bazaar;
 pub mod commerce;
 mod mail_ops;
+mod world_operations;
 pub use control::controls;
 pub mod players;
 pub mod status;

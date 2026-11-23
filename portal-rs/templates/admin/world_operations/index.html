@@ -1,0 +1,88 @@
+{% extends "admin/world_operations/base.html" %}
+{% block nav %}{% endblock %}
+{% block content %}
+<h1>{{ l.text("ops-title") }}</h1>
+<p>{{ l.text("ops-planning-only") }}</p>
+<dl>
+  <dt>{{ l.text("ops-game-status") }}</dt>
+  <dd data-game-status="unavailable">{{ l.unavailable() }}</dd>
+</dl>
+<section class="op-stack" aria-labelledby="plan-new">
+  <h2 id="plan-new">{{ l.text("ops-new") }}</h2>
+  <form action="/admin/world-operations" method="get" class="op-stack">
+    <div class="op-field">
+      <label for="scope">{{ l.text("ops-scope") }}</label>
+      <select id="scope" name="scope" class="op-input" required>
+        {% for scope in scopes %}
+          {% let key = scope.key() %}
+          <option value="{{ key }}"{% if selected.as_deref() == Some(key.as_str()) %} selected{% endif %}>{{ scope.name }} · {{ l.action(scope.action.as_str()) }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><button class="op-button" type="submit">{{ l.text("ops-select") }}</button></div>
+  </form>
+  {% if let Some(draft) = draft %}
+  <form action="/admin/world-operations" method="post" class="op-stack">
+    <input type="hidden" name="_csrf" value="{{ draft.csrf }}">
+    <input type="hidden" name="id" value="{{ draft.id }}">
+    <input type="hidden" name="world" value="{{ draft.world }}">
+    <input type="hidden" name="action" value="{{ draft.action.key() }}">
+    <p>{{ l.action(draft.action.key()) }}</p>
+    <div class="op-field">
+      <label for="starts">{{ l.text("ops-starts") }}</label>
+      <input class="op-input" type="datetime-local" id="starts" name="starts" required>
+    </div>
+    <div class="op-field">
+      <label for="ends">{{ l.text("ops-ends") }}</label>
+      <input class="op-input" type="datetime-local" id="ends" name="ends" required>
+    </div>
+    <p>{{ l.text("ops-window-limit") }}</p>
+    <div class="op-field">
+      <label for="ticket">{{ l.text("ops-ticket") }}</label>
+      <input class="op-input" id="ticket" name="ticket" maxlength="128" required>
+    </div>
+    {% if draft.action.node() || draft.action.channel() %}
+    <div class="op-field">
+      <label for="target">{% if draft.action.node() %}{{ l.text("ops-node") }}{% else %}{{ l.text("ops-channel") }}{% endif %}</label>
+      <input class="op-input" id="target" name="target" maxlength="36"{% if draft.action.requires_node() %} required{% endif %}>
+    </div>
+    {% endif %}
+    {% if draft.action.event() %}
+    <div class="op-field">
+      <label for="event">{{ l.text("ops-event") }}</label>
+      <input class="op-input" id="event" name="event" maxlength="36" required>
+    </div>
+    {% endif %}
+    {% if draft.action.broadcast() %}
+    <div class="op-field">
+      <label for="locale">{{ l.text("ops-message-language") }}</label>
+      <select class="op-input" id="locale" name="locale">
+        <option value="pl">{{ l.text("ops-polish") }}</option>
+        <option value="en">{{ l.text("ops-english") }}</option>
+      </select>
+    </div>
+    <div class="op-field">
+      <label for="message">{{ l.text("ops-message") }}</label>
+      <input class="op-input" id="message" name="message" maxlength="500" required>
+    </div>
+    {% endif %}
+    <div><button class="op-button" type="submit">{{ l.text("ops-save") }}</button></div>
+  </form>
+  {% endif %}
+</section>
+<section class="op-stack" aria-labelledby="plan-history">
+  <h2 id="plan-history">{{ l.text("ops-history") }}</h2>
+  {% if plans.is_empty() %}
+    <p>{{ l.text("ops-empty") }}</p>
+  {% else %}
+    <ul class="op-stack">
+    {% for plan in plans %}
+      <li><a href="/admin/world-operations/{{ plan.id }}">{{ plan.world }} · {{ plan.action }} · {{ plan.starts }}</a> · {{ plan.status }}</li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+  {% if let Some(after) = next %}
+    <a href="/admin/world-operations?after={{ after }}">{{ l.text("ops-next") }}</a>
+  {% endif %}
+</section>
+{% endblock %}

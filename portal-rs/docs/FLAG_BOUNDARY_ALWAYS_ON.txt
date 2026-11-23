@@ -201,3 +201,7 @@ public G /{lang}/account/journal
 public G /{lang}/account/journal/status
 public P /{lang}/account/journal
 public P /{lang}/account/journal/goals/{goal}
+public G /admin/world-operations
+public G /admin/world-operations/{id}
+public P /admin/world-operations
+public P /admin/world-operations/{id}

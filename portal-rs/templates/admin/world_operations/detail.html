@@ -1,0 +1,50 @@
+{% extends "admin/world_operations/base.html" %}
+{% block content %}
+<h1>{{ l.action(plan.action.as_str()) }}</h1>
+<dl>
+  <dt>{{ l.text("ops-world") }}</dt><dd>{{ plan.world_name }} · {{ plan.world_id }}</dd>
+  <dt>{{ l.text("ops-ticket") }}</dt><dd data-plan-ticket>{{ plan.ticket }}</dd>
+  <dt>{{ l.text("ops-starts") }}</dt><dd>{{ starts }}</dd>
+  <dt>{{ l.text("ops-ends") }}</dt><dd>{{ ends }}</dd>
+  <dt>{{ l.text("ops-requester") }}</dt><dd>{{ plan.requester }}</dd>
+  {% if let Some(target) = plan.target %}
+  <dt>{% if action.node() %}{{ l.text("ops-node") }}{% else %}{{ l.text("ops-channel-id") }}{% endif %}</dt><dd>{{ target }}</dd>
+  {% else if action.channel() %}
+  <dt>{{ l.text("ops-target") }}</dt><dd>{{ l.text("ops-world-audience") }}</dd>
+  {% endif %}
+  {% if let Some(event) = plan.event %}
+  <dt>{{ l.text("ops-event") }}</dt><dd>{{ event }}</dd>
+  {% endif %}
+  {% if let Some(message) = plan.message %}
+  <dt>{{ l.text("ops-message") }}</dt><dd lang="{{ plan.locale.as_deref().unwrap_or(l.lang) }}">{{ message }}</dd>
+  {% endif %}
+  <dt>{{ l.text("ops-platform-status") }}</dt><dd data-plan-status="{{ status }}">{{ l.text(status) }}</dd>
+  {% if let Some(reviewer) = plan.reviewer %}
+  <dt>{{ l.text("ops-reviewer") }}</dt><dd>{{ reviewer }}{% if let Some(at) = reviewed_at %} · {{ at }}{% endif %}</dd>
+  {% endif %}
+</dl>
+{% if let Some(csrf) = csrf %}
+<form method="post" action="/admin/world-operations/{{ plan.id }}" class="op-row">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <button class="op-button" name="decision" value="approve">{{ l.text("ops-approve") }}</button>
+  <button class="op-button op-button--secondary" name="decision" value="decline">{{ l.text("ops-decline") }}</button>
+</form>
+{% endif %}
+<section class="op-stack" aria-labelledby="game-status">
+  <h2 id="game-status">{{ l.text("ops-game-status") }}</h2>
+  <p>{{ l.text("ops-planning-only") }}</p>
+  <dl data-game-status="unavailable">
+    <dt>{{ l.text("ops-game-preview") }}</dt><dd>{{ l.unavailable() }}</dd>
+    {% if action.maintenance() %}
+    <dt>{{ l.text("ops-runtime-evidence") }}</dt><dd>{{ l.unavailable() }}</dd>
+    <dt>{{ l.text("ops-ordered-results") }}</dt><dd>{{ l.unavailable() }}</dd>
+    {% else if action.event() %}
+    <dt>{{ l.text("ops-event-evidence") }}</dt><dd>{{ l.unavailable() }}</dd>
+    <dt>{{ l.text("ops-event-result") }}</dt><dd>{{ l.unavailable() }}</dd>
+    {% else %}
+    <dt>{{ l.text("ops-audience-evidence") }}</dt><dd>{{ l.unavailable() }}</dd>
+    <dt>{{ l.text("ops-channel-results") }}</dt><dd>{{ l.unavailable() }}</dd>
+    {% endif %}
+  </dl>
+</section>
+{% endblock %}
