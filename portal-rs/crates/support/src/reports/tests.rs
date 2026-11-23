@@ -486,12 +486,33 @@ async fn postgres_browser_flow_csrf_localization_private_output_and_bad_input() 
         app.clone().oneshot(malformed).await?.status(),
         StatusCode::FOUND
     );
-    let response = app
-        .clone()
-        .oneshot(post("/en/support/reports", &cookie, &csrf, &values))
-        .await?;
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(response.headers()[header::RETRY_AFTER], "60");
+    for (lang, message) in [
+        ("en", "Too many reports. Try again in one minute."),
+        ("pl", "Zbyt wiele zgłoszeń. Spróbuj ponownie za minutę."),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(post(
+                &format!("/{lang}/support/reports"),
+                &cookie,
+                &csrf,
+                &values,
+            ))
+            .await?;
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "60");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "private, no-store"
+        );
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            "text/html; charset=utf-8"
+        );
+        let html = body(response).await?;
+        assert!(html.contains(&format!("<html lang=\"{lang}\"")));
+        assert!(html.contains(&format!("<p>{message}</p>")));
+    }
     db.close().await
 }
 
