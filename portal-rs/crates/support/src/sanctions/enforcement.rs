@@ -1601,11 +1601,12 @@ async fn database_now(tx: &mut Transaction<'_, Postgres>) -> Result<i64, sqlx::E
 }
 
 fn public_reason(code: u16, locale: &str) -> &'static str {
-    match (code, locale) {
-        (7, "pl") => "Zakłócanie gry",
-        (7, _) => "Disruptive behavior",
-        (_, "pl") => "Naruszenie zasad",
-        _ => "Rule violation",
+    let english = locale != "pl";
+    match (code, english) {
+        (7, false) => "Zakłócanie gry",
+        (7, true) => "Disruptive behavior",
+        (_, false) => "Naruszenie zasad",
+        (_, true) => "Rule violation",
     }
 }
 
