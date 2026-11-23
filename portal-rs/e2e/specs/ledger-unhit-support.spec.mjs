@@ -1,12 +1,12 @@
 import {test, expect} from '../fixtures.mjs';
-import {submit} from '../helpers.mjs';
-import {isolatedAdmin, player, query, unique} from '../staff-rbac-helpers.mjs';
+import {login, submit} from '../helpers.mjs';
+import {isolatedStaff, query, seededAccount, unique} from '../staff-rbac-helpers.mjs';
 
 test('player closes a ticket and staff resolves another through the PUT endpoints', async ({page, browser}, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
-  await player(page, lang);
-  const staff = await isolatedAdmin(browser, info);
+  await login(page, lang, await seededAccount(lang));
+  const staff = await isolatedStaff(browser, info, 'platform_admin', await seededAccount(lang));
   try {
     for (const [actor, status, scope] of [[page, 'closed', ''], [staff.page, 'resolved', 'admin/']]) {
       const tickets = `/${lang}/support/tickets`;
