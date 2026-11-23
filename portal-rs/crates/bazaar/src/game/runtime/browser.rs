@@ -21,7 +21,7 @@ struct Card {
     kind: String,
     state: String,
     price: i64,
-    currency: String,
+    currency_key: &'static str,
     owner: bool,
     refused: bool,
     completed: bool,
@@ -29,7 +29,7 @@ struct Card {
 }
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title></head><body><header><a href=\"/{{ lang }}/bazaar\">{{ title }}</a> <a href=\"/{{ lang }}/account/bazaar\">{{ own_label }}</a> <a href=\"/{{ lang }}/account/bazaar/sell\">{{ sell_label }}</a></header><main><h1>{{ title }}</h1>{% if !message.is_empty() %}<p role=\"status\">{{ message }}</p>{% endif %}{% if create %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/sell\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ kind_label }}<select name=\"kind\"><option value=\"character\">{{ character_label }}</option><option value=\"item\">{{ item_label }}</option></select></label><label>{{ world_label }}<input required name=\"world_id\"></label><label>{{ character_label }} ID<input required name=\"seller_character_id\"></label><label>{{ asset_label }}<input required name=\"asset_id\"></label><label>{{ revision_label }}<input name=\"expected_revision\" required value=\"7\"></label><label>{{ quantity_label }}<input name=\"quantity\" required type=\"number\" min=\"1\" value=\"1\"></label><label>{{ definition_label }}<input name=\"definition_key\" value=\"item\"></label><label>{{ version_label }}<input name=\"definition_revision\" value=\"v1\"></label><label>{{ currency_label }}<select name=\"currency\"><option value=\"COINS\">Coins</option><option value=\"GOLD\">Gold</option></select></label><label>{{ price_label }}<input name=\"starting_bid\" required type=\"number\" min=\"1\"></label><label>{{ days_label }}<input name=\"duration_days\" required type=\"number\" min=\"1\" max=\"14\" value=\"1\"></label><label><input type=\"checkbox\" name=\"publish_snapshot\" value=\"true\" required>{{ consent_label }}</label><button type=\"submit\">{{ sell_label }}</button></form>{% endif %}{% for card in cards %}<article data-listing=\"{{ card.id }}\" data-state=\"{{ card.state }}\"><h2><a href=\"/{{ lang }}/bazaar/{{ card.id }}\">{{ card.name }}</a></h2><p>{% if card.kind == \"character\" %}{{ character_label }}{% else %}{{ item_label }}{% endif %} · {{ card.price }} {{ card.currency }}</p><p role=\"status\">{% if card.refused %}{{ refused_label }}{% elif card.cancelled %}{{ cancelled_label }}{% elif card.state == \"finalizing\" %}{{ self.text(\"finalizing\") }}{% elif card.completed %}{{ complete_label }}{% elif card.state == \"active\" %}{{ active_label }}{% else %}{{ pending_label }}{% endif %}</p><p>{{ self.text(\"deadline\") }}: {{ card.ends_at }}</p>{% if detail %}{% if let Some(snapshot) = card.snapshot %}<dl><dt>{{ self.text(\"world\") }}</dt><dd>{{ snapshot.world }}</dd><dt>{{ self.text(\"level\") }}</dt><dd>{{ snapshot.level }}</dd><dt>{{ self.text(\"vocation\") }}</dt><dd>{{ snapshot.vocation }}</dd><dt>{{ self.text(\"health\") }}</dt><dd>{{ snapshot.health }}</dd><dt>{{ self.text(\"health_max\") }}</dt><dd>{{ snapshot.health_max }}</dd><dt>{{ self.text(\"mana\") }}</dt><dd>{{ snapshot.mana }}</dd><dt>{{ self.text(\"mana_max\") }}</dt><dd>{{ snapshot.mana_max }}</dd><dt>{{ self.text(\"capacity_centi_oz\") }}</dt><dd>{{ snapshot.capacity_centi_oz }}</dd><dt>{{ self.text(\"speed\") }}</dt><dd>{{ snapshot.speed }}</dd><dt>{{ self.text(\"experience\") }}</dt><dd>{{ snapshot.experience }}</dd><dt>{{ self.text(\"snapshot_hash\") }}</dt><dd>{{ snapshot.snapshot_hash }}</dd><dt>{{ self.text(\"captured_at\") }}</dt><dd><time data-unix=\"{{ snapshot.captured_at }}\">{{ self.timestamp(snapshot.captured_at) }}</time></dd>{% if let Some(value) = snapshot.created_at %}<dt>{{ self.text(\"created_at\") }}</dt><dd>{{ self.timestamp(value) }}</dd>{% endif %}{% if let Some(value) = snapshot.world_transfer_eligible %}<dt>{{ self.text(\"world_transfer_eligible\") }}</dt><dd>{{ value }}</dd>{% endif %}</dl><h3>{{ self.text(\"skills\") }}</h3><ul>{% for skill in snapshot.skills %}<li>{{ skill.key }}: {{ skill.level }} ({{ self.progress(skill.progress_bps) }})</li>{% endfor %}</ul><ul>{% for value in snapshot.blessings %}<li>{{ value }}</li>{% endfor %}</ul>{% if let Some(values) = snapshot.outfits %}<section><h3>{{ self.text(\"outfits\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.mounts %}<section><h3>{{ self.text(\"mounts\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.achievements %}<section><h3>{{ self.text(\"achievements\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.quests %}<section><h3>{{ self.text(\"quests\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.items %}<section><h3>{{ self.text(\"items\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.quantity }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.store_grants %}<section><h3>{{ self.text(\"store_grants\") }}</h3><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></section>{% endif %}{% endif %}{% if let Some(item) = card.publication %}<dl><dt>{{ quantity_label }}</dt><dd>{{ card.quantity }}</dd>{% for (key,value) in item.attributes %}<dt>{{ self.text(key) }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% endif %}{% endif %}{% if detail && card.owner && !card.completed && !card.refused %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/control\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><button name=\"action\" value=\"resume\">{{ resume_label }}</button><button name=\"action\" value=\"cancel\">{{ cancel_label }}</button></form>{% endif %}{% if detail && card.state == \"active\" && !card.owner %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/bids\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ destination_label }}<input name=\"buyer_character_id\" required></label><label>{{ maximum_label }}<input name=\"maximum\" type=\"number\" min=\"1\" required></label><button type=\"submit\">{{ bid_label }}</button></form>{% endif %}</article>{% endfor %}{% if !next.is_empty() %}<a rel=\"next\" href=\"?before={{ next }}\">{{ self.text(\"next\") }}</a>{% endif %}</main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title></head><body><header><a href=\"/{{ lang }}/bazaar\">{{ title }}</a> <a href=\"/{{ lang }}/account/bazaar\">{{ own_label }}</a> <a href=\"/{{ lang }}/account/bazaar/sell\">{{ sell_label }}</a></header><main><h1>{{ title }}</h1>{% if !message.is_empty() %}<p role=\"status\">{{ message }}</p>{% endif %}{% if create %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/sell\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ kind_label }}<select name=\"kind\"><option value=\"character\">{{ character_label }}</option><option value=\"item\">{{ item_label }}</option></select></label><label>{{ world_label }}<input required name=\"world_id\"></label><label>{{ character_label }} ID<input required name=\"seller_character_id\"></label><label>{{ asset_label }}<input required name=\"asset_id\"></label><label>{{ revision_label }}<input name=\"expected_revision\" required value=\"7\"></label><label>{{ quantity_label }}<input name=\"quantity\" required type=\"number\" min=\"1\" value=\"1\"></label><label>{{ definition_label }}<input name=\"definition_key\" value=\"item\"></label><label>{{ version_label }}<input name=\"definition_revision\" value=\"v1\"></label><label>{{ currency_label }}<select name=\"currency\"><option value=\"COINS\">{{ self.text(\"coins\") }}</option><option value=\"GOLD\">{{ self.text(\"gold\") }}</option></select></label><label>{{ price_label }}<input name=\"starting_bid\" required type=\"number\" min=\"1\"></label><label>{{ days_label }}<input name=\"duration_days\" required type=\"number\" min=\"1\" max=\"14\" value=\"1\"></label><label><input type=\"checkbox\" name=\"publish_snapshot\" value=\"true\" required>{{ consent_label }}</label><button type=\"submit\">{{ sell_label }}</button></form>{% endif %}{% for card in cards %}<article data-listing=\"{{ card.id }}\" data-state=\"{{ card.state }}\"><h2><a href=\"/{{ lang }}/bazaar/{{ card.id }}\">{{ card.name }}</a></h2><p>{% if card.kind == \"character\" %}{{ character_label }}{% else %}{{ item_label }}{% endif %} · {{ card.price }} {{ self.text(card.currency_key) }}</p><p role=\"status\">{% if card.refused %}{{ refused_label }}{% elif card.cancelled %}{{ cancelled_label }}{% elif card.state == \"finalizing\" %}{{ self.text(\"finalizing\") }}{% elif card.completed %}{{ complete_label }}{% elif card.state == \"active\" %}{{ active_label }}{% else %}{{ pending_label }}{% endif %}</p><p>{{ self.text(\"deadline\") }}: {{ card.ends_at }}</p>{% if detail %}{% if let Some(snapshot) = card.snapshot %}<dl><dt>{{ self.text(\"world\") }}</dt><dd>{{ snapshot.world }}</dd><dt>{{ self.text(\"level\") }}</dt><dd>{{ snapshot.level }}</dd><dt>{{ self.text(\"vocation\") }}</dt><dd>{{ snapshot.vocation }}</dd><dt>{{ self.text(\"health\") }}</dt><dd>{{ snapshot.health }}</dd><dt>{{ self.text(\"health_max\") }}</dt><dd>{{ snapshot.health_max }}</dd><dt>{{ self.text(\"mana\") }}</dt><dd>{{ snapshot.mana }}</dd><dt>{{ self.text(\"mana_max\") }}</dt><dd>{{ snapshot.mana_max }}</dd><dt>{{ self.text(\"capacity_centi_oz\") }}</dt><dd>{{ snapshot.capacity_centi_oz }}</dd><dt>{{ self.text(\"speed\") }}</dt><dd>{{ snapshot.speed }}</dd><dt>{{ self.text(\"experience\") }}</dt><dd>{{ snapshot.experience }}</dd><dt>{{ self.text(\"snapshot_hash\") }}</dt><dd>{{ snapshot.snapshot_hash }}</dd><dt>{{ self.text(\"captured_at\") }}</dt><dd><time data-unix=\"{{ snapshot.captured_at }}\">{{ self.timestamp(snapshot.captured_at) }}</time></dd>{% if let Some(value) = snapshot.created_at %}<dt>{{ self.text(\"created_at\") }}</dt><dd>{{ self.timestamp(value) }}</dd>{% endif %}{% if let Some(value) = snapshot.world_transfer_eligible %}<dt>{{ self.text(\"world_transfer_eligible\") }}</dt><dd>{{ value }}</dd>{% endif %}</dl><h3>{{ self.text(\"skills\") }}</h3><ul>{% for skill in snapshot.skills %}<li>{{ skill.key }}: {{ skill.level }} ({{ self.progress(skill.progress_bps) }})</li>{% endfor %}</ul><ul>{% for value in snapshot.blessings %}<li>{{ value }}</li>{% endfor %}</ul>{% if let Some(values) = snapshot.outfits %}<section><h3>{{ self.text(\"outfits\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.mounts %}<section><h3>{{ self.text(\"mounts\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.achievements %}<section><h3>{{ self.text(\"achievements\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.quests %}<section><h3>{{ self.text(\"quests\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.value }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.items %}<section><h3>{{ self.text(\"items\") }}</h3><ul>{% for value in values %}<li>{{ value.key }}: {{ value.quantity }}</li>{% endfor %}</ul></section>{% endif %}{% if let Some(values) = snapshot.store_grants %}<section><h3>{{ self.text(\"store_grants\") }}</h3><ul>{% for value in values %}<li>{{ value }}</li>{% endfor %}</ul></section>{% endif %}{% endif %}{% if let Some(item) = card.publication %}<dl><dt>{{ quantity_label }}</dt><dd>{{ card.quantity }}</dd>{% for (key,value) in item.attributes %}<dt>{{ self.text(key) }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>{% endif %}{% endif %}{% if detail && card.owner && !card.completed && !card.refused %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/control\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><button name=\"action\" value=\"resume\">{{ resume_label }}</button><button name=\"action\" value=\"cancel\">{{ cancel_label }}</button></form>{% endif %}{% if detail && card.state == \"active\" && !card.owner %}<form method=\"post\" action=\"/{{ lang }}/account/bazaar/{{ card.id }}/bids\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><input type=\"hidden\" name=\"request_id\" value=\"{{ request }}\"><label>{{ destination_label }}<input name=\"buyer_character_id\" required></label><label>{{ maximum_label }}<input name=\"maximum\" type=\"number\" min=\"1\" required></label><button type=\"submit\">{{ bid_label }}</button></form>{% endif %}</article>{% endfor %}{% if !next.is_empty() %}<a rel=\"next\" href=\"?before={{ next }}\">{{ self.text(\"next\") }}</a>{% endif %}</main></body></html>",
     ext = "html"
 )]
 struct Page<'a> {
@@ -330,12 +330,11 @@ impl Runtime {
                     format!("{:?}", row.state).to_ascii_lowercase()
                 },
                 price: row.price,
-                currency: if row.currency == Currency::Gold {
-                    "Gold"
+                currency_key: if row.currency == Currency::Gold {
+                    "gold"
                 } else {
-                    "Coins"
-                }
-                .into(),
+                    "coins"
+                },
                 owner,
                 refused,
                 completed,
@@ -369,6 +368,12 @@ impl CatalogueQuery {
             .transpose()
     }
 }
+fn invalid_catalogue_cursor(lang: &str) -> Response {
+    let mut response = failure(lang, Error::Invalid);
+    *response.status_mut() = StatusCode::BAD_REQUEST;
+    response
+}
+
 async fn index(
     Query(query): Query<CatalogueQuery>,
     HttpState(runtime): HttpState<Runtime>,
@@ -381,7 +386,7 @@ async fn index(
     let mut page = Page::new(&lang);
     let cursor = match query.cursor() {
         Ok(c) => c,
-        Err(e) => return failure(&lang, e),
+        Err(_) => return invalid_catalogue_cursor(&lang),
     };
     match runtime
         .cards(session.account_id().await, None, false, cursor)
@@ -410,7 +415,7 @@ async fn own(
     let mut page = Page::new(&lang);
     let cursor = match query.cursor() {
         Ok(c) => c,
-        Err(e) => return failure(&lang, e),
+        Err(_) => return invalid_catalogue_cursor(&lang),
     };
     match runtime.cards(Some(actor), None, true, cursor).await {
         Ok((cards, next)) => {
@@ -674,6 +679,39 @@ mod catalogue_tests {
             assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
             let body = to_bytes(response.into_body(), 262_144).await?;
             assert!(std::str::from_utf8(&body)?.contains(&translated(lang, "denied")));
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn malformed_catalogue_cursors_are_bad_requests() -> Result<(), Box<dyn std::error::Error>>
+    {
+        for before in [
+            "unknown",
+            "1:unknown",
+            "invalid:019b0760-0000-7000-8000-000000000001",
+        ] {
+            let query = CatalogueQuery {
+                before: Some(before.into()),
+            };
+            assert!(matches!(query.cursor(), Err(Error::Invalid)));
+        }
+        for (lang, message) in [
+            (
+                "en",
+                "This request was refused. Check your account and the asset details.",
+            ),
+            (
+                "pl",
+                "Prośba została odrzucona. Sprawdź konto i dane obiektu.",
+            ),
+        ] {
+            let response = invalid_catalogue_cursor(lang);
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let body = axum::body::to_bytes(response.into_body(), 65536).await?;
+            let html = std::str::from_utf8(&body)?;
+            assert!(html.contains(&format!("lang=\"{lang}\"")));
+            assert!(html.contains(message));
         }
         Ok(())
     }

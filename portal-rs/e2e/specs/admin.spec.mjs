@@ -1,13 +1,12 @@
+import { recoveryCodes, staff } from '../staff-rbac-helpers.mjs';
 import {test,expect} from '../fixtures.mjs';
-import path from 'node:path';
-import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {confirmStaffPassword,recoveryCodes} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,isolatedAdmin,isolatedSeededAdmin,role} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
-test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
- test.setTimeout(300_000);
+test('staff bootstrap and mandatory MFA',async({page},info)=>{
+ test.setTimeout(150_000);
  const lang=info.project.metadata.locale;
  const staff=await register(page,lang);
  const db=pool();
@@ -33,11 +32,26 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+ await confirmStaffPassword(page,lang,staff.password);
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
  expect(new URL(response.url()).pathname).toBe('/admin');
+ await test.step('the populated audit table fits the viewport', async () => {
+   await role(page, 'admin.access audit.view');
+   expect((await page.goto(`/admin/console/audit?lang=${lang}`)).status()).toBe(200);
+   const table = page.locator('main .op-table-wrap').first();
+   await expect(table).toBeVisible();
+   if (info.project.use.viewport.width === 390) {
+     expect(await table.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+   }
+ });
+ expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(200);
+});
+
+async function sweep(page,info,lang,part){
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
- const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const allPaths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
+ const paths=allPaths.filter(path=>path!=='/console/dashboard').filter((_,index)=>index%2===part);
  const failures=[];
  const staffContext=page.context();
  const attempted=[];
@@ -83,8 +97,40 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  expect.soft(attempted.toSorted()).toEqual(paths.toSorted());
  expect.soft(failures).toEqual([]);
  // Opening navigation must not grant Game read permission to the bootstrap role.
+}
+for(const part of [0,1]) {
+ test(`staff navigation sweep ${part+1}`,async({browser},info)=>{
+  test.setTimeout(240_000);
+  const lang=info.project.metadata.locale;
+  const {context,page}=await isolatedSeededAdmin(browser,info);
+  try {
+   expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(200);
+   await sweep(page,info,lang,part);
+  } finally {
+   await context.close();
+  }
+ });
+}
+
+test('GM console refuses platform-only staff',async({browser},info)=>{
+ const lang=info.project.metadata.locale;
+ const {context:staffContext,page}=await isolatedSeededAdmin(browser,info);
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
+ await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{
+   const response = await page.goto(`/console/dashboard?lang=${lang}`);
+   expect(response.status()).toBe(403);
+   expect(new URL(response.url()).pathname).toBe('/console/dashboard');
+   await expect(page.locator('html')).toHaveAttribute('lang',lang);
+   await assertShell(page,{status:403});
+ });
+ await staffContext.close();
+});
+
+test('privileged role grants and non-staff admin access are refused',async({browser},info)=>{
+ test.setTimeout(150_000);
+ const lang=info.project.metadata.locale;
+ const {context:staffContext,page}=await isolatedAdmin(browser,info);
  const context=await browser.newContext({ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'});
  const ordinary=await context.newPage();const account=await register(ordinary,lang);await login(ordinary,lang,account);
  await test.step('four-eyes boundary: an MFA staff member cannot grant a privileged role alone',async()=>{
@@ -92,8 +138,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await confirmStaffPassword(page,lang,staff.password);
-     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
      const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);
@@ -107,5 +151,6 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  });
  expect((await ordinary.goto('/admin')).status()).toBe(403);
  for(const path of ['/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up','/console/dashboard','/admin/console/players']) expect((await ordinary.goto(path)).status(),path).toBe(403);
+ await staffContext.close();
  await context.close();
 });

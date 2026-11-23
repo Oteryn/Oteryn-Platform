@@ -2,6 +2,7 @@ import { expect } from '@playwright/test';
 import pg from 'pg';
 import crypto from 'node:crypto';
 import dns from 'node:dns';
+import { withoutPostgresDefaults } from './postgres-url.mjs';
 dns.setDefaultResultOrder('ipv4first');
 export const password = () => `Local!${crypto.randomBytes(18).toString('hex')}`;
 function validateDisposableDatabaseUrl(value) {
@@ -29,6 +30,16 @@ function validateDisposableDatabaseUrl(value) {
 export function disposableDatabaseUrl(env = process.env) {
  return validateDisposableDatabaseUrl(env.PORTAL_E2E_DATABASE_URL || env.OTERYN_DATABASE_URL);
 }
+// Cross-runtime fixture commands use the original validated connection string.
+export function fixtureDatabaseURL(value = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL) {
+  validateDisposableDatabaseUrl(value);
+  if (new URL(value).search) throw new Error('Fixture commands require PostgreSQL URLs without query parameters');
+  return value;
+}
+export function fixtureDatabaseEnv(value, overrides = {}) {
+  const env = withoutPostgresDefaults({ ...process.env, ...overrides });
+  return { ...env, OTERYN_DATABASE_URL: fixtureDatabaseURL(value) };
+}
 export const pool = (connectionString) => new pg.Pool({
  connectionString: connectionString === undefined
    ? disposableDatabaseUrl()
@@ -54,7 +65,7 @@ export async function csrfRejected(page, action, fields={}) {
     await response.dispose();
   }
 }
-export async function submit(page, selector='main form', values={}) {
+export async function submit(page, selector='main form', values={}, { timeout=30_000 }={}) {
   const form=page.locator(selector).first();
   const action=await form.getAttribute('action') || new URL(page.url()).pathname;
   const fields=await form.evaluate(f=>Object.fromEntries(new FormData(f)));
@@ -64,7 +75,7 @@ export async function submit(page, selector='main form', values={}) {
     if(await input.getAttribute('type')==='checkbox') await input.setChecked(Boolean(value));
     else await input.fill(value);
   }
-  await form.locator('button[type=submit], button:not([type])').first().click({timeout:30_000});
+  await form.locator('button[type=submit], button:not([type])').first().click({timeout});
   // A form navigation can commit before its response has been parsed.
   await page.waitForLoadState('domcontentloaded');
 }
@@ -81,14 +92,29 @@ export async function mailLink(page,email,pattern,timeout=30_000) {
   return found;
 }
 // Public test inputs and their precomputed breach-provider range prefixes.
+const signupPrefixes = [
+  '64183', 'CF326', '6673D', '8A6D8', '8EF96', '952BA', '5A814', 'B5F03',
+  '285F9', '59C69', 'BAB68', '1A6FA', '583A3', '934BF', 'EB6DF', '1A926',
+];
+let signupIndex = 0;
 const passwordExamples = {
   registration: ['RegistrationExampleOnly!2026', '98E4F'],
   replacement: ['ReplacementExampleOnly!2026', '5D930'],
   alternate: ['AlternateExampleOnly!2026', '34B96'],
+  changed: ['OterynTestCorpusChanged!2026', '57A2F'],
+  replay: ['OterynTestCorpusReplay!2026', 'BF3D5'],
 };
 
 export async function seedPasswordRange(fixture = 'replacement') {
-  const [example, prefix] = passwordExamples[fixture];
+  const [example, prefix] = fixture === 'signup'
+    ? [`OterynTestCorpusSignup!2026-${String(signupIndex).padStart(2, '0')}`, signupPrefixes[signupIndex]]
+    : passwordExamples[fixture];
+  if (fixture === 'signup') signupIndex = (signupIndex + 1) % signupPrefixes.length;
+  await seedBreachRange(prefix, []);
+  return example;
+}
+
+export async function seedBreachRange(prefix, suffixes) {
   const db=pool();
   try {
     // Challenge requests and failed proofs can spend budget before signup reaches the registration handler.
@@ -103,12 +129,12 @@ export async function seedPasswordRange(fixture = 'replacement') {
     }, {timeout: 65_000, intervals: [1000]}).toBeLessThan(5);
     await db.query('UPDATE registration_abuse_policy SET enabled=true WHERE singleton=true');
     await db.query("INSERT INTO world_status(id,name) SELECT uuidv7(),'Local Browser World' WHERE NOT EXISTS(SELECT 1 FROM world_status)");
-    await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
+    const result = await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,$2::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix, suffixes]);
+    expect(result.rowCount).toBe(1);
   } finally { await db.end(); }
-  return example;
 }
-export async function register(page,lang) {
-  const email=`browser-${crypto.randomUUID()}@local.test`, pass=await seedPasswordRange('registration');
+export async function register(page,lang,email=`browser-${crypto.randomUUID()}@local.test`) {
+  const pass=await seedPasswordRange('registration');
   const registration=await page.goto(`/${lang}/register`);
   expect(registration.status()).toBe(200);
   await page.locator('[name=work_token]').waitFor({state:'attached'});
@@ -142,10 +168,10 @@ export async function logout(page,lang) {
  await submit(page, visibleForm);
 }
 // Wiki entities and the portal search share the 30/minute WikiSearch policy.
-export async function waitForWikiBudget(target, needed=1) {
+export async function waitForWikiBudget(target, needed=1, connectionString) {
   const path = new URL(target, 'https://localhost').pathname;
   if (!/^\/(?:pl\/|en\/)?(?:wiki(?:\/|$)|search$)/.test(path)) return;
-  const db = pool();
+  const db = pool(connectionString);
   try {
     await expect.poll(async () => {
       const result = await db.query(

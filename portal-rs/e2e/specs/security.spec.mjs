@@ -101,3 +101,29 @@ test('recovery key: one-time reset revokes sessions; regenerate and revoke',asyn
   expect((await state()).revoked_at).toBeTruthy();
  } finally {await otherContext.close();await db.end();}
 });
+
+
+test('the account export link continues from password confirmation to the download',async({page},info)=>{
+ const lang=info.project.metadata.locale;
+ const account=await register(page,lang);
+ await login(page,lang,account);
+ const exportPath=`/${lang}/account/privacy/export`;
+ const confirmation=`/${lang}/account/sudo?return_to=export`;
+ const gated=await page.request.get(exportPath,{maxRedirects:0});
+ expect(gated.status()).toBe(303);
+ expect(gated.headers().location).toBe(confirmation);
+ expect(gated.headers()['content-disposition']).toBeUndefined();
+ expect((await page.goto('/account')).status()).toBe(200);
+ await page.locator(`nav[data-panel="player"] a[href="${exportPath}"]`).click();
+ await expect(page).toHaveURL(url=>url.pathname+url.search===confirmation);
+ const [response]=await Promise.all([
+  page.waitForResponse(response=>response.request().method()==='POST'
+    && new URL(response.url()).searchParams.get('return_to')==='export'
+    && response.status()!==403),
+  submit(page,'main form',{current_password:account.password}),
+ ]);
+ expect(response.status()).toBe(302);
+ expect(response.headers().location).toBe(exportPath);
+ await expect(page).toHaveURL(exportPath);
+ await expect(page.locator('main form[method="post"]')).toBeVisible();
+});

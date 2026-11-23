@@ -41,6 +41,7 @@ impl Backend for Queue {
                     messages: vec![],
                     appeal_status: None,
                     next_message: None,
+                    character_enforcement: None,
                 })
                 .collect()
         } else {
@@ -69,6 +70,7 @@ async fn pagination_admin_queue_caps_and_empty() -> Result<(), Box<dyn std::erro
         pool: pool.clone(),
         auth: Authorizer::new(pool, Active),
         backend: Queue,
+        tickets_mounted: true,
     });
     for area in [Area::Tickets, Area::Reports, Area::Enforcement] {
         for page in [1, 10000] {

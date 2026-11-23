@@ -3,24 +3,28 @@
 From the repository root, use the disposable PostgreSQL setup in the [browser qualification README](../README.md). With the local administrator URL available as `PORTAL_E2E_ADMIN_DATABASE_URL`, run:
 
 ```sh
-CARGO_BUILD_JOBS=2 portal-rs/e2e/ledger/llvm-cov.sh
+python3 mutation/generate.py
+python3 ledger/forms.py
+node run.mjs /absolute/scratch/env.json test
+node ledger/report.mjs
+node ledger/report.mjs --gate
 ```
 
 This entry point rebuilds the route and form inventories, runs all four Playwright projects against the same instrumented portal, and refreshes the request, form and LLVM reports. Pass `--gate` to also fail on every unhit request or form row. Playwright failures retain their usual nonzero exit status. Commit the regenerated inventories and aggregate reports when refreshing the baseline.
 
 Raw Playwright results, traces, per-worker JSONL and LLVM profiles stay in the private run directory printed by the command. The JSONL files are isolated per run and separate from the Playwright output directory that gets cleared at startup.
 
-The recorder installs in Playwright workers before context creation. Browser context events include popups and pages opened by specs. Playwright's pinned in-process transport exposes API request events for both standalone and browser-associated contexts, including individual redirect hops. Check these hooks when upgrading Playwright. Each request is associated with the active Playwright test, including its setup and teardown hooks.
+The recorder installs in Playwright workers before context creation. Browser context events include popups and pages opened by specs. Playwright's pinned in-process transport exposes API request events for both standalone and browser-associated contexts, including individual redirect hops. Check these hooks when upgrading Playwright. Each request is associated with the active Playwright test. The shared fixture awaits lookups and form capture during teardown. Capture errors fail the attempt with a fixed diagnostic and prevent report generation.
 
-The recorder matches the portal origin against `inventory.json`, preferring literal segments over parameters and catchalls. Paths absent from inventory and requests to other origins have a null route pattern. Requests with no HTTP response have a null status and are excluded from coverage. The inventory has two GET patterns with the same path shape for Bazaar items. The resolver uses inventory order for that tie.
+The recorder matches the portal origin against `inventory.json` and the write registrations in `mutation/forms.json`, preferring literal segments over parameters and catchalls. Both recorders and reports use the combined inventory. Paths absent from inventory and requests to other origins have a null route pattern. Requests with no HTTP response have a null status and are excluded from coverage. The inventory has two GET patterns with the same path shape for Bazaar items. The resolver uses inventory order for that tie.
 
-The recorder uses the harness's disposable database connection to resolve the session cookie sent on each request. Authenticated accounts are represented by sorted role keys, with `player` for accounts without a staff role. Requests without an authenticated session are `anonymous`. Only inventory patterns, template-defined button names and values, actor labels, status codes and Playwright metadata are written.
+The recorder labels the supplied credential as `session`, `bearer`, `authorization`, or `none`. An Authorization header takes precedence over a cookie for attribution. Its principal stays unresolved because the recorder does not validate that credential. Session lookup can resolve a player or sorted staff role keys in the disposable database, identify an anonymous session, or leave the principal unresolved when expiry or revocation removes the session. The ledger describes request credentials and lookup evidence. HTTP statuses describe the route outcome. It writes inventory patterns, static submitter names and values, credential and principal labels, status codes and Playwright metadata.
 
-Form rows group template locations by action pattern, method, and submitter name and value. An unnamed submitter gets its own row. The extractor scans HTML files in template directories, expands template conditionals and uses the owning renderers' paths for shared templates and implicit actions. Some form destinations are missing from the provisional route inventory. Those forms still have their own rows. The JSON identifies their mapping, when available, and includes each template location.
+Form rows group source locations by action pathname, method, and submitter name and value. An unnamed submitter gets its own row. Calculator forms also use their static `calculator` operation in the row identity, so each submission credits one operation. The extractor expands template conditionals and uses the owning renderers' paths for shared templates and implicit actions. The [mutation guide](../mutation/README.md) explains route-only classifications. The capture digest includes both form inventories and the general route inventory.
 
-Form evidence is based on query or form-encoded fields sent to the matching action. It includes deliberate API form probes. An unnamed submitter is inferred from declared form fields. An ordinary navigation with a matching form query can produce the same evidence as a browser submission. Dynamic ranking pagination buttons are identified by the submitted page relative to the referring page.
+Form evidence requires Chromium to identify a renderer-initiated form navigation for the same document loader, method and destination. API calls and ordinary navigations supply route evidence. Redirect hops also supply route evidence. Only the initial form submission supplies form evidence. Dynamic ranking pagination buttons are identified by the submitted page relative to the referring page.
 
-Reports list observed actor and status combinations and their projects. Success means 2xx or 3xx. Refusal means 400, 401, 403, 404, or 422. Row IDs use a deterministic number derived from the row's identity and survive report reruns and insertion of unrelated rows. The gate writes both reports and returns nonzero if any route or form row has no hit, listing each missing row.
+The report joins requests to the same project, test, worker and retry in Playwright's `test-results/results.json`. A request receives credit only when that test attempt passed and was expected to pass. Playwright records the checkout revision, clean-tree status, inventory hash, and a unique run ID in the results and on each request. The report validates these values before using evidence and can regenerate reports from saved captures without Git.
 
 ## Recorded full matrix
 

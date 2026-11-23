@@ -86,6 +86,26 @@ impl Locale {
     }
 }
 
+pub(super) fn moderation_notice(lang: &str, status: &str, outcome: &str) -> String {
+    let status = Locale::parse(lang).unwrap_or(Locale("en")).text(status);
+    let outcome = outcome.trim();
+    if outcome.is_empty() {
+        status
+    } else {
+        format!("{status}\n{outcome}")
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn moderation_notices_use_the_report_owners_language() {
+    assert_eq!(
+        moderation_notice("pl", "rejected", "  Brak podstaw  "),
+        "Odrzucone\nBrak podstaw"
+    );
+    assert_eq!(moderation_notice("en", "reviewing", ""), "Under review");
+}
+
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 struct Input {

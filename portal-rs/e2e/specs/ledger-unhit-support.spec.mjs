@@ -1,12 +1,12 @@
 import {test, expect} from '../fixtures.mjs';
-import {submit} from '../helpers.mjs';
-import {isolatedAdmin, player, query, unique} from '../staff-rbac-helpers.mjs';
+import {login, submit} from '../helpers.mjs';
+import {isolatedStaff, query, seededAccount, unique} from '../staff-rbac-helpers.mjs';
 
 test('player closes a ticket and staff resolves another through the PUT endpoints', async ({page, browser}, info) => {
   test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
-  await player(page, lang);
-  const staff = await isolatedAdmin(browser, info);
+  await login(page, lang, await seededAccount(lang));
+  const staff = await isolatedStaff(browser, info, 'platform_admin', await seededAccount(lang));
   try {
     for (const [actor, status, scope] of [[page, 'closed', ''], [staff.page, 'resolved', 'admin/']]) {
       const tickets = `/${lang}/support/tickets`;
@@ -19,6 +19,7 @@ test('player closes a ticket and staff resolves another through the PUT endpoint
       expect((await actor.goto(path)).status()).toBe(200);
       const form = actor.locator('main form[action$="/status"]');
       await form.locator('[name=status]').selectOption(status);
+      if (scope) await form.locator('[name=reason]').fill('Resolve the support ticket');
       const fields = await form.evaluate(f => Object.fromEntries(new FormData(f)));
       const changed = await actor.request.put(`${path}/status`, {
         form: fields, headers: {origin: new URL(actor.url()).origin}, maxRedirects: 0,

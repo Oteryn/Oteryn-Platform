@@ -56,12 +56,11 @@ test('rankings validate categories, filters and pagination before reading Game s
   }
   await probe(page, `${stats}/yesterday?world=${missingId}&vocation=5&pvp=hardcore&page=20000`, 503,
     { lang, message: growth.unavailable });
-  for (const query of ['page=0', 'page=01', 'page=1&page=2', 'sort=name', 'page=%GG']) {
+  for (const query of ['page=0', 'page=01', 'page=1&page=2', 'sort=name', 'page=%GG', 'world=bad', 'vocation=6']) {
     await probe(page, `${scores}/experience?${query}`, 400, { lang, message: t['rankings-bad-query'] });
   }
-  for (const query of ['world=bad', 'vocation=6']) {
-    await probe(page, `${scores}/experience?${query}`, 404, { lang, message: t['rankings-not-found'] });
-  }
+  await probe(page, `${scores}/experience?world=${missingId}`, 404,
+    { lang, message: t['rankings-not-found'] });
   await visit(page, `${scores}/unknown`, 404, { lang, message: t['rankings-not-found'] });
   await visit(page, `${stats}/unknown`, 404, { lang, message: growth['not-found'] });
   for (const query of ['world=bad', 'vocation=6', 'pvp=closed', 'page=0', 'page=20001', 'page=1&page=2', 'sort=name']) {

@@ -69,3 +69,5 @@ source_branch_disposition: auto_delete_after_merge
 source_branch_reason: One release candidate on its dedicated Platform branch.
 source_branch_evidence: PR #1985 merged as 6f8038b355dde4d9007d4e7117670137f78188b8 and live branch lookup confirms refs/heads/feat/thais-portal-home is absent
 ```
+
+Delivered by PR #1985 and archived.

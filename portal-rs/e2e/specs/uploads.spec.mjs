@@ -1,0 +1,451 @@
+import { escapeRegex } from '../regex.mjs';
+import { spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { crc32 } from 'node:zlib';
+import { test, expect } from '../fixtures.mjs';
+import { disposableDatabaseUrl, password, pool, submit } from '../helpers.mjs';
+import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+
+const route = '/admin/media';
+const mediaUrl = lang => lang === 'en' ? `${route}?lang=en` : route;
+const form = `main form[enctype="multipart/form-data"][action^="${route}"]`;
+const maxFileBytes = 8 * 1024 * 1024;
+const file = (ext, mimeType, basename = 'editorial') => ({
+  name: `${basename}.${ext}`,
+  mimeType,
+  buffer: readFileSync(new URL(`../fixtures/uploads/${basename}.${ext}`, import.meta.url)),
+});
+const png = file('png', 'image/png');
+const mediaLabel = () => `Editorial upload ${randomUUID()}`;
+
+async function staffAccount(browser, project, role) {
+  const lang = project.metadata.locale;
+  const account = { email: `upload-${randomUUID()}@example.invalid`, password: password() };
+  const databaseUrl = disposableDatabaseUrl();
+  const db = pool(databaseUrl);
+  const target = process.env.CARGO_TARGET_DIR ??
+    fileURLToPath(new URL('../../target', import.meta.url));
+  const binary = process.env.PORTAL_E2E_BINARY ?? path.resolve(target, 'debug/oteryn-portal');
+  function seed(entity, args) {
+    const seeded = spawnSync(binary, ['seed', entity, JSON.stringify(args)], {
+      env: { ...process.env, OTERYN_ENV: 'testing', OTERYN_DATABASE_URL: databaseUrl },
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    if (seeded.status !== 0) throw new Error(`The upload fixture seed CLI failed for ${entity}`);
+    return JSON.parse(seeded.stdout);
+  }
+  let accountId;
+  let recoveryCode;
+  try {
+    ({ accountId } = seed('account', { ...account, locale: lang }));
+    [recoveryCode] = seed('account-mfa', { accountId, password: account.password }).recoveryCodes;
+    expect(typeof recoveryCode).toBe('string');
+    const grant = await db.query(
+      'INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2',
+      [accountId, role],
+    );
+    expect(grant.rowCount).toBe(1);
+  } finally {
+    await db.end();
+  }
+
+  const { baseURL, ignoreHTTPSErrors, locale, viewport } = project.use;
+  const context = await browser.newContext({ baseURL, ignoreHTTPSErrors, locale, viewport });
+  try {
+    const page = await context.newPage();
+    await loginWithRecoveryCode(page, lang, account, recoveryCode);
+    expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(200);
+    return { accountId, state: await context.storageState() };
+  } finally {
+    await context.close();
+  }
+}
+
+let editor;
+test.beforeAll(async ({ browser }, { project }) => {
+  editor = await staffAccount(browser, project, 'content_editor');
+});
+
+test.beforeEach(async ({ context }) => {
+  await context.addCookies(editor.state.cookies);
+});
+
+async function openMedia(page, lang) {
+  const response = await page.goto(`${route}?lang=${lang}`);
+  expect(response.status()).toBe(200);
+  await expect(page.locator('html')).toHaveAttribute('lang', lang);
+  await expect(page.locator(form).locator('button')).toHaveText(lang === 'pl' ? 'Prześlij' : 'Upload');
+}
+
+function postImage(page, image, alt, csrf, uploadKey) {
+  return page.request.post(route, {
+    multipart: {
+      ...(csrf === undefined ? {} : { _csrf: csrf }),
+      ...(uploadKey === undefined ? {} : { upload_key: uploadKey }),
+      alt_text: alt,
+      image,
+    },
+    headers: { origin: new URL(page.url()).origin },
+    maxRedirects: 0,
+  });
+}
+
+async function expectNoMedia(alt) {
+  expect(await query('SELECT id FROM media WHERE alt_text=$1', [alt])).toEqual([]);
+}
+
+for (const { image, width, height, thumbnailHeight, responseBudget = 30_000 } of [
+  { image: { ...png, name: 'Zażółć-gęślą-東京.png' }, width: 640, height: 160, thumbnailHeight: 80 },
+  { image: file('jpeg', 'image/jpeg'), width: 640, height: 160, thumbnailHeight: 80 },
+  { image: file('webp', 'image/webp'), width: 640, height: 160, thumbnailHeight: 80 },
+  { image: file('jpeg', 'image/jpeg', 'progressive-444'), width: 4608, height: 3456, thumbnailHeight: 240, responseBudget: 75_000 },
+]) {
+  test(`editor uploads, renders and retrieves ${image.mimeType} (${image.name})`, async ({ page }, { project }) => {
+    const lang = project.metadata.locale;
+    const alt = mediaLabel();
+    await openMedia(page, lang);
+    await page.locator(form).locator('input[name=image]').setInputFiles(image);
+    const [uploaded] = await Promise.all([
+      page.waitForResponse(
+        response => new URL(response.url()).pathname === route && response.request().method() === 'POST',
+        { timeout: responseBudget },
+      ),
+      submit(page, form, { alt_text: alt }, { timeout: responseBudget }),
+    ]);
+    expect(uploaded.status()).toBe(302);
+    expect(uploaded.headers().location).toBe(mediaUrl(lang));
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    const thumbnail = page.getByRole('img', { name: alt, exact: true });
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate(img => [img.naturalWidth, img.naturalHeight])).toEqual([320, thumbnailHeight]);
+
+    const rows = await query('SELECT id, mime_type, width, height FROM media WHERE alt_text=$1', [alt]);
+    expect(rows).toEqual([{ id: expect.any(String), mime_type: image.mimeType, width, height }]);
+    const media = `${route}/${rows[0].id}`;
+    await expect(thumbnail).toHaveAttribute('src', `${media}/thumbnail`);
+    for (const variant of ['content', 'thumbnail']) {
+      const response = await page.request.get(`${media}/${variant}`, { maxRedirects: 0 });
+      expect(response.status()).toBe(200);
+      expect(response.headers()).toMatchObject({
+        'content-type': image.mimeType,
+        'x-content-type-options': 'nosniff',
+        'content-disposition': 'inline',
+      });
+      expect((await response.body()).length).toBeGreaterThan(0);
+    }
+    const localeQuery = `?lang=${lang}`;
+    await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
+    await expect(page).toHaveURL(mediaUrl(lang));
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(thumbnail).toHaveCount(0);
+    expect((await page.request.get(`${media}/content`)).status()).toBe(404);
+  });
+}
+
+test('retrying a rendered upload returns success with one media row', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  const csrf = await page.locator(form).locator('[name=_csrf]').inputValue();
+  const uploadKey = await page.locator(form).locator('[name=upload_key]').inputValue();
+  await page.locator(form).locator('input[name=image]').setInputFiles(png);
+  const [first] = await Promise.all([
+    page.waitForResponse(response =>
+      new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+    submit(page, form, { alt_text: alt }),
+  ]);
+  expect(first.status()).toBe(302);
+  await expect(page.getByRole('img', { name: alt, exact: true })).toBeVisible();
+  const before = await query('SELECT id FROM media WHERE alt_text=$1', [alt]);
+  expect(before).toEqual([{ id: expect.any(String) }]);
+
+  expect((await postImage(page, png, alt, csrf, uploadKey)).status()).toBe(302);
+  expect(await query('SELECT id FROM media WHERE alt_text=$1', [alt])).toEqual(before);
+  const changed = mediaLabel();
+  expect((await postImage(page, png, changed, csrf, uploadKey)).status()).toBe(409);
+  await expectNoMedia(changed);
+  await page.locator(form).locator('[name=upload_key]').evaluate((input, key) => { input.value = key; }, uploadKey);
+  await page.locator(form).locator('input[name=image]').setInputFiles(png);
+  const [conflict] = await Promise.all([
+    page.waitForResponse(response =>
+      new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+    submit(page, form, { alt_text: changed }),
+  ]);
+  expect(conflict.status()).toBe(409);
+  await expect(page.getByRole('heading', { name: lang === 'en' ? 'This form was already used' : 'Formularz został już użyty' })).toBeVisible();
+  await expectNoMedia(changed);
+  const localeQuery = `?lang=${lang}`;
+  const back = backToMedia(page, lang);
+  await expect(back).toHaveAttribute('href', mediaUrl(lang));
+  await back.click();
+  await expect(page.locator(form)).toBeVisible();
+  await submit(page, `main form[action="${route}/${before[0].id}/delete${localeQuery}"]`);
+  await expectNoMedia(alt);
+});
+
+function backToMedia(page, lang) {
+  return page.getByRole('link', { name: lang === 'en' ? 'Back to the media form' : 'Wróć do formularza multimediów', exact: true });
+}
+
+test('a native upload timeout shows a localized link back to the form', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  await page.locator(form).locator('input[name=image]').setInputFiles(png);
+  await page.locator(form).locator('[name=alt_text]').fill(alt);
+
+  const db = pool();
+  const lock = await db.connect();
+  try {
+    await lock.query('BEGIN');
+    await lock.query('LOCK TABLE web_sessions IN ACCESS EXCLUSIVE MODE');
+    const [timedOut] = await Promise.all([
+      page.waitForResponse(response =>
+        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+      page.locator(form).locator('button').click(),
+    ]);
+    expect(await timedOut.request().headerValue('x-csrf-token')).toBeNull();
+    expect(timedOut.status()).toBe(408);
+  } finally {
+    await lock.query('ROLLBACK');
+    lock.release();
+    await db.end();
+  }
+  await expect(page.getByRole('heading', { name: lang === 'en' ? 'Upload timed out' : 'Przesyłanie trwało zbyt długo' })).toBeVisible();
+  await expectNoMedia(alt);
+  const back = backToMedia(page, lang);
+  await expect(back).toHaveAttribute('href', mediaUrl(lang));
+  await back.click();
+  await expect(page.locator(form)).toBeVisible();
+});
+
+test('an upload filename with path segments cannot select the stored media path', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  const csrf = await page.locator(form).locator('input[name=_csrf]').inputValue();
+  const image = { ...png, name: '../editorial.png' };
+  expect((await postImage(page, image, alt, csrf)).status()).toBe(302);
+  const rows = await query('SELECT id FROM media WHERE alt_text=$1', [alt]);
+  expect(rows).toEqual([{ id: expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/) }]);
+  const media = `${route}/${rows[0].id}`;
+
+  await openMedia(page, lang);
+  const thumbnail = page.getByRole('img', { name: alt, exact: true });
+  await expect(thumbnail).toBeVisible();
+  await expect(thumbnail).toHaveAttribute('src', `${media}/thumbnail`);
+  const response = await page.request.get(`${media}/content`, { maxRedirects: 0 });
+  expect(response.status()).toBe(200);
+  expect(response.headers()['content-disposition']).toBe('inline');
+  const localeQuery = `?lang=${lang}`;
+  await submit(page, `main form[action="${media}/delete${localeQuery}"]`);
+  await expectNoMedia(alt);
+});
+
+test('media pagination uses the selected language', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  const hash = createHash('sha256').update(png.buffer).digest();
+  const seeded = await query(
+    `INSERT INTO media (id, alt_text, mime_type, width, height, content, sha256)
+     SELECT uuidv7(), $1, 'image/png', 640, 160, $2, $3 FROM generate_series(1, 101)
+     RETURNING id`,
+    [alt, png.buffer, hash],
+  );
+  try {
+    await openMedia(page, lang);
+    await expect(page.locator('main ul > li')).toHaveCount(100);
+    const next = page.getByRole('link', { name: lang === 'en' ? 'Next page' : 'Następna strona', exact: true });
+    await expect(next).toHaveAttribute('href', `?page=1&lang=${lang}`);
+    await next.click();
+    await expect(page).toHaveURL(`${route}?page=1&lang=${lang}`);
+    await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.getByRole('img', { name: alt, exact: true })).toHaveCount(1);
+  } finally {
+    await query('DELETE FROM media WHERE id = ANY($1::uuid[])', [seeded.map(row => row.id)]);
+  }
+});
+
+test('media controls and shared navigation use the selected language over the browser preference', async ({ page }, { project }) => {
+  const lang = project.metadata.locale;
+  await page.setExtraHTTPHeaders({ 'Accept-Language': lang === 'en' ? 'pl' : 'en' });
+  await openMedia(page, lang);
+  await expect(page.locator('#portal-navigation')).toHaveAttribute('aria-label', lang === 'en' ? 'Main navigation' : 'Nawigacja główna');
+  await expect(page.locator('footer nav.foot-links')).toHaveAttribute('aria-label', lang === 'en' ? 'Footer navigation' : 'Nawigacja w stopce');
+});
+
+function pngOfSize(fileBytes) {
+  // A valid text chunk before IEND lets us control upload size without changing the pixels.
+  const dataLength = fileBytes - png.buffer.length - 12;
+  const chunk = Buffer.alloc(dataLength + 12, 'a');
+  chunk.writeUInt32BE(dataLength);
+  chunk.write('tEXtComment\0', 4, 'ascii');
+  chunk.writeUInt32BE(crc32(chunk.subarray(4, -4)), chunk.length - 4);
+  return { ...png, buffer: Buffer.concat([png.buffer.subarray(0, -12), chunk, png.buffer.subarray(-12)]) };
+}
+
+test('signed-in editor submits a 7 MiB native form over a 10 Mbps uplink', async ({ page, context }, { project }) => {
+  const lang = project.metadata.locale;
+  const alt = mediaLabel();
+  await openMedia(page, lang);
+  const image = pngOfSize(7 * 1024 * 1024);
+  await page.locator(form).locator('input[name=image]').setInputFiles(image);
+  await page.locator(form).locator('[name=alt_text]').fill(alt);
+
+  const cdp = await context.newCDPSession(page);
+  try {
+    await cdp.send('Network.emulateNetworkConditions', {
+      offline: false,
+      latency: 0,
+      downloadThroughput: -1,
+      uploadThroughput: 1_250_000,
+    });
+    const started = performance.now();
+    const [uploaded] = await Promise.all([
+      page.waitForResponse(response =>
+        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+      page.locator(form).locator('button').click(),
+    ]);
+    expect(await uploaded.request().headerValue('x-csrf-token')).toBeNull();
+    expect(uploaded.status()).toBe(302);
+    expect(uploaded.headers().location).toBe(mediaUrl(lang));
+    expect(performance.now() - started).toBeGreaterThan(5000);
+    const localeQuery = `?lang=${lang}`;
+    await expect(page).toHaveURL(mediaUrl(lang));
+    await expect(page.getByRole('img', { name: alt, exact: true })).toBeVisible();
+    const rows = await query('SELECT id, mime_type FROM media WHERE alt_text=$1', [alt]);
+    expect(rows).toEqual([{ id: expect.any(String), mime_type: 'image/png' }]);
+    await submit(page, `main form[action="${route}/${rows[0].id}/delete${localeQuery}"]`);
+    await expect(page.getByRole('img', { name: alt, exact: true })).toHaveCount(0);
+  } finally {
+    await cdp.detach();
+  }
+});
+
+const rejectedImages = [
+  ['file greater than 8 MiB', () => pngOfSize(maxFileBytes + 1), 422],
+  ['multipart body above the request limit', () => ({ ...png, buffer: Buffer.alloc(maxFileBytes + 16385) }), 413],
+  ['declared MIME does not match the PNG', () => ({ ...png, mimeType: 'image/jpeg' }), 422],
+  ['extension does not match the PNG', () => ({ ...png, name: 'editorial.jpeg' }), 422],
+  ['SVG with an empty script element', () => ({
+    name: 'unsupported.svg',
+    mimeType: 'image/svg+xml',
+    buffer: readFileSync(new URL('../fixtures/uploads/unsupported.svg', import.meta.url)),
+  }), 422],
+  ['PNG with extra bytes after the image container', () => ({
+    ...png,
+    buffer: Buffer.concat([png.buffer, Buffer.from('end of fixture')]),
+  }), 422],
+  ['PNG with a second IEND chunk', () => ({
+    ...png,
+    buffer: Buffer.concat([png.buffer, png.buffer.subarray(-12)]),
+  }), 422],
+  ['PNG with a bad CRC after pixel data', () => {
+    const image = pngOfSize(png.buffer.length + 64);
+    image.buffer[image.buffer.length - 16] ^= 1;
+    return image;
+  }, 422],
+  ['WebP with an incomplete trailing chunk', () => {
+    const webp = file('webp', 'image/webp');
+    const trailing = Buffer.from([0x54, 0x45, 0x53, 0x54, 8, 0, 0, 0, 1]);
+    const buffer = Buffer.concat([webp.buffer, trailing]);
+    buffer.writeUInt32LE(buffer.length - 8, 4);
+    return { ...webp, buffer };
+  }, 422],
+  ['PNG with truncated pixel data', () => file('png', 'image/png', 'truncated-pixels'), 422],
+  ['APNG with damaged pixels in the second frame', () => file('png', 'image/png', 'animated-damaged'), 422],
+  ['animated WebP with damaged pixels in the second frame', () => file('webp', 'image/webp', 'animated-damaged'), 422],
+  ['JPEG with a truncated scan', () => file('jpeg', 'image/jpeg', 'truncated-scan'), 422],
+  ['two JPEG images in one file', () => {
+    const jpeg = file('jpeg', 'image/jpeg');
+    return { ...jpeg, buffer: Buffer.concat([jpeg.buffer, jpeg.buffer]) };
+  }, 422],
+  ['zero-byte PNG', () => ({ ...png, buffer: Buffer.alloc(0) }), 422],
+];
+
+for (const [label, fixture, status] of rejectedImages) {
+  test(`editorial upload rejects ${label}`, async ({ page }, { project }) => {
+    const alt = mediaLabel();
+    await openMedia(page, project.metadata.locale);
+    const csrf = await page.locator(form).locator('input[name=_csrf]').inputValue();
+    expect((await postImage(page, fixture(), alt, csrf)).status()).toBe(status);
+    await expectNoMedia(alt);
+  });
+}
+
+test('editorial upload requires the editor’s CSRF token', async ({ page }, { project }) => {
+  const alt = mediaLabel();
+  await openMedia(page, project.metadata.locale);
+  expect((await postImage(page, png, alt)).status()).toBe(403);
+  await expectNoMedia(alt);
+});
+
+test('MFA-authenticated support staff cannot upload editorial media', async ({ browser }, { project }) => {
+  const support = await staffAccount(browser, project, 'support');
+  const { baseURL, ignoreHTTPSErrors, locale, viewport } = project.use;
+  const context = await browser.newContext({ baseURL, ignoreHTTPSErrors, locale, viewport, storageState: support.state });
+  try {
+    const page = await context.newPage();
+    const alt = mediaLabel();
+    expect((await page.goto(`/${locale}/`)).status()).toBe(200);
+    const csrf = await page.locator('form[action$="/logout"] input[name=_csrf]').first().inputValue();
+    expect((await postImage(page, png, alt)).status()).toBe(403);
+    await expectNoMedia(alt);
+    expect(await query(
+      "SELECT target FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target=$2",
+      [support.accountId, route],
+    )).toEqual([]);
+    expect((await postImage(page, png, alt, csrf)).status()).toBe(403);
+    await expectNoMedia(alt);
+    expect(await query(
+      "SELECT target FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target=$2",
+      [support.accountId, route],
+    )).toEqual([{ target: route }]);
+  } finally {
+    await context.close();
+  }
+});
+
+test('expired MFA uses the media locale for the page and native upload refusal', async ({ browser }, { project }) => {
+  const account = await staffAccount(browser, project, 'content_editor');
+  const { baseURL, ignoreHTTPSErrors, locale, viewport } = project.use;
+  const browserLocale = locale === 'en' ? 'pl' : 'en';
+  const context = await browser.newContext({
+    baseURL, ignoreHTTPSErrors, locale: browserLocale, viewport, storageState: account.state,
+  });
+  try {
+    const page = await context.newPage();
+    const alt = mediaLabel();
+    await openMedia(page, locale);
+    await page.locator(form).locator('input[name=image]').setInputFiles(png);
+    await page.locator(form).locator('[name=alt_text]').fill(alt);
+    const expired = await query(
+      "UPDATE account_mfa_tokens SET expires_at=clock_timestamp() WHERE account_id=$1 AND purpose='grant' RETURNING account_id",
+      [account.accountId],
+    );
+    expect(expired.length).toBeGreaterThan(0);
+    const heading = locale === 'en' ? 'Multi-factor authentication required' : 'Wymagane uwierzytelnianie wieloskładnikowe';
+    const index = await page.request.get(`${route}?lang=${locale}`, {
+      headers: { 'Accept-Language': browserLocale },
+    });
+    expect(index.status()).toBe(403);
+    expect(await index.text()).toContain(`<h1>${heading}</h1>`);
+
+    const [refusal] = await Promise.all([
+      page.waitForResponse(response =>
+        new URL(response.url()).pathname === route && response.request().method() === 'POST'),
+      page.locator(form).locator('button').click(),
+    ]);
+    expect(await refusal.request().headerValue('accept-language')).toMatch(new RegExp(`^${escapeRegex(browserLocale)}`));
+    expect(refusal.status()).toBe(403);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
+    await expectNoMedia(alt);
+  } finally {
+    await context.close();
+  }
+});

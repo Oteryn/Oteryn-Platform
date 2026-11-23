@@ -68,6 +68,9 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("game-route") {
         return game_route_cli::main().await;
     }
+    if std::env::args().nth(1).as_deref() == Some("admin-cli") {
+        return puzzles_cli::main().await;
+    }
     if std::env::args().nth(1).as_deref() == Some("catalog") {
         return catalog_cli::main().await;
     }
@@ -229,6 +232,11 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // module routes on the same paths never overlap with them.
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
+            let app = app.merge(oteryn_support::sanctions::enforcement::configured_browser(
+                db.clone(),
+                internal_configuration.enforcement_browser_available()
+                    && internal_tls::Config::from_env()?.is_some(),
+            )?);
             let credentials = credentials_http::configured_router(db.clone());
             let player_confirmation = credentials.has_routes();
             let staff_confirmation = if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
@@ -250,6 +258,10 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 app
             };
+            let app = app.merge(oteryn_admin::staff_invites::router(
+                db.clone(),
+                registration_delivery::staff_invite_key(&db),
+            )?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::operations::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
@@ -321,6 +333,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             );
             let export_enabled = export.has_routes();
             let app = app.merge(export);
+            let app = app.merge(profile_http::configured_router(db.clone()));
             let app = app.merge(oteryn_content::today::router(db.clone()));
             let app = app.layer(axum::middleware::from_fn_with_state(
                 db.clone(),
@@ -356,12 +369,19 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 db.clone(),
             ));
-            let app = mfa_http::configured(app, db.clone())?;
+            let route_report = (config.environment == oteryn_core::Environment::Testing)
+                .then(|| std::env::var_os("PORTAL_E2E_ROUTE_REPORT"))
+                .flatten();
+            let mut fallback_routes = route_report.as_ref().map(|_| String::new());
+            let app = mfa_http::configured(app, db.clone(), fallback_routes.as_mut())?;
             // Match appeals before shared chrome so its session lookup uses the request deadline.
-            let app = app.merge(oteryn_support::tickets::configured_support_router(
-                db.clone(),
-                &origin,
-            )?);
+            let app = app.merge(
+                oteryn_support::tickets::configured_support_router_with_game(
+                    db.clone(),
+                    &origin,
+                    internal_configuration.enforcement_profiles()?,
+                )?,
+            );
             let app = app.merge(oteryn_web::search::routes(
                 oteryn_web::search::SearchState {
                     pool: db.clone(),
@@ -457,22 +477,8 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             navigation.registration = true; // register::routes is always mounted.
             navigation.login = std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true");
             navigation.account = true; // /account is always mounted.
-            oteryn_identity::navigation::register(&mut navigation);
-            oteryn_characters::navigation::register(&mut navigation);
-            oteryn_store::navigation::register(&mut navigation);
             oteryn_store::web::register_order_history(&mut navigation.panels);
             let app = app.merge(oteryn_store::web::mount_order_history(db.clone()));
-            oteryn_content::navigation::register(&mut navigation);
-            oteryn_wiki::navigation::register(&mut navigation);
-            oteryn_community::navigation::register(&mut navigation);
-            oteryn_stats::navigation::register(&mut navigation);
-            oteryn_atlas::navigation::register(&mut navigation);
-            oteryn_minigames::navigation::register(&mut navigation);
-            oteryn_hirelings::navigation::register(&mut navigation);
-            oteryn_playerdata::navigation::register(&mut navigation);
-            oteryn_payments::navigation::register(&mut navigation);
-            oteryn_support::navigation::register(&mut navigation);
-            oteryn_bazaar::navigation::register(&mut navigation);
             use oteryn_ui::panels::{Entry, Panel, Permission};
             for (enabled, route, label) in [
                 (
@@ -497,9 +503,26 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     },
                 );
             }
+            oteryn_identity::navigation::register_identity_panel(&mut navigation.panels);
+            oteryn_identity::navigation::register(&mut navigation, export_enabled);
+            navigation.staff_host = oteryn_admin::web::configured_dashboard_host()?;
+            oteryn_characters::navigation::register(&mut navigation);
+            oteryn_characters::overview::register_navigation(&mut navigation);
+            oteryn_store::navigation::register(&mut navigation);
+            oteryn_content::navigation::register(&mut navigation);
+            oteryn_wiki::navigation::register(&mut navigation);
+            oteryn_community::navigation::register(&mut navigation);
+            oteryn_stats::navigation::register(&mut navigation);
+            oteryn_atlas::navigation::register(&mut navigation);
+            oteryn_minigames::navigation::register(&mut navigation);
+            oteryn_hirelings::navigation::register(&mut navigation);
+            oteryn_playerdata::navigation::register(&mut navigation);
+            oteryn_payments::navigation::register(&mut navigation);
+            oteryn_support::navigation::register(&mut navigation);
+            oteryn_bazaar::navigation::register(&mut navigation);
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
-                    registry: navigation,
+                    registry: navigation.clone(),
                     sessions: oteryn_web::session::SessionLayer::new(db.clone()),
                 },
                 oteryn_web::chrome::middleware,
@@ -547,12 +570,36 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.
             let app = oteryn_web::register::configured(app);
-            let app = registration_delivery::admission(app, db.clone());
+            let app = registration_delivery::admission(app);
             let app = app.merge(code_routes::configured(db.clone())?);
             let app = with_proxy_policy(app, db.clone(), proxies);
             let (public_app, app) =
                 coin_listener_apps(app, oteryn_wallet::wire::configured_router(db.clone()));
-            let public_app = oteryn_minigames::with_browser_deadlines(public_app);
+            let public_app = oteryn_minigames::with_browser_deadlines(public_app).layer(
+                axum::middleware::from_fn_with_state(
+                    navigation,
+                    oteryn_web::chrome::unavailable_response,
+                ),
+            );
+            let public_app = oteryn_web::secure_public(public_app);
+            let public_app = if let Some(path) = route_report {
+                // Axum's Debug route slots also back the flag-boundary registration audit.
+                // This local file contains registrations only and is never served over HTTP.
+                let mut routers = vec![format!("{public_app:?}")];
+                routers.extend(fallback_routes.filter(|snapshot| !snapshot.is_empty()));
+                std::fs::write(
+                    path,
+                    serde_json::to_vec(&serde_json::json!({
+                        "routers": routers,
+                        "legacy": oteryn_web::redirects::MAPPINGS,
+                        "mfaLoginRewrite": routers.len() > 1,
+                    }))?,
+                )?;
+                observe_route_matches(public_app)
+                    .layer(axum::middleware::from_fn(report_route_match))
+            } else {
+                public_app
+            };
             let app = app.merge(oteryn_support::sanctions::export::configured_router(
                 db.clone(),
             ));
@@ -616,6 +663,40 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     Ok(())
+}
+
+// A testing-only witness for the pattern selected by Axum, including after
+// the MFA rewrite. The captured value is a registration, never a request URI.
+#[derive(Clone, Default)]
+struct RouteMatch(std::sync::Arc<std::sync::OnceLock<axum::http::HeaderValue>>);
+
+fn observe_route_matches(app: axum::Router) -> axum::Router {
+    app.route_layer(axum::middleware::from_fn(
+        |request: axum::extract::Request, next: axum::middleware::Next| async move {
+            if let Some(witness) = request.extensions().get::<RouteMatch>()
+                && let Some(path) = request.extensions().get::<axum::extract::MatchedPath>()
+                && let Ok(value) = path.as_str().parse()
+            {
+                let _ = witness.0.set(value);
+            }
+            next.run(request).await
+        },
+    ))
+}
+
+async fn report_route_match(
+    mut request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let witness = RouteMatch::default();
+    request.extensions_mut().insert(witness.clone());
+    let mut response = next.run(request).await;
+    if let Some(pattern) = witness.0.get() {
+        response
+            .headers_mut()
+            .insert("x-portal-e2e-matched-route", pattern.clone());
+    }
+    response
 }
 
 #[cfg(test)]
@@ -762,10 +843,15 @@ mod credentials_http;
 mod email_change_http;
 #[path = "../../../crates/identity/src/export_http.rs"]
 mod export_http;
+#[cfg(test)]
+#[path = "../../../crates/identity/src/mfa_test_db.rs"]
+mod identity_test_db;
 #[path = "../../../crates/identity/src/passkeys_http.rs"]
 mod passkeys_http;
 #[path = "../../../crates/identity/src/privacy_web.rs"]
 mod privacy_web;
+#[path = "../../../crates/identity/src/profile_http.rs"]
+mod profile_http;
 #[path = "../../../crates/identity/src/reset_delivery.rs"]
 mod reset_delivery;
 #[path = "../../../crates/identity/src/reset_http.rs"]
@@ -788,6 +874,7 @@ mod account_closure;
 mod catalog_cli;
 mod code_routes;
 mod game_route_cli;
+mod puzzles_cli;
 mod refund_reconcile_cli;
 
 #[cfg(test)]

@@ -11,6 +11,7 @@ mod storage;
 pub use catalog::{ADMIN_PANEL_SECTIONS, BuiltInRole, GM_PANEL_SECTIONS, Permission};
 
 pub use storage::Change;
+pub(crate) use storage::{protected_role_sql, requires_grant_approval};
 
 use sqlx::{PgConnection, PgPool};
 use std::future::Future;
@@ -174,11 +175,55 @@ pub async fn durable_session_in(
     sqlx::query("SELECT s.id_hash FROM web_sessions s JOIN account_mfa_totp m ON m.account_id=s.account_id JOIN account_mfa_tokens t ON t.account_id=m.account_id AND t.generation=m.generation WHERE s.account_id=$1 AND s.id_hash=$2 AND t.token_hash=$3 FOR UPDATE OF s,m,t")
         .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
         .execute(&mut *connection).await.map_err(|_| AccountStateUnavailable)?;
-    // A native Game kick advances this generation. Failing closed on subsequent
-    // browser staff mutations until fresh authentication is intentional.
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id JOIN account_mfa_totp m ON m.account_id=a.id JOIN account_mfa_tokens t ON t.account_id=a.id AND t.generation=m.generation WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.id_hash=$2 AND sha256(convert_to(s.data->>'mfa_grant','UTF8'))=$3 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.authorization_generation=a.native_security_generation AND m.confirmed AND t.token_hash=$3 AND t.purpose='grant' AND t.expires_at>clock_timestamp() AND t.created_at<=clock_timestamp() AND t.credential_hash=$4 FOR UPDATE OF s,m,t)")
-        .bind(account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice())
-        .bind(Sha256::digest(password.as_bytes()).to_vec()).fetch_one(connection).await.map_err(|_| AccountStateUnavailable)
+    valid_durable_session_in(
+        connection,
+        account,
+        proof,
+        Some(Sha256::digest(password.as_bytes()).into()),
+    )
+    .await
+    .map_err(|_| AccountStateUnavailable)
+}
+
+/// Verify the same durable proof on a read-only connection when no credential
+/// hash is supplied. Mutation callers retain the row locks and captured hash.
+pub(crate) async fn valid_durable_session_in(
+    connection: &mut PgConnection,
+    account: Uuid,
+    proof: SessionProof,
+    credential_hash: Option<[u8; 32]>,
+) -> Result<bool, sqlx::Error> {
+    // A native Game kick advances the authorization generation.
+    macro_rules! proof_query {
+        ($lock:literal) => {
+            concat!(
+                "SELECT EXISTS(SELECT 1 FROM web_sessions s
+                 JOIN accounts a ON a.id=s.account_id
+                 JOIN account_mfa_totp m ON m.account_id=a.id
+                 JOIN account_mfa_tokens t ON t.account_id=a.id AND t.generation=m.generation
+                 WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL
+                 AND s.id_hash=$2 AND sha256(convert_to(s.data->>'mfa_grant','UTF8'))=$3
+                 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()
+                 AND s.authorization_generation=a.native_security_generation AND m.confirmed
+                 AND t.token_hash=$3 AND t.purpose='grant'
+                 AND t.expires_at>clock_timestamp() AND t.created_at<=clock_timestamp()
+                 AND t.credential_hash=COALESCE($4,sha256(convert_to(a.password_hash,'UTF8')))",
+                $lock, ")"
+            )
+        };
+    }
+    let query = if credential_hash.is_some() {
+        proof_query!(" FOR UPDATE OF s,m,t")
+    } else {
+        proof_query!("")
+    };
+    sqlx::query_scalar(query)
+        .bind(account)
+        .bind(proof.session_hash.as_slice())
+        .bind(proof.grant_hash.as_slice())
+        .bind(credential_hash.as_ref().map(|hash| hash.as_slice()))
+        .fetch_one(connection)
+        .await
 }
 
 /// Capture expiry under the durable authorization locks before a mutation
@@ -325,15 +370,24 @@ impl<A: AccountStateReader> Authorizer<A> {
 
     /// Checks one explicit permission. Missing roles and unknown account state deny.
     pub async fn check(&self, context: CheckContext, permission: Permission) -> Result<(), Error> {
-        if permission.as_str().starts_with("game.")
-            && (!self.game_flags.enabled
-                || (permission == Permission::GameNodeDeploy && !self.game_flags.deploy))
-        {
-            return Err(Error::Denied);
-        }
+        self.check_permission_flag(permission)?;
         self.validate_account(context).await?;
         let mut connection = self.pool.acquire().await?;
         Self::check_permission(&mut connection, context.account, permission).await
+    }
+
+    pub(crate) async fn check_any(
+        &self,
+        context: CheckContext,
+        permissions: &[Permission],
+    ) -> Result<(), Error> {
+        for &permission in permissions {
+            match self.check(context, permission).await {
+                Err(Error::Denied) => continue,
+                result => return result,
+            }
+        }
+        Err(Error::Denied)
     }
 
     pub(crate) async fn account_active(&self, account: Uuid) -> bool {
@@ -359,12 +413,7 @@ impl<A: AccountStateReader> Authorizer<A> {
         context: CheckContext,
         permission: Permission,
     ) -> Result<(), Error> {
-        if permission.as_str().starts_with("game.")
-            && (!self.game_flags.enabled
-                || (permission == Permission::GameNodeDeploy && !self.game_flags.deploy))
-        {
-            return Err(Error::Denied);
-        }
+        self.check_permission_flag(permission)?;
         self.session_in(&mut *connection, context).await?;
         Self::check_permission(connection, context.account, permission).await
     }
@@ -407,7 +456,17 @@ impl<A: AccountStateReader> Authorizer<A> {
         Self::check_permission(connection, account, permission).await
     }
 
-    async fn check_permission(
+    pub(crate) fn check_permission_flag(&self, permission: Permission) -> Result<(), Error> {
+        if permission.as_str().starts_with("game.")
+            && (!self.game_flags.enabled
+                || (permission == Permission::GameNodeDeploy && !self.game_flags.deploy))
+        {
+            return Err(Error::Denied);
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn check_permission(
         connection: &mut PgConnection,
         account: Uuid,
         permission: Permission,

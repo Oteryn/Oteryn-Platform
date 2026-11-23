@@ -1,5 +1,6 @@
 """Inventory HTML forms in Askama templates using only the standard library."""
 
+import argparse
 import json
 import re
 from html.parser import HTMLParser
@@ -11,6 +12,12 @@ PORTAL = LEDGER.parent.parent
 # Shared templates and implicit actions derive their destinations from Rust
 # renderers. Keep the concrete alternatives for each form here.
 ACTIONS = {
+    "crates/admin/src/commerce/panels/catalog.html": [
+        ("/admin/store-activation",), ("/admin/store-catalog",),
+    ],
+    "crates/admin/src/commerce/panels/payments.html": [("/admin/payment-review",)] * 2,
+    "crates/admin/src/operations/page.html": [("/admin/operations/statistics", "/admin/operations/rate-limits")],
+    "crates/admin/templates/support_queue.html": [("/admin/support/tickets",)],
     "bin/oteryn-portal/templates/code_issuance.html": [
         ("/{lang}/admin/store/codes",),
     ],
@@ -19,10 +26,21 @@ ACTIONS = {
     ] * 2,
     "crates/admin/src/console/templates/read.html": [
         ("/admin/console/players",), ("/admin/console/players",), ("/admin/console/audit",),
+        ("/admin/console/players/retry",),
+    ],
+    "crates/admin/src/console/enforcement/templates/index.html": [
+        ("/admin/console/enforcement",), ("/admin/console/enforcement/step-up",),
+        ("/admin/console/enforcement",),
     ],
     "crates/payments/templates/coin/checkout.html": [
         ("/native-account/coin-checkout/{order_id}",),
     ] * 2,
+    "crates/support/src/tickets/page.html": [
+        ("/{lang}/support/tickets",),
+        ("/{lang}/support/tickets/{id}/read",),
+        ("/{lang}/support/tickets/{id}/reply", "/{lang}/admin/support/tickets/{id}/reply"),
+        ("/{lang}/support/tickets/{id}/status", "/{lang}/admin/support/tickets/{id}/status"),
+    ],
     "templates/account/lifecycle.html": [
         ("/{lang}/account/privacy/delete", "/{lang}/account/privacy/delete/cancel",
          "/{lang}/account/notifications", "/{lang}/unsubscribe"),
@@ -71,6 +89,36 @@ ACTIONS = {
 ASKAMA = re.compile(r"{{(?:(?!{{|}}).)*}}|{%(?:(?!{%|%}).)*%}|{#(?:(?!{#|#}).)*#}", re.S)
 PARAM = re.compile(r"{([^{}]+)}")
 
+CALCULATOR = "templates/wiki/calculators/page.html"
+
+# These Rust renderers build forms at runtime. Their write registrations
+# contribute route evidence, while the mutation inventory retains their markup.
+ROUTE_ONLY_RENDERERS = {
+    "crates/admin/src/bazaar.rs",
+    "crates/admin/src/control/controls_http.rs",
+    "crates/admin/templates/support_record.html",
+    "crates/bazaar/src/game/runtime/browser.rs",
+    "crates/bazaar/src/moderation_web.rs",
+    "crates/characters/src/create_web/page.rs",
+    "crates/community/src/party/party_view.rs",
+    "crates/community/src/referrals/web.rs",
+    "crates/content/src/news.rs",
+    "crates/identity/src/consents_http.rs",
+    "crates/identity/src/credentials_http.rs",
+    "crates/identity/src/email_change_http.rs",
+    "crates/identity/src/export_http.rs",
+    "crates/identity/src/privacy_web.rs",
+    "crates/identity/src/recovery_key_http.rs",
+    "crates/identity/src/sessions_http.rs",
+    "crates/minigames/src/collection_pvp/http.rs",
+    "crates/minigames/src/puzzles/http.rs",
+    "crates/playerdata/src/places/http.rs",
+    "crates/playerdata/src/reports/render.rs",
+    "crates/store/src/web.rs",
+    "crates/support/src/reports/web.rs",
+    "crates/web/src/routes/verify.rs",
+}
+
 
 class Forms(HTMLParser):
     def __init__(self, source):
@@ -95,7 +143,7 @@ class Forms(HTMLParser):
         attrs = {key: self.restore(value or "") for key, value in attributes}
         if tag == "form":
             self.current = dict(line=self.getpos()[0], action=attrs.get("action", ""),
-                                method=attrs.get("method", "GET").upper(), fields=set(), buttons=[])
+                                method=attrs.get("method", "GET").upper(), fields=set(), buttons=[], hidden={})
             self.forms.append(self.current)
         elif self.current is not None:
             kind = attrs.get("type", "submit" if tag == "button" else "").lower()
@@ -106,6 +154,8 @@ class Forms(HTMLParser):
                 self.current["buttons"].append((attrs.get("formaction"), attrs.get("formmethod"), button))
             elif tag in {"input", "select", "textarea"} and attrs.get("name"):
                 self.current["fields"].add(attrs["name"])
+                if tag == "input" and kind == "hidden":
+                    self.current["hidden"][attrs["name"]] = attrs.get("value", "")
 
     def handle_endtag(self, tag):
         if tag == "form":
@@ -113,6 +163,9 @@ class Forms(HTMLParser):
 
 
 def expand(action):
+    if action in ("/{{ lang }}{{ login_path }}", "/{{ lang }}{{ self.login_path() }}"):
+        yield "/{lang}/login"
+        return
     opening = alternative = None
     for token in ASKAMA.finditer(action):
         if not token[0].startswith("{%"):
@@ -159,9 +212,18 @@ def inventory_route(action, method, routes):
 
 def generate():
     routes = json.loads((LEDGER.parent / "inventory.json").read_text())["routes"]
+    mutations = json.loads((LEDGER.parent / "mutation" / "forms.json").read_text())
+    registrations = {(row["route"].replace("{locale}", "{lang}"), method)
+                     for row in routes for method in row["methods"]}
+    for row in mutations["routes"]:
+        if (row["route"].replace("{locale}", "{lang}"), row["method"]) not in registrations:
+            crate = row["sources"][0]["source"].split("/")[1]
+            routes.append(dict(route=row["route"], methods=[row["method"]], crate=crate))
     forms = []
-    for template in sorted(p for p in PORTAL.rglob("*.html") if "templates" in p.relative_to(PORTAL).parts):
+    for template in sorted(p for root in ("templates", "crates", "bin") for p in (PORTAL / root).rglob("*.html")):
         filename = template.relative_to(PORTAL).as_posix()
+        if filename in ROUTE_ONLY_RENDERERS:
+            continue
         parsed = Forms(template.read_text(encoding="utf-8")).forms
         overrides = ACTIONS.get(filename, [()] * len(parsed))
         if len(overrides) != len(parsed):
@@ -171,6 +233,7 @@ def generate():
             for override, method, button in form["buttons"] or [(None, None, None)]:
                 verb = (method or form["method"]).upper()
                 for action in tuple(expand(override)) if override else actions or tuple(expand(form["action"])):
+                    action = action.partition("?")[0]
                     if not action.startswith("/") or "{%" in action:
                         raise ValueError(f"{filename}:{form['line']} unresolved form action {action!r}")
                     buttons = destinations.setdefault((action, verb), [])
@@ -186,12 +249,45 @@ def generate():
                     "templates/admin": "admin", "templates/content": "content",
                     "templates/profile": "characters",
                 }.get("/".join(parts[:2]), parts[1] if parts[0] == "crates" else "web")
-                forms.append(dict(template=filename, line=form["line"], action=action, method=method,
-                                  route_pattern=route["route"] if route else None, crate=crate,
-                                  fields=sorted(form["fields"]), buttons=buttons))
-    (LEDGER / "forms.json").write_text(json.dumps(forms, indent=2, ensure_ascii=False) + "\n",
-                                       encoding="utf-8")
+                entry = dict(template=filename, line=form["line"], action=action, method=method,
+                             route_pattern=route["route"] if route else None, crate=crate,
+                             fields=sorted(form["fields"]), buttons=buttons)
+                if filename == CALCULATOR:
+                    value = form["hidden"].get("calculator", "")
+                    if not re.fullmatch(r"[a-z]+", value):
+                        raise ValueError(f"{filename}:{form['line']} missing calculator operation")
+                    entry["operation"] = dict(name="calculator", value=value)
+                forms.append(entry)
+    # The media editor's literal Rust markup is already extracted by the
+    # mutation generator. Its actions use a query only for the return locale.
+    for row in mutations["forms"]:
+        filename, line = row["source"].rsplit(":", 1)
+        if filename != "crates/content/src/media.rs":
+            continue
+        for action in expand(row["action"]):
+            action = action.partition("?")[0]
+            route = inventory_route(action, "POST", routes)
+            if route is None or "POST" not in route["methods"]:
+                raise ValueError(f"{row['source']} media form has no POST route")
+            forms.append(dict(template=filename, line=int(line), action=route["route"], method="POST",
+                              route_pattern=route["route"], crate=route["crate"],
+                              fields=sorted(row["fields"]), buttons=[None]))
+    locations = {(form["template"], form["line"]) for form in forms if form["method"] == "POST"}
+    for row in mutations["forms"]:
+        filename, line = row["source"].rsplit(":", 1)
+        if (filename, int(line)) not in locations and filename not in ROUTE_ONLY_RENDERERS:
+            raise ValueError(f"{row['source']} mutation form needs a ledger mapping or classification")
+    return json.dumps(forms, indent=2, ensure_ascii=False) + "\n"
 
 
 if __name__ == "__main__":
-    generate()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--check", action="store_true")
+    args = parser.parse_args()
+    output = LEDGER / "forms.json"
+    generated = generate()
+    if args.check:
+        if not output.is_file() or output.read_text(encoding="utf-8") != generated:
+            parser.exit(1, "ledger/forms.json is stale; rerun ledger/forms.py\n")
+    else:
+        output.write_text(generated, encoding="utf-8")

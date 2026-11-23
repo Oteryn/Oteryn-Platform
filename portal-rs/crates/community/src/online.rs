@@ -27,7 +27,10 @@ pub struct CharacterRef {
     pub observed_at: i64,
 }
 #[derive(Debug)]
-pub struct Unavailable;
+pub enum Unavailable {
+    Failure,
+    MissingGameData,
+}
 pub type VisibilityResult<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<bool>, Unavailable>> + Send + 'a>>;
 /// Exact world/name references match T24; T45 must resolve these to privacy subjects.
@@ -39,7 +42,7 @@ pub trait PublicVisibility: Send + Sync {
 pub struct FailClosed;
 impl PublicVisibility for FailClosed {
     fn hidden_batch<'a>(&'a self, _: &'a [CharacterRef]) -> VisibilityResult<'a> {
-        Box::pin(async { Err(Unavailable) })
+        Box::pin(async { Err(Unavailable::Failure) })
     }
 }
 #[derive(Clone, Debug)]
@@ -177,7 +180,7 @@ fn labels(en: bool) -> Vec<String> {
 fn now() -> Result<u64, Unavailable> {
     Ok(SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_err(|_| Unavailable)?
+        .map_err(|_| Unavailable::Failure)?
         .as_secs())
 }
 
@@ -190,21 +193,25 @@ fn watermark_is_fresh(complete_through: u64, now: u64) -> bool {
 async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, Unavailable> {
     let privacy_cut = crate::privacy::Cut::read(&state.db)
         .await
-        .map_err(|_| Unavailable)?;
+        .map_err(|_| Unavailable::Failure)?;
     // The existing publisher takes this fence exclusively, including suppression.
-    let mut fence = state.fences.begin().await.map_err(|_| Unavailable)?;
+    let mut fence = state
+        .fences
+        .begin()
+        .await
+        .map_err(|_| Unavailable::Failure)?;
     sqlx::query("SELECT set_config('statement_timeout','2500ms',true),set_config('idle_in_transaction_session_timeout','3s',true)")
-        .execute(&mut *fence).await.map_err(|_| Unavailable)?;
+        .execute(&mut *fence).await.map_err(|_| Unavailable::Failure)?;
     sqlx::query("SELECT id FROM public_projection_state WHERE id=1 FOR SHARE")
         .fetch_one(&mut *fence)
         .await
-        .map_err(|_| Unavailable)?;
+        .map_err(|_| Unavailable::Failure)?;
     if sqlx::query_scalar::<_, bool>("SELECT public_projection_conflicted('world_online')")
         .fetch_one(&mut *fence)
         .await
-        .map_err(|_| Unavailable)?
+        .map_err(|_| Unavailable::Failure)?
     {
-        return Err(Unavailable);
+        return Err(Unavailable::Failure);
     }
     // The family cut advances after a complete scan. Unchanged worlds can retain older snapshots.
     // A missing or stale cut withholds names, but must not mask the fail-closed
@@ -216,10 +223,10 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     )
     .fetch_optional(&mut *fence)
     .await
-    .map_err(|_| Unavailable)?
+    .map_err(|_| Unavailable::Failure)?
     .map(u64::try_from)
     .transpose()
-    .map_err(|_| Unavailable)?;
+    .map_err(|_| Unavailable::Failure)?;
     let fresh_cut = match complete_through {
         Some(cut) if watermark_is_fresh(cut, now()?) => Some(cut),
         _ => None,
@@ -228,15 +235,15 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
     let rows = if fresh_cut.is_none() {
         Vec::new()
     } else {
-        sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable)?
+        sqlx::query("SELECT subject, epoch::text, watermark, to_char(to_timestamp(watermark) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS as_of, payload FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY subject LIMIT 257").fetch_all(&mut *fence).await.map_err(|_| Unavailable::Failure)?
     };
     if rows.len() > 256 {
-        return Err(Unavailable);
+        return Err(Unavailable::Failure);
     }
     let mut ids = vec![];
     let mut worlds = vec![];
     for row in rows {
-        let id: String = row.try_get("subject").map_err(|_| Unavailable)?;
+        let id: String = row.try_get("subject").map_err(|_| Unavailable::Failure)?;
         ids.push(id.clone());
         if query
             .world
@@ -245,23 +252,30 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
         {
             continue;
         }
-        let watermark: i64 = row.try_get("watermark").map_err(|_| Unavailable)?;
-        let payload: serde_json::Value = row.try_get("payload").map_err(|_| Unavailable)?;
-        let entries = payload["characters"].as_array().ok_or(Unavailable)?;
+        let watermark: i64 = row.try_get("watermark").map_err(|_| Unavailable::Failure)?;
+        let payload: serde_json::Value =
+            row.try_get("payload").map_err(|_| Unavailable::Failure)?;
+        let entries = payload["characters"]
+            .as_array()
+            .ok_or(Unavailable::Failure)?;
         let refs = entries
             .iter()
             .map(|c| {
                 Ok(CharacterRef {
-                    epoch: row.try_get("epoch").map_err(|_| Unavailable)?,
+                    epoch: row.try_get("epoch").map_err(|_| Unavailable::Failure)?,
                     observed_at: watermark,
                     world: id.clone(),
-                    name: c["name"].as_str().ok_or(Unavailable)?.to_owned(),
+                    name: c["name"].as_str().ok_or(Unavailable::Failure)?.to_owned(),
                 })
             })
             .collect::<Result<Vec<_>, Unavailable>>()?;
-        let hidden = state.visibility.hidden_batch(&refs).await?;
+        let hidden = state
+            .visibility
+            .hidden_batch(&refs)
+            .await
+            .map_err(|_| Unavailable::Failure)?;
         if hidden.len() != entries.len() {
-            return Err(Unavailable);
+            return Err(Unavailable::Failure);
         }
         let mut characters = vec![];
         for ((c, reference), hidden) in entries.iter().zip(refs).zip(hidden) {
@@ -270,9 +284,9 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
             }
             visible_refs.push(reference);
             characters.push(Character {
-                name: c["name"].as_str().ok_or(Unavailable)?.into(),
-                level: c["level"].as_str().ok_or(Unavailable)?.into(),
-                vocation: c["vocation"].as_u64().ok_or(Unavailable)?,
+                name: c["name"].as_str().ok_or(Unavailable::Failure)?.into(),
+                level: c["level"].as_str().ok_or(Unavailable::Failure)?.into(),
+                vocation: c["vocation"].as_u64().ok_or(Unavailable::Failure)?,
             });
         }
         characters.sort_by(|a, b| {
@@ -287,31 +301,56 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Option<Catalogue>, 
                 name
             }
         });
-        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND subject=$1 AND payload=$2 AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))").bind(&id).bind(&payload).fetch_one(&state.db).await.map_err(|_|Unavailable)?;
+        let current: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public_snapshots WHERE family='world_online' AND NOT public_projection_conflicted('world_online') AND NOT is_watermark AND subject=$1 AND payload=$2 AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))").bind(&id).bind(&payload).fetch_one(&state.db).await.map_err(|_|Unavailable::Failure)?;
         if !current {
-            return Err(Unavailable);
+            return Err(Unavailable::Failure);
         }
         worlds.push(World {
-            observed: u64::try_from(watermark).map_err(|_| Unavailable)?,
+            observed: u64::try_from(watermark).map_err(|_| Unavailable::Failure)?,
             id,
-            as_of: row.try_get("as_of").map_err(|_| Unavailable)?,
+            as_of: row.try_get("as_of").map_err(|_| Unavailable::Failure)?,
             stale: false,
             characters,
         });
     }
-    state.visibility.hidden_batch(&[]).await?;
-    let final_hidden = state.visibility.hidden_batch(&visible_refs).await?;
+    if let Err(error) = state.visibility.hidden_batch(&[]).await {
+        if matches!(error, Unavailable::MissingGameData)
+            && complete_through.is_none()
+            // Publication may have written rows before advancing the family watermark.
+            && !sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM public_snapshots
+                 WHERE family='world_online' AND NOT is_watermark
+                   AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1))",
+            )
+            .fetch_one(&mut *fence)
+            .await
+            .map_err(|_| Unavailable::Failure)?
+            && privacy_cut
+                .validate(&mut fence)
+                .await
+                .map_err(|_| Unavailable::Failure)?
+        {
+            fence.commit().await.map_err(|_| Unavailable::Failure)?;
+            return Err(error);
+        }
+        return Err(Unavailable::Failure);
+    }
+    let final_hidden = state
+        .visibility
+        .hidden_batch(&visible_refs)
+        .await
+        .map_err(|_| Unavailable::Failure)?;
     if final_hidden.len() != visible_refs.len() || final_hidden.into_iter().any(|hidden| hidden) {
-        return Err(Unavailable);
+        return Err(Unavailable::Failure);
     }
     if !privacy_cut
         .validate(&mut fence)
         .await
-        .map_err(|_| Unavailable)?
+        .map_err(|_| Unavailable::Failure)?
     {
-        return Err(Unavailable);
+        return Err(Unavailable::Failure);
     }
-    fence.commit().await.map_err(|_| Unavailable)?;
+    fence.commit().await.map_err(|_| Unavailable::Failure)?;
     let serving = now()?;
     let Some(complete_through) = fresh_cut else {
         return Ok(None);
@@ -356,6 +395,7 @@ async fn page(
     }
     let en = oteryn_ui::browser_language(uri.path(), &headers) == "en";
     let result = load(&state, &query).await;
+    let missing_game_data = matches!(result, Err(Unavailable::MissingGameData));
     let unavailable = result.is_err();
     let stale = matches!(result, Ok(None));
     let Catalogue { ids, worlds } = result.ok().flatten().unwrap_or_default();
@@ -385,7 +425,11 @@ async fn page(
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("private, no-store"),
     );
-    response
+    if missing_game_data {
+        oteryn_ui::missing_game_data(response)
+    } else {
+        response
+    }
 }
 
 async fn response_policy(
@@ -421,5 +465,5 @@ async fn response_policy(
 async fn load(state: &Online, query: &Query) -> Result<Option<Catalogue>, Unavailable> {
     tokio::time::timeout(Duration::from_secs(3), load_inner(state, query))
         .await
-        .map_err(|_| Unavailable)?
+        .map_err(|_| Unavailable::Failure)?
 }

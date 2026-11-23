@@ -316,6 +316,26 @@ mod flag_boundary {
         run_case("game_staff_browser_permissions", false)
     }
 
+    #[test]
+    fn staff_invite_returns_503_when_smtp_password_is_missing() -> TestResult {
+        run_case("staff_invite_returns_503_when_smtp_password_is_missing", false)
+    }
+
+    #[test]
+    fn staff_invite_returns_503_when_smtp_password_is_empty() -> TestResult {
+        run_case("staff_invite_returns_503_when_smtp_password_is_empty", false)
+    }
+
+    #[test]
+    fn staff_invite_returns_503_when_shared_smtp_sender_is_missing() -> TestResult {
+        run_case("staff_invite_returns_503_when_shared_smtp_sender_is_missing", false)
+    }
+
+    #[test]
+    fn staff_invite_returns_503_when_delivery_key_is_malformed() -> TestResult {
+        run_case("staff_invite_returns_503_when_delivery_key_is_malformed", false)
+    }
+
     fn run_case(test: &str, referrals_enabled: bool) -> TestResult {
         if std::env::var_os(CHILD).is_some() {
             return tokio::runtime::Builder::new_current_thread()
@@ -431,6 +451,42 @@ mod flag_boundary {
         if test == "game_staff_browser_permissions" {
             enable_route_profile(&mut command, tls.path())?;
             command.env(ROUTE_PROFILE, route_profile);
+        }
+        if matches!(
+            test,
+            "staff_invite_returns_503_when_smtp_password_is_missing"
+                | "staff_invite_returns_503_when_smtp_password_is_empty"
+                | "staff_invite_returns_503_when_shared_smtp_sender_is_missing"
+                | "staff_invite_returns_503_when_delivery_key_is_malformed"
+        ) {
+            command
+                .env("OTERYN_ADMIN_PANEL", "true")
+                .env("OTERYN_SMTP_HOST", "localhost")
+                .env("OTERYN_SMTP_USERNAME", "local")
+                .env("OTERYN_MAIL_FROM", "portal@example.test")
+                .env("OTERYN_NOTIFY_UNSUBSCRIBE_KEY", "flag-boundary-notification-key-00000000")
+                .env("OTERYN_NOTIFY_UNSUBSCRIBE_URL", "https://localhost/unsubscribe")
+                .env("OTERYN_RESET_DELIVERY_KEY", "02".repeat(32));
+            match test {
+                "staff_invite_returns_503_when_smtp_password_is_missing" => {
+                    command.env("OTERYN_SMTP_FROM", "portal@example.test");
+                }
+                "staff_invite_returns_503_when_smtp_password_is_empty" => {
+                    command
+                        .env("OTERYN_SMTP_FROM", "portal@example.test")
+                        .env("OTERYN_SMTP_PASSWORD", "");
+                }
+                "staff_invite_returns_503_when_delivery_key_is_malformed" => {
+                    command
+                        .env("OTERYN_ACCOUNT_PASSWORD_RESET", "false")
+                        .env("OTERYN_SMTP_FROM", "portal@example.test")
+                        .env("OTERYN_SMTP_PASSWORD", "flag-boundary-fixture")
+                        .env("OTERYN_RESET_DELIVERY_KEY", "invalid");
+                }
+                _ => {
+                    command.env("OTERYN_SMTP_PASSWORD", "flag-boundary-fixture");
+                }
+            }
         }
         if test == "flags_off_keep_routes_jobs_and_tables_inert" {
             let route_dir = if route_profile.is_empty() {
@@ -660,6 +716,14 @@ mod flag_boundary {
                 return capture_enabled_routes(&pool, &profile).await;
             }
             match test {
+                "staff_invite_returns_503_when_smtp_password_is_missing"
+                | "staff_invite_returns_503_when_smtp_password_is_empty"
+                | "staff_invite_returns_503_when_shared_smtp_sender_is_missing" => {
+                    exercise_unavailable_staff_invite_delivery(&pool, false).await
+                }
+                "staff_invite_returns_503_when_delivery_key_is_malformed" => {
+                    exercise_unavailable_staff_invite_delivery(&pool, true).await
+                }
                 "paused_intake_keeps_authenticated_cancellation" => {
                     exercise_cancellation(&pool).await
                 }
@@ -709,6 +773,86 @@ mod flag_boundary {
         )
         .await?;
         Ok((account, staff))
+    }
+
+    async fn exercise_unavailable_staff_invite_delivery(pool: &PgPool, malformed_key: bool) -> TestResult {
+        seed_browser_accounts(pool).await?;
+        let worker = configured(pool.clone()).await;
+        let worker = if malformed_key {
+            Some(worker?)
+        } else {
+            let Err(error) = worker else {
+                return Err("worker accepted incomplete SMTP settings".into());
+            };
+            if std::env::var_os("OTERYN_SMTP_PASSWORD").is_none() {
+                assert_eq!(
+                    error.to_string(),
+                    "OTERYN_SMTP_PASSWORD is required and must be valid UTF-8"
+                );
+            } else if std::env::var("OTERYN_SMTP_PASSWORD").as_deref() == Ok("") {
+                assert_eq!(error.to_string(), "SMTP configuration invalid");
+            } else {
+                assert_eq!(error.downcast_ref::<std::env::VarError>(), Some(&std::env::VarError::NotPresent));
+            }
+            None
+        };
+        let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+            .fetch_one(pool)
+            .await?;
+        let address = std::env::var("OTERYN_BIND")?.parse()?;
+        let serve = tokio::task::spawn_local(async { crate::run(crate::Role::Serve).await });
+        let result = async {
+            wait_for_serve(&serve, address).await?;
+            let available = exchange(address, None, "GET", "/admin/staff-invites").await?;
+            assert!(available.starts_with("HTTP/1.1 200 "));
+            let fields = format!(
+                "&email=invitee%40example.test&role={role}&request_key={}&reason=Verify+invite+delivery",
+                Uuid::now_v7()
+            );
+            let response = exchange_with_fields(address, None, "POST", "/admin/staff-invites", &fields).await?;
+            let status = response.split_whitespace().nth(1);
+            assert_eq!(status, Some("503"));
+            let counts: (i64, i64) = sqlx::query_as(
+                "SELECT (SELECT count(*) FROM staff_invites),(SELECT count(*) FROM outbox WHERE kind='email.staff-invite')",
+            )
+            .fetch_one(pool)
+            .await?;
+            assert_eq!(counts, (0, 0));
+            if let Some(worker) = worker {
+                let resend = exchange(address, None, "POST", "/en/verify-email/resend").await?;
+                assert_eq!(resend.split_whitespace().nth(1), Some("303"));
+                assert!(worker.handlers.contains_key("email.verify"));
+                assert!(worker.handlers.contains_key("email.account_exists"));
+                let kind = oteryn_admin::staff_invites::MAIL_KIND;
+                assert!(worker.disabled.iter().any(|disabled| disabled == kind));
+                let mut tx = pool.begin().await?;
+                let job = oteryn_db::outbox::enqueue(
+                    &mut tx,
+                    kind,
+                    "{}",
+                    "invite-queued-before-key-change",
+                    time::OffsetDateTime::now_utc(),
+                    5,
+                )
+                .await?;
+                tx.commit().await?;
+                worker.batch(pool).await?;
+                let state: (String, i32) = sqlx::query_as("SELECT state,attempts FROM outbox WHERE id=$1")
+                    .bind(job)
+                    .fetch_one(pool)
+                    .await?;
+                assert_eq!(state, ("pending".into(), 0));
+            }
+            Ok(())
+        }
+        .await;
+        if serve.is_finished() {
+            serve.await??;
+        } else {
+            serve.abort();
+            let _ = serve.await;
+        }
+        result
     }
 
     async fn exercise_game_staff_routes(pool: &PgPool) -> TestResult {
@@ -1893,6 +2037,8 @@ mod flag_boundary {
                 "/admin/store-activation",
                 "/admin/world",
                 "/admin/players",
+                "/admin/staff-invites",
+                "/{lang}/staff-invite",
                 "/console",
                 "/admin/console",
                 "/admin/control",
@@ -2514,6 +2660,16 @@ mod flag_boundary {
         method: &str,
         path: &str,
     ) -> TestResult<String> {
+        exchange_with_fields(address, connector, method, path, "").await
+    }
+
+    async fn exchange_with_fields(
+        address: SocketAddr,
+        connector: Option<&tokio_rustls::TlsConnector>,
+        method: &str,
+        path: &str,
+        extra_fields: &str,
+    ) -> TestResult<String> {
         async fn send(
             mut stream: impl AsyncReadExt + AsyncWriteExt + Unpin,
             request: &str,
@@ -2562,7 +2718,7 @@ mod flag_boundary {
         } else {
             ""
         };
-        let form = format!("_csrf={CSRF}{fields}");
+        let form = format!("_csrf={CSRF}{fields}{extra_fields}");
         let target = if path.ends_with("/journal/reports/notes") {
             format!("{path}?kind=session&id=019ad000-0000-7000-8000-000000000001")
         } else {

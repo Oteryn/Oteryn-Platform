@@ -76,3 +76,23 @@ opt-level = 3
 
 [profile.dev.package.unicode-general-category]
 opt-level = 3
+
+# Browser qualification exercises the production Argon2id policy in a debug
+# build. Optimize the implementation so signing in several real fixture actors
+# fits the worker budget without changing the password-hash parameters.
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3
+
+# Browser qualification uses the debug portal. Keep large editorial image
+# scans and re-encoding optimized there as they are in release builds.
+[profile.dev.package.image]
+opt-level = 2
+
+[profile.dev.package.oxiarc-jpeg]
+opt-level = 2
+
+[profile.dev.package.zune-jpeg]
+opt-level = 2

@@ -24,7 +24,12 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-b
 node local.mjs
 ```
 
-`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates two uniquely named databases for the main suite and Rust acceptance, generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, TLS SMTP sink and HTTPS proxy on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops the databases created for this run; the scratch directory is retained for local investigation and should be removed after inspecting the report.
+`local.mjs` requires `PORTAL_E2E_ADMIN_DATABASE_URL`. It creates uniquely named disposable databases for the portal, Rust tests and query catalog. It generates throwaway keys and a local CA/server certificate, builds with `cargo build --locked -p oteryn-portal`, migrates, and starts the portal, worker, Game API gateway, native TLS listener, TLS SMTP sink and HTTPS proxies on loopback. It enables module flags found in Rust source and reports its scratch directory. Ports 465 and 587 must be available and bindable by the local user. The query catalog listener uses ports 18084 and 18450. Native game authority/evidence is never fabricated. Ctrl-C stops the task processes and drops their databases. The scratch directory is retained for local investigation and should be removed after inspecting the report.
+
+The player identity spec uses a direct TLS listener on loopback port 18447 to
+issue a ticket with a remembered-device credential. A second portal process
+shares the disposable database and serves the flag-off browser case at
+`https://localhost:18448`. Both listeners use the generated local certificate.
 
 In a second shell, export the same local `PORTAL_E2E_ADMIN_DATABASE_URL` for the
 Bazaar fallback test, which creates its own disposable database. Use the scratch
@@ -45,6 +50,18 @@ automatically, and the main suite keeps its own Store catalogue and character fe
 
 That is the exact browser command; it runs every project. `--project=pl-390` can be appended for diagnosis. The existing Chromium path can be overridden using `CHROMIUM_PATH`; never run a browser installation command when Chromium is present.
 
+Start the query-parameter matrix from the same default `node local.mjs` stack.
+The matrix selects its catalog listener and quota database from `env.json` for
+Wiki, Atlas and portal catalog searches. The listener serves the checked-in
+WorldStore fixture imported by `seed query-catalog '{}'` from the launcher's
+checkout. A prebuilt `PORTAL_E2E_BINARY` can live outside that checkout.
+`wiki-world.spec.mjs`
+continues to use the default portal listener and pinned native fixture.
+
+```sh
+node run.mjs /absolute/scratch/env.json test specs/query-params.spec.mjs specs/wiki-world.spec.mjs --workers=1
+```
+
 To run just the export and profile quota checks in all four projects, append
 `specs/rate-limits-export-profile.spec.mjs` to that command. The spec uses the
 seed CLI for disposable accounts and the local mTLS producer for character
@@ -53,9 +70,20 @@ to exhaust the IP quotas across distinct accounts.
 
 Use a native Node 22+ installation, so loopback services and Chromium run together.
 
-For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and `PORTAL_E2E_DATABASE_URL` and run `npm test`. The Bazaar legacy spec also needs the matching
+For an already running isolated portal, set `PORTAL_E2E_ORIGIN` and
+`PORTAL_E2E_DATABASE_URL`. To include the query matrix in `npm test`, also set
+`PORTAL_E2E_QUERY_ORIGIN` and `PORTAL_E2E_QUERY_DATABASE_URL` to the separate
+local listener and disposable database seeded with the query catalog. The
+Bazaar legacy spec also needs the matching
 `OTERYN_DATABASE_URL`, the built `PORTAL_E2E_BINARY`, and the local administrator
-URL for the fallback harness. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The mail sink is available only on local `/__mail`; it is a harness endpoint, never a portal route.
+URL for the fallback harness. OAuth cases require the local proxy callback receiver. Fixtures refuse non-local connections and database names without the `portal_e2e_` prefix. Registration seeds the same synthetic password-breach corpus used by the identity crate's tests; browser proof of work, CSRF, quotas and verification mail remain active. Registration waits for the real quota window instead of changing limits or deleting quota rows. The local proxy receives OAuth client redirects at `/__oauth/callback` and serves the captured mail at `/__mail`. These are harness endpoints.
+
+For the split-origin staff regression in `fix-small.spec.mjs`, launch `local.mjs`
+with `PORTAL_E2E_SPLIT_STAFF_ORIGIN=1`. This adds a loopback HTTPS listener on
+port 443 and configures `OTERYN_ADMIN_HOST=127.0.0.1:443`. Chromium uses
+`https://127.0.0.1` for staff while the public origin remains
+`https://localhost:18443`. Run `fix-small.spec.mjs` with this harness
+configuration. Other staff specs use the default single origin.
 
 The local launcher supplies a disposable Bazaar Game producer and the real private transport. Character/item Bazaar and account listing reads require HTTP 200, no-store, the shared shell and CSRF refusal for every rendered mutation. Missing listing references require HTTP 404; malformed UUIDs require HTTP 400. Both retain no-store and the shared shell without account disclosure. The dedicated Bazaar spec proves funded bids, delivery, seller credit and Game-refusal behavior against synthetic fixtures; it does not qualify a production Game integration.
 
@@ -111,6 +139,67 @@ actions allow 30 seconds for password hashing and navigation. These waits retain
 the exact destination assertions, production proof difficulty and zero retries.
 
 
+## Empty-Game browser crawl
+
+With the prerequisites above and `PORTAL_E2E_ADMIN_DATABASE_URL` set to a
+disposable loopback PostgreSQL administrator URL, run from the repository root:
+
+```sh
+node portal-rs/e2e/crawl/run.mjs
+```
+
+Append `--project=pl-1440 --project=en-390` for the desktop and mobile checks
+used during development. The launcher uses its own Playwright configuration
+and a fresh harness database with its own login. The portal and test runner
+use this login. Teardown stops the services, drops the database and its role,
+and removes the fixture credentials and private keys. Local route reports
+are under the printed `.harness/crawl-*` path.
+
+The crawl starts from the home page, registered destinations, explicitly
+declared Game-dependent routes, and staff routes for all three actors.
+A local proxy limits Chromium and its API clients to the fixture origin from
+sign-in through the crawl, including across redirects. Each project checks
+staff access as an anonymous visitor, a player, and a built-in Platform
+administrator signed in with MFA. It renders its locale in Chromium and checks
+HTTP responses for links to the alternate locale.
+
+The fixture seeds Platform accounts and a world registry entry through the
+seed CLI. No Game snapshots are published. Each declared unavailable page must
+return exactly 503 with `no-store`, the expected localized message and empty
+layout, and no private fixture data or mutation form. The private-data check
+uses distinct values from the actor's account and another seeded account.
+For game-login history, both read flags are enabled, but the fixture lacks
+accepted Game login ownership and baseline authority. This reason applies to
+the full-suite fixture too.
+
+## Game-data browser qualification
+
+With the same disposable PostgreSQL administrator environment used by the local
+stack, build `oteryn-portal` before starting the dedicated config. Run from
+`portal-rs/e2e`.
+
+```sh
+(cd .. && cargo build --locked -p oteryn-portal)
+export PORTAL_E2E_BINARY=target/debug/oteryn-portal
+npx playwright test --config game-data.playwright.config.mjs
+```
+
+The setup requires an executable `PORTAL_E2E_BINARY` and accepts an absolute
+path or one relative to `portal-rs`. It starts `harness.mjs --game-data`, waits
+for readiness, and stops the harness after the run. A runner disconnect also
+stops the harness and drops its database. Set `PORTAL_E2E_GAME_DATA_REPORT` to
+reuse a harness that is already running.
+The existing GitHub Actions browser command uses the same setup and includes
+Game-data in its normal project and shard counts. Ordinary local runs of the
+default config use the local stack and leave Game-data to the dedicated config.
+The default config also discovers the legacy Bazaar, authentication, and mutation matrix specs.
+
+With `PORTAL_E2E_BINARY` pointing to the built binary, run
+`node --test harness.test.mjs` to verify disposable database cleanup and
+retained diagnostics when a migration stalls or fails, startup is interrupted,
+or PostgreSQL refuses database cleanup. The tests also verify that the harness
+and Game-data publishers reject PostgreSQL URL destination overrides.
+
 ## Cross-repository harness (Game server + client + portal-rs + PostgreSQL)
 
 One command starts portal-rs for an external E2E harness. It needs Node 22+,
@@ -142,8 +231,10 @@ portal-rs/e2e/start.sh --seed-plan portal-rs/e2e/seed-plan.example.json
    listener), waits until each answers, runs the seed plan if given, and
    prints **one JSON object** on stdout (also saved as `report.json`).
 
-Output (default `portal-rs/e2e/.harness/run`, ignored by git, replaced on
-each run; override with `PORTAL_E2E_OUT`):
+The harness locks its output directory with `flock` for the lifetime of each
+run. It replaces the generated files and preserves other entries in that
+directory. The default is `portal-rs/e2e/.harness/run`, which git ignores. Set
+`PORTAL_E2E_OUT` to use a different directory.
 
 ```json
 {"status":"ready","database":"portal_e2e_<hex>",
@@ -166,9 +257,13 @@ status and scope assignment are bound to the scopes in
 `PORTAL_E2E_NATIVE_SCOPES` (JSON array of `"<world UUIDv7>/<channel UUIDv7>"`,
 default one `Entry` scope). Ports come from `PORTAL_E2E_HTTP_PORT`,
 `PORTAL_E2E_INTERNAL_PORT`, `PORTAL_E2E_ADMISSION_PORT` and
-`PORTAL_E2E_GATEWAY_PORT`. `PORTAL_E2E_BINARY` skips the build.
+`PORTAL_E2E_GATEWAY_PORT`. `PORTAL_E2E_BINARY` skips the build. A relative
+path such as `target/debug/oteryn-portal` is resolved from `portal-rs/`.
+The launcher exports the resulting absolute path for Playwright fixture seeding.
 `--exit-after-ready` stops after the report. Ctrl-C or SIGTERM stops the
-services and drops the database (`PORTAL_E2E_KEEP_DATABASE=1` keeps it).
+active build, migration, or services before dropping the database
+(`PORTAL_E2E_KEEP_DATABASE=1` keeps it). Supply a loopback PostgreSQL URL with an
+explicit database path. The launcher rejects query parameters and fragments.
 The private CA key, CSRs, server key, gateway token and the full child
 environment (with the database URL) stay in `<out>/secrets`, mode 0600.
 
@@ -215,6 +310,7 @@ an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","arg
 | `oauth-native-client` | optional `clientId` (default `019a0000-0000-7000-8000-0000000c11e7`) | `clientId`, `enabled`, `firstParty`, `publicClient`, `nativeTicket` |
 | `signing-trust` | `purpose`, `keyId`, `publicKeyHex` (Ed25519, 64 hex); `issuer`/`profile` default to the fresh-admission scope, or `urn:oteryn:platform:game-recovery` with purpose `existing_actor_recovery` | `issuer`, `profile`, `purpose`, `keyId`, `publicKey` (base64url), `issuerRevision` |
 | `bootstrap-intent` | `accountId`, `operationId`, `targetWorldId`, `requestedName`, `requestedSex` (`Female`/`Male`), `requestedVocation` (`Knight`/`Paladin`/`Sorcerer`/`Druid`/`Monk`), `profileRevision`, `rulesetRevision`, `contentRevision`, `starterTemplateRevision`, optional `ttlSeconds` (1..=300, default 300) | `operationId`, `issuerDecisionId`, `sourceRevision`, `accountId`, `targetWorldId`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
+| `character-service-order` | `accountId`, `characterId`, `requestId` (UUIDv7), `action` (`schedule`, `cancel` with `deletionOperationId`, or `rename` with `name` and `acceptedPrice` as a decimal string). Requires the disposable outbox database and published Game ownership and service state. | `operationId` for a historical order that the Game exchange can drain while browser admission is closed |
 | `channel` | `worldId` (a seeded world), `channelId` (UUIDv7, not the world id) | the channel's record: `worldId`, `channelId`, route fields (`null` until a `route`), `nativeLoginEnabled` (`false`) |
 | `route` | `worldId`, `channelId`, `host` (IP literal or DNS name), `port` (1..=65535), `tlsServerName` (DNS name), `version` (positive), optional `nativeLoginEnabled` (default `true`) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision` (computed, gateway contract §7.3), `nativeLoginEnabled`; a higher `version` rotates the record, the same version with other values or a lower one is a `conflict` |
 | `native-evidence` | - | `not_applicable`: evidence is observed live; the first observation bootstraps the retained witness |
@@ -224,6 +320,27 @@ an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","arg
 `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`, so run it with the harness
 environment (`<out>/secrets/env.json`). A bootstrap intent expires
 `ttlSeconds` after issue, as the read contract bounds it.
+
+### Staff Console harness
+
+Run `harness.mjs --staff-console` for a disposable Staff Console fixture. It
+requires both `OTERYN_ENV` and `APP_ENV` to be `testing` and uses an exclusive
+`flock` on its output directory through teardown. Attach Playwright with
+`PORTAL_E2E_ADMIN_AGENT_DIRECTORY` or let the worker start its own harness.
+The latter keeps the ports reserved through migration and retries a startup
+bind conflict only after cleanup. Closing the worker's lifetime pipe stops the
+harness. It verifies process-group shutdown with `ps` and preserves diagnostics
+if cleanup fails.
+
+The staff fixture uses canonical `portal_e2e_` database names. Its connections
+pin `localhost` to `127.0.0.1` for TCP and retain `localhost` for TLS verification.
+Use `[::1]` for an IPv6-only server. Browser seed commands and each staff
+seed-plan step have a 30-second deadline. The full staff seed-plan results are in
+`<out>/secrets/seed-results.json` (mode 0600). The ready report shows only a
+private-result marker for MFA, signing custody, and steps that reference them.
+Run the fast guards with `node --test harness.test.mjs`.
+Run `node --test cli/staff-harness.test.mjs` against the local administrator
+URL to exercise a real port collision and a blocked seed command.
 
 ### Signing custody for admission grants
 
@@ -335,14 +452,33 @@ creates the checkout through the CSRF-protected browser form, sends the signed
 test webhook, waits for the real worker and reads the credited browser balance;
 webhook and outbox replays must leave exactly one classified credit.
 
+## Daily puzzle publication
+
+Use the disposable browser launcher for its TLS SMTP sink. The spec starts a
+separate app and fresh PostgreSQL database through `harness.mjs` for each
+project, then runs the real `admin-cli`. The harness drops each project's
+database at teardown.
+
+```sh
+# From portal-rs/e2e with PORTAL_E2E_ADMIN_DATABASE_URL already set to local PostgreSQL.
+node local.mjs
+```
+
+Run the spec from a second shell in `portal-rs/e2e` with the generated environment
+and the same local `PORTAL_E2E_ADMIN_DATABASE_URL`.
+
+```sh
+node run.mjs /absolute/scratch/env.json test specs/puzzles.spec.mjs
+```
+
 ## Full shared-template matrix
 
 The original flow specs remain. `inventory.py` scans module route declarations,
 expands locale/prefix aliases and records module-owned navigation in startup order.
 `inventory.json` retains sources, flags and methods. `route-expectations.json`
 records the explicit actor, status and refusal reason for each executed route.
-`routes.spec.mjs` exercises every inventory row; `navigation.spec.mjs` checks all
-48 registry destinations, exact group links/labels, current section and keyboard
+`routes.spec.mjs` exercises every inventory row; `navigation.spec.mjs` checks every
+registered destination, exact group links/labels, current section and keyboard
 and touch activation. `content.spec.mjs` additionally publishes bilingual news,
 events and Wiki articles and exercises media upload/read/delete. `oauth.spec.mjs`
 proves the browser consent/PKCE/refresh path. Staff storage states stay in the
@@ -376,6 +512,49 @@ Rust acceptance and the concrete source fixes. The qualification source digest
 excludes only REPORT.md, qualification.json and COVERAGE.md so that a subsequent
 evidence-only commit can refer to the immutable tested source candidate.
 
+### Console alerts and staff RBAC
+
+With the local PostgreSQL administrator URL set as above, start the existing
+harness from the repository root. The loopback HTTPS proxy lets Chromium use
+the configured WebAuthn origin and preserves the configured staff host. This
+mode also starts the existing authenticated local SMTP sink on ports 465 and
+587 for the identity worker.
+
+```sh
+PORTAL_E2E_BROWSER_HTTPS_PORT=18443 \
+OTERYN_PUBLIC_ORIGIN=https://localhost:18443 OTERYN_ADMIN_HOST=localhost:18443 \
+OTERYN_ACCOUNT_LOGIN=true OTERYN_ACCOUNT_MFA=true OTERYN_ACCOUNT_PASSKEYS=true \
+OTERYN_ADMIN_PANEL=true OTERYN_ADMIN_CONSOLE=true OTERYN_REPORTS_ENABLED=true \
+OTERYN_ADMIN_ANALYTICS_PRESENT=true OTERYN_ADMIN_ANALYTICS_AUTHORITY=e2e-local \
+OTERYN_ADMIN_ANALYTICS_PRIVACY=e2e-local portal-rs/e2e/start.sh
+```
+
+In a second shell, run the spec across all four projects.
+
+```sh
+cd portal-rs/e2e
+CHROMIUM_PATH=/usr/bin/chromium node run.mjs .harness/run/secrets/env.json \
+  test specs/console-alerts-rbac.spec.mjs
+```
+
+The spec creates disposable accounts through the seed CLI and signs in through
+the browser, using recovery codes for staff MFA. The GM checks cover Platform
+authorization and offline Game states. The alarm fixture is a Platform audit
+row, and the harness supplies no Game producer for these checks.
+
+For the cross-host dashboard return spec, use the same harness options with
+`OTERYN_ADMIN_HOST=127.0.0.1:18443` and keep the public origin on
+`https://localhost:18443`. From `portal-rs/e2e` run:
+
+```sh
+node run.mjs .harness/run/secrets/env.json test --config staff-host/playwright.config.mjs
+```
+
+To cover an explicit default staff HTTPS port, run the same spec with the
+harness configured for `PORTAL_E2E_BROWSER_HTTPS_PORT=443`,
+`OTERYN_PUBLIC_ORIGIN=https://localhost`, and `OTERYN_ADMIN_HOST=127.0.0.1:443`.
+The loopback proxy needs permission to bind TCP port 443 in this mode.
+
 ## Collection journal evidence
 
 Run both collection profiles with a locally built portal binary and the same
@@ -395,3 +574,30 @@ that requires the candidate catalogue mapping. The first profile checks four
 localized browser projects for unknown and then known owner-only timestamps.
 The second leaves the read flag unset and checks all four projects with evidence
 already published.
+
+## GM player console through the Admin Agent
+
+Start the existing harness on loopback with the disposable PostgreSQL
+administrator URL already set. The agent mode generates its own certificates
+and signing keys and starts an HTTPS proxy for the staff host.
+
+```sh
+portal-rs/e2e/start.sh --staff-console
+```
+
+From `portal-rs/e2e`, run the four locale/viewport projects against that run.
+
+```sh
+PORTAL_E2E_ADMIN_AGENT_DIRECTORY=.harness/run npm test -- gm-player-console.spec.mjs
+```
+
+The spec uses the seed CLI for accounts and MFA, uses the browser RBAC workflow
+to grant roles, and polls the real `/internal/v1/admin-control/channel` with a
+verified client certificate. It verifies the Platform request signature and
+sends signed results on `/internal/v1/admin-control/results`. The spec covers
+player search, character detail, inventory, and sanctions. It publishes LCFA
+snapshots over mTLS to verify account-scoped sanctions for a suspended owner,
+conflicting ownership during a transfer, and a signed result naming the wrong
+account. It also checks successful retry and its admission audit, plus refusal
+after the GM loses sanction-read permission. Staff writes remain disabled.
+Stop the harness with Ctrl-C to drop its disposable database.

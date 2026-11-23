@@ -2,15 +2,19 @@ import crypto from 'node:crypto';
 import {TOTP,Secret} from 'otpauth';
 import {expect} from './fixtures.mjs';
 import {register,login,submit,pool,csrfRejected} from './helpers.mjs';
+import {seededStaff} from './staff-rbac-helpers.mjs';
 import {uuid7} from './support/bazaar-game.mjs';
 import {staffState} from './staff-rbac-helpers.mjs';
 export {uuid7};
 export async function actor(browser,info,{staff=false,mfa=false,funded=false}={}) {
  const lang=info.project.metadata.locale;
- const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:lang,viewport:info.project.use.viewport,...(staff?{storageState:await staffState(browser,info)}:{})});
+ const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:lang,viewport:info.project.use.viewport});
  const page=await context.newPage();
  try {
-  if(staff)return {context,page};
+  if(staff){
+   await seededStaff(page,lang,'platform_admin');
+   return {context,page};
+  }
   const account=await register(page,lang);await login(page,lang,account);
   const db=pool();let id;
   try{id=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;}finally{await db.end();}

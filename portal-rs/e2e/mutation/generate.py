@@ -29,6 +29,9 @@ ACTION_FIELDS = {
 }
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")
 CONSTANT = re.compile(r'\bconst (\w+)\s*:\s*&str\s*=\s*"([^"]+)"')
+STATEMENT_BODY = r"(?:(?!\{%|%\}).)*"
+BRANCH_BODY = r"(?:(?!\{%).)*"
+ACTION_CONDITIONAL = re.compile(rf"\{{% if ({STATEMENT_BODY}) %\}}({BRANCH_BODY})(?:\{{% else %\}}({BRANCH_BODY}))?\{{% endif %\}}")
 
 # These are protocol receivers even when their paths look like regular HTTP routes.
 NON_BROWSER = {
@@ -104,7 +107,7 @@ def support_choices(source):
 def bindings(path, source, all_sources):
     """Read the finite discriminants supplied to shared form templates."""
     if path == "crates/identity/src/recovery_key_http.rs":
-        modes = [("account/", ""), ("account/", "/confirm"), ("", "")]
+        modes = [("account/", ""), ("", ""), ("account/", "/confirm")]
         form = next(tag for tag in TAG.finditer(source) if tag[1] == "form")
         target = attributes(form[2])["action"]
         account = re.search(r'{% if mode != "recover" %}.*?{% endif %}', target)[0]
@@ -219,7 +222,7 @@ def forms(path, source, all_sources):
                 if condition:
                     name = condition[1]
             if name:
-                fields.append(name)
+                fields.extend(dynamic.get(name, [name]))
             if tag[1].lower() == "button" or field.get("type") in {"submit", "image"}:
                 if field.get("type") in {"button", "reset"}:
                     continue

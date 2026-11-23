@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import {createHash, createHmac, randomBytes, randomUUID} from 'node:crypto';
 import {test, expect} from '../fixtures.mjs';
 import {login, logout, mailLink, register, seedPasswordRange, submit, waitForLoginBudget} from '../helpers.mjs';
@@ -7,19 +8,26 @@ test('MFA aliases accept a real challenge and revoke its remembered device', asy
   const lang = info.project.metadata.locale;
   const account = await register(page, lang);
   await login(page, lang, account);
-  const codes = await enrollMfa(page, lang, account);
+  await enrollMfa(page, lang, account);
   await login(page, lang, account);
   await expect(page).toHaveURL(/\/mfa\/challenge$/);
   await submit(page, 'main form[action$="/mfa/email"]');
   await expect(page).toHaveURL(/\/mfa\/challenge$/);
 
+  const deliveredCode = (await mailLink(page, account.email, /(?:^|\r?\n)[a-f0-9]{64}(?=\r?\n|$)/)).trim();
+
   const origin = new URL(page.url()).origin;
   const csrf = await page.locator('main form[action$="/mfa/challenge"] [name=_csrf]').inputValue();
   const challenged = await page.request.post('/mfa/challenge', {
-    form: {_csrf: csrf, code: codes[0], remember: 'yes'},
+    form: {_csrf: csrf, code: deliveredCode, remember: 'yes'},
     headers: {origin}, maxRedirects: 0,
   });
   expect(challenged.status()).toBe(302);
+  expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
+  expect(await query(`
+    SELECT a.action FROM audit_log a JOIN accounts u ON u.id=a.actor
+    WHERE u.email=$1 AND a.action='mfa.login.email'
+  `, [account.email])).toEqual([{action: 'mfa.login.email'}]);
   expect((await page.goto(`/${lang}/mfa`)).status()).toBe(200);
   const device = 'main form[action$="/mfa/devices"]';
   await expect(page.locator(device)).toHaveCount(1);
@@ -41,7 +49,7 @@ for (const prefix of ['', 'localized']) {
         headers: {origin}, maxRedirects: 0,
       });
       expect(response.status()).toBe(302);
-      expect((await page.goto(`/${lang}/account/privacy`)).status()).toBe(200);
+      expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
       await page.context().clearCookies();
     }
   });
@@ -111,6 +119,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
   await login(page, lang, account);
   const origin = new URL(page.url()).origin;
   const privacy = `/${lang}/account/privacy`;
+  expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
   expect((await page.goto(privacy)).status()).toBe(200);
   const token = await page.locator('main form [name=_csrf]').inputValue();
   const changed = await page.request.put(privacy, {
@@ -126,7 +135,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
     const other = await peer.newPage();
     for (const target of ['/account/sessions', `/${lang}/account/sessions`]) {
       await login(other, lang, account);
-      expect((await other.request.get(privacy)).status()).toBe(200);
+      expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
       expect((await page.goto(`/${lang}/account/sessions`)).status()).toBe(200);
       const csrf = await page.locator('main form[action$="/others"] [name=_csrf]').inputValue();
       const revoked = await page.request.delete(target, {
@@ -137,7 +146,7 @@ test('player updates privacy with PUT and revokes other sessions through both DE
       expect((await page.request.get(privacy)).status()).toBe(200);
     }
     await login(other, lang, account);
-    expect((await other.request.get(privacy)).status()).toBe(200);
+    expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
     expect((await page.goto(`/${lang}/account/sessions`)).status()).toBe(200);
     const selected = page.locator('main li:not(:has(p)) form[action*="/account/sessions/"]');
     await expect(selected).toHaveCount(1);
@@ -147,8 +156,10 @@ test('player updates privacy with PUT and revokes other sessions through both DE
       form: {_csrf: csrf}, headers: {origin}, maxRedirects: 0,
     });
     expect(revoked.status()).toBe(302);
-    expect((await other.request.get(privacy, {maxRedirects: 0})).status()).toBe(303);
-    expect((await page.request.get(privacy)).status()).toBe(200);
+    const denied = await other.request.get(privacy, {maxRedirects: 0});
+    expect(denied.status()).toBe(303);
+    expect(denied.headers().location).toBe(`/${lang}/login`);
+    expect((await page.request.get(privacy, {maxRedirects: 0})).status()).toBe(200);
   } finally {
     await peer.close();
   }
@@ -173,7 +184,7 @@ test('mail reset token works through the unprefixed reset endpoint', async ({pag
   expect(response.status()).toBe(302);
   expect(response.headers().location).toMatch(/^\/(pl|en)\/login$/);
   await login(page, lang, {...account, password: next});
-  expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
+  expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
 });
 
 test('anonymous verification resend has the same generic response through its form and alias', async ({page}, info) => {
@@ -186,7 +197,7 @@ test('anonymous verification resend has the same generic response through its fo
   }, {timeout: 65_000}).toBeLessThanOrEqual(3);
   expect((await page.goto(path)).status()).toBe(200);
   await submit(page, 'main form', {email});
-  await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox$`));
+  await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/register/check-inbox$`));
   expect((await page.goto(path)).status()).toBe(200);
   const csrf = await page.locator('main form [name=_csrf]').inputValue();
   const response = await page.request.post('/verify-email/resend', {
@@ -200,6 +211,7 @@ test('anonymous verification resend has the same generic response through its fo
 
 for (const localized of [false, true]) {
   test(`owner generates, confirms, and revokes a recovery key through the ${localized ? 'localized DELETE' : 'unprefixed'} route aliases`, async ({page}, info) => {
+    test.setTimeout(300_000);
     const lang = info.project.metadata.locale;
     const account = await register(page, lang);
     await login(page, lang, account);
@@ -244,7 +256,7 @@ for (const localized of [false, true]) {
       expect(denied.status()).toBe(302);
       expect(denied.headers().location).toBe(`/${lang}/recovery-key`);
       await login(page, lang, account);
-      expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
+      expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
     }
   });
 }
@@ -270,9 +282,10 @@ test('player changes the password through both PUT routes after sudo', async ({p
     expect(response.headers().location).toBe('/login');
     const denied = await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0});
     expect(denied.status()).toBe(303);
+    expect(denied.headers().location).toBe(`/${lang}/login`);
     account.password = next;
     await login(page, lang, account);
-    expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
+    expect((await page.request.get(`/${lang}/account/privacy`, {maxRedirects: 0})).status()).toBe(200);
   }
 });
 

@@ -82,7 +82,7 @@ pub struct Item {
 pub struct Sanction {
     pub sanction_id: String,
     pub kind: String,
-    pub status: String,
+    pub active: bool,
 }
 #[derive(Debug, Clone)]
 pub struct Snapshot {
@@ -139,6 +139,49 @@ pub(crate) async fn record_read(
     tx.commit().await?;
     Ok(())
 }
+#[derive(Debug)]
+pub(crate) struct Retry {
+    pub request: Uuid,
+    pub character: String,
+    pub operation: &'static str,
+    pub label: String,
+    pub message: String,
+}
+
+async fn read_snapshot<B: Backend>(
+    state: &Console<B>,
+    page: &mut Page,
+    actor: CheckContext,
+    input: &Input,
+    operation: &'static str,
+    section: &str,
+) -> Result<Option<Snapshot>, Error> {
+    match state.backend.players(actor, input, operation).await {
+        Err(Error::Terminal(request, status)) => {
+            let character = input.character.clone().ok_or(Error::Unavailable)?;
+            page.retries.push(Retry {
+                request,
+                character,
+                operation,
+                label: tr(page.lang, section),
+                message: tr(
+                    page.lang,
+                    match status {
+                        super::QueryStatus::Failed => "query-failed",
+                        super::QueryStatus::Rejected => "query-rejected",
+                        super::QueryStatus::Expired => "query-expired",
+                        super::QueryStatus::Cancelled => "query-cancelled",
+                        _ => return Err(Error::Unavailable),
+                    },
+                ),
+            });
+            Ok(None)
+        }
+        Err(Error::SanctionsUnavailable) if operation == "sanction.list" => Ok(None),
+        other => other,
+    }
+}
+
 pub(crate) async fn view<B: Backend>(
     state: &Console<B>,
     actor: CheckContext,
@@ -170,7 +213,7 @@ pub(crate) async fn view<B: Backend>(
     };
     let has_input = dossier || input.q.is_some();
     let result = if has_input && state.backend.advertised(operation).await {
-        state.backend.players(actor, &input, operation).await?
+        read_snapshot(state, &mut page, actor, &input, operation, "characters").await?
     } else {
         None
     };
@@ -213,11 +256,16 @@ pub(crate) async fn view<B: Backend>(
         );
         page.section("personal", Some(vec![tr(lang, "masked")]));
         let inventory = if dossier && state.backend.advertised("player.inventory.get").await {
-            if let Some(snapshot) = state
-                .backend
-                .players(actor, &input, "player.inventory.get")
-                .await?
-                .filter(|s| !s.request_id.is_nil())
+            if let Some(snapshot) = read_snapshot(
+                state,
+                &mut page,
+                actor,
+                &input,
+                "player.inventory.get",
+                "inventory",
+            )
+            .await?
+            .filter(|s| !s.request_id.is_nil())
             {
                 record_read(
                     &state.pool,
@@ -251,11 +299,16 @@ pub(crate) async fn view<B: Backend>(
             && state.backend.permitted(actor, "game.sanction.read").await
             && state.backend.advertised("sanction.list").await
         {
-            if let Some(snapshot) = state
-                .backend
-                .players(actor, &input, "sanction.list")
-                .await?
-                .filter(|s| !s.request_id.is_nil())
+            if let Some(snapshot) = read_snapshot(
+                state,
+                &mut page,
+                actor,
+                &input,
+                "sanction.list",
+                "sanctions",
+            )
+            .await?
+            .filter(|s| !s.request_id.is_nil())
             {
                 record_read(
                     &state.pool,
@@ -276,7 +329,30 @@ pub(crate) async fn view<B: Backend>(
             "sanctions",
             sanctions.map(|rows| {
                 rows.into_iter()
-                    .map(|s| format!("{} · {} · {}", s.sanction_id, s.kind, s.status))
+                    .map(|s| {
+                        let kind = match s.kind.as_str() {
+                            "warning" => "sanction-warning",
+                            "notation" => "sanction-notation",
+                            "namelock" => "sanction-namelock",
+                            "ban" => "sanction-ban",
+                            "mute" => "sanction-mute",
+                            "jail" => "sanction-jail",
+                            _ => "sanction-unknown",
+                        };
+                        format!(
+                            "{} · {} · {}",
+                            s.sanction_id,
+                            tr(lang, kind),
+                            tr(
+                                lang,
+                                if s.active {
+                                    "sanction-active"
+                                } else {
+                                    "sanction-inactive"
+                                }
+                            )
+                        )
+                    })
                     .collect()
             }),
         );
@@ -314,6 +390,9 @@ pub(crate) async fn page<B: Backend>(
     if page.search && state.backend.advertised("player.search").await {
         page.csrf = session.csrf_token().await?;
     }
+    if !page.retries.is_empty() {
+        page.retry_csrf = session.csrf_token().await?;
+    }
     page.response()
 }
 
@@ -348,6 +427,46 @@ pub(super) async fn search<B: Backend>(
     )))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct RetryForm {
+    character: String,
+    operation: String,
+    request: Uuid,
+    lang: Option<String>,
+    _csrf: String,
+}
+
+pub(super) async fn retry<B: Backend>(
+    State(state): State<Arc<Console<B>>>,
+    Extension(actor): Extension<CheckContext>,
+    Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    axum::Form(form): axum::Form<RetryForm>,
+) -> Result<axum::response::Redirect, Error> {
+    let operation = match form.operation.as_str() {
+        "player.character.get" => "player.character.get",
+        "player.inventory.get" => "player.inventory.get",
+        "sanction.list" => "sanction.list",
+        _ => return Err(Error::BadInput),
+    };
+    let input = Input {
+        q: None,
+        lang: form.lang,
+        character: Some(form.character),
+    };
+    input.validate()?;
+    state.check(actor, "game.player.read").await?;
+    let query = serde_urlencoded::to_string(&input).map_err(|_| Error::BadInput)?;
+    state
+        .backend
+        .for_session(session)
+        .retry_player_query(actor, &input, operation, form.request)
+        .await?;
+    Ok(axum::response::Redirect::to(&format!(
+        "/admin/console/players?{query}"
+    )))
+}
+
 #[cfg(test)]
 #[path = "players_tests.rs"]
-mod tests;
+pub(super) mod tests;

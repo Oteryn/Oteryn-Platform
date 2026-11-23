@@ -1,0 +1,19 @@
+<!doctype html><html lang="{{ lang }}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><title>{{ title }}</title><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>
+{% if let Some(message) = error %}<p role="alert">{{ message }}</p>{% endif %}
+{% if let Some(queue) = queue %}
+<h2>{{ queue.heading }}</h2>
+{% if let Some(filters) = queue.filters %}<form method="get" action="/admin/support/tickets">
+<p><label>{{ filters.status.label }}<br><select class="op-input" name="status">
+<option value="">{{ queue.all }}</option>
+{% for choice in filters.status.choices %}<option value="{{ choice.value }}"{% if choice.selected %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
+</select></label></p>
+<p><label>{{ filters.category.label }}<br><select class="op-input" name="category">
+<option value="">{{ queue.all }}</option>
+{% for choice in filters.category.choices %}<option value="{{ choice.value }}"{% if choice.selected %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
+</select></label></p>
+<button class="op-button" type="submit">{{ queue.filter }}</button></form>{% endif %}
+{% if let Some(href) = queue.previous %}<a href="{{ href }}">{{ queue.previous_label }}</a>{% endif %}
+<ul>{% if queue.enforcement %}<li><a href="/admin/moderation/enforcement/create">{{ queue.create }}</a></li>{% endif %}
+{% for row in queue.rows %}<li><a href="{{ queue.base }}/{{ row.id }}">{{ row.title }}</a> <span>{{ row.status }}</span>{% if let Some(appeal) = row.appeal %} · <span>{{ appeal }}</span>{% endif %}</li>{% endfor %}</ul>
+{% if let Some(href) = queue.next %}<a href="{{ href }}">{{ queue.next_label }}</a>{% endif %}
+{% endif %}</main></body></html>

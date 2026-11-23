@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
-import { disposableDatabaseUrl, pool } from '../helpers.mjs';
+import { disposableDatabaseUrl, fixtureDatabaseEnv, pool } from '../helpers.mjs';
 import { messages, visit } from '../public-depth-helpers.mjs';
 
 test('unprefixed wiki and stats routes negotiate locale', async ({ page }, info) => {
@@ -77,4 +77,19 @@ test('explicit fixture pool URLs take precedence and receive the same validation
     'postgresql://127.0.0.1/postgres', explicit + '?hostaddr=127.0.0.2']) {
     expect(() => pool(url)).toThrow();
   }
+});
+
+test('fixture commands use the validated URL without PostgreSQL destination defaults', () => {
+  const database = 'postgresql://fixture@127.0.0.1/portal_e2e_explicit';
+  const defaults = {
+    PGHOST: '127.0.0.2', PGHOSTADDR: '127.0.0.2', PGPORT: '1', PGDATABASE: 'postgres',
+    PGOPTIONS: '-csearch_path=other',
+  };
+  const env = fixtureDatabaseEnv(database, {
+    ...defaults, OTERYN_DATABASE_URL: 'postgresql://127.0.0.2/postgres', OTERYN_ENV: 'testing',
+  });
+  expect(env.OTERYN_DATABASE_URL).toBe(database);
+  expect(env.OTERYN_ENV).toBe('testing');
+  for (const key of Object.keys(defaults)) expect(env).not.toHaveProperty(key);
+  expect(() => fixtureDatabaseEnv(`${database}?hostaddr=127.0.0.2`)).toThrow('no destination overrides');
 });

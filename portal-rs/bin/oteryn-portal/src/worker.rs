@@ -316,6 +316,24 @@ fn register_security_notifications(
 }
 pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::error::Error>> {
     let mut registry = Registry::default();
+    registry.cleanup(
+        "support.enforcement.overdue",
+        1,
+        Arc::new(oteryn_support::sanctions::enforcement::Overdue(
+            pool.clone(),
+        )),
+    )?;
+    if std::env::var("PORTAL_GAME_ENFORCEMENT_ENABLED").as_deref() == Ok("true") {
+        use oteryn_support::sanctions::enforcement::{Expiry, Profile};
+        let profiles = crate::game_routes::Configuration::from_env()?.enforcement_profiles()?;
+        if profiles.enabled(Profile::Mute) || profiles.enabled(Profile::Jail) {
+            registry.cleanup(
+                "support.enforcement.expiry",
+                1,
+                Arc::new(Expiry::new(pool.clone(), profiles)),
+            )?;
+        }
+    }
     if std::env::var("OTERYN_ADMIN_COMMERCE").as_deref() == Ok("true")
         && std::env::var("OTERYN_REFUNDS_ENABLED").as_deref() == Ok("true")
         && let Some(adapter) = oteryn_admin::commerce::configured_payment_adapter(pool.clone())?
@@ -493,6 +511,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "email.password-reset",
         "email.verify",
         "email.account_exists",
+        oteryn_admin::staff_invites::MAIL_KIND,
         oteryn_notify::EMAIL_JOB,
         "bazaar.authority",
         "league.ingest",

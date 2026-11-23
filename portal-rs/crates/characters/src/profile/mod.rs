@@ -199,6 +199,12 @@ impl Service {
             matches.into_iter().next().ok_or(Error::NotFound)?
         };
         Self::unique_owner(tx, selected.0).await?;
+        if !crate::ownership::transfer_allows_owner(tx, selected.0, account)
+            .await
+            .unwrap_or(false)
+        {
+            return Err(Error::NotFound);
+        }
         Ok(selected)
     }
     async fn unique_owner(
@@ -258,11 +264,15 @@ impl Service {
         name: &str,
         now: i64,
     ) -> Result<(Uuid, String), Error> {
+        oteryn_db::mutation_budget(tx).await?;
         sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
             .bind(account)
             .fetch_optional(&mut **tx)
             .await?
             .ok_or(Error::NotFound)?;
+        crate::ownership::shared_fences(tx)
+            .await
+            .map_err(|_| Error::Unavailable)?;
         Self::share_feed(tx).await?;
         self.owned(tx, account, name, now).await
     }
@@ -331,10 +341,9 @@ impl Service {
         if status.as_deref() != Some("active") {
             return Err(SaveError::Domain(Error::NotFound));
         }
-        // Serialize the ownership recheck through commit with receipt publication.
-        sqlx::query("SELECT pg_advisory_xact_lock_shared(22005160000)")
-            .execute(&mut *tx)
-            .await?;
+        crate::ownership::shared_fences(&mut tx)
+            .await
+            .map_err(|_| SaveError::Domain(Error::Unavailable))?;
         Self::share_feed(&mut tx).await?;
         let c = self
             .owned(&mut tx, account, name, now)

@@ -423,6 +423,10 @@ async fn postgres_due_termination_drains_after_intake_disabled() -> TestResult {
     let b = boundary(settings(), Arc::new(Recovery(AtomicU64::new(3))));
     let enabled = service(&db, b.clone());
     let account = db.account().await?;
+    sqlx::query("UPDATE accounts SET profile_display_name='Żółty Lis' WHERE id=$1")
+        .bind(account)
+        .execute(&db.pool)
+        .await?;
     let accepted = request(&enabled, account).await;
     let disabled = Terminations::new(db.pool.clone(), Config::default(), b.clone())?;
     assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
@@ -442,7 +446,7 @@ async fn postgres_due_termination_drains_after_intake_disabled() -> TestResult {
     assert_eq!(disabled.run_worker(100).await?, WorkerResult::default());
     let closed: bool = sqlx::query_scalar(
         "SELECT a.status='closed' AND a.password_hash='!closed' AND a.email_verified_at IS NULL
-                AND a.email='terminated+'||a.id::text AND t.finalized_at IS NOT NULL
+                AND a.profile_display_name='' AND a.email='terminated+'||a.id::text AND t.finalized_at IS NOT NULL
          FROM accounts a JOIN account_terminations t ON t.account_id=a.id WHERE t.id=$1",
     )
     .bind(accepted.id)

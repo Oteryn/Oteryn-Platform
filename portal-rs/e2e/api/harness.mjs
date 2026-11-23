@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SMTPServer } from 'smtp-server';
+import { trustHarnessCa } from '../trust.mjs';
 
 const e2e = fileURLToPath(new URL('../', import.meta.url));
 // An existing Playwright worker can use the isolated portal through exercise.
@@ -35,6 +36,7 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {}, b
   const webhookSecret = randomBytes(32).toString('hex');
   const options = {
     OTERYN_ACCOUNT_LOGIN: 'true',
+    OTERYN_WEBAUTHN_RP_ID: 'localhost',
     OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED: 'true',
     OTERYN_NATIVE_DEVICE_PROJECTION_AUTHORITY: 'oteryn-game-e2e',
     OTERYN_NATIVE_TLS_BIND: `127.0.0.1:${nativePort}`,
@@ -44,6 +46,8 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {}, b
     OTERYN_SMTP_PASSWORD: smtpPassword,
     OTERYN_MAIL_FROM: 'portal@example.invalid',
     OTERYN_SMTP_FROM: 'portal@example.invalid',
+    OTERYN_NOTIFY_UNSUBSCRIBE_KEY: randomBytes(32).toString('hex'),
+    OTERYN_NOTIFY_UNSUBSCRIBE_URL: new URL('/en/unsubscribe', publicOrigin).href,
     GAME_AUTH_CHARACTER_BOOTSTRAP_INTENT_TTL_SECONDS: '300',
     PORTAL_ADMIN_CONTROL_ENABLED: 'true',
     PORTAL_ADMIN_CONTROL_AGENTS_JSON: JSON.stringify([{
@@ -103,6 +107,7 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {}, b
   let smtp;
   let playwright;
   let playwrightStopped;
+  let releaseCa;
   const interrupted = new Error('API contract runner interrupted');
   const { promise: interruption, reject: interrupt } = Promise.withResolvers();
   const onInterrupt = () => { process.exitCode = 130; interrupt(interrupted); };
@@ -133,6 +138,8 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {}, b
       smtp.listen(smtpPort, '127.0.0.1', resolve);
     })]);
     const databaseURL = JSON.parse(fs.readFileSync(path.join(output, 'secrets', 'env.json'))).OTERYN_DATABASE_URL;
+    const ca = path.join(output, 'certs', 'ca.pem');
+    releaseCa = trustHarnessCa(ca);
     if (exercise) {
       await Promise.race([interruption, exercise({ origin: publicOrigin, databaseURL, account: steps[0].args })]);
       return;
@@ -144,7 +151,7 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {}, b
         PORTAL_API_LOGIN_PASSWORD: steps[0].args.password,
         PORTAL_API_OTHER_LOGIN_PASSWORD: steps[1].args.password,
         PORTAL_API_WEBHOOK_SECRET: webhookSecret,
-        NODE_EXTRA_CA_CERTS: path.join(output, 'certs', 'ca.pem'),
+        NODE_EXTRA_CA_CERTS: ca,
         PORTAL_E2E_DATABASE_URL: databaseURL }, stdio: 'inherit' });
     playwrightStopped = once(playwright, 'close');
     const [code] = await Promise.race([interruption, playwrightStopped]);
@@ -161,9 +168,13 @@ export async function run({ config, args, portalOptions = {}, harnessEnv = {}, b
         await stopped;
         if (smtp) await new Promise(resolve => smtp.close(resolve));
       } finally {
-        fs.rmSync(scratch, { recursive: true, force: true });
-        process.off('SIGINT', onInterrupt);
-        process.off('SIGTERM', onTerminate);
+        try {
+          releaseCa?.();
+        } finally {
+          fs.rmSync(scratch, { recursive: true, force: true });
+          process.off('SIGINT', onInterrupt);
+          process.off('SIGTERM', onTerminate);
+        }
       }
     }
   }

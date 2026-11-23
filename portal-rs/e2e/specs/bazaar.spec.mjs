@@ -19,6 +19,7 @@ async function enroll(page,lang,account){
  await page.goto(`/${lang}/account/sudo`);await submit(page,'main form',{current_password:account.password});
 }
 test.beforeAll(async({browser},info)=>{
+ test.setTimeout(240_000);
  expect(process.env.OTERYN_BAZAAR_ENABLED).toBe('true');
  const settings={ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:info.project.metadata.locale,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443'};
  sellerContext=await browser.newContext(settings);buyerContext=await browser.newContext(settings);

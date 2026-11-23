@@ -81,6 +81,7 @@ impl termination::Boundary for TerminationBoundary {
             // proof requires a committed receipt and an empty character projection.
             let blocked: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM account_email_changes WHERE account_id=$1
+                    AND (NOT initiated_by_staff OR owner_approved_at IS NOT NULL)
                     AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL
                     AND expires_at>clock_timestamp())",
             )
@@ -105,6 +106,9 @@ impl termination::Boundary for TerminationBoundary {
             if finalizing {
                 return Err(termination::Error::UnknownState);
             }
+            // Under the account lock, only unapproved or expired requests can
+            // remain after the closure blockers have been checked.
+            oteryn_identity::email_change::cancel_pending(tx, account).await?;
             oteryn_identity::recovery_key::revoke_authorizations(tx, account).await?;
             sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
                 .bind(account)
@@ -677,6 +681,17 @@ mod deletion_tests {
         )
         .fetch_one(pool)
         .await?;
+        sqlx::query(
+            "INSERT INTO account_email_changes
+                (account_id,kind,old_email,new_email,confirmation_hash,revert_hash,
+                 immediate,apply_after,expires_at,revert_until,initiated_by_staff)
+             VALUES ($1,'primary','closure@example.test','proposed@example.test',
+                     sha256('confirm'::bytea),sha256('revert'::bytea),false,
+                     now()+interval '7 days',now()+interval '8 days',now()+interval '30 days',true)",
+        )
+        .bind(account)
+        .execute(pool)
+        .await?;
         let character = Uuid::now_v7();
         sqlx::query(
             "INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
@@ -731,6 +746,14 @@ mod deletion_tests {
         .fetch_one(pool)
         .await?;
         assert_eq!(work_count, 1);
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT cancelled_at IS NOT NULL FROM account_email_changes WHERE account_id=$1",
+            )
+            .bind(account)
+            .fetch_one(pool)
+            .await?
+        );
         let projected_character: Uuid =
             sqlx::query_scalar("SELECT character_id FROM account_characters WHERE account_id=$1")
                 .bind(account)

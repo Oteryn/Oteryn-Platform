@@ -4,6 +4,38 @@ use super::*;
 use askama::Template;
 use sqlx::postgres::PgPoolOptions;
 
+#[test]
+fn audit_template_escapes_before_and_after_cells() -> Result<(), askama::Error> {
+    use super::super::{
+        access::SectionLine,
+        audit::{Change, DiffLabels},
+    };
+
+    let mut page = Page::new("en", "audit");
+    page.audit_diff = Some(DiffLabels {
+        field: "Field".into(),
+        before: "Before".into(),
+        after: "After".into(),
+    });
+    page.section_with_lines(
+        "platform-source",
+        Some(vec![SectionLine {
+            text: "Fixture".into(),
+            changes: vec![Change {
+                field: "Example".into(),
+                before: "<b>before</b>".into(),
+                after: "<i>after & more</i>".into(),
+            }],
+        }]),
+    );
+    let html = page.render()?;
+    assert!(html.contains("<td>&#60;b&#62;before&#60;/b&#62;</td>"));
+    assert!(html.contains("<td>&#60;i&#62;after &#38; more&#60;/i&#62;</td>"));
+    assert!(!html.contains("<td><b>"));
+    assert!(!html.contains("<td><i>"));
+    Ok(())
+}
+
 #[derive(Clone)]
 struct Fake {
     allowed: bool,
@@ -276,13 +308,13 @@ async fn postgres_masked_view_writes_exactly_one_read_audit()
     Ok(())
 }
 
-struct Database {
-    pool: sqlx::PgPool,
+pub(in crate::console) struct Database {
+    pub(in crate::console) pool: sqlx::PgPool,
     root: sqlx::PgPool,
     schema: String,
 }
 impl Database {
-    async fn open(url: &str) -> Result<Self, sqlx::Error> {
+    pub(in crate::console) async fn open(url: &str) -> Result<Self, sqlx::Error> {
         let root = PgPoolOptions::new().max_connections(2).connect(url).await?;
         let schema = format!("console_{}", Uuid::now_v7().simple());
         sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
@@ -307,7 +339,7 @@ impl Database {
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         Ok(Self { pool, root, schema })
     }
-    async fn close(self) -> Result<(), sqlx::Error> {
+    pub(in crate::console) async fn close(self) -> Result<(), sqlx::Error> {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -452,6 +484,55 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
             .await?;
         assert_eq!(response.status(), status, "{path}");
     }
+    let diff_request = Uuid::now_v7();
+    let mut tx = db.pool.begin().await?;
+    crate::audit::append(
+        &mut tx,
+        crate::audit::Entry {
+            context: crate::audit::AuditContext {
+                actor: Some(actor.account),
+                request_id: diff_request,
+            },
+            action: "cms.news_updated",
+            target: "<b>diff-fixture</b>",
+            before: serde_json::json!({"title": "Private draft before-title@example.invalid", "email": "alice@example.invalid"}),
+            after: serde_json::json!({
+                "title": "Private draft 192.0.2.42",
+                "email": "bob@example.invalid",
+                "totp_secret": "redaction-marker"
+            }),
+        },
+    )
+    .await?;
+    tx.commit().await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!(
+                "/admin/console/audit?lang=en&request_id={diff_request}"
+            ))
+            .header("host", "staff.test")
+            .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("<th scope=\"col\">Before</th><th scope=\"col\">After</th>"));
+    assert!(html.contains("&#60;b&#62;diff-fixture&#60;/b&#62;"));
+    assert!(html.contains("<td>Value hidden</td><td>Changed (value hidden)</td>"));
+    assert!(html.contains("<td>a•••@•••</td><td>b•••@•••</td>"));
+    for excluded in [
+        "<b>diff-fixture</b>",
+        "Private draft",
+        "192.0.2.42",
+        "example.invalid",
+        "totp_secret",
+        "redaction-marker",
+    ] {
+        assert!(!html.contains(excluded));
+    }
+
     let seed_id = Uuid::now_v7();
     record_read(&db.pool, actor, seed_id, "c-1", "player.character.get")
         .await

@@ -1,0 +1,36 @@
+<!doctype html><html lang="{{ lang }}"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><title>{{ title }}</title><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>
+<a href="{{ base }}">{{ heading }}</a><header class="op-card"><h2>{{ record_title }}</h2>
+</header>{% if let Some(status) = status %}<p>{{ status }}</p>{% endif %}
+{% if let Some((label, value)) = appeal_status %}<p>{{ label }} <span>{{ value }}</span></p>{% endif %}
+{% if let Some((label, value)) = summary %}<p>{{ label }} <span>{{ value }}</span></p>{% endif %}
+{% if let Some((label, value)) = linked %}<p>{{ label }} <span>{{ value }}</span></p>{% endif %}
+{% if let Some((label, value)) = verified %}<p>{{ label }} <span>{{ value }}</span></p>{% endif %}
+{% if let Some(label) = tickets %}<p><a class="op-link" href="/admin/support/tickets">{{ label }}</a></p>{% endif %}
+{% if let Some(game) = game_state %}<dl>
+<dt>{{ game.profile_label }}</dt><dd data-enforcement-profile>{{ game.profile }}</dd>
+<dt>{{ game.platform_label }}</dt><dd data-platform-decision>{{ game.platform }}</dd>
+<dt>{{ game.request_label }}</dt><dd data-game-request>{{ game.request }}</dd>
+<dt>{{ game.confirmed_label }}</dt><dd data-game-confirmed>{{ game.confirmed }}</dd>
+</dl>{% endif %}
+{% for message in messages %}<article{% if let Some(id) = message.id %} id="message-{{ id }}"{% endif %}><h3>{{ message.kind }}</h3><p>{{ message.body }}</p></article>{% endfor %}
+{% if let Some(href) = next %}<a href="{{ href }}">{{ next_label }}</a>{% endif %}
+{% for form in forms %}
+<form method="post" action="{{ action_path }}">
+<input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="lock_version" value="{{ version }}"><input type="hidden" name="action" value="{{ form.action }}">
+{% if form.sanction %}<input type="hidden" name="create" value="{{ form.create }}">{% endif %}
+{% for field in form.fields %}<p><label>{{ field.label }}<br>
+{% match field.control %}
+{% when SupportControl::Select with (choices) %}
+<select class="op-input" name="{{ field.name }}"{% if field.name == "appeal_status" %} required{% endif %}>{% for choice in choices %}<option value="{{ choice.value }}"{% if field.name == "appeal_status" && choice.value.is_empty() %} disabled selected{% endif %}{% if choice.selected %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}</select>
+{% when SupportControl::Duration with (max) %}
+<input class="op-input" type="number" name="{{ field.name }}" min="1" max="{{ max }}" required>
+{% when SupportControl::Identifier with (required) %}
+<input class="op-input" name="{{ field.name }}" maxlength="36" size="24"{% if required %} required{% endif %}>
+{% when SupportControl::Text with { max, required } %}
+<textarea class="op-input" name="{{ field.name }}" rows="3" cols="24" maxlength="{{ max }}"{% if required %} required{% endif %}></textarea>
+{% endmatch %}
+</label></p>{% endfor %}
+{% if let Some(label) = form.internal %}<p><label><input type="checkbox" name="internal" value="true">{{ label }}</label></p>{% endif %}
+<button class="op-button" type="submit">{{ form.submit }}</button></form>
+{% endfor %}
+</main></body></html>

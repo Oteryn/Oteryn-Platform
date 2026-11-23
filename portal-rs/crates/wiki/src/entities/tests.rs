@@ -325,13 +325,13 @@ async fn postgres_filters_search_pagination_and_invalid_input() {
     ] {
         assert_eq!(
             db.get(&format!("/en/wiki/search?{query}"), true).await.0,
-            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::BAD_REQUEST,
             "{query}"
         );
     }
     assert_eq!(
         db.get("/en/wiki/items?kind=quests", true).await.0,
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     db.close().await;
 }
@@ -406,7 +406,7 @@ async fn entity_refusals_are_localized_documents_with_unchanged_status() {
     for lang in ["pl", "en"] {
         for status in [
             StatusCode::NOT_FOUND,
-            StatusCode::UNPROCESSABLE_ENTITY,
+            StatusCode::BAD_REQUEST,
             StatusCode::SERVICE_UNAVAILABLE,
         ] {
             let response = error(status, lang);
@@ -430,7 +430,7 @@ async fn entity_refusals_are_localized_documents_with_unchanged_status() {
             assert!(body.contains("<main"));
             let key = if status == StatusCode::NOT_FOUND {
                 "missing"
-            } else if status == StatusCode::UNPROCESSABLE_ENTITY {
+            } else if status == StatusCode::BAD_REQUEST {
                 "invalid"
             } else {
                 "unavailable"

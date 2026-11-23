@@ -213,7 +213,10 @@ async fn consents_page_through_real_router() -> TestResult {
             )
             .await?;
         assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-store, private"
+        );
         let body = String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await?.to_vec())?;
         assert!(body.contains(&format!("<html lang=\"{lang}\"")));
         assert!(body.contains("name=\"_csrf\""));

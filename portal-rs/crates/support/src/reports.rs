@@ -8,6 +8,7 @@
 
 use oteryn_identity::AccountId;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use sqlx::{AssertSqlSafe, PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
@@ -249,6 +250,36 @@ impl Reports {
 #[cfg(test)]
 mod tests;
 
+#[derive(sqlx::FromRow)]
+struct ModerationRecord {
+    status: String,
+    lock_version: i64,
+    report_type: String,
+    target_reference: String,
+    assigned_to: Option<Uuid>,
+    sanction_id: Option<Uuid>,
+    verified_target_account_id: Option<Uuid>,
+    public_outcome: Option<String>,
+    moderator_notes: Option<String>,
+}
+
+impl ModerationRecord {
+    fn audit(&self) -> serde_json::Value {
+        let digest = |value: Option<&str>| {
+            value.map(|text| format!("{:x}", Sha256::digest(text.as_bytes())))
+        };
+        serde_json::json!({
+            "status": self.status,
+            "lock_version": self.lock_version,
+            "assigned_to": self.assigned_to,
+            "sanction_id": self.sanction_id,
+            "verified_target_account_id": self.verified_target_account_id,
+            "public_outcome_sha256": digest(self.public_outcome.as_deref()),
+            "moderator_notes_sha256": digest(self.moderator_notes.as_deref()),
+        })
+    }
+}
+
 impl Reports {
     /// Staff domain mutation in the caller's authorization/audit transaction.
     pub async fn staff_apply(
@@ -261,14 +292,6 @@ impl Reports {
     ) -> Result<(serde_json::Value, serde_json::Value), oteryn_admin::support::Error> {
         use oteryn_admin::support::{Command, Error as StaffError};
         self.available().map_err(|_| StaffError::NotFound)?;
-        let Command::Moderate {
-            status,
-            public_outcome,
-            moderator_notes,
-        } = command
-        else {
-            return Err(StaffError::Invalid);
-        };
         command.validate()?;
         let (id, version) = binding;
         let owner: Uuid =
@@ -280,37 +303,125 @@ impl Reports {
                 .ok_or(StaffError::NotFound)?;
         // Staff resolve existing reports even when their reporter is suspended
         // or closed; submission/owner-access admission does not govern moderation.
-        let owner_state: Option<String> =
-            sqlx::query_scalar("SELECT status FROM accounts WHERE id=$1 FOR UPDATE")
+        let owner_state: Option<(String, String)> =
+            sqlx::query_as("SELECT status,locale FROM accounts WHERE id=$1 FOR UPDATE")
                 .bind(owner)
                 .fetch_optional(&mut **tx)
                 .await
                 .map_err(|_| StaffError::Unavailable)?;
+        let (owner_state, locale) = owner_state.ok_or(StaffError::Denied)?;
         if !matches!(
-            owner_state.as_deref(),
-            Some("active" | "pending_verification" | "suspended" | "closed")
+            owner_state.as_str(),
+            "active" | "pending_verification" | "suspended" | "closed"
         ) {
             return Err(StaffError::Denied);
         }
-        let row: (String, i64) =
-            sqlx::query_as("SELECT status,lock_version FROM player_reports WHERE id=$1 FOR UPDATE")
+        let mut before: ModerationRecord = sqlx::query_as(
+            "SELECT status,lock_version,report_type,target_reference,assigned_to,sanction_id,
+                    verified_target_account_id,public_outcome,moderator_notes
+             FROM player_reports WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
+        if before.lock_version != version {
+            return Err(StaffError::Conflict);
+        }
+        command.transition(&before.status)?;
+        let (status, public_outcome, moderator_notes, linked) = match command {
+            Command::VerifyReportTarget { target } => {
+                if before.report_type != "player"
+                    || before
+                        .target_reference
+                        .parse::<Uuid>()
+                        .is_ok_and(|id| id != *target)
+                {
+                    return Err(StaffError::Invalid);
+                }
+                if before.verified_target_account_id == Some(*target) {
+                    return Err(StaffError::Conflict);
+                }
+                // The adapter locked the selected account before locking this report.
+                let known: bool =
+                    sqlx::query_scalar("SELECT EXISTS(SELECT FROM accounts WHERE id=$1)")
+                        .bind(target)
+                        .fetch_one(&mut **tx)
+                        .await
+                        .map_err(|_| StaffError::Unavailable)?;
+                if !known {
+                    return Err(StaffError::NotFound);
+                }
+                let previous = before.audit();
+                before.lock_version = sqlx::query_scalar(
+                    "UPDATE player_reports SET verified_target_account_id=$2,
+                         lock_version=lock_version+1,updated_at=clock_timestamp()
+                     WHERE id=$1 RETURNING lock_version",
+                )
                 .bind(id)
+                .bind(target)
                 .fetch_one(&mut **tx)
                 .await
                 .map_err(|_| StaffError::Unavailable)?;
-        if row.1 != version {
-            return Err(StaffError::Conflict);
+                before.verified_target_account_id = Some(*target);
+                return Ok((previous, before.audit()));
+            }
+            Command::Moderate {
+                status,
+                public_outcome,
+                moderator_notes,
+            } => (
+                status.as_str(),
+                public_outcome.as_str(),
+                Some(moderator_notes.as_str()),
+                None,
+            ),
+            Command::LinkSanction {
+                sanction,
+                public_outcome,
+            } => ("actioned", public_outcome.as_str(), None, Some(*sanction)),
+            _ => return Err(StaffError::Invalid),
+        };
+        if let Some(sanction) = linked {
+            if before.report_type != "player" {
+                return Err(StaffError::Invalid);
+            }
+            let account: Uuid = sqlx::query_scalar(
+                "SELECT account_id FROM sanctions WHERE id=$1 AND status<>'pending' FOR SHARE",
+            )
+            .bind(sanction)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(|_| StaffError::Unavailable)?
+            .ok_or(StaffError::NotFound)?;
+            if before.verified_target_account_id != Some(account) {
+                return Err(StaffError::Invalid);
+            }
         }
-        command.transition(&row.0)?;
-        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
-            .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        let after: ModerationRecord = sqlx::query_as(
+            "UPDATE player_reports
+             SET status=$2,public_outcome=nullif(btrim($3),''),
+                 moderator_notes=CASE WHEN $4::text IS NULL THEN moderator_notes ELSE nullif(btrim($4),'') END,
+                 assigned_to=$5,sanction_id=coalesce($6,sanction_id),lock_version=lock_version+1,
+                 processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,
+                 updated_at=clock_timestamp()
+             WHERE id=$1
+             RETURNING status,lock_version,report_type,target_reference,assigned_to,sanction_id,
+                       verified_target_account_id,public_outcome,moderator_notes",
+        )
+        .bind(id)
+        .bind(status)
+        .bind(public_outcome)
+        .bind(moderator_notes)
+        .bind(actor)
+        .bind(linked)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
         crate::tickets::staff::notify(tx, notifications, owner, |_| {
-            format!("{status}: {}", public_outcome.trim())
+            web::moderation_notice(&locale, status, public_outcome)
         })
         .await?;
-        Ok((
-            serde_json::json!({"status":row.0,"lock_version":version}),
-            serde_json::json!({"status":status,"lock_version":version+1}),
-        ))
+        Ok((before.audit(), after.audit()))
     }
 }

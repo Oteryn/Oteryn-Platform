@@ -89,6 +89,14 @@
   },
   {
     "crate": "admin",
+    "route": "/admin/console/players/retry",
+    "actor": "staff",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before retry admission"
+  },
+  {
+    "crate": "admin",
     "route": "/admin/console/audit",
     "actor": "staff",
     "method": "GET",
@@ -127,31 +135,44 @@
     "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "redirect": "/console/dashboard?lang={lang}",
+    "reason": "redirects to the first permitted Game page"
+  },
+  {
+    "crate": "admin",
+    "route": "/console/dashboard",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
+    "method": "GET",
+    "status": 200,
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "gm",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "gm",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "gm",
+    "actor": "game_master_senior",
+    "staffRefusal": 403,
     "method": "GET",
     "status": 200,
-    "reason": "page requires the corresponding Game read permission"
+    "reason": "Game read permission required"
   },
   {
     "crate": "admin",
@@ -1212,6 +1233,48 @@
   },
   {
     "crate": "identity",
+    "route": "/{lang}/mfa/manage",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/replace/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/mfa/native-devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/profile",
+    "actor": "player",
+    "method": "GET",
+    "status": 200,
+    "reason": "active owner can open profile settings",
+    "exactPath": true
+  },
+  {
+    "crate": "identity",
+    "route": "/{lang}/account/profile",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation",
+    "case": "route identity /{lang}/account/profile POST"
+  },
+  {
+    "crate": "identity",
     "route": "/{lang}/account/passkeys",
     "actor": "player",
     "method": "GET",
@@ -2015,8 +2078,8 @@
     "route": "/{lang}/account/characters/{character}/services",
     "actor": "player",
     "method": "GET",
-    "status": 503,
-    "reason": "authority or projection unavailable"
+    "status": 404,
+    "reason": "public character service is disabled pending contract acceptance"
   },
   {
     "crate": "web",
@@ -2693,6 +2756,30 @@
   {
     "crate": "identity",
     "route": "/mfa/devices",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/manage",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/replace/confirm",
+    "actor": "player",
+    "method": "POST",
+    "status": 403,
+    "reason": "missing CSRF is refused before mutation"
+  },
+  {
+    "crate": "identity",
+    "route": "/mfa/native-devices",
     "actor": "player",
     "method": "POST",
     "status": 403,

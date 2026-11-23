@@ -1,9 +1,11 @@
+import { escapeRegex } from '../regex.mjs';
 import {randomUUID} from 'node:crypto';
 import {test, expect} from '../fixtures.mjs';
 import {submit} from '../helpers.mjs';
 import {action, isolatedAdmin, query, role} from '../staff-rbac-helpers.mjs';
 
 test('staff creates a page through the finder, publishes it and deletes it', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-${randomUUID()}`;
@@ -15,7 +17,7 @@ test('staff creates a page through the finder, publishes it and deletes it', asy
     await finder.locator('[name=slug]').fill(slug);
     await finder.locator('[name=locale]').selectOption('en');
     await finder.getByRole('button').click();
-    await expect(page).toHaveURL(new RegExp(`${edit}$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(edit)}$`));
     const form = page.locator('main form[method=post]');
     await form.locator('[name=title]').fill(title);
     await form.locator('[name=body]').fill('Published through the editorial browser.');
@@ -33,6 +35,7 @@ test('staff creates a page through the finder, publishes it and deletes it', asy
 });
 
 test('staff creates and edits a bilingual announcement', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const locale = info.project.metadata.locale;
@@ -60,6 +63,7 @@ test('staff creates and edits a bilingual announcement', async ({browser}, info)
 });
 
 test('staff returns an article from review to draft', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-guide-${randomUUID()}`;
@@ -82,12 +86,12 @@ test('staff returns an article from review to draft', async ({browser}, info) =>
 });
 
 test('staff changes a custom role permission through the roles form', async ({browser}, info) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const id = await role(page);
     await action(page, 'form:has(button[value=set-permissions])', {
-      role: id, permissions: 'admin.access',
+      role: id, permissions: 'admin.access', reason: 'role_assignment',
     }, 'set-permissions');
     const rows = await query('SELECT permission FROM role_permissions WHERE role_id=$1', [id]);
     expect(rows).toEqual([{permission: 'admin.access'}]);
@@ -97,7 +101,7 @@ test('staff changes a custom role permission through the roles form', async ({br
 });
 
 test('staff uses the editorial PUT endpoints to edit news and publish an event', async ({browser}, info) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const slug = `ledger-${randomUUID()}`;

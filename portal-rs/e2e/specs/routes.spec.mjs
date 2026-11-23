@@ -1,12 +1,17 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
-import {isolatedAdmin,query,staffState} from '../staff-rbac-helpers.mjs';
+import {isolatedAdmin,query,staffState,seedAccount,isolatedStaff} from '../staff-rbac-helpers.mjs';
 import {assertShell} from '../shell.mjs';
 import {routeCaseTitle} from '../route-cases.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
 let cookies,account,gmCookies;
+async function staffCookies(browser,info,role){
+ const account=await seedAccount(info.project.metadata.locale);
+ const staff=await isolatedStaff(browser,info,role,account);
+ try{return await staff.context.cookies();}finally{await staff.context.close();}
+}
 test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
@@ -27,6 +32,8 @@ for(const row of rows)test(routeCaseTitle(row, rows),async({page,context,browser
      }
    }
    await context.addCookies(gmCookies);
+ } else if(row.actor==='game_master_senior') {
+   await context.addCookies(await staffCookies(browser, info, row.actor));
  } else if(row.actor==='staff') {
    const staff=await staffState(browser,info);
    await context.addCookies(staff.cookies);
@@ -54,7 +61,7 @@ for(const row of rows)test(routeCaseTitle(row, rows),async({page,context,browser
  expect(response.status(),`${target}: ${row.reason}`).toBe(expectedStatus);
  if(expectedStatus===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
- if (row.method === 'GET' && ['staff', 'gm'].includes(row.actor)) {
+ if (row.method === 'GET' && (row.exactPath || ['staff', 'gm', 'game_master_senior'].includes(row.actor))) {
    expect(documentPath, 'terminal staff route').toBe(new URL(redirect ? sample(redirect.location, lang) : target, response.url()).pathname);
  }
  const text=await response.text();

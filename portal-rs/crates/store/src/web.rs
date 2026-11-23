@@ -576,11 +576,16 @@ async fn history(
         Ok(p) => p,
         Err(r) => return r,
     };
+    let invalid_cursor = || {
+        let mut response = failure(l, Error::Invalid);
+        *response.status_mut() = StatusCode::BAD_REQUEST;
+        response
+    };
     let Ok(Query(query)) = query else {
-        return failure(l, Error::Invalid);
+        return invalid_cursor();
     };
     if query.before.is_some_and(|id| !uuid7(id)) {
-        return failure(l, Error::Invalid);
+        return invalid_cursor();
     }
     p.entries = match s.backend.history(a, query.before).await {
         Ok(e) => e,

@@ -9,7 +9,6 @@ use axum::{
     http::{HeaderMap, StatusCode, header},
     middleware,
     response::{IntoResponse, Response},
-    routing::get,
 };
 use oteryn_web::{
     Language,
@@ -23,8 +22,8 @@ use std::net::SocketAddr;
 struct ExportState {
     pool: PgPool,
     config: ExportConfig,
-    limiter: RateLimiter,
     password_confirmation: bool,
+    limiter: RateLimiter,
 }
 
 pub(super) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
@@ -192,13 +191,13 @@ pub(super) fn configured_browser_router(
     Router::new()
         .route(
             "/pl/account/privacy/export",
-            get(confirmation)
+            oteryn_web::html::get(confirmation)
                 .post(handler)
                 .layer(Extension(Language::Pl)),
         )
         .route(
             "/en/account/privacy/export",
-            get(confirmation)
+            oteryn_web::html::get(confirmation)
                 .post(handler)
                 .layer(Extension(Language::En)),
         )

@@ -3,11 +3,44 @@
 //! Acquire once at the outer test entry, before creating fixtures. Keep the guard
 //! through fixture cleanup. Concurrent actors *within* a test remain concurrent.
 
-use sqlx::{Connection, PgConnection};
+use sqlx::{Connection, PgConnection, PgPool};
 use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
 
 static GLOBAL_LOCK_TEST: Mutex<()> = Mutex::const_new(());
+
+/// Create a dedicated schema for a PostgreSQL test.
+pub async fn create_fixture_schema(pool: &PgPool, name: &str) -> Result<(), sqlx::Error> {
+    fixture_schema_ddl(
+        pool,
+        name,
+        "SELECT pg_catalog.format('CREATE SCHEMA %I', $1::text)",
+    )
+    .await
+}
+
+/// Remove a dedicated schema after its test pool has closed.
+pub async fn drop_fixture_schema(pool: &PgPool, name: &str) -> Result<(), sqlx::Error> {
+    fixture_schema_ddl(
+        pool,
+        name,
+        "SELECT pg_catalog.format('DROP SCHEMA %I CASCADE', $1::text)",
+    )
+    .await
+}
+
+async fn fixture_schema_ddl(
+    pool: &PgPool,
+    name: &str,
+    statement: &'static str,
+) -> Result<(), sqlx::Error> {
+    let sql: String = sqlx::query_scalar(statement)
+        .bind(name)
+        .fetch_one(pool)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(sql)).execute(pool).await?;
+    Ok(())
+}
 
 /// Retains test ownership independently of fixture pools and mutation budgets.
 #[derive(Debug)]

@@ -288,6 +288,7 @@ pub struct AgentView {
 /// The store returns status only after checking actor, target and request ownership.
 #[derive(Debug, Clone, Copy)]
 pub enum QueryStatus {
+    Unavailable,
     Pending,
     InProgress,
     Succeeded,
@@ -301,7 +302,7 @@ impl QueryStatus {
         match self {
             Self::Pending => "pending",
             Self::InProgress => "in-progress",
-            Self::Succeeded => "unavailable",
+            Self::Unavailable | Self::Succeeded => "unavailable",
             Self::Failed => "failed",
             Self::Rejected => "rejected",
             Self::Expired => "expired",
@@ -738,7 +739,13 @@ async fn render<P: Permissions, C: Channel>(
         {
             sections.push(dashboard::section(&s.pool, language).await);
         }
-        sections.push(alerts::section(&s.pool, language).await);
+        if auth
+            .check(context, Permission::ReadPlayerdataBindingAlerts)
+            .await
+            .is_ok()
+        {
+            sections.push(alerts::section(&s.pool, language).await);
+        }
     }
     let nav = navigation(&s.permissions, context, language).await;
     let op = operations[0];
@@ -894,3 +901,5 @@ async fn submit<P: Permissions, C: Channel>(
 #[cfg(test)]
 #[path = "dashboard_tests.rs"]
 mod tests;
+
+pub mod enforcement;

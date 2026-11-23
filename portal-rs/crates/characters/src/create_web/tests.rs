@@ -432,6 +432,15 @@ async fn db_browser_actor_to_command_flash_and_owner_only_status() -> TestResult
         .oneshot(post("Admin", world, submission, CSRF))
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
+    let refused = app
+        .clone()
+        .oneshot(
+            Request::get("/en/account/characters/new")
+                .header("accept", "application/json")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(refused.status(), StatusCode::NOT_ACCEPTABLE);
     let response = app
         .clone()
         .oneshot(Request::get("/en/account/characters/new").body(Body::empty())?)

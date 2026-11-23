@@ -3,37 +3,22 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
-import { login, register, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, pool, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { seedPlayer, signInPlayer, withFreshCommercePortal } from '../commerce-helpers.mjs';
 import { uuid7 } from '../support/bazaar-game.mjs';
+
+const promotionRoute = '/{lang}/account/bazaar/{listing}/promote';
+const collectionRoutes = [
+  { route: '/{lang}/collection/{character}', warmStatus: 200 },
+  // A portfolio does not supply the Game sprite projection.
+  { route: '/{lang}/collection/{character}/cards/{id}/image', warmStatus: 503 },
+];
 
 const read = name => JSON.parse(fs.readFileSync(new URL(`../${name}.json`, import.meta.url), 'utf8'));
 const routes = read('inventory').routes.filter(route => route.methods.includes('GET'));
 const expectations = new Map(read('route-expectations').filter(row => row.method === 'GET')
   .map(row => [row.route, row]));
-// These routes are in the refreshed source inventory. The character families
-// use cold or missing projections and the referral/checkout IDs do not exist.
-for (const prefix of ['', '/{lang}']) {
-  expectations.set(`${prefix}/characters/{name}/skills`, { actor: 'player', status: 503 });
-  for (const family of ['achievements', 'equipment', 'outfit']) {
-    expectations.set(`${prefix}/account/characters/{name}/${family}`, { actor: 'player', status: 404 });
-  }
-}
-for (const [route, actor, status] of [
-  ['/{lang}/account/referrals', 'player', 200],
-  ['/{lang}/referrals/{code}', 'player', 403],
-  ['/admin/announcements', 'staff', 200],
-  ['/admin/announcements/create', 'staff', 200],
-  ['/admin/announcements/{id}/edit', 'staff', 404],
-  ['/forgot-password', 'player', 200],
-  ['/{lang}/shop/test-checkout/{intent}', 'player', 404],
-  ['/{lang}/account/consents', 'player', 200],
-  ['/{lang}/account/badges', 'player', 200],
-  // This sweep publishes the player's roster. The sampled character is outside it.
-  ['/{lang}/collection/{character}', 'player', 403],
-]) {
-  expectations.set(route, { actor, status });
-}
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const normalize = text => text.replace(/\s+/gu, ' ').trim();
 
@@ -123,28 +108,38 @@ async function assertLocale(page, locale, witness) {
 
 let playerContext;
 let staffContext;
-let ownedCharacter;
+let warmPlayerContext;
+let warmAccount;
+
+function newLocaleContext(browser, info) {
+  return browser.newContext({
+    locale: info.project.metadata.locale,
+    viewport: info.project.use.viewport,
+    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
+
+  });
+}
 
 test.beforeAll(async ({ browser }, info) => {
   test.setTimeout(300_000);
   const locale = info.project.metadata.locale;
-  playerContext = await browser.newContext({
-    locale,
-    viewport: info.project.use.viewport,
-    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-  });
+  playerContext = await newLocaleContext(browser, info);
   const player = await playerContext.newPage();
-  const playerAccount = await register(player, locale);
-  await login(player, locale, playerAccount);
+  await signInPlayer(player, locale);
   expect((await player.goto(`/${locale}/account/security`)).status()).toBe(200);
   await player.close();
-  staffContext = await browser.newContext({
-    locale,
-    viewport: info.project.use.viewport,
-    baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-  });
+
+  warmPlayerContext = await newLocaleContext(browser, info);
+  const warm = await warmPlayerContext.newPage();
+  warmAccount = await signInPlayer(warm, locale);
+  await warm.close();
+});
+
+async function provisionStaff(browser, info) {
+  const locale = info.project.metadata.locale;
+  staffContext = await newLocaleContext(browser, info);
   const staff = await staffContext.newPage();
-  const account = await register(staff, locale);
+  const account = await seedPlayer(locale);
   await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'", [account.email]);
   await login(staff, locale, account);
   expect((await staff.goto(`/admin?lang=${locale}`)).status()).toBe(403);
@@ -159,38 +154,118 @@ test.beforeAll(async ({ browser }, info) => {
   await loginWithRecoveryCode(staff, locale, account, await code.inputValue());
   expect((await staff.goto(`/admin?lang=${locale}`)).status()).toBe(200);
 
+  return staff;
+}
+
+async function publishWarmPortfolio(page, locale) {
   // Publish through the existing local Game producer and private LCFA transport.
-  // The ownership routes require a fresh portfolio to distinguish 404 from 503.
-  const [{ id: seller }] = await query('SELECT id FROM accounts WHERE email=$1', [account.email]);
-  const [{ id: buyer }] = await query('SELECT id FROM accounts WHERE email=$1', [playerAccount.email]);
+  const { id: seller } = await seedPlayer(locale);
+  const { id: buyer } = warmAccount;
   const sellerCharacter = uuid7();
   const buyerCharacter = uuid7();
-  const publication = await staff.request.post('/__bazaar_game/seed', {
+  const publication = await page.request.post('/__bazaar_game/seed', {
     data: {
       seller, buyer, kind: 'character', asset_id: sellerCharacter,
       seller_character_id: sellerCharacter, buyer_character_id: buyerCharacter,
     },
   });
   expect(publication.status()).toBe(201);
-  const [{ name }] = await query(
-    'SELECT name FROM account_characters WHERE account_id=$1 AND character_id=$2',
+  const [character] = await query(
+    `SELECT c.character_id AS id, c.account_id AS account, c.world_id AS world, c.name,
+            s.projection_epoch AS epoch, s.projection_revision AS revision
+     FROM account_characters c JOIN account_character_snapshots s USING (account_id)
+     WHERE c.account_id=$1 AND c.character_id=$2`,
     [buyer, buyerCharacter],
   );
-  ownedCharacter = name;
-  await staff.close();
-});
+  return character;
+}
 
 test.afterAll(async () => {
   await staffContext?.close();
   await playerContext?.close();
+  await warmPlayerContext?.close();
 });
 
-test('locale parity across the GET route inventory', async ({ page: anonymous }, info) => {
+test('isolated promotion and collection fixtures preserve exact cold and warm responses', async ({ browser }, info) => {
+  test.setTimeout(240_000);
+  const locale = info.project.metadata.locale;
+  const listing = uuid7();
+  const target = promotionRoute.replace('{lang}', locale).replace('{listing}', listing);
+  const expected = expectations.get(promotionRoute);
+  expect(expected?.actor).toBe('player');
+  const witness = `player ${locale} ${promotionRoute}`;
+  await withFreshCommercePortal(browser, locale, {
+    OTERYN_BAZAAR_MODERATION: 'true',
+    OTERYN_BAZAAR_PROMOTIONS: 'true',
+  }, async (quotePage, databaseURL, account) => {
+    const db = pool(databaseURL);
+    const revision = uuid7();
+    try {
+      await db.query(
+        `INSERT INTO bazaar_listings
+           (id, owner, kind, form, currency, price, accept_offers, state, ends_at)
+         VALUES ($1, $2, 'item', 'auction', 'coins', 100, false, 'active', now()+interval '1 day')`,
+        [listing, account.id],
+      );
+      expect((await quotePage.goto(target)).status(), witness).toBe(expected.status);
+      await assertLocale(quotePage, locale, witness);
+      await db.query(
+        `INSERT INTO bazaar_fee_revisions
+           (id, actor, coin_bps, gold_bps, listing_fee, promotion_price, reason)
+         VALUES ($1, $2, 1000, 250, 0, 100, 'Locale promotion fixture')`,
+        [revision, account.id],
+      );
+    } finally {
+      await db.end();
+    }
+    expect((await quotePage.goto(target)).status(), `${witness} (warm quote)`).toBe(200);
+    await expect(quotePage.locator('main input[name="fee_revision"]')).toHaveValue(revision);
+    await assertLocale(quotePage, locale, `${witness} (warm quote)`);
+  });
+
+  const cold = await playerContext.newPage();
+  const warm = await warmPlayerContext.newPage();
+  try {
+    const { id: character, account, world, epoch, revision } = await publishWarmPortfolio(warm, locale);
+    // The existing-character fixture supplies the accepted custody cut as part of publication.
+    expect(await query(
+      `SELECT account_id, world_id, character_revision::text, from_projection_revision::text,
+        to_projection_revision::text, projection_epoch::text, recovery_generation::text
+       FROM pd_ownership_baselines WHERE character_id=$1`, [character],
+    )).toEqual([{
+      account_id: account, world_id: world, character_revision: '1',
+      from_projection_revision: String(revision), to_projection_revision: String(revision),
+      projection_epoch: String(epoch), recovery_generation: '3',
+    }]);
+    for (const { route, warmStatus } of collectionRoutes) {
+      const path = targetFor(route.replace('{character}', character), locale);
+      const coldExpected = expectations.get(route);
+      expect(coldExpected?.actor).toBe('player');
+      expect((await cold.goto(path)).status(), `${route} (cold ownership)`).toBe(coldExpected.status);
+      await assertLocale(cold, locale, `${route} (cold ownership)`);
+      expect((await warm.goto(path)).status(), `${route} (warm ownership)`).toBe(warmStatus);
+      await assertLocale(warm, locale, `${route} (warm ownership)`);
+      if (warmStatus === 200) {
+        const unknown = targetFor(route, locale);
+        expect((await warm.goto(unknown)).status(), `${route} (unknown character)`).toBe(403);
+        await assertLocale(warm, locale, `${route} (unknown character)`);
+      }
+    }
+  } finally {
+    await cold.close();
+    await warm.close();
+  }
+});
+
+test('locale parity across the GET route inventory', async ({ browser, page: anonymous }, info) => {
   test.setTimeout(1_200_000);
+  // Exercise the real registration form with its required local abuse policy and corpus.
+  await seedPasswordRange();
   const locale = info.project.metadata.locale;
   const player = await playerContext.newPage();
-  const staff = await staffContext.newPage();
-  for (const page of [anonymous, player, staff]) {
+  const staff = await provisionStaff(browser, info);
+  const warmPlayer = await warmPlayerContext.newPage();
+  for (const page of [anonymous, player, staff, warmPlayer]) {
     await page.setExtraHTTPHeaders({ 'accept-language': locale });
   }
   const checked = new Map();
@@ -198,16 +273,19 @@ test('locale parity across the GET route inventory', async ({ page: anonymous },
     for (const [actor, page] of [['anonymous', anonymous], ['player', player], ['staff', staff]]) {
       let documents = 0;
       for (const { route } of routes) {
+        // The player's promotion form needs a separate DB to check the absent fee revision.
+        if (actor === 'player' && route === promotionRoute) continue;
         const expected = expectations.get(route);
         expect(expected, `GET inventory route requires a harness expectation: ${route}`).toBeDefined();
         const target = new URL(targetFor(route, locale), process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443');
         const witness = `${actor} ${locale} ${route}`;
         await test.step(witness, async () => {
           if (actor === 'player' && route.endsWith('/account/characters/{name}/profile')) {
+            const { name: ownedCharacter } = await publishWarmPortfolio(warmPlayer, locale);
             const profile = route.replace('{lang}', locale).replace('{name}', encodeURIComponent(ownedCharacter));
-            const result = await page.goto(profile, { waitUntil: 'domcontentloaded' });
+            const result = await warmPlayer.goto(profile, { waitUntil: 'domcontentloaded' });
             expect.soft(result.status(), witness).toBe(200);
-            await assertLocale(page, locale, `${witness} (owned character)`);
+            await assertLocale(warmPlayer, locale, `${witness} (owned character)`);
           }
           await waitForWikiBudget(target.href, 2);
           const options = { headers: { accept: 'text/html', 'accept-language': locale } };
@@ -248,6 +326,7 @@ test('locale parity across the GET route inventory', async ({ page: anonymous },
   } finally {
     await player.close();
     await staff.close();
+    await warmPlayer.close();
     await info.attach('locale-documents', {
       body: JSON.stringify(Object.fromEntries(checked)), contentType: 'application/json',
     });

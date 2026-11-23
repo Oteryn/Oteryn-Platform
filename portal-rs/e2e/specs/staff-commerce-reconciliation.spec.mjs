@@ -1,14 +1,16 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,pool} from '../helpers.mjs';
-import {staffContext,paidTopup} from '../staff-commerce-helpers.mjs';
+import {isolatedSeededAdmin} from '../staff-rbac-helpers.mjs';
+import {paidTopup} from '../staff-commerce-helpers.mjs';
 
 test('staff reconciles a paid test intent and records the audit; bad intent refused',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);await login(page,lang,account);
- const db=pool(),staff=await staffContext(browser,info);
+ const {context:staff,page:admin}=await isolatedSeededAdmin(browser,info);
+ const db=pool();
  try {
   const paid=await paidTopup(page,lang,db);
-  const admin=await staff.newPage();expect((await admin.goto('/admin/commerce')).status()).toBe(200);
+  expect((await admin.goto('/admin/commerce')).status()).toBe(200);
   const path='/admin/commerce/reconcile';
   await expect(admin.locator(`a[href^="${path}?"]`)).toBeVisible();
   expect((await admin.goto(`${path}?lang=${lang}&id=${paid.payment_intent_id}`)).status()).toBe(200);

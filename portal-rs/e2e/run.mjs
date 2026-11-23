@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import {execFileSync, spawn} from 'node:child_process';
+import {once} from 'node:events';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 const [file,...args]=process.argv.slice(2);
@@ -10,7 +11,7 @@ const env={...process.env,...readJson(file)};
 const outboxCA = env.PORTAL_E2E_OUTBOX_ENV && readJson(env.PORTAL_E2E_OUTBOX_ENV).SSL_CERT_FILE;
 const gameCA = env.PORTAL_E2E_GAME_DATA_REPORT && readJson(env.PORTAL_E2E_GAME_DATA_REPORT).caFile;
 const fixtureCAs = new Set([env.SSL_CERT_FILE, outboxCA, gameCA].filter(Boolean));
-if (fixtureCAs.size) {
+if (!args.includes('--list') && fixtureCAs.size) {
   const browserHome = fs.mkdtempSync(join(tmpdir(), 'portal-e2e-browser-'));
   process.on('exit', () => fs.rmSync(browserHome, { recursive: true, force: true }));
   const nss = join(browserHome, '.pki/nssdb');
@@ -27,4 +28,14 @@ if (fixtureCAs.size) {
   env.PORTAL_E2E_CHROMIUM_HOME = browserHome;
 }
 const child=spawn(process.execPath,['node_modules/@playwright/test/cli.js',...args],{env,stdio:'inherit'});
-child.on('exit',code=>process.exit(code??1));
+const interrupt = () => child.kill('SIGINT');
+const terminate = () => child.kill('SIGTERM');
+process.once('SIGINT', interrupt);
+process.once('SIGTERM', terminate);
+try {
+  const [code] = await once(child, 'exit');
+  process.exitCode = code ?? 1;
+} finally {
+  process.off('SIGINT', interrupt);
+  process.off('SIGTERM', terminate);
+}

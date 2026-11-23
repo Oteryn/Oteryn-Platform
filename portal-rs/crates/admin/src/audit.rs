@@ -4,6 +4,9 @@ use serde_json::Value;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
+pub(crate) const EDITORIAL_PAGE_PATH_PREFIX: &str = "/admin/pages/";
+pub(crate) const EDITORIAL_PAGE_ROUTE: &str = "/admin/pages/{slug}/{locale}";
+
 /// Metadata supplied by a trusted authentication/request layer, never by a request body.
 #[derive(Debug, Clone, Copy)]
 pub struct AuditContext {

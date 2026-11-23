@@ -16,6 +16,7 @@ subtle = "2.6"
 oteryn-world.workspace = true
 oteryn-identity.workspace = true
 oteryn-db.workspace = true
+oteryn-characters.workspace = true
 oteryn-internal-api.workspace = true
 async-trait = "0.1"
 sha2 = "0.10.9"

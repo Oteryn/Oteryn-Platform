@@ -236,12 +236,14 @@ impl Candidate {
 pub struct CatalogStore {
     pool: PgPool,
     source: Option<Source>,
+    unconfigured: bool,
     ready: Arc<AtomicBool>,
 }
 impl CatalogStore {
     pub fn new(pool: PgPool, source: Option<Source>) -> Self {
         Self {
             pool,
+            unconfigured: source.is_none(),
             source,
             ready: Arc::new(AtomicBool::new(true)),
         }
@@ -251,9 +253,11 @@ impl CatalogStore {
         self
     }
     pub fn configured(pool: PgPool, ready: Arc<AtomicBool>) -> Self {
+        let source = Source::configured();
         Self {
             pool,
-            source: Source::configured().ok().flatten(),
+            unconfigured: matches!(source, Ok(None)),
+            source: source.ok().flatten(),
             ready,
         }
     }
@@ -267,6 +271,10 @@ impl CatalogStore {
             .bind(&source.fence.authority_epoch).bind(&source.fence.ruleset_id).bind(&source.fence.content_profile_id)
             .fetch_optional(&self.pool).await.map_err(|_| Error::Unavailable)
     }
+    pub fn unconfigured(&self) -> bool {
+        self.unconfigured
+    }
+
     pub async fn active_version_id(&self) -> Result<Option<Uuid>> {
         Ok(self.selection().await?.map(|s| s.0))
     }

@@ -7,6 +7,9 @@ use axum::{http::StatusCode, response::Response};
 use oteryn_ui::Chrome;
 use oteryn_web::csrf::Verified;
 use serde_json::{Value, json};
+
+pub(crate) const ROLE_REASON: &str = "role_assignment";
+pub(crate) const ACCOUNT_REASON: &str = "support_case";
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use std::{future::Future, pin::Pin};
 use uuid::Uuid;
@@ -22,22 +25,30 @@ async fn check_step_up(
     actor: CheckContext,
     requirement: StepUp,
 ) -> Result<(), Error> {
-    if matches!(requirement, StepUp::RecentPassword) {
-        let proof = actor.session_proof.ok_or(Error::StepUp)?;
-        // RBAC has already locked and verified the durable session and MFA grant.
-        let fresh: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM web_sessions
-             WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
-        )
-        .bind(actor.account)
-        .bind(proof.session_hash.as_slice())
-        .fetch_one(connection)
-        .await?;
-        if !fresh {
-            return Err(Error::StepUp);
-        }
+    if matches!(requirement, StepUp::RecentPassword)
+        && !recent_password_in(connection, actor).await?
+    {
+        return Err(Error::StepUp);
     }
     Ok(())
+}
+
+/// Check the password-confirmation deadline on the already authorized session.
+pub(crate) async fn recent_password_in(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+) -> Result<bool, sqlx::Error> {
+    let Some(proof) = actor.session_proof else {
+        return Ok(false);
+    };
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM web_sessions
+         WHERE account_id=$1 AND id_hash=$2 AND sudo_until>clock_timestamp())",
+    )
+    .bind(actor.account)
+    .bind(proof.session_hash.as_slice())
+    .fetch_one(connection)
+    .await
 }
 
 #[derive(Debug)]
@@ -117,6 +128,23 @@ pub enum AuditChange {
         before: Vec<Permission>,
         after: Vec<Permission>,
     },
+    AccountNote {
+        account: Uuid,
+        note: Uuid,
+    },
+    ReviewFlag {
+        account: Uuid,
+        before: bool,
+        after: bool,
+    },
+    AccountStatus {
+        account: Uuid,
+        suspended: bool,
+    },
+    AccountEmail {
+        account: Uuid,
+        request: Uuid,
+    },
     #[cfg(test)]
     TestLocale {
         account: Uuid,
@@ -164,6 +192,41 @@ impl AuditChange {
                 permissions(before),
                 permissions(after),
             ),
+            Self::AccountNote { account, note } => (
+                "players.note.added",
+                account,
+                json!({}),
+                json!({"note": note}),
+            ),
+            Self::ReviewFlag {
+                account,
+                before,
+                after,
+            } => (
+                "players.flags.changed",
+                account,
+                json!({"needs_review": before}),
+                json!({"needs_review": after}),
+            ),
+            Self::AccountStatus { account, suspended } => {
+                let (before, after) = if suspended {
+                    ("active", "suspended")
+                } else {
+                    ("suspended", "active")
+                };
+                (
+                    "players.status.changed",
+                    account,
+                    json!({"status": before}),
+                    json!({"status": after}),
+                )
+            }
+            Self::AccountEmail { account, request } => (
+                "players.email.change_requested",
+                account,
+                json!({"pending": false}),
+                json!({"pending": true, "request": request}),
+            ),
             #[cfg(test)]
             Self::TestLocale { account } => (
                 "staff.action.test",
@@ -200,6 +263,28 @@ pub struct Guard<'a> {
 pub type Mutation<'a> =
     Pin<Box<dyn Future<Output = Result<Option<AuditChange>, Error>> + Send + 'a>>;
 
+pub(crate) fn verify_session(actor: CheckContext, csrf: Option<Verified>) -> Result<(), Error> {
+    let same_session = csrf
+        .zip(actor.session_proof)
+        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
+    if same_session && actor.require_staff_mfa && actor.mfa_verified {
+        Ok(())
+    } else {
+        Err(Error::Forbidden)
+    }
+}
+
+pub(crate) fn validated_code(
+    reason: &str,
+    allowed: &'static [&'static str],
+) -> Result<&'static str, Error> {
+    allowed
+        .iter()
+        .copied()
+        .find(|code| *code == reason && (8..=500).contains(&code.chars().count()))
+        .ok_or(Error::Reason)
+}
+
 /// Validate the form, lock its accounts and run the mutation under durable staff
 /// authorization. Return `None` from the mutation only for a successful no-op.
 pub async fn run<T, F>(
@@ -226,23 +311,11 @@ pub(crate) fn validated_reason(
     guard: &Guard<'_>,
     action: &Action<'_>,
 ) -> Result<&'static str, Error> {
-    let same_session = guard
-        .csrf
-        .zip(guard.actor.session_proof)
-        .is_some_and(|(csrf, proof)| csrf.matches_session(&proof.session_hash));
-    if !same_session
-        || !guard.actor.require_staff_mfa
-        || !guard.actor.mfa_verified
-        || action.permission == Permission::Access
-    {
+    verify_session(guard.actor, guard.csrf)?;
+    if action.permission == Permission::Access {
         return Err(Error::Forbidden);
     }
-    action
-        .reason_codes
-        .iter()
-        .copied()
-        .find(|code| *code == action.reason && (8..=500).contains(&code.chars().count()))
-        .ok_or(Error::Reason)
+    validated_code(action.reason, action.reason_codes)
 }
 
 /// Execute a validated action while retaining the caller's account and role locks.

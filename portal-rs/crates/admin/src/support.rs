@@ -9,11 +9,19 @@ use crate::{
 };
 use oteryn_web::session::SessionMutationDeadline;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
 use std::future::Future;
 use uuid::Uuid;
 
 const MAX_APPEAL_OUTCOME_LENGTH: usize = 4000;
+const MAX_SANCTION_DURATION_HOURS: i64 = 8760;
+const SECONDS_PER_HOUR: i64 = 3600;
+
+/// Duration of a temporary staff sanction after resolving its effective times.
+pub fn valid_sanction_duration(seconds: i64) -> bool {
+    (SECONDS_PER_HOUR..=MAX_SANCTION_DURATION_HOURS * SECONDS_PER_HOUR).contains(&seconds)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
@@ -22,17 +30,58 @@ pub enum Area {
     Enforcement,
 }
 impl Area {
-    pub fn permission(self) -> Permission {
+    pub(crate) fn permissions(self) -> &'static [Permission] {
         match self {
-            Self::Tickets => Permission::ManageSupportTickets,
-            Self::Reports => Permission::ManageSupportReports,
-            Self::Enforcement => Permission::ManageSupportEnforcement,
+            Self::Tickets => &[Permission::ManageSupportTickets],
+            Self::Reports => &[
+                Permission::ReviewSupportReports,
+                Permission::ManageSupportReports,
+            ],
+            Self::Enforcement => &[Permission::ManageSupportEnforcement],
         }
+    }
+
+    /// Check an area grant after locking the resources and authorizing panel access.
+    pub async fn check_in<A: AccountStateReader>(
+        self,
+        tx: &mut Transaction<'_, Postgres>,
+        auth: &Authorizer<A>,
+        context: CheckContext,
+    ) -> Result<(), Error> {
+        for &permission in self.permissions() {
+            match auth.check_in(tx, context, permission).await {
+                Err(crate::rbac::Error::Denied) => continue,
+                result => return result.map_err(authorization_error),
+            }
+        }
+        Err(Error::Denied)
     }
 }
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    AssignTicket {
+        #[serde(default, deserialize_with = "form_optional_uuid")]
+        assignee: Option<Uuid>,
+    },
+    VerifyReportTarget {
+        target: Uuid,
+    },
+    LinkSanction {
+        sanction: Uuid,
+        public_outcome: String,
+    },
+    ApplySanction {
+        target: Uuid,
+        category: String,
+        public_reason: String,
+        moderator_notes: String,
+        #[serde(deserialize_with = "form_integer")]
+        duration_hours: i64,
+    },
+    RevokeSanction {
+        public_reason: String,
+    },
     Reply {
         body: String,
         #[serde(default, deserialize_with = "form_bool")]
@@ -84,13 +133,75 @@ pub enum Error {
 impl Command {
     pub fn area(&self) -> Area {
         match self {
-            Self::Reply { .. } | Self::TicketStatus { .. } => Area::Tickets,
-            Self::Moderate { .. } => Area::Reports,
-            Self::Sanction { .. } | Self::Appeal { .. } => Area::Enforcement,
+            Self::Reply { .. } | Self::TicketStatus { .. } | Self::AssignTicket { .. } => {
+                Area::Tickets
+            }
+            Self::Moderate { .. } | Self::VerifyReportTarget { .. } | Self::LinkSanction { .. } => {
+                Area::Reports
+            }
+            Self::Sanction { .. }
+            | Self::Appeal { .. }
+            | Self::ApplySanction { .. }
+            | Self::RevokeSanction { .. } => Area::Enforcement,
         }
+    }
+    pub fn permissions(&self) -> &[Permission] {
+        match self {
+            Self::Moderate { .. } => &[Permission::Access],
+            Self::LinkSanction { .. } => &[
+                Permission::Access,
+                Permission::ManageSupportReports,
+                Permission::ManageSupportEnforcement,
+            ],
+            _ => match self.area() {
+                Area::Tickets => &[Permission::Access, Permission::ManageSupportTickets],
+                Area::Reports => &[Permission::Access, Permission::ManageSupportReports],
+                Area::Enforcement => &[Permission::Access, Permission::ManageSupportEnforcement],
+            },
+        }
+    }
+    /// Report status review accepts either report grant. Target verification and
+    /// sanction linking retain their separate, mandatory mutation permissions.
+    pub async fn check_report_review_in<A: AccountStateReader>(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        auth: &Authorizer<A>,
+        context: CheckContext,
+    ) -> Result<(), Error> {
+        if matches!(self, Self::Moderate { .. }) {
+            Area::Reports.check_in(tx, auth, context).await?;
+        }
+        Ok(())
+    }
+
+    fn creates_sanction(&self) -> bool {
+        matches!(
+            self,
+            Self::Sanction { create: true, .. } | Self::ApplySanction { .. }
+        )
     }
     pub fn validate(&self) -> Result<(), Error> {
         let valid = match self {
+            Self::AssignTicket { assignee } => assignee.is_none_or(|id| !id.is_nil()),
+            Self::VerifyReportTarget { target } => !target.is_nil(),
+            Self::LinkSanction {
+                sanction,
+                public_outcome,
+            } => !sanction.is_nil() && text(public_outcome, 4000, true),
+            Self::ApplySanction {
+                target,
+                category,
+                public_reason,
+                moderator_notes,
+                duration_hours,
+            } => {
+                !target.is_nil()
+                    && matches!(category.as_str(), "warning" | "restriction" | "suspension")
+                    && text(public_reason, 4000, true)
+                    && text(moderator_notes, 8000, false)
+                    && (1..=MAX_SANCTION_DURATION_HOURS).contains(duration_hours)
+            }
+            Self::RevokeSanction { public_reason } => text(public_reason, 4000, true),
             Self::Reply { body, .. } => text(body, 8000, true),
             Self::TicketStatus { status } => ticket_status(status),
             Self::Moderate {
@@ -105,7 +216,7 @@ impl Command {
                     public_outcome,
                     4000,
                     matches!(status.as_str(), "actioned" | "rejected" | "closed"),
-                ) && text(moderator_notes, 8000, false)
+                ) && text(moderator_notes, 8000, true)
             }
             Self::Sanction {
                 status,
@@ -145,7 +256,9 @@ impl Command {
     pub fn transition(&self, current: &str) -> Result<(), Error> {
         self.validate()?;
         let valid = match self {
-            Self::Reply { .. } => matches!(current, "open" | "waiting_staff" | "waiting_user"),
+            Self::Reply { .. } | Self::AssignTicket { .. } => {
+                matches!(current, "open" | "waiting_staff" | "waiting_user")
+            }
             Self::TicketStatus { .. } => ticket_status(current),
             Self::Moderate { status, .. } => match current {
                 "submitted" => matches!(
@@ -156,7 +269,12 @@ impl Command {
                 "actioned" | "rejected" => status == "closed",
                 _ => false,
             },
-            Self::Sanction { create: true, .. } => current == "absent",
+            Self::VerifyReportTarget { .. } | Self::LinkSanction { .. } => {
+                matches!(current, "submitted" | "reviewing")
+            }
+            Self::ApplySanction { .. } | Self::Sanction { create: true, .. } => current == "absent",
+            Self::RevokeSanction { .. } => current == "active",
+            Self::Sanction { status, .. } if status == "revoked" => current == "active",
             Self::Sanction { .. } => matches!(current, "active" | "expired" | "revoked"),
             Self::Appeal { .. } => matches!(current, "requested" | "reviewing"),
         };
@@ -164,6 +282,11 @@ impl Command {
     }
     fn audit_action(&self) -> &'static str {
         match self {
+            Self::AssignTicket { .. } => "support.ticket_assigned",
+            Self::VerifyReportTarget { .. } => "support.report_target_verified",
+            Self::LinkSanction { .. } => "support.report_sanction_linked",
+            Self::ApplySanction { .. } => "support.enforcement_created",
+            Self::RevokeSanction { .. } => "support.enforcement_updated",
             Self::Reply { internal: true, .. } => "support.ticket_internal_note_added",
             Self::Reply { .. } => "support.ticket_replied",
             Self::TicketStatus { .. } => "support.ticket_status_changed",
@@ -177,11 +300,41 @@ impl Command {
 fn text(value: &str, max: usize, required: bool) -> bool {
     (!required || !value.trim().is_empty()) && value.chars().count() <= max && !value.contains('\0')
 }
+const TICKET_STATUSES: &[&str] = &[
+    "open",
+    "waiting_staff",
+    "waiting_user",
+    "resolved",
+    "closed",
+];
+const TICKET_CATEGORIES: &[&str] = &["account", "character", "technical", "payment", "other"];
+
 fn ticket_status(value: &str) -> bool {
-    matches!(
-        value,
-        "open" | "waiting_staff" | "waiting_user" | "resolved" | "closed"
-    )
+    TICKET_STATUSES.contains(&value)
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct TicketFilter {
+    pub status: String,
+    pub category: String,
+}
+impl TicketFilter {
+    fn is_empty(&self) -> bool {
+        self.status.is_empty() && self.category.is_empty()
+    }
+    fn valid(&self) -> bool {
+        (self.status.is_empty() || ticket_status(&self.status))
+            && (self.category.is_empty() || TICKET_CATEGORIES.contains(&self.category.as_str()))
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct Details {
+    pub assigned_to: Option<Uuid>,
+    pub linked_sanction: Option<Uuid>,
+    pub player_report: bool,
+    pub verified_target: Option<Uuid>,
 }
 
 /// Public display fields only. Private messages are provided solely to this guarded
@@ -195,6 +348,13 @@ pub struct Record {
     pub messages: Vec<Message>,
     pub appeal_status: Option<String>,
     pub next_message: Option<Uuid>,
+    pub character_enforcement: Option<CharacterEnforcement>,
+}
+#[derive(Debug, Clone)]
+pub struct CharacterEnforcement {
+    pub profile: crate::console::enforcement::Profile,
+    pub request: crate::console::enforcement::StateLabel,
+    pub current: crate::console::enforcement::StateLabel,
 }
 #[derive(Debug, Clone)]
 pub struct Message {
@@ -220,6 +380,26 @@ pub trait Backend: Clone + Send + Sync + 'static {
         area: Area,
         page: u32,
     ) -> impl Future<Output = Result<Vec<Record>, Error>> + Send;
+    fn list_filtered(
+        &self,
+        area: Area,
+        page: u32,
+        filter: &TicketFilter,
+    ) -> impl Future<Output = Result<Vec<Record>, Error>> + Send {
+        async move {
+            if !filter.is_empty() {
+                return Err(Error::Unavailable);
+            }
+            self.list(area, page).await
+        }
+    }
+    fn details(
+        &self,
+        _area: Area,
+        _record: &Record,
+    ) -> impl Future<Output = Result<Details, Error>> + Send {
+        async { Ok(Details::default()) }
+    }
     fn load(
         &self,
         area: Area,
@@ -259,6 +439,13 @@ impl Backend for PendingSupport {
         Err(Error::Unavailable)
     }
 }
+fn authorization_error(error: crate::rbac::Error) -> Error {
+    match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    }
+}
+
 /// Authorization is rechecked while holding the role-writer lock. Domain writes and
 /// audit commit together; an unavailable dependency cannot produce a success.
 pub async fn execute<A: AccountStateReader, B: Backend>(
@@ -270,34 +457,49 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     version: i64,
     command: &Command,
 ) -> Result<(), Error> {
-    execute_with_deadline(pool, auth, backend, context, (id, version), command, None).await
+    execute_audited(
+        pool,
+        auth,
+        backend,
+        context,
+        (id, version),
+        command,
+        (None, None),
+    )
+    .await
 }
 
-async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
+async fn execute_audited<A: AccountStateReader, B: Backend>(
     pool: &PgPool,
     auth: &Authorizer<A>,
     backend: &B,
     context: CheckContext,
-    target: (Uuid, i64),
+    (id, version): (Uuid, i64),
     command: &Command,
-    deadline: Option<&SessionMutationDeadline>,
+    (reason, deadline): (Option<&str>, Option<&SessionMutationDeadline>),
 ) -> Result<(), Error> {
-    let (id, version) = target;
-    if id.is_nil()
-        || version < 1
-        || (matches!(command, Command::Sanction { create: true, .. }) && version != 1)
-    {
+    if id.is_nil() || version < 1 || (command.creates_sanction() && version != 1) {
         return Err(Error::Invalid);
     }
     command.validate()?;
     if !context.require_staff_mfa || !context.mfa_verified {
         return Err(Error::Denied);
     }
-    for permission in [Permission::Access, command.area().permission()] {
+    let permissions = command.permissions();
+    for &permission in permissions {
         crate::web::read_request(deadline, auth.check(context, permission))
             .await
             .map_err(|_| Error::Unavailable)?
-            .map_err(commit_authorization_error)?;
+            .map_err(authorization_error)?;
+    }
+    if matches!(command, Command::Moderate { .. }) {
+        crate::web::read_request(
+            deadline,
+            auth.check_any(context, Area::Reports.permissions()),
+        )
+        .await
+        .map_err(|_| Error::Unavailable)?
+        .map_err(authorization_error)?;
     }
     // Preparation precedes the RBAC fence, but retains its bounded lock waits.
     let mut tx = match deadline {
@@ -309,21 +511,32 @@ async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
         .await
         .map_err(|_| Error::Unavailable)?;
     backend.prepare(&mut tx, context, id, command).await?;
-    crate::rbac::authorize_mutation(
-        &mut tx,
-        &[context.account],
-        auth,
-        context,
-        &[Permission::Access, command.area().permission()],
-    )
-    .await
-    .map_err(|error| match error {
-        crate::rbac::Error::Storage(_) => Error::Unavailable,
-        _ => Error::Denied,
-    })?;
-    let (before, after) = backend
+    crate::rbac::authorize_mutation(&mut tx, &[context.account], auth, context, permissions)
+        .await
+        .map_err(authorization_error)?;
+    command
+        .check_report_review_in(&mut tx, auth, context)
+        .await?;
+    if let Command::AssignTicket {
+        assignee: Some(assignee),
+    } = command
+    {
+        for &permission in permissions {
+            auth.check_subject_in(&mut tx, *assignee, permission)
+                .await
+                .map_err(authorization_error)?;
+        }
+    }
+    let (before, mut after) = backend
         .apply(&mut tx, context, id, version, command)
         .await?;
+    if let Some(reason) = reason {
+        let after = after.as_object_mut().ok_or(Error::Unavailable)?;
+        after.insert(
+            "reason_sha256".into(),
+            serde_json::json!(format!("{:x}", Sha256::digest(reason.trim().as_bytes()))),
+        );
+    }
     audit::append(
         &mut tx,
         Entry {
@@ -339,33 +552,20 @@ async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
     )
     .await
     .map_err(|_| Error::Unavailable)?;
-    crate::rbac::authorize_mutation(
-        &mut tx,
-        &[context.account],
-        auth,
-        context,
-        &[Permission::Access, command.area().permission()],
-    )
-    .await
-    .map_err(|error| match error {
-        crate::rbac::Error::Storage(_) => Error::Unavailable,
-        _ => Error::Denied,
-    })?;
+    crate::rbac::authorize_mutation(&mut tx, &[context.account], auth, context, permissions)
+        .await
+        .map_err(authorization_error)?;
+    command
+        .check_report_review_in(&mut tx, auth, context)
+        .await?;
     let expiry = crate::rbac::SessionExpiry::capture(&mut tx, context)
         .await
-        .map_err(commit_authorization_error)?;
+        .map_err(authorization_error)?;
     expiry
         .arm_commit(&mut tx, deadline.is_some())
         .await
-        .map_err(commit_authorization_error)?;
+        .map_err(authorization_error)?;
     tx.commit().await.map_err(|_| Error::Unavailable)
-}
-
-fn commit_authorization_error(error: crate::rbac::Error) -> Error {
-    match error {
-        crate::rbac::Error::Storage(_) => Error::Unavailable,
-        _ => Error::Denied,
-    }
 }
 
 #[cfg(test)]
@@ -401,4 +601,14 @@ fn form_integer<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<i64
         Value::Integer(value) => Ok(value),
         Value::Text(value) => value.parse().map_err(serde::de::Error::custom),
     }
+}
+
+fn form_optional_uuid<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Uuid>, D::Error> {
+    let value = Option::<String>::deserialize(deserializer)?;
+    value
+        .filter(|value| !value.is_empty())
+        .map(|value| value.parse().map_err(serde::de::Error::custom))
+        .transpose()
 }

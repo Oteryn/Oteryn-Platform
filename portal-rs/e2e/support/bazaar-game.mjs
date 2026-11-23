@@ -57,6 +57,7 @@ export function startBazaarProducer(config){
  let state=fs.existsSync(journal)?JSON.parse(fs.readFileSync(journal,'utf8')):{assets:{},characters:{},decisions:{},statuses:{},accountRevisions:{},outbox:[],errors:[]};
  state.banks??={};state.holds??={};state.sales??={};
  let closing=false,lastWatermark=0,policyAcknowledged=false;
+ const heldTransfers=new Set();
  function persist(){const temporary=`${journal}.tmp`;fs.writeFileSync(temporary,JSON.stringify(state),{mode:0o600});fs.renameSync(temporary,journal);}
  function fence(){if(fs.readFileSync(env.OTERYN_BAZAAR_FENCE_FILE,'utf8')!==config.fence)throw new Error('Recovery fence changed');}
  const agents=Object.fromEntries(Object.entries(config.identities).map(([name,identity])=>[name,new https.Agent({key:identity.key,cert:identity.cert,ca:config.ca,keepAlive:true,maxSockets:1,minVersion:'TLSv1.3',maxVersion:'TLSv1.3',ALPNProtocols:['http/1.1']})]));
@@ -218,7 +219,7 @@ export function startBazaarProducer(config){
    const response=await post(peer,`${namespace}/pending`,Buffer.from(JSON.stringify(pending)));if(response.status!==200)return;
    const entries=JSON.parse(response.body).pending;
    for(const entry of entries){
-    if(version===1&&entry.command!=='TransferCharacterOwnership')continue;
+    if(version===1&&(entry.command!=='TransferCharacterOwnership'||heldTransfers.has(entry.operation_id)))continue;
     const request={...head(version===2?'ReadBazaarCommandIntentV1':'ReadCharacterCommandIntentV1',version),issuer_authority:version===2?'OTERYN_PLATFORM_BAZAAR_AUTHORITY':'OTERYN_PLATFORM_CHARACTER_AUTHORITY',command:entry.command,operation_id:entry.operation_id};
     const read=await post(peer,`${namespace}/read`,Buffer.from(JSON.stringify(request)));if(read.status!==200)continue;
     decide(read.body,version);await flush();
@@ -231,6 +232,12 @@ export function startBazaarProducer(config){
    if(req.method==='GET'&&target==='/fixtures'){res.writeHead(200,{'content-type':'application/json','x-fixture-source':SOURCE});res.end(rawFixtures);return;}
    if(req.method==='GET'&&target.startsWith('/state')){const asset=new URL(target,'http://localhost').searchParams.get('asset');res.setHeader('content-type','application/json');res.end(JSON.stringify({source:SOURCE,ready:policyAcknowledged,asset:asset?state.assets[asset]:null,decisions:Object.values(state.decisions).map(d=>({operation:d.operation,command:d.command,outcome:d.outcome})),errors:state.errors,banks:state.banks}));return;}
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>8192)throw new Error('Body bound');}
+   if(req.method==='POST'&&target==='/hold-transfer'){
+    const {operation_id,hold}=JSON.parse(raw);
+    if(!validID(operation_id)||typeof hold!=='boolean')throw new Error('Invalid transfer hold');
+    if(hold)heldTransfers.add(operation_id);else heldTransfers.delete(operation_id);
+    res.writeHead(204);res.end();return;
+   }
    if(req.method==='POST'&&target==='/seed'){
     const input=JSON.parse(raw);for(const key of ['seller','buyer','asset_id','seller_character_id','buyer_character_id'])if(!validID(input[key]))throw new Error('Invalid fixture ID');
     if(state.assets[input.asset_id])throw new Error('Fixture identity reuse');

@@ -793,7 +793,7 @@ async fn missing_mail_refuses_admission() -> Result {
     sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
         .execute(&db.pool)
         .await?;
-    let app = crate::registration_delivery::admission(app(db.pool.clone()), db.pool.clone());
+    let app = crate::registration_delivery::admission(app(db.pool.clone()));
     let body = registration_body(
         &app,
         &db.pool,

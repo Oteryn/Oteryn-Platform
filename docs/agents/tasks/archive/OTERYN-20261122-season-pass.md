@@ -128,7 +128,7 @@ validation:
     evidence: The migrated harness reached ready and seeded an active player.
 blockers:
   - Store cosmetic authority and a verified journal challenge mapping remain open.
-next_action: none; delivered by PR #2030 and archived
+next_action: none
 ```
 
 ## Source branch closeout
@@ -138,3 +138,5 @@ source_branch_disposition: retain
 source_branch_reason: The requested deliverable is a dedicated pushed branch.
 source_branch_evidence: No PR or merge is authorized for this task.
 ```
+
+Delivered by PR #2030 and archived.

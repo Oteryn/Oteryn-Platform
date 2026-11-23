@@ -14,6 +14,10 @@ test('admin cannot grant itself a role and revokes its secondary role while reta
   const before=await denials();
   const refused=await s.page.request.post('/admin/roles',{form:{_csrf:token,account:actor,role:id,action:'grant',reason:'role_assignment'},headers:{origin:new URL(s.page.url()).origin},maxRedirects:0});
   expect(refused.status(),'self grant refused').toBe(403);
+  expect(await query(
+    "SELECT before,after FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/roles'",
+    [actor],
+  )).toEqual([{before:null,after:{allowed:false}}]);
   expect(Number((await query('SELECT count(*) n FROM account_roles WHERE account_id=$1 AND role_id=$2',[actor,id]))[0].n),'refused self grant persists nothing').toBe(0);
   expect(await denials()).toBe(before+1);
   // A membership granted by someone else is still revocable by its holder.

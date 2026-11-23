@@ -5,7 +5,6 @@ use axum::{
     extract::{ConnectInfo, Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
 };
 use oteryn_identity::email_change::*;
 use oteryn_web::{
@@ -45,15 +44,15 @@ pub fn router(service: Service, sessions: SessionLayer) -> Router {
         routes = routes
             .route(
                 &format!("{prefix}/account/security/email"),
-                get(show).post(request),
+                oteryn_web::html::get(show).post(request),
             )
             .route(
                 &format!("{prefix}/email-change/confirm/{{token}}"),
-                get(show_confirm).post(confirm),
+                oteryn_web::html::get(show_confirm).post(confirm),
             )
             .route(
                 &format!("{prefix}/email-change/revert/{{token}}"),
-                get(show_revert).post(revert),
+                oteryn_web::html::get(show_revert).post(revert),
             );
     }
     let limiter = RateLimiter::new(service.pool.clone());

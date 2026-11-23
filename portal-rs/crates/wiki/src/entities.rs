@@ -71,6 +71,7 @@ impl EntityState {
     }
     async fn active_version_id(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
         match &self.catalog {
+            Some(c) if c.unconfigured() => Ok(None),
             Some(c) => c
                 .active_version_id()
                 .await
@@ -143,16 +144,16 @@ struct Filters {
 impl Filters {
     fn validate(&mut self) -> Result<(), StatusCode> {
         if self.q.len() > 1024 || self.q.chars().any(char::is_control) {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            return Err(StatusCode::BAD_REQUEST);
         }
-        self.q = domain::search(&self.q, self.page.unwrap_or(1))
-            .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+        self.q =
+            domain::search(&self.q, self.page.unwrap_or(1)).map_err(|_| StatusCode::BAD_REQUEST)?;
         if [&self.category, &self.classification]
             .iter()
             .any(|v| v.len() > 80 || v.chars().any(char::is_control))
             || (!self.kind.is_empty() && !KINDS.contains(&self.kind.as_str()))
         {
-            return Err(StatusCode::UNPROCESSABLE_ENTITY);
+            return Err(StatusCode::BAD_REQUEST);
         }
         Ok(())
     }
@@ -200,7 +201,7 @@ fn t(lang: &str, key: &str) -> String {
 fn error(status: StatusCode, lang: &str) -> Response {
     let key = match status {
         StatusCode::NOT_FOUND => "missing",
-        StatusCode::UNPROCESSABLE_ENTITY => "invalid",
+        StatusCode::BAD_REQUEST => "invalid",
         _ => "unavailable",
     };
     crate::web::notice(status, lang, t(lang, key))
@@ -315,12 +316,8 @@ async fn collect(
     state: &EntityState,
     filters: &Filters,
     lang: &str,
+    version: uuid::Uuid,
 ) -> Result<(String, Vec<Row>), StatusCode> {
-    let version = state
-        .active_version_id()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
     let mut rows = Vec::new();
     let kinds = if filters.kind.is_empty() {
         KINDS.to_vec()
@@ -404,16 +401,17 @@ async fn listing(
         && filters.kind.is_empty()
         && filters.category.is_empty()
         && filters.classification.is_empty();
+    let version = match state.active_version_id().await {
+        Ok(Some(version)) => version,
+        Ok(None) => {
+            return oteryn_ui::missing_game_data(error(StatusCode::SERVICE_UNAVAILABLE, lang));
+        }
+        Err(status) => return error(status, lang),
+    };
     let result = if empty_search {
-        state
-            .active_version_id()
-            .await
-            .ok()
-            .flatten()
-            .map(|v| (v.to_string(), Vec::new()))
-            .ok_or(StatusCode::SERVICE_UNAVAILABLE)
+        Ok((version.to_string(), Vec::new()))
     } else {
-        collect(state, &filters, lang).await
+        collect(state, &filters, lang, version).await
     };
     let (version, rows) = match result {
         Ok(v) => v,
@@ -504,10 +502,10 @@ async fn list(
     }
     let mut filters = match query {
         Ok(Query(v)) => v,
-        Err(_) => return error(StatusCode::UNPROCESSABLE_ENTITY, lang),
+        Err(_) => return error(StatusCode::BAD_REQUEST, lang),
     };
     if !filters.kind.is_empty() && filters.kind != kind {
-        return error(StatusCode::UNPROCESSABLE_ENTITY, lang);
+        return error(StatusCode::BAD_REQUEST, lang);
     }
     filters.kind = kind;
     listing(&state, lang, filters, false).await
@@ -596,7 +594,7 @@ async fn dispatch_listing(
 ) -> Response {
     let filters = match Query::<Filters>::try_from_uri(request.uri()) {
         Ok(Query(v)) => v,
-        Err(_) => return error(StatusCode::UNPROCESSABLE_ENTITY, lang),
+        Err(_) => return error(StatusCode::BAD_REQUEST, lang),
     };
     let mut response = listing(&state, lang, filters, search).await;
     response.headers_mut().insert(

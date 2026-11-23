@@ -71,7 +71,8 @@ fn panel_locale(uri: &axum::http::Uri) -> Option<Language> {
     }
     if !matches!(
         uri.path(),
-        "/console"
+        "/admin/media"
+            | "/console"
             | "/console/dashboard"
             | "/console/worlds"
             | "/console/nodes"
@@ -95,13 +96,15 @@ fn panel_locale(uri: &axum::http::Uri) -> Option<Language> {
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
-    if !crate::surface::browser_path(request.uri().path()) {
+    if request.uri().path().starts_with("/static/")
+        || !crate::surface::browser_path(request.uri().path())
+    {
         return next.run(request).await;
     }
-    let lang = crate::surface::path_language(request.uri().path())
-        .or_else(|| panel_locale(request.uri()))
-        .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
-        .code();
+    let language =
+        panel_locale(request.uri()).unwrap_or_else(|| crate::surface::request_language(&request));
+    request.extensions_mut().insert(language);
+    let lang = language.code();
     let browser_navigation = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
         && !request.uri().path().starts_with("/internal/")
@@ -114,13 +117,33 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .extensions()
         .get::<BrowserMutationDeadline>()
         .copied();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request);
-    let (account, account_id) = match deadline {
-        Some(deadline) => deadline
-            .within(account)
+    let anonymous = (oteryn_ui::Account::Anonymous, None);
+    let (account, account_id) = if request.method() == axum::http::Method::POST
+        && request.uri().path() == "/admin/media"
+    {
+        // Upload authorization owns the initial session lookup and its deadline.
+        anonymous
+    } else if let Some(read_deadline) = request
+        .extensions()
+        .get::<crate::BoundedBrowserRead>()
+        .copied()
+    {
+        match crate::session::bounded_chrome_account(&shell.sessions, &mut request, read_deadline)
             .await
-            .unwrap_or((oteryn_ui::Account::Anonymous, None)),
-        None => account.await,
+        {
+            Ok(account) => account,
+            Err(_) => {
+                return axum::response::IntoResponse::into_response(
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                );
+            }
+        }
+    } else {
+        let account = crate::session::chrome_account(&shell.sessions, &mut request);
+        match deadline {
+            Some(deadline) => deadline.within(account).await.unwrap_or(anonymous),
+            None => account.await,
+        }
     };
     let uri = request.uri().clone();
     let path = uri.path();
@@ -142,12 +165,40 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let mut chrome = shell.registry.chrome(lang, path, account);
-    if browser_navigation
+    let staff_dashboard = if browser_navigation
         && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
         && (staff.allows)(id).await
     {
-        chrome.staff_dashboard = Some(staff.url.clone());
+        Some(
+            if shell
+                .registry
+                .staff_host
+                .as_ref()
+                .is_some_and(|host| crate::staff_host::matches(request.headers(), host))
+            {
+                "/admin".to_owned()
+            } else {
+                staff.url.clone()
+            },
+        )
+    } else {
+        None
+    };
+    let mut chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    chrome.staff_dashboard = staff_dashboard;
+    if matches!(local, "login" | "mfa/login")
+        && let Some(host) = &shell.registry.staff_host
+        && crate::staff_host::dashboard_return_requested(
+            request.uri().query(),
+            request.headers(),
+            host,
+        )
+    {
+        chrome.alternate_url = format!(
+            "/{}{}",
+            chrome.alternate_lang,
+            crate::staff_host::DASHBOARD_LOGIN_PATH
+        );
     }
     if let (Some(id), Some(links)) = (account_id, request.extensions().get::<Vec<OwnerLink>>()) {
         for rule in links {
@@ -223,10 +274,10 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                         .append(name.clone(), value.clone());
                 }
             }
-            for value in response.headers().get_all(header::SET_COOKIE) {
-                replacement
-                    .headers_mut()
-                    .append(header::SET_COOKIE, value.clone());
+            for name in [header::SET_COOKIE, header::CACHE_CONTROL, header::PRAGMA] {
+                for value in response.headers().get_all(&name) {
+                    replacement.headers_mut().append(&name, value.clone());
+                }
             }
             for (name, value) in [
                 ("content-security-policy", PORTAL_CONTENT_SECURITY_POLICY),
@@ -246,16 +297,16 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                     .entry(axum::http::HeaderName::from_static(name))
                     .or_insert(axum::http::HeaderValue::from_static(value));
             }
-            replacement.headers_mut().insert(
-                header::CACHE_CONTROL,
-                axum::http::HeaderValue::from_static("no-store"),
-            );
+            ensure_no_store(replacement.headers_mut());
             replacement
                 .headers_mut()
                 .entry(header::CONTENT_LANGUAGE)
                 .or_insert(header::HeaderValue::from_static(lang));
             response = replacement;
         }
+    }
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
+        ensure_no_store(response.headers_mut());
     }
     let mut response = wrap_document(response, &shell.registry, path, &chrome).await;
     if response
@@ -284,6 +335,95 @@ pub enum TicketConflict {
         recovery_path: String,
     },
     State,
+}
+
+fn has_no_store(value: &header::HeaderValue) -> bool {
+    let mut quoted = false;
+    let mut escaped = false;
+    value
+        .as_bytes()
+        .split(|byte| {
+            if escaped {
+                escaped = false;
+                return false;
+            }
+            match byte {
+                b'"' => quoted = !quoted,
+                b'\\' if quoted => escaped = true,
+                b',' if !quoted => return true,
+                _ => {}
+            }
+            false
+        })
+        .any(|directive| directive.trim_ascii().eq_ignore_ascii_case(b"no-store"))
+}
+
+/// Render a service refusal outside request deadlines without a session lookup.
+pub async fn unavailable_response(
+    State(registry): State<Registry>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let browser = is_browser(&request);
+    let lang = crate::surface::request_language(&request).code();
+    let path = browser.then(|| request.uri().path().to_owned());
+    let mut response = next.run(request).await;
+    if response.status() == axum::http::StatusCode::SERVICE_UNAVAILABLE {
+        if let Some(path) = path
+            && !is_html(&response)
+        {
+            let chrome = registry.chrome(lang, &path, oteryn_ui::Account::Anonymous);
+            let mut replacement = oteryn_ui::error(&chrome, response.status());
+            for name in [
+                header::CACHE_CONTROL,
+                header::RETRY_AFTER,
+                header::SET_COOKIE,
+                header::VARY,
+                header::CONTENT_LANGUAGE,
+                header::CONTENT_SECURITY_POLICY,
+            ] {
+                for value in response.headers().get_all(&name) {
+                    replacement.headers_mut().append(&name, value.clone());
+                }
+            }
+            ensure_no_store(replacement.headers_mut());
+            return replacement;
+        }
+        ensure_no_store(response.headers_mut());
+    }
+    response
+}
+
+fn is_browser(request: &Request) -> bool {
+    request.method() == axum::http::Method::GET
+        && !request.uri().path().starts_with("/api/")
+        && !request.uri().path().starts_with("/internal/")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"))
+}
+
+fn is_html(response: &Response) -> bool {
+    response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"))
+}
+
+pub(crate) fn ensure_no_store(headers: &mut axum::http::HeaderMap) {
+    let no_store = headers
+        .get_all(header::CACHE_CONTROL)
+        .iter()
+        .any(has_no_store);
+    if !no_store {
+        headers.append(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
+    }
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
@@ -723,6 +863,107 @@ mod response_tests {
         Ok(())
     }
 
+    #[test]
+    fn no_store_must_be_a_directive_not_quoted_text() {
+        for value in [
+            r#"private, ext="v,no-store,v""#,
+            r#"private, ext="escaped\",no-store,text""#,
+        ] {
+            assert!(!has_no_store(&header::HeaderValue::from_static(value)));
+        }
+        assert!(has_no_store(&header::HeaderValue::from_static(
+            r#"private, ext="v,no-store,v", NO-STORE"#
+        )));
+    }
+
+    #[tokio::test]
+    async fn unavailable_responses_preserve_cache_directives()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = Router::new()
+            .route(
+                "/en/analytics/data",
+                get(|| async {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        [
+                            (header::CACHE_CONTROL, "no-store, private"),
+                            (header::PRAGMA, "no-cache"),
+                        ],
+                    )
+                }),
+            )
+            .route(
+                "/en/private",
+                get(|| async {
+                    let mut headers = axum::http::HeaderMap::new();
+                    for value in ["private", "max-age=0"] {
+                        headers.append(
+                            header::CACHE_CONTROL,
+                            header::HeaderValue::from_static(value),
+                        );
+                    }
+                    (StatusCode::SERVICE_UNAVAILABLE, headers)
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        for accept in ["text/html", "application/json"] {
+            for (path, expected) in [
+                ("/en/analytics/data", &["no-store, private"][..]),
+                ("/en/private", &["private", "max-age=0", "no-store"][..]),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::get(path)
+                            .header(header::ACCEPT, accept)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                let actual = response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .map(|value| value.to_str())
+                    .collect::<Result<Vec<_>, _>>()?;
+                assert_eq!(actual, expected);
+                if path == "/en/analytics/data" {
+                    assert_eq!(response.headers()[header::PRAGMA], "no-cache");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn existing_no_store_is_not_duplicated() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.append(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("private"),
+        );
+        headers.append(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache, No-Store"),
+        );
+        super::ensure_no_store(&mut headers);
+        assert_eq!(
+            headers
+                .get_all(header::CACHE_CONTROL)
+                .iter()
+                .collect::<Vec<_>>(),
+            ["private", "no-cache, No-Store"],
+        );
+    }
+
     #[tokio::test]
     async fn public_refusals_are_documents_and_api_statuses_stay_intact()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -732,16 +973,21 @@ mod response_tests {
             .route(
                 "/{lang}/cold",
                 get(|| async {
-                    (
-                        StatusCode::SERVICE_UNAVAILABLE,
-                        [
-                            (header::RETRY_AFTER, "17"),
-                            (header::STRICT_TRANSPORT_SECURITY, "max-age=7"),
-                            (header::REFERRER_POLICY, "no-referrer"),
-                            (header::SET_COOKIE, "probe=value; Secure; HttpOnly"),
-                        ],
-                        "",
-                    )
+                    let mut headers = axum::http::HeaderMap::new();
+                    for (name, value) in [
+                        (header::RETRY_AFTER, "17"),
+                        (header::CACHE_CONTROL, "private, no-cache"),
+                        (
+                            header::CACHE_CONTROL,
+                            r#"extension="a,no-store,b", max-age=0"#,
+                        ),
+                        (header::STRICT_TRANSPORT_SECURITY, "max-age=7"),
+                        (header::REFERRER_POLICY, "no-referrer"),
+                        (header::SET_COOKIE, "probe=value; Secure; HttpOnly"),
+                    ] {
+                        headers.append(name, axum::http::HeaderValue::from_static(value));
+                    }
+                    (StatusCode::SERVICE_UNAVAILABLE, headers, "")
                 }),
             )
             .route(
@@ -768,6 +1014,32 @@ mod response_tests {
                 },
                 middleware,
             ));
+        for method in ["GET", "HEAD"] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri("/en/cold")
+                        .header(header::ACCEPT, "application/json")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+            assert_eq!(
+                response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .collect::<Vec<_>>(),
+                [
+                    "private, no-cache",
+                    r#"extension="a,no-store,b", max-age=0"#,
+                    "no-store"
+                ],
+            );
+            assert_eq!(response.headers()[header::RETRY_AFTER], "17");
+        }
         for lang in ["pl", "en"] {
             let response = app
                 .clone()
@@ -783,7 +1055,18 @@ mod response_tests {
                     .to_str()?
                     .starts_with("text/html")
             );
-            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(
+                response
+                    .headers()
+                    .get_all(header::CACHE_CONTROL)
+                    .iter()
+                    .collect::<Vec<_>>(),
+                [
+                    "private, no-cache",
+                    r#"extension="a,no-store,b", max-age=0"#,
+                    "no-store"
+                ],
+            );
             assert_eq!(
                 response.headers()[header::X_CONTENT_TYPE_OPTIONS],
                 "nosniff"

@@ -11,17 +11,25 @@
 // then prints ONE JSON object on stdout. Progress goes to stderr; service logs
 // to <out>/logs. SIGINT/SIGTERM stops the services and drops the database.
 import fs from 'node:fs';
+import { prepareHarnessOutput } from './harness-output.mjs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
-import { Socket } from 'node:net';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import pg from 'pg';
+import { crawlDatabase as createCrawlDatabase } from './crawl/database.mjs';
 import { localPostgresUrl } from './postgres-url.mjs';
+import { withDeadline } from './support/harness-deadline.mjs';
+import { executeFixtureDdl, fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+if (process.argv.slice(2).includes('--staff-console')) {
+  if (['--outbox', '--game-data', '--browser-crawl'].some(mode => process.argv.slice(2).includes(mode))) throw new Error('Choose one harness mode');
+  const { finished } = await import('./staff-console-harness.mjs');
+  process.exit(await finished);
+}
+
 const root = path.resolve(here, '..');
 const log = (...line) => console.error('[harness]', ...line);
 
@@ -47,7 +55,19 @@ const argv = process.argv.slice(2);
 const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : undefined; };
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
+const gameData = argv.includes('--game-data');
 const outbox = argv.includes('--outbox');
+const fixtureOwned = argv.includes('--fixture-owned');
+const crawl = argv.includes('--browser-crawl');
+if (crawl && (outbox || gameData || fixtureOwned || argv.includes('--puzzle-browser') || seedPlanFile || process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
+  throw new Error('The crawl requires its own disposable fixture');
+}
+
+const roles = argv.includes('--serve-only') ? ['serve'] : ['serve', 'worker', 'gateway'];
+
+const gmEnforcement = argv.includes('--gm-enforce') || process.env.PORTAL_E2E_GM_ENFORCE === '1';
+if (gmEnforcement && !outbox) throw new Error('Use --outbox --gm-enforce for the GM browser and Game exchange');
+if (gameData && outbox) throw new Error('Choose one of --game-data or --outbox');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -93,25 +113,43 @@ const port = name => {
 const ports = {
   http: port('PORTAL_E2E_HTTP_PORT'),
   internal: port('PORTAL_E2E_INTERNAL_PORT'),
+  browser: testEnv.PORTAL_E2E_BROWSER_HTTPS_PORT === '443' ? 443
+    : testEnv.PORTAL_E2E_BROWSER_HTTPS_PORT ? port('PORTAL_E2E_BROWSER_HTTPS_PORT') : null,
   admission: Number(process.env.PORTAL_E2E_ADMISSION_PORT || 18091),
   gateway: Number(process.env.PORTAL_E2E_GATEWAY_PORT || 18090),
 };
 
 const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+// Build and certificate tools do not need the crawl's administrative connection.
+const toolEnv = crawl
+  ? Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^PG|DATABASE_URL$/.test(name)))
+  : process.env;
+
+// The isolated puzzle app uses the existing local SMTP sink for real login.
+if (argv.includes('--puzzle-browser')) {
+  for (const key of ['OTERYN_SMTP_HOST', 'OTERYN_SMTP_USERNAME', 'OTERYN_SMTP_PASSWORD',
+    'OTERYN_SMTP_FROM', 'OTERYN_MAIL_FROM', 'SSL_CERT_FILE']) {
+    if (!process.env[key]) throw new Error('Puzzle browser harness requires ' + key + ' from local.mjs');
+    testEnv[key] = process.env[key];
+  }
+  Object.assign(testEnv, {
+    OTERYN_ACCOUNT_LOGIN: 'true',
+    OTERYN_WORLD_ENABLED: 'true',
+    OTERYN_DAILY_PUZZLES_ENABLED: 'true',
+    OTERYN_NOTIFY_UNSUBSCRIBE_KEY: crypto.randomBytes(32).toString('hex'),
+    OTERYN_NOTIFY_UNSUBSCRIBE_URL: new URL('/en/unsubscribe', testEnv.OTERYN_PUBLIC_ORIGIN).href,
+  });
+}
 
 // ---- output directory (ignored by git) -------------------------------------
 const out = path.resolve(process.env.PORTAL_E2E_OUT || path.join(here, '.harness', 'run'));
-if (fs.existsSync(out)) {
-  if (!fs.existsSync(path.join(out, '.portal-e2e-harness'))) throw new Error(`${out} exists and is not a harness directory`);
-  fs.rmSync(out, { recursive: true, force: true });
-}
-const dirs = { certs: path.join(out, 'certs'), clients: path.join(out, 'certs', 'clients'), witness: path.join(out, 'witness'), logs: path.join(out, 'logs'), secrets: path.join(out, 'secrets'), bin: path.join(out, 'bin') };
-for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-fs.writeFileSync(path.join(out, '.portal-e2e-harness'), '');
+// Keep the directory descriptor locked until the process exits.
+const { dirs } = prepareHarnessOutput(out);
+for (const dir of Object.values(dirs)) fs.mkdirSync(dir, { mode: 0o700 });
 
 // ---- certificates (openssl, as local.mjs) ----------------------------------
 function openssl(args) {
-  const result = spawnSync('openssl', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+  const result = spawnSync('openssl', args, { env: toolEnv, stdio: ['ignore', 'ignore', 'pipe'] });
   if (result.status !== 0) throw new Error(`openssl ${args[0]} failed: ${result.stderr}`);
 }
 const caKey = path.join(dirs.secrets, 'ca-key.pem');
@@ -150,6 +188,12 @@ const identities = [
   ['security-revocations', 'PORTAL_SECURITY_REVOCATION_EXPORT_IDENTITY'],
   ['public-projections', 'PORTAL_PUBLIC_PROJECTIONS_SAN'],
 ];
+if (gmEnforcement) {
+  identities.push(
+    ['enforcement-reader', 'PORTAL_GAME_ENFORCEMENT_READER_IDENTITY'],
+    ['enforcement-results', 'PORTAL_GAME_ENFORCEMENT_RESULTS_IDENTITY'],
+  );
+}
 const domain = process.env.PORTAL_E2E_IDENTITY_DOMAIN || 'game.e2e.oteryn.test';
 const clients = {};
 const identityEnv = {};
@@ -162,36 +206,12 @@ if (new Set(Object.values(clients).map(c => c.san)).size !== identities.length) 
 
 // ---- database ----------------------------------------------------------------
 const dbName = `portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
-async function withAdminConnection(operation) {
-  const socket = new Socket();
-  const admin = new pg.Client({
-    connectionString: adminURL.href,
-    stream: socket,
-    connectionTimeoutMillis: 3_000,
-    statement_timeout: 5_000,
-    query_timeout: 6_500,
-  });
-  // A disconnect can arrive between queries. An active operation rejects
-  // through its own promise, and the socket is always closed before returning.
-  admin.on('error', () => {});
-  try {
-    await admin.connect();
-    return await operation(admin);
-  } finally {
-    const ended = admin.end();
-    socket.destroy();
-    await ended;
-  }
-}
-
-// Hold the same session lock for CREATE and reconciliation. A disconnected
-// creator can still be finishing its statement when the cleanup client connects.
-function lockDatabaseName(admin) {
-  return admin.query('SELECT pg_advisory_lock(hashtextextended($1, 0))', [dbName]);
-}
+const crawlDatabase = crawl ? createCrawlDatabase(dbName, adminURL) : undefined;
 const children = new Set();
-const useProcessGroups = process.platform !== 'win32';
+// A browser fixture starts the entire harness in its own process group.
+const useProcessGroups = process.platform !== 'win32' && !fixtureOwned;
 const shutdownGraceMs = 2_000;
+const dropStatementTimeoutMs = 30_000;
 
 function launch(program, args, options) {
   if (closing) throw new Error('Harness is shutting down');
@@ -230,58 +250,101 @@ async function stopChild({ child, closed }) {
   }
 }
 let closing = false;
-let outboxBrowser;
+let browserNetwork;
+let gameDataBrowser;
 let createRequested = false;
+let createConfirmed = false;
 let creation;
+let servicesReady = false;
 async function close(code = 0) {
   if (closing) return;
   closing = true;
-  // A signal can arrive while CREATE DATABASE is in flight.
-  await creation.catch(() => {});
-  await Promise.all([...children].map(stopChild));
-  const closeOutboxBrowser = await outboxBrowser?.catch(() => {});
-  closeOutboxBrowser?.();
-  if (createRequested && process.env.PORTAL_E2E_KEEP_DATABASE !== '1') {
+  // Wait for an in-flight CREATE while stopping services. Reconciliation
+  // requires the creator to finish and uses a separate bounded connection.
+  const [, services] = await Promise.allSettled([
+    creation,
+    withDeadline(Promise.all([
+      ...[...children].map(stopChild),
+      browserNetwork?.then(closeBrowser => closeBrowser?.(), () => {}),
+      gameDataBrowser?.then(browser => browser.close(), () => {}),
+    ]), 6_000, 'service shutdown timed out'),
+  ]);
+  if (services.status === 'rejected') {
+    log('failed to stop services for database', dbName);
+    code = 1;
+  }
+  if ((createRequested || crawlDatabase?.roleRequested) && !(createConfirmed && process.env.PORTAL_E2E_KEEP_DATABASE === '1')) {
     try {
-      await withAdminConnection(async admin => {
-        await lockDatabaseName(admin);
-        await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      await removeDatabase(adminURL, dbName, () => log('retrying disposable database cleanup', dbName), {
+        dropDatabase: createRequested,
+        retryTimeout: servicesReady || gameData ? dropStatementTimeoutMs : 15_000,
+        afterDrop: crawlDatabase?.dropRole,
       });
-    } catch {
-      log('failed to reconcile disposable database', dbName);
+    } catch (error) {
+      log('failed to reconcile disposable database', dbName, error.code ?? error.name);
       code = 1;
     }
   }
+  if (crawl) {
+    for (const directory of [dirs.secrets, dirs.certs]) {
+      try {
+        fs.rmSync(directory, { recursive: true, force: true });
+      } catch {
+        log('failed to remove crawl credentials');
+        code = 1;
+      }
+    }
+  }
+  if (code !== 0) log('harness failed for database', dbName);
   process.exit(code);
 }
-process.on('SIGINT', () => close(0));
-process.on('SIGTERM', () => close(0));
+function stopOnSignal() {
+  if (!closing) log('shutdown requested');
+  void close();
+}
+process.on('SIGINT', stopOnSignal);
+process.on('SIGTERM', stopOnSignal);
+// Playwright can exit on its global timeout before calling setup's teardown.
+process.on('disconnect', stopOnSignal);
 
 async function createDatabase() {
-  await withAdminConnection(async admin => {
+  await withAdminConnection(adminURL, async admin => {
     if (closing) return;
-    await lockDatabaseName(admin);
+    await lockDatabaseName(admin, dbName);
     if (closing) return;
     const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
     if (closing) return;
     if (existing.rowCount !== 0) throw new Error('Disposable database name already exists');
+    await crawlDatabase?.createRole(admin);
+    if (closing) return;
+    // Persist ownership under the same lock before CREATE can have an effect.
+    const claim = path.join(out, fixtureDatabaseClaim);
+    if (fixtureOwned) fs.writeFileSync(claim, dbName, { flag: 'wx', mode: 0o600 });
     createRequested = true;
     try {
-      await admin.query('CREATE DATABASE "' + dbName + '"');
+      await executeFixtureDdl(
+        admin.query.bind(admin), crawlDatabase ? 'createOwnedDatabase' : 'createDatabase', dbName,
+      );
+      createConfirmed = true;
     } catch (error) {
       // A definite name collision belongs to the existing database owner.
-      if (error.code === '42P04') createRequested = false;
+      if (error.code === '42P04') {
+        createRequested = false;
+        if (fixtureOwned) fs.unlinkSync(claim);
+      }
       throw error;
     }
+    await crawlDatabase?.restrictAccess(admin);
   });
 }
+if (process.send && !process.connected) process.exit(0);
+log('database', dbName);
 creation = createDatabase();
 
 async function start() {
   await creation;
   if (closing) return;
-  const databaseURL = new URL(`/${dbName}`, adminURL).href;
-  log('database', dbName);
+  const databaseURL = crawlDatabase?.url ?? new URL(`/${dbName}`, adminURL).href;
 
   // Gateway service token for the native admission listener (sha256 hex on the portal side).
   const token = crypto.randomBytes(32).toString('base64url');
@@ -290,9 +353,20 @@ async function start() {
   fs.writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
   fs.writeFileSync(tokenHashFile, `${crypto.createHash('sha256').update(token).digest('hex')}\n`, { mode: 0o600 });
 
+
+  if (gameData) {
+    const { startGameDataBrowser } = await import('./game-publishers.mjs');
+    if (closing) return;
+    gameDataBrowser = startGameDataBrowser({
+      server, caFile, publicPort: ports.http, authority: testEnv.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
+    });
+  }
+  const browser = await gameDataBrowser;
+  if (closing) return;
   const env = {
     PATH: process.env.PATH, HOME: process.env.HOME, ...testEnv,
     ...identityEnv,
+    ...browser?.env,
     OTERYN_DATABASE_URL: databaseURL,
     OTERYN_BIND: `127.0.0.1:${ports.http}`,
     OTERYN_STATIC_DIR: path.join(root, 'static'),
@@ -342,8 +416,10 @@ async function start() {
   let binary = process.env.PORTAL_E2E_BINARY;
   if (!binary) {
     log('cargo build --locked -p oteryn-portal');
-    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], { stdio: ['ignore', 'inherit', 'inherit'], commandEnv: process.env });
-    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: process.env, maxBuffer: 64 << 20 })).stdout);
+    await run('cargo', ['build', '--locked', '-p', 'oteryn-portal', '--quiet'], {
+      stdio: ['ignore', 'inherit', 'inherit'], commandEnv: toolEnv, reportPid: crawl,
+    });
+    const meta = JSON.parse((await run('cargo', ['metadata', '--format-version', '1', '--no-deps'], { commandEnv: toolEnv, maxBuffer: 64 << 20 })).stdout);
     // A private copy: a shared target directory may be rebuilt by another checkout.
     binary = path.join(dirs.bin, 'oteryn-portal');
     fs.copyFileSync(path.join(meta.target_directory, 'debug', 'oteryn-portal'), binary);
@@ -351,7 +427,16 @@ async function start() {
   }
   binary = path.resolve(root, binary);
   env.PORTAL_E2E_BINARY = binary;
+  if (!outbox && ports.browser !== null) {
+    const { startStaffBrowser } = await import('./support/outbox-browser.mjs');
+    if (closing) return;
+    // Register the startup promise before awaiting it so shutdown owns the listeners.
+    browserNetwork = startStaffBrowser({ upstreamPort: ports.http, certificate: server, caFile, env, browserPort: ports.browser });
+    await browserNetwork;
+    if (closing) return;
+  }
   if (outbox) {
+    if (gmEnforcement) env.PORTAL_E2E_GM_ENFORCE = '1';
     env.OTERYN_SHOP_TEST_PAYMENT_KEY = crypto.randomBytes(32).toString('hex');
     env.PORTAL_E2E_OUTBOX_REPORT = path.join(out, 'report.json');
     env.PORTAL_E2E_OUTBOX_BINARY = binary;
@@ -363,8 +448,15 @@ async function start() {
     env.OTERYN_MAIL_FROM = env.OTERYN_SMTP_FROM;
     const { startOutboxBrowser } = await import('./support/outbox-browser.mjs');
     if (closing) return;
-    outboxBrowser = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
-    await outboxBrowser;
+    browserNetwork = startOutboxBrowser({ upstreamPort: ports.http, certificate: server, caFile, env });
+    await browserNetwork;
+    if (closing) return;
+  }
+  if (crawl) {
+    const { startCrawlBrowser } = await import('./crawl/profile.mjs');
+    if (closing) return;
+    browserNetwork = startCrawlBrowser({ upstreamPort: ports.http, certificate: server, caFile, env, out });
+    await browserNetwork;
     if (closing) return;
   }
   fs.writeFileSync(path.join(dirs.secrets, 'env.json'), JSON.stringify(env), { mode: 0o600 });
@@ -393,7 +485,7 @@ async function start() {
   }
 
   // ---- services ----------------------------------------------------------------
-  for (const role of ['serve', 'worker', 'gateway']) {
+  for (const role of roles) {
     const file = path.join(dirs.logs, `${role}.log`);
     const fd = fs.openSync(file, 'a');
     try {
@@ -432,7 +524,10 @@ async function start() {
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.http, path: '/', method: 'GET' }).then(() => true), 'public listener');
   await until(() => internalRequest(probe, '/internal/v1/', '{}').then(() => true), 'internal mTLS listener');
   await until(() => status(http.request, { host: '127.0.0.1', port: ports.admission, path: '/health', method: 'GET' }).then(code => code === 200), 'native admission listener');
-  await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
+  if (roles.includes('gateway')) {
+    await until(() => status(http.request, { host: '127.0.0.1', port: ports.gateway, path: '/health', method: 'GET' }).then(code => code === 200), 'gateway listener');
+  }
+  servicesReady = true;
   log('services ready');
 
   // ---- seed plan ---------------------------------------------------------------
@@ -476,12 +571,13 @@ async function start() {
       gateway: `http://127.0.0.1:${ports.gateway}`,
     },
     outputDirectory: out,
+    ...(gameData ? { binary } : {}),
     certificateDirectory: dirs.clients,
     caFile,
     internalServerName: 'localhost',
     clients: Object.fromEntries(Object.entries(clients).map(([name, c]) => [name, { san: c.san, env: c.env, cert: c.cert, key: c.key }])),
     witnessDirectory: dirs.witness,
-    logs: Object.fromEntries(['migrate', 'serve', 'worker', 'gateway'].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
+    logs: Object.fromEntries(['migrate', ...roles].map(role => [role, path.join(dirs.logs, `${role}.log`)])),
     seed,
     pending,
     pid: process.pid,
@@ -494,7 +590,7 @@ try {
   await start();
 } catch (error) {
   if (!closing) {
-    log('startup failed', error.code ?? error.name);
+    log(`startup failed; diagnostics are in ${dirs.logs}`, error.code ?? error.name);
     await close(1);
   }
 }

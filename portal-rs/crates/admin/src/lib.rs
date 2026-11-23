@@ -62,3 +62,4 @@ async fn test_staff_authenticate(
 }
 
 pub mod operations;
+pub mod staff_invites;

@@ -40,6 +40,26 @@ fn transitions_success_refusal_and_bad_input() {
         moderator_notes: String::new(),
     };
     assert_eq!(missing.validate(), Err(Error::Invalid));
+    for moderator_notes in ["", " \t\n"] {
+        assert_eq!(
+            Command::Moderate {
+                status: "reviewing".into(),
+                public_outcome: String::new(),
+                moderator_notes: moderator_notes.into(),
+            }
+            .validate(),
+            Err(Error::Invalid)
+        );
+    }
+    assert_eq!(
+        Command::Moderate {
+            status: "reviewing".into(),
+            public_outcome: String::new(),
+            moderator_notes: "Reviewing the report evidence".into(),
+        }
+        .validate(),
+        Ok(())
+    );
     let appeal = Command::Appeal {
         appeal_status: "accepted".into(),
         appeal_outcome: "Revoked".into(),

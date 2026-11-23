@@ -37,6 +37,7 @@
 .op-alert--danger, .op-badge--danger { color: var(--op-danger); background: var(--op-danger-bg); }
 .op-card, .op-panel { padding: var(--op-space-5); border: var(--op-line) solid var(--op-border); border-radius: var(--op-radius-lg); background: var(--op-surface); min-width: var(--op-space-0); }
 .op-card__footer { border-top: var(--op-line) solid var(--op-border); padding-top: var(--op-space-4); }
+.op-audit-list { min-width: 0; }
 .op-table-wrap { max-width: 100%; overflow-x: auto; border: var(--op-line) solid var(--op-border); border-radius: var(--op-radius-md); background: var(--op-surface); }
 .op-table { width: 100%; min-width: var(--op-table); border-collapse: collapse; text-align: start; font-variant-numeric: tabular-nums; }
 .op-table caption { text-align: start; padding: var(--op-space-4); color: var(--op-muted); }

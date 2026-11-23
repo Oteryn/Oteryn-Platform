@@ -2,6 +2,7 @@
 #[path = "sessions_test_db.rs"]
 mod database;
 use super::*;
+use axum::routing::get;
 use axum::{
     body::{Body, to_bytes},
     http::Request,

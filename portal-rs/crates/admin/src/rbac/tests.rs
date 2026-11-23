@@ -42,11 +42,12 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 73);
+    assert_eq!(Permission::ALL.len(), 80);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
             Permission::AdminAnalyticsExport,
+            Permission::PublishDailyPuzzles,
         ] {
             assert_eq!(
                 role.permissions().contains(&permission),
@@ -411,7 +412,7 @@ async fn db_audit_change_commits_atomically_with_actor_and_diff() {
     };
     let manager = db.manager().await;
     let account = Uuid::now_v7();
-    let role = db.role("support").await;
+    let role = db.role("security_admin").await;
     let request = Uuid::now_v7();
     db.auth()
         .change(manager, request, Change::Grant { account, role })
@@ -455,7 +456,7 @@ async fn db_audit_failure_rolls_back_role_change() {
     };
     let manager = db.manager().await;
     let account = Uuid::now_v7();
-    let role = db.role("support").await;
+    let role = db.role("security_admin").await;
     sqlx::raw_sql("CREATE FUNCTION reject_audit_insert() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected audit failure'; END; $$; CREATE TRIGGER reject_insert BEFORE INSERT ON audit_log FOR EACH STATEMENT EXECUTE FUNCTION reject_audit_insert();")
         .execute(&db.pool).await.unwrap();
     let request = Uuid::now_v7();
@@ -561,6 +562,47 @@ async fn db_built_in_seeds_match_rust_catalog_and_state_still_denies_grants() {
     db.close().await;
 }
 
+#[tokio::test]
+async fn moderator_can_review_reports_without_ticket_or_role_management() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let moderator = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(moderator)
+        .bind(db.role("moderator").await)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let auth = db.auth();
+    let mut actor = verified(moderator);
+    auth.check(actor, Permission::ReviewSupportReports)
+        .await
+        .unwrap();
+    for permission in [
+        Permission::ManageSupportReports,
+        Permission::ManageSupportTickets,
+        Permission::ManageRoles,
+    ] {
+        assert!(matches!(
+            auth.check(actor, permission).await,
+            Err(Error::Denied)
+        ));
+    }
+    actor.mfa_verified = false;
+    assert!(matches!(
+        auth.check(actor, Permission::ReviewSupportReports).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        auth.check(verified(Uuid::nil()), Permission::ReviewSupportReports)
+            .await,
+        Err(Error::Denied)
+    ));
+    db.close().await;
+}
+
 #[derive(Debug)]
 struct TargetState {
     target: Uuid,
@@ -597,7 +639,7 @@ async fn db_grants_deny_unknown_targets_and_database_rejects_unknown_permissions
     };
     let manager = db.manager().await;
     let target = Uuid::now_v7();
-    let role = db.role("support").await;
+    let role = db.role("security_admin").await;
     for state in [
         Ok(AccountState::Disabled),
         Ok(AccountState::Unknown),
@@ -714,6 +756,7 @@ fn game_roles_have_exact_contract_permissions() {
                 "game.player.read",
                 "game.player.moderate",
                 "game.sanction.write",
+                "game.sanction.enforce",
                 "game.player.manage",
                 "game.player.value.write",
                 "game.sanction.ban",
@@ -745,6 +788,7 @@ fn game_roles_have_exact_contract_permissions() {
             BuiltInRole::GameAdmin,
             "game_admin",
             &[
+                "ops.playerdata_binding_conflict.read",
                 "game.ops.read",
                 "game.ops.logs.read",
                 "game.world.read",
@@ -827,7 +871,7 @@ fn game_roles_have_exact_contract_permissions() {
             .iter()
             .filter(|p| p.as_str().starts_with("game."))
             .count(),
-        32
+        33
     );
 }
 
@@ -872,7 +916,6 @@ async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant()
     let Some(db) = Database::open().await else {
         return;
     };
-    let manager = db.manager().await;
     let auth = db.auth().with_game_flags(GamePermissionFlags {
         enabled: true,
         deploy: false,
@@ -887,16 +930,13 @@ async fn db_game_roles_authorize_only_explicit_grants_and_deploy_stays_dormant()
         .filter(|r| r.key().starts_with("game_") || **r == BuiltInRole::PlatformAdmin)
     {
         let account = Uuid::now_v7();
-        auth.change(
-            manager,
-            Uuid::now_v7(),
-            Change::Grant {
-                account,
-                role: db.role(role.key()).await,
-            },
-        )
-        .await
-        .unwrap();
+        // Fixture bootstrap establishes each role independently of delegation.
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+            .bind(account)
+            .bind(db.role(role.key()).await)
+            .execute(&db.pool)
+            .await
+            .unwrap();
         for permission in &permissions {
             let result = auth.check(verified(account), *permission).await;
             if role.permissions().contains(permission) && *permission != Permission::GameNodeDeploy
@@ -1176,9 +1216,16 @@ async fn r8_grant_invalidates_existing_staff_session() {
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,'recipient@example.invalid','fixture','active','en',now())").bind(account).execute(&db.pool).await.unwrap();
     let mut target = verified(account);
     target.session_proof = Some(crate::test_staff::proof(&db.pool, account).await.unwrap());
+    let manager = db.manager().await;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+        .bind(manager.account)
+        .bind(db.role("support").await)
+        .execute(&db.pool)
+        .await
+        .unwrap();
     let auth = db.auth();
     auth.change_from_panel(
-        db.manager().await,
+        manager,
         Uuid::now_v7(),
         Change::Grant {
             account,
@@ -1199,5 +1246,88 @@ async fn r8_grant_invalidates_existing_staff_session() {
     let remaining:(i64,i64)=sqlx::query_as("SELECT (SELECT count(*) FROM web_sessions WHERE account_id=$1),(SELECT count(*) FROM account_mfa_tokens WHERE account_id=$1 AND purpose='grant')").bind(account).fetch_one(&mut *tx).await.unwrap();
     assert_eq!(remaining, (0, 0));
     tx.rollback().await.unwrap();
+    db.close().await;
+}
+
+#[test]
+fn moderator_report_review_does_not_grant_party_moderation() {
+    let permissions = BuiltInRole::Moderator.permissions();
+    assert!(permissions.contains(&Permission::ReviewSupportReports));
+    assert!(!permissions.contains(&Permission::ManageSupportReports));
+    assert_eq!(
+        crate::support::Area::Reports.permissions(),
+        &[
+            Permission::ReviewSupportReports,
+            Permission::ManageSupportReports
+        ]
+    );
+}
+
+#[tokio::test]
+async fn db_role_managers_can_delegate_only_permissions_they_hold() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open()
+        .await
+        .expect("PORTAL_TEST_DATABASE_URL required");
+    let manager = db.manager().await;
+    let auth = db.auth();
+    let role = db.role("support").await;
+    let account = Uuid::now_v7();
+    let request = Uuid::now_v7();
+    assert!(matches!(
+        auth.change(manager, request, Change::Grant { account, role })
+            .await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        auth.change(
+            manager,
+            request,
+            Change::CreateRole {
+                key: "account_flag_editor",
+                permissions: &[Permission::EditAccountFlags],
+            }
+        )
+        .await,
+        Err(Error::Denied)
+    ));
+    let custom = auth
+        .change(
+            manager,
+            request,
+            Change::CreateRole {
+                key: "audit_reader_for_delegation",
+                permissions: &[Permission::ViewAudit],
+            },
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(
+        auth.change(
+            manager,
+            request,
+            Change::SetPermissions {
+                role: custom,
+                permissions: &[Permission::ViewAudit, Permission::EditAccountFlags],
+            }
+        )
+        .await,
+        Err(Error::Denied)
+    ));
+    auth.change(
+        manager,
+        request,
+        Change::Grant {
+            account,
+            role: custom,
+        },
+    )
+    .await
+    .unwrap();
+    auth.check(verified(account), Permission::ViewAudit)
+        .await
+        .unwrap();
+    assert_eq!(db.audit_count(request).await, 2);
     db.close().await;
 }

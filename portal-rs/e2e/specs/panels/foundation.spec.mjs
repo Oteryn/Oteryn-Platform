@@ -1,3 +1,4 @@
+import { escapeRegex } from '../../regex.mjs';
 import {expect, test} from '../../fixtures.mjs';
 import {createHash, randomBytes} from 'node:crypto';
 import {csrfRejected, exportOptions, pool} from '../../helpers.mjs';
@@ -95,7 +96,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
   expect(exportResponse.status()).toBe(303);
   expect(exportResponse.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
   await playerNav.getByRole('link', {name: label.email, exact: true}).click();
-  await expect(page).toHaveURL(new RegExp(`/${lang}/account/security/email$`));
+  await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/account/security/email$`));
   await expect(page.locator('[data-staff-dashboard]')).toHaveCount(0);
   expect((await visit(page, '/admin')).status()).toBe(403);
   expect((await visit(page, '/admin/players')).status()).toBe(403);
@@ -111,7 +112,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
     const dashboard = admin.locator('#podglad-konta [data-staff-dashboard]');
     await expect(dashboard).toHaveText(label.staff);
     const dashboardUrl = await dashboard.getAttribute('href');
-    expect(new URL(dashboardUrl).pathname).toBe('/admin');
+    expect(new URL(dashboardUrl, admin.url()).pathname).toBe('/admin');
     expect((await visit(admin, dashboardUrl)).status()).toBe(200);
 
     const adminNav = admin.locator('nav[data-panel="admin"]');
@@ -162,7 +163,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await adminNav.getByRole('link', {name: label.gm}).click();
     const gmNav = admin.getByRole('navigation', {name: label.gm, exact: true});
     await gmNav.getByRole('link', {name: label.worlds, exact: true}).click();
-    await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${lang}$`));
+    await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${escapeRegex(lang)}$`));
     await expect(admin.locator('html')).toHaveAttribute('lang', lang);
 
     const preferred = lang === 'pl' ? 'en' : 'pl';

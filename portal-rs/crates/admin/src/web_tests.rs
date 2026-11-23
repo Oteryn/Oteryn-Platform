@@ -69,6 +69,53 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
     .await
     .unwrap()
 }
+#[test]
+fn panel_config_accepts_only_host_and_optional_port() {
+    let configured = |host: &str, enabled: bool| {
+        config_from(&|key| match key {
+            "OTERYN_ADMIN_HOST" => Some(host.into()),
+            "OTERYN_ADMIN_PANEL" => Some(enabled.to_string()),
+            _ => None,
+        })
+    };
+    for (input, host) in [
+        ("staff.example", "staff.example"),
+        ("Staff.Example:443", "staff.example"),
+        ("admin-panel.example:8443", "admin-panel.example:8443"),
+        ("localhost:18443", "localhost:18443"),
+        ("127.0.0.1:18443", "127.0.0.1:18443"),
+        ("[::1]:18443", "[::1]:18443"),
+        ("[0:0:0:0:0:0:0:1]:443", "[::1]"),
+    ] {
+        let panel = configured(input, true).unwrap();
+        assert_eq!(panel.host, host);
+        assert_eq!(panel.csrf_origin(), format!("https://{host}"));
+    }
+    for invalid in [
+        "",
+        "fixture-user:fixture-value@staff.example",
+        "fixture-user@staff.example",
+        "https://staff.example",
+        "staff.example/",
+        "staff.example:",
+        "staff.example:invalid",
+        "staff.example:65536",
+        "staff.example:+443",
+        "-staff.example",
+        "staff..example",
+        "staff_%40.example",
+        "[not-ip]:443",
+    ] {
+        let error = configured(invalid, true).unwrap_err();
+        assert_eq!(error.to_string(), "invalid admin host");
+    }
+    for host in ["", "https://staff.example", "fixture-user@staff.example"] {
+        let panel = configured(host, false).unwrap();
+        assert!(!panel.admin_panel);
+        assert!(panel.host.is_empty());
+    }
+}
+
 #[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -104,7 +151,10 @@ async fn host_flag_session_and_mfa_boundaries() {
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert_eq!(response.headers()[header::LOCATION], "/login");
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/login?return_to=/admin"
+    );
     let response = request(
         app(
             pool,
@@ -128,13 +178,46 @@ async fn host_flag_session_and_mfa_boundaries() {
     .unwrap();
     assert!(body.contains("wieloskładnikowe"));
 }
+#[tokio::test]
+async fn configured_https_port_matches_browser_host_and_csrf_origin() {
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+        .unwrap();
+    let config = config_from(&|name| match name {
+        "OTERYN_ADMIN_PANEL" => Some("true".into()),
+        "OTERYN_ADMIN_HOST" => Some("Staff.Example.test:443".into()),
+        _ => None,
+    })
+    .unwrap();
+    assert_eq!(
+        config.landing_url().as_deref(),
+        Some("https://staff.example.test/admin")
+    );
+    assert_eq!(config.csrf_origin(), "https://staff.example.test");
+    let app = router(pool, config, PendingAuthentication, PendingAuthentication);
+    for host in ["staff.example.test", "STAFF.Example.test:443"] {
+        assert_eq!(
+            request(app.clone(), "/admin", host).await.status(),
+            StatusCode::SEE_OTHER
+        );
+    }
+    assert_eq!(
+        request(app, "/admin", "staff.example.test:8443")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
 #[test]
 fn localized_responsive_labelled_template() {
-    for lang in ["pl", "en"] {
-        let html = Page {
+    for (lang, reports_label) in [("pl", "Zgłoszenia graczy"), ("en", "Player reports")] {
+        let mut page = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            invites_label: text(lang, "invite-title"),
+            reports_label: text(lang, "player-reports"),
+            reports_url: Some(REPORTS_PATH),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,11 +231,15 @@ fn localized_responsive_labelled_template() {
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
             next: None,
-        }
-        .render()
-        .unwrap();
+        };
+        let html = page.render().unwrap();
+        assert!(html.contains("return_to=roles"));
+        page.can_grant = false;
+        assert!(!page.render().unwrap().contains("return_to=roles"));
+        assert!(html.contains(&format!(r#"href="{REPORTS_PATH}">{reports_label}</a>"#)));
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains(&format!("href=\"/admin/staff-invites?lang={lang}\"")));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));
@@ -188,6 +275,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
     oteryn_db::migrate(&pool).await.unwrap();
     portal_identity_lifecycle(&pool).await;
     let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'synthetic','active','en',now())")
+        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
     let identity = Some(StaffIdentity {
         account: actor,
         mfa_satisfied: true,
@@ -225,7 +314,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .to_vec(),
     )
     .unwrap();
-    assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("href=\"/admin/roles"));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),
@@ -293,13 +382,19 @@ async fn database_navigation_authorization_csrf_and_owner() {
             .to_vec(),
     )
     .unwrap();
-    assert!(body.contains("href=\"/admin/roles\""));
+    assert!(body.contains("href=\"/admin/roles?lang=pl\""));
     let csrf = body
         .split("name=\"_csrf\" value=\"")
         .nth(1)
         .unwrap()
         .split('"')
         .next()
+        .unwrap();
+    crate::test_staff::browser(&pool, actor, &cookie)
+        .await
+        .unwrap();
+    crate::test_staff::recent_password(&pool, &cookie)
+        .await
         .unwrap();
     // Match register::configured's outer public-origin extension without changing
     // process environment shared by concurrent tests.
@@ -385,21 +480,13 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
-        .bind(actor).bind(format!("{actor}@example.test")).execute(&pool).await.unwrap();
-    crate::test_staff::browser(&pool, actor, &cookie)
-        .await
-        .unwrap();
-    crate::test_staff::recent_password(&pool, &cookie)
-        .await
-        .unwrap();
-    sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$2,'test-only','active',now(),'en')")
         .bind(target).bind(format!("{target}@example.test")).execute(&pool).await.unwrap();
     let ordinary: Uuid =
         sqlx::query_scalar("INSERT INTO roles(key) VALUES ('ordinary_staff') RETURNING id")
             .fetch_one(&pool)
             .await
             .unwrap();
-    let disabled = roles_router(
+    let disabled = router_with_reports(
         pool.clone(),
         PanelConfig {
             admin_panel: true,
@@ -407,6 +494,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
         },
         Identity(identity),
         Identity(identity),
+        false,
         false,
     );
     let page = disabled
@@ -514,13 +602,14 @@ async fn database_navigation_authorization_csrf_and_owner() {
     let panel = Panel {
         config: PanelConfig::default(),
         required: None,
+        reports_enabled: false,
         grant_confirmation: true,
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),
     };
     assert!(matches!(
-        revoke(&panel, context, actor, owner).await,
+        revoke(&panel, context, actor, owner, staff_actions::ROLE_REASON).await,
         Err(Error::Denied)
     ));
     assert!(matches!(
@@ -572,8 +661,8 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     let (first, second) = tokio::join!(
-        revoke(&panel, context, actor, owner),
-        revoke(&panel, context, other, owner)
+        revoke(&panel, context, actor, owner, staff_actions::ROLE_REASON),
+        revoke(&panel, context, other, owner, staff_actions::ROLE_REASON)
     );
     assert_ne!(first.is_ok(), second.is_ok());
     let holders: i64 = sqlx::query_scalar("SELECT count(*) FROM account_roles WHERE role_id=$1")
@@ -594,7 +683,14 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .await
         .unwrap();
     assert!(matches!(
-        revoke(&panel, context, actor, explicit_owner).await,
+        revoke(
+            &panel,
+            context,
+            actor,
+            explicit_owner,
+            staff_actions::ROLE_REASON
+        )
+        .await,
         Err(Error::Denied)
     ));
     pool.close().await;

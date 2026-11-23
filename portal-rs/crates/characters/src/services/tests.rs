@@ -1095,21 +1095,51 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         },
         "static",
     );
-    let public_post = || {
+    let public_post = |csrf: &str| {
         HttpRequest::post(format!("/en/account/characters/{c}/services"))
             .header("origin", "https://portal.example.test")
             .header("content-type", "application/x-www-form-urlencoded")
             .header("cookie", format!("__Host-oteryn_session={token}"))
-            .body(Body::from(fields(&csrf)))
+            .body(Body::from(fields(csrf)))
             .unwrap()
     };
+    let public_get = HttpRequest::get(format!("/en/account/characters/{c}/services"))
+        .header("cookie", format!("__Host-oteryn_session={token}"))
+        .body(Body::empty())
+        .unwrap();
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_get)
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        public_app
+            .clone()
+            .oneshot(public_post(&"0".repeat(64)))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
     oteryn_db::test_support::coin_chargeback_hold(&db.pool, a)
         .await
         .unwrap();
     assert_eq!(
         public_app
             .clone()
-            .oneshot(public_post())
+            .oneshot(public_post(&csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(post(fields(&csrf)))
             .await
             .unwrap()
             .status(),
@@ -1123,7 +1153,15 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
     assert_eq!(
         public_app
             .clone()
-            .oneshot(public_post())
+            .oneshot(public_post(&csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        app.clone()
+            .oneshot(post(fields(&csrf)))
             .await
             .unwrap()
             .status(),
@@ -1150,8 +1188,25 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         .unwrap();
     tx.commit().await.unwrap();
     assert_eq!(
-        public_app.oneshot(public_post()).await.unwrap().status(),
-        StatusCode::ACCEPTED
+        public_app
+            .oneshot(public_post(&csrf))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let effects: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM wallet_reservations), (SELECT count(*) FROM character_commands)",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(effects, (0, 0));
+    let accepted = app.oneshot(post(fields(&csrf))).await.unwrap();
+    assert_eq!(accepted.status(), StatusCode::ACCEPTED);
+    assert_eq!(
+        to_bytes(accepted.into_body(), 16_384).await.unwrap(),
+        "Your request is pending confirmation by the game. No further charge will be taken for a retry of this request."
     );
     assert_eq!(balance(&s, a).await, (30, 70));
     let cmd = commands::Commands::new(db.pool.clone(), commands::Settings::default())
@@ -1163,7 +1218,37 @@ async fn postgres_browser_owner_forms_csrf_recent_auth_and_actor_to_receipt() {
         )
         .await
         .unwrap();
-    s.receive(receipt(&cmd, true, 3).as_bytes()).await.unwrap();
+    for (committed, labels) in [
+        (
+            false,
+            [
+                ("en", "Pending game confirmation"),
+                ("pl", "Oczekuje na potwierdzenie gry"),
+            ],
+        ),
+        (
+            true,
+            [
+                ("en", "Confirmed by the game"),
+                ("pl", "Potwierdzone przez grę"),
+            ],
+        ),
+    ] {
+        if committed {
+            s.receive(receipt(&cmd, true, 3).as_bytes()).await.unwrap();
+        }
+        for (lang, label) in labels {
+            let response =
+                super::browser::show_with(&s, Some(a), &character, lang, csrf.clone()).await;
+            assert_eq!(response.status(), StatusCode::OK, "{lang}");
+            let html = to_bytes(response.into_body(), 65_536).await.unwrap();
+            let html = std::str::from_utf8(&html).unwrap();
+            assert!(
+                html.contains(&format!("{}: {label}", cmd.operation_id)),
+                "{lang}"
+            );
+        }
+    }
     assert_eq!(balance(&s, a).await, (30, 0));
     db.close().await;
 }

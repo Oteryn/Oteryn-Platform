@@ -1,6 +1,7 @@
 //! SSR routes; always wrapped in the existing staff host/session/CSRF/MFA guard.
 use super::*;
 use crate::web::{self, PanelConfig, PortalIdentity, StaffSession};
+use crate::{rbac::MutationAuthorization, staff_actions};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -31,7 +32,7 @@ pub(crate) fn configured_router_from(
         return Ok(Router::new());
     }
     let characters_enabled = flags.characters;
-    let routes = routes(Players::new(
+    let mut players = Players::new(
         pool.clone(),
         flags,
         PortalIdentity::configured_from(pool.clone(), lookup),
@@ -43,10 +44,15 @@ pub(crate) fn configured_router_from(
                 lookup,
             )),
         },
-    ));
+    );
+    players.edits = edits::Settings::configured(pool.clone(), lookup);
+    let routes = routes(players);
     // Every handler checks its own permission; the guard admits any staff member
     // so a kick-only moderator reaches the kick view.
-    web::configured_guard_from(routes, pool, Permission::Access, lookup)
+    Ok(
+        web::configured_guard_from(routes, pool, Permission::Access, lookup)?
+            .layer(Extension(oteryn_web::csrf::LocalizedRefusal)),
+    )
 }
 pub fn router<A, I, S>(
     pool: PgPool,
@@ -63,6 +69,7 @@ where
 {
     let routes = routes(Players::new(pool.clone(), flags, staff.clone(), accounts));
     web::guarded(routes, pool, panel, identity, staff, Permission::Access)
+        .layer(Extension(oteryn_web::csrf::LocalizedRefusal))
 }
 fn routes<A: AccountStateReader + 'static, I: Accounts>(players: Players<A, I>) -> Router {
     Router::new()
@@ -95,6 +102,7 @@ struct Action {
     action: String,
     #[serde(default)]
     body: String,
+    submission: Option<Uuid>,
     #[serde(default)]
     reason: String,
     evidence: Option<Uuid>,
@@ -123,6 +131,8 @@ struct Page {
     characters_unavailable: bool,
     csrf: String,
     add_note: String,
+    note_submission: Uuid,
+    support_reason: String,
     logout: String,
     kick: String,
     reason: String,
@@ -144,6 +154,23 @@ struct Page {
     coin_hold: Option<CoinHold>,
     /// `Some(id)` when the viewer may only kick that account.
     kick_target: Option<String>,
+    audit_label: Option<String>,
+
+    status_edit: bool,
+    email_edit: bool,
+    flag_edit: bool,
+    needs_review: bool,
+    account_status: String,
+    email_label: String,
+    request_email: String,
+    email_help: String,
+    pending_email: bool,
+    email_pending_label: String,
+    review_flag: String,
+    save_flag: String,
+    save_status: String,
+    active: String,
+    suspended: String,
 }
 struct CoinHold {
     id: String,
@@ -206,6 +233,8 @@ impl Page {
             characters_unavailable: false,
             csrf: String::new(),
             add_note: text(lang, "add-note"),
+            note_submission: Uuid::now_v7(),
+            support_reason: text(lang, "support-reason"),
             logout: text(lang, "logout"),
             kick: text(lang, "kick"),
             reason: text(lang, "reason"),
@@ -225,6 +254,23 @@ impl Page {
             coin_debt_label: text(lang, "coin-debt"),
             coin_hold: None,
             kick_target: None,
+            audit_label: None,
+
+            status_edit: false,
+            email_edit: false,
+            flag_edit: false,
+            needs_review: false,
+            account_status: String::new(),
+            email_label: text(lang, "new-email"),
+            request_email: text(lang, "request-email"),
+            email_help: text(lang, "email-help"),
+            pending_email: false,
+            email_pending_label: text(lang, "email-pending"),
+            review_flag: text(lang, "review-flag"),
+            save_flag: text(lang, "save-flag"),
+            save_status: text(lang, "save-status"),
+            active: text(lang, "status-active"),
+            suspended: text(lang, "status-suspended"),
         }
     }
 }
@@ -267,6 +313,42 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         }
         Err(e) => return Err(e),
     };
+    if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true")
+        && s.check(context, Permission::ViewAudit).await.is_ok()
+    {
+        page.audit_label = Some(text(page.lang, "audit"));
+    }
+    page.account_status = account.status.clone();
+    page.flag_edit = can_edit(&s, context, edits::Field::Flag).await?;
+    page.status_edit = s.edits.status
+        && account.email_verified
+        && matches!(account.status.as_str(), "active" | "suspended")
+        && can_edit(&s, context, edits::Field::Status).await?;
+    page.email_edit = s.edits.email_origin.is_some()
+        && account.email_verified
+        && account.status == "active"
+        && can_edit(&s, context, edits::Field::Email).await?;
+    if page.flag_edit || page.status_edit || page.email_edit {
+        let protected = edits::target_state(&mut *s.pool.acquire().await?, id)
+            .await?
+            .is_none_or(|(_, _, protected)| protected);
+        page.flag_edit &= !protected;
+        page.status_edit &= !protected && id != context.account;
+        page.email_edit &= !protected && id != context.account;
+    }
+    if page.flag_edit {
+        page.needs_review = edits::needs_review(&mut *s.pool.acquire().await?, id).await?;
+    }
+    if page.email_edit {
+        page.pending_email = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM account_email_changes WHERE account_id=$1
+             AND initiated_by_staff AND applied_at IS NULL AND cancelled_at IS NULL
+             AND reverted_at IS NULL AND expires_at>clock_timestamp())",
+        )
+        .bind(id)
+        .fetch_one(&s.pool)
+        .await?;
+    }
     account.status = text(page.lang, &format!("status-{}", account.status));
     page.account = Some(account);
     page.notes = s.notes(context, id).await?;
@@ -311,9 +393,26 @@ async fn detail<A: AccountStateReader, I: Accounts>(
     }
     Ok(oteryn_web::render(&page))
 }
+async fn can_edit<A: AccountStateReader, I: Accounts>(
+    players: &Players<A, I>,
+    actor: CheckContext,
+    field: edits::Field,
+) -> Result<bool, Error> {
+    match players.check(actor, field.permission()).await {
+        Ok(()) => Ok(true),
+        Err(Error::Denied | Error::Authorization(crate::rbac::Error::Denied)) => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
 async fn change<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
     Extension(context): Extension<CheckContext>,
+    Extension(authority): Extension<MutationAuthorization>,
+    (csrf, chrome): (
+        Option<Extension<oteryn_web::csrf::Verified>>,
+        Option<Extension<oteryn_ui::Chrome>>,
+    ),
     Path(id): Path<Uuid>,
     headers: HeaderMap,
     form: Result<Form<Action>, axum::extract::rejection::FormRejection>,
@@ -325,7 +424,21 @@ async fn change<A: AccountStateReader, I: Accounts>(
         }
         Err(rejection) => return Ok(rejection.into_response()),
     };
-    match apply_change(&s, context, id, form).await {
+    match apply_change(
+        &s,
+        context,
+        id,
+        form,
+        &headers,
+        chrome.as_ref().map(|value| &value.0),
+        staff_actions::Guard {
+            actor: context,
+            authority: &authority,
+            csrf: csrf.map(|value| value.0),
+        },
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(Error::BadInput) => Ok(validation(&headers, StatusCode::BAD_REQUEST)),
         Err(error) => Err(error),
@@ -351,10 +464,56 @@ async fn apply_change<A: AccountStateReader, I: Accounts>(
     context: CheckContext,
     id: Uuid,
     form: Action,
+    headers: &HeaderMap,
+    chrome: Option<&oteryn_ui::Chrome>,
+    guard: staff_actions::Guard<'_>,
 ) -> Result<Response, Error> {
     let mut location = format!("/admin/players/{id}");
+    if let Some(field) = edits::Field::parse(&form.action) {
+        let view_authority = guard.authority.clone();
+        let result = staff_actions::run(
+            &s.pool,
+            guard,
+            staff_actions::Action {
+                permission: field.permission(),
+                reason: &form.reason,
+                reason_codes: &[staff_actions::ACCOUNT_REASON],
+                step_up: staff_actions::StepUp::SessionMfa,
+            },
+            || {
+                if id.is_nil() {
+                    return Err(staff_actions::Error::Invalid);
+                }
+                Ok((
+                    vec![id],
+                    field.validate(&form.body, &s.edits, form.submission)?,
+                ))
+            },
+            move |db, edit| {
+                Box::pin(async move {
+                    use crate::rbac::MutationCheck;
+                    view_authority
+                        .check(db, context, Permission::ManageSupportTickets)
+                        .await?;
+                    edit.apply(db, context.account, id).await
+                })
+            },
+        )
+        .await;
+        let response = match result {
+            Ok(()) => Redirect::to(&location).into_response(),
+            Err(error) => {
+                let fallback = oteryn_ui::Registry::default().chrome(
+                    language(headers),
+                    &location,
+                    oteryn_ui::Account::Anonymous,
+                );
+                error.response(chrome.unwrap_or(&fallback))
+            }
+        };
+        return Ok(response);
+    }
     match form.action.as_str() {
-        "note" => s.note(context, id, &form.body).await?,
         "logout" => s.logout_all(context, id, &form.reason).await?,
         "kick" => {
             s.kick(context, id, &form.reason).await?;

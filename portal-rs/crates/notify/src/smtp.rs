@@ -64,11 +64,28 @@ pub fn transport(
     username: String,
     password: String,
 ) -> crate::Result<AsyncSmtpTransport<Tokio1Executor>> {
+    if username.is_empty() || password.is_empty() {
+        return Err("SMTP username and password must be nonempty".into());
+    }
     Ok(TransportConfig::from_env()?.transport(host, Credentials::new(username, password))?)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_transport_rejects_empty_credentials() {
+        for (username, password) in [("", "fixture"), ("local", "")] {
+            let error = transport("localhost", username.into(), password.into())
+                .err()
+                .map(|error| error.to_string());
+            assert_eq!(
+                error.as_deref(),
+                Some("SMTP username and password must be nonempty")
+            );
+        }
+    }
+
     #[test]
     fn shared_tls_mode_and_port_are_explicit_and_validated() {
         assert_eq!(

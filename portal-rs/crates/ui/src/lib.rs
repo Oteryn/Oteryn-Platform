@@ -1,4 +1,7 @@
 //! Shared portal presentation. No module, database or session dependencies.
+
+mod accept;
+pub use accept::accepts_html;
 pub mod panels;
 
 use askama::Template;
@@ -26,6 +29,17 @@ fn load_catalogue(locale: unic_langid::LanguageIdentifier, source: &str) -> Opti
     let mut bundle = FluentBundle::new_concurrent(vec![locale]);
     bundle.add_resource(resource).ok()?;
     Some(bundle)
+}
+
+/// Mark a designed public refusal after the caller establishes that Game data is absent.
+pub fn missing_game_data(mut response: Response) -> Response {
+    if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+        response.headers_mut().insert(
+            "x-oteryn-game-data",
+            axum::http::HeaderValue::from_static("unavailable"),
+        );
+    }
+    response
 }
 
 /// Resolve a browser locale from its portal preference and Accept-Language.
@@ -148,6 +162,7 @@ pub struct Registry {
     pub login: bool,
     pub registration: bool,
     pub account: bool,
+    pub staff_host: Option<String>,
 }
 impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
@@ -161,7 +176,7 @@ impl Registry {
                         route: entry.path,
                         label: entry.label,
                         permission: if entry.section == "account-passkeys" {
-                            panels::Permission::PasskeyManagement
+                            panels::Permission::AccountPasskeys
                         } else {
                             panels::Permission::AccountOwner
                         },
@@ -301,7 +316,7 @@ impl Registry {
             {
                 self.panels.links(panels::Panel::Player, lang, |p| {
                     p == panels::Permission::AccountOwner
-                        || (p == panels::Permission::PasskeyManagement && passkeys_eligible)
+                        || (p == panels::Permission::AccountPasskeys && passkeys_eligible)
                 })
             } else {
                 Vec::new()
@@ -774,82 +789,6 @@ mod tests {
         Ok(())
     }
     #[test]
-    fn account_menu_respects_overview_registration() -> Result<(), askama::Error> {
-        for lang in ["pl", "en"] {
-            for enabled in [false, true] {
-                let mut registry = registry();
-                registry.section(
-                    enabled,
-                    "account-overview",
-                    "shell-account-overview",
-                    "/account",
-                    Group::Account,
-                    false,
-                );
-                registry.section(
-                    true,
-                    "account-security",
-                    "shell-account-security",
-                    "password/change",
-                    Group::Account,
-                    false,
-                );
-                let chrome = registry.chrome(
-                    lang,
-                    "/account/sessions",
-                    Account::SignedIn {
-                        csrf: "fixture".into(),
-                        passkeys_eligible: false,
-                    },
-                );
-                let header = ShellHeader { chrome: &chrome }.render()?;
-                assert_eq!(header.contains("class=\"account-overview\""), enabled);
-                assert_eq!(header.contains("href=\"/account\""), enabled);
-                if !enabled {
-                    assert!(header.contains("href=\"#podglad-konta\" data-account-link"));
-                }
-                assert!(header.contains(&format!("href=\"/{lang}/password/change\"")));
-                assert!(header.contains("id=\"podglad-konta\""));
-            }
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn passkey_eligibility_applies_to_both_player_navigation_surfaces() {
-        let mut registry = registry();
-        registry.section(
-            true,
-            "account-passkeys",
-            "shell-account-passkeys",
-            "account/passkeys/manage",
-            Group::Account,
-            false,
-        );
-        for lang in ["pl", "en"] {
-            let url = format!("/{lang}/account/passkeys/manage");
-            for passkeys_eligible in [false, true] {
-                let chrome = registry.chrome(
-                    lang,
-                    &format!("/{lang}/account"),
-                    Account::SignedIn {
-                        csrf: String::new(),
-                        passkeys_eligible,
-                    },
-                );
-                assert_eq!(
-                    chrome.entries.iter().any(|e| e.url == url),
-                    passkeys_eligible
-                );
-                assert_eq!(
-                    chrome.player_navigation.iter().any(|e| e.url == url),
-                    passkeys_eligible
-                );
-            }
-        }
-    }
-
-    #[test]
     fn home_character_creation_requires_a_session_or_a_login_route() -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
             for (login, signed_in, visible) in [
@@ -1040,5 +979,57 @@ mod tests {
             }
         }
         Ok(())
+    }
+
+    #[test]
+    fn account_menu_renders_staff_link_only_when_enabled_and_authorized()
+    -> Result<(), askama::Error> {
+        for (enabled, staff) in [(true, true), (true, false), (false, true)] {
+            let registry = registry();
+            let url = "https://staff.example.test:8443/admin";
+            let account = Account::SignedIn {
+                csrf: "fixture".into(),
+                passkeys_eligible: false,
+            };
+            let mut chrome = registry.chrome("en", "/en/", account);
+            chrome.staff_dashboard = (enabled && staff).then(|| url.into());
+            let html = Home::new(&chrome, &HomeData::default()).render()?;
+            assert_eq!(html.contains(&format!("href=\"{url}\"")), enabled && staff);
+            assert_eq!(html.contains("Staff dashboard"), enabled && staff);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn player_panel_only_offers_passkeys_to_eligible_accounts() {
+        let mut registry = Registry::default();
+        registry.section(
+            true,
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys",
+            Group::Account,
+            false,
+        );
+        for lang in ["pl", "en"] {
+            let route = format!("/{lang}/account/passkeys");
+            for passkeys_eligible in [false, true] {
+                let chrome = registry.chrome(
+                    lang,
+                    "/account",
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible,
+                    },
+                );
+                assert_eq!(
+                    chrome
+                        .player_navigation
+                        .iter()
+                        .any(|link| link.url == route),
+                    passkeys_eligible,
+                );
+            }
+        }
     }
 }

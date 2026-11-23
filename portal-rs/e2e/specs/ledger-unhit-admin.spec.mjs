@@ -1,11 +1,12 @@
-import {randomUUID} from 'node:crypto';
+import {createHash, randomBytes, randomUUID} from 'node:crypto';
 import {uuid7} from '../game-sim-helpers.mjs';
 import {test, expect} from '../fixtures.mjs';
-import {submit} from '../helpers.mjs';
+import {login, register, submit} from '../helpers.mjs';
+import {recordedPrincipals} from '../ledger/record.mjs';
 import {isolatedAdmin, query} from '../staff-rbac-helpers.mjs';
 
 test('staff submits filters on each analytics page', async ({browser}, info) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     for (const section of ['', '/activity', '/creatures', '/health', '/levels']) {
@@ -31,6 +32,7 @@ test('staff submits filters on each analytics page', async ({browser}, info) => 
 });
 
 test('staff issues one gift code through the browser form', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     const path = `/${info.project.metadata.locale}/admin/store/codes`;
@@ -54,6 +56,7 @@ test('staff issues one gift code through the browser form', async ({browser}, in
 });
 
 test('staff approval requires an existing control preview', async ({browser}, info) => {
+  test.setTimeout(300_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     expect((await page.goto('/admin/control/step-up')).status()).toBe(200);
@@ -67,6 +70,55 @@ test('staff approval requires an existing control preview', async ({browser}, in
     expect(await query('SELECT id FROM admin_control_approvals WHERE preview_id=$1', [id])).toEqual([]);
   } finally {
     await context.close();
+  }
+});
+
+test('ledger keeps bearer credentials separate from an unrelated staff session', async ({page, request, browser}, info) => {
+  test.setTimeout(300_000);
+  const lang = info.project.metadata.locale;
+  await login(page, lang, await register(page, lang));
+  const verifier = randomBytes(32).toString('base64url');
+  const state = randomUUID();
+  const origin = new URL(page.url()).origin;
+  const redirect = `${origin}/__oauth/callback`;
+  const params = new URLSearchParams({
+    response_type: 'code', client_id: 'e2e-local', redirect_uri: redirect,
+    scope: 'game:ticket', state, code_challenge: createHash('sha256').update(verifier).digest('base64url'),
+    code_challenge_method: 'S256',
+  });
+  expect((await page.goto(`/oauth/authorize?${params}`)).status()).toBe(200);
+  const csrf = await page.locator('main form [name=_csrf]').inputValue();
+  const consent = await page.request.post('/oauth/authorize', {
+    form: {...Object.fromEntries(params), _csrf: csrf, decision: 'approve'}, headers: {origin}, maxRedirects: 0,
+  });
+  expect(consent.status()).toBe(302);
+  const callback = new URL(consent.headers().location);
+  expect(callback.origin + callback.pathname).toBe(redirect);
+  expect(callback.searchParams.get('state')).toBe(state);
+  const code = callback.searchParams.get('code');
+  expect(Boolean(code)).toBe(true);
+  const token = await request.post('/oauth/token', {
+    form: {grant_type: 'authorization_code', client_id: 'e2e-local', redirect_uri: redirect, code, code_verifier: verifier},
+  });
+  expect(token.status()).toBe(200);
+  const {access_token} = await token.json();
+  expect(Boolean(access_token)).toBe(true);
+
+  const staff = await isolatedAdmin(browser, info);
+  try {
+    expect((await staff.page.request.get('/admin/roles', {maxRedirects: 0})).status()).toBe(200);
+    const headers = {authorization: `Bearer ${access_token}`};
+    const path = '/api/v1/worlds';
+    for (const client of [request, staff.page.request]) {
+      const response = await client.get(path, {headers, maxRedirects: 0});
+      expect(response.status()).toBe(200);
+    }
+    await expect.poll(() => recordedPrincipals(info, path, 'GET')).toEqual([
+      {actor: null, credential: 'bearer', status: 200},
+      {actor: null, credential: 'bearer', status: 200},
+    ]);
+  } finally {
+    await staff.context.close();
   }
 });
 

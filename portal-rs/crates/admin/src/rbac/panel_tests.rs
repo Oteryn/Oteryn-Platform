@@ -127,7 +127,7 @@ async fn browser(db: &Fixture) -> TestResult<(String, String)> {
         .to_owned();
     assert!(html.contains("value=\"create\""));
     assert!(html.contains("value=\"set-permissions\""));
-    crate::test_staff::browser(&db.pool, db.actor.account, &cookie).await?;
+    crate::test_staff::recent_password(&db.pool, &cookie).await?;
     Ok((cookie, csrf))
 }
 async fn post(db: &Fixture, cookie: &str, csrf: &str, body: String) -> TestResult<StatusCode> {
@@ -174,7 +174,10 @@ async fn panel_refuses_last_eligible_administrator_revocation() -> TestResult {
             &db,
             &cookie,
             &csrf,
-            format!("action=revoke&account={}&role={role}", db.actor.account)
+            format!(
+                "action=revoke&account={}&role={role}&reason=role_assignment",
+                db.actor.account
+            )
         )
         .await?,
         StatusCode::FORBIDDEN
@@ -203,7 +206,10 @@ async fn panel_refuses_last_eligible_administrator_revocation() -> TestResult {
             &db,
             &cookie,
             &csrf,
-            format!("action=revoke&account={}&role={owner}", db.actor.account)
+            format!(
+                "action=revoke&account={}&role={owner}&reason=role_assignment",
+                db.actor.account
+            )
         )
         .await?,
         StatusCode::FORBIDDEN
@@ -220,7 +226,10 @@ async fn panel_refuses_last_eligible_administrator_revocation() -> TestResult {
             &db,
             &cookie,
             &csrf,
-            format!("action=revoke&account={}&role={role}", db.actor.account)
+            format!(
+                "action=revoke&account={}&role={role}&reason=role_assignment",
+                db.actor.account
+            )
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -243,6 +252,16 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         post(
             &db,
             &cookie,
+            &csrf,
+            "action=create&key=missing_reason".into()
+        )
+        .await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
             "invalid",
             "action=create&key=missing_csrf".into()
         )
@@ -254,7 +273,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            "action=create&key=panel_editor&permissions=admin.access".into()
+            "action=create&key=panel_editor&permissions=admin.access&reason=role_assignment".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -275,6 +294,27 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         .await?,
         StatusCode::SEE_OTHER
     );
+    let protected: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&db.pool)
+        .await?;
+    for (account, role) in [(db.actor.account, role), (target, protected)] {
+        assert_eq!(
+            post(
+                &db,
+                &cookie,
+                &csrf,
+                format!("action=grant&account={account}&role={role}&reason=role_assignment")
+            )
+            .await?,
+            StatusCode::FORBIDDEN
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/roles'"
+        ).bind(db.actor.account).fetch_one(&db.pool).await?,
+        2
+    );
     let context = CheckContext {
         account: target,
         ..db.actor
@@ -284,18 +324,51 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         auth.check(context, Permission::ManageWikiArticles).await,
         Err(super::Error::Denied)
     ));
+    let widen = format!(
+        "action=set-permissions&role={role}&permissions=admin.access%20{}",
+        Permission::ManageWikiArticles.as_str()
+    );
+    sqlx::query("DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.roles.grant'")
+        .bind(protected)
+        .execute(&db.pool)
+        .await?;
     assert_eq!(
         post(
             &db,
             &cookie,
             &csrf,
-            format!(
-                "action=set-permissions&role={role}&permissions=admin.access%20{}&reason=role_assignment",
-                Permission::ManageWikiArticles.as_str()
-            )
+            format!("{widen}&reason=role_assignment")
+        )
+        .await?,
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.grant')")
+        .bind(protected)
+        .execute(&db.pool)
+        .await?;
+    assert_eq!(
+        post(&db, &cookie, &csrf, widen.clone()).await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert!(matches!(
+        auth.check(context, Permission::ManageWikiArticles).await,
+        Err(super::Error::Denied)
+    ));
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!("{widen}&reason=role_assignment")
         )
         .await?,
         StatusCode::SEE_OTHER
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT staff_reason FROM audit_log WHERE target=$1 AND action='rbac.role.permissions_changed'"
+        ).bind(role.to_string()).fetch_one(&db.pool).await?,
+        "role_assignment"
     );
     auth.check(context, Permission::ManageWikiArticles).await?;
     assert_eq!(
@@ -303,7 +376,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=set-permissions&role={role}&permissions=admin.roles.manage")
+            format!("action=set-permissions&role={role}&permissions=admin.roles.manage&reason=role_assignment")
         )
         .await?,
         StatusCode::FORBIDDEN
@@ -369,7 +442,19 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=set-permissions&role={role}&permissions=admin.access")
+            format!("action=set-permissions&role={protected}&permissions=&reason=role_assignment")
+        )
+        .await?,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!(
+                "action=set-permissions&role={role}&permissions=admin.access&reason=role_assignment"
+            )
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -378,6 +463,31 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         auth.check(context, Permission::ManageWikiArticles).await,
         Err(super::Error::Denied)
     ));
+    let revoke = format!("action=revoke&account={target}&role={role}");
+    assert_eq!(
+        post(&db, &cookie, &csrf, revoke.clone()).await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        post(
+            &db,
+            &cookie,
+            &csrf,
+            format!("{revoke}&reason=role_assignment")
+        )
+        .await?,
+        StatusCode::SEE_OTHER
+    );
+    let reasons: Vec<String> = sqlx::query_scalar(
+        "SELECT staff_reason FROM audit_log WHERE
+         (target=$1 AND action IN ('rbac.role.created','rbac.role.permissions_changed'))
+         OR (target=$2 AND action IN ('rbac.role.granted','rbac.role.revoked'))",
+    )
+    .bind(role.to_string())
+    .bind(target.to_string())
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(reasons, vec!["role_assignment"; 5]);
     db.close().await?;
     eprintln!(
         "panel_creates_and_edits_roles_with_csrf_and_privilege_guards: {:?}",
@@ -538,7 +648,10 @@ async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
     let (cookie, csrf) = browser(&db).await?;
     sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')")
         .bind(holders[124]).execute(&db.pool).await?;
-    let revoke = format!("action=revoke&account={}&role={role}", db.actor.account);
+    let revoke = format!(
+        "action=revoke&account={}&role={role}&reason=role_assignment",
+        db.actor.account
+    );
     assert_eq!(
         post(&db, &cookie, &csrf, revoke).await?,
         StatusCode::FORBIDDEN
@@ -552,7 +665,10 @@ async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
             &db,
             &cookie,
             &csrf,
-            format!("action=revoke&account={}&role={role}", db.actor.account)
+            format!(
+                "action=revoke&account={}&role={role}&reason=role_assignment",
+                db.actor.account
+            )
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -573,7 +689,10 @@ async fn postgres_role_pages_and_survivor_batches_are_bounded() -> TestResult {
             &last,
             &cookie,
             &csrf,
-            format!("action=revoke&account={}&role={role}", holders[124])
+            format!(
+                "action=revoke&account={}&role={role}&reason=role_assignment",
+                holders[124]
+            )
         )
         .await?,
         StatusCode::FORBIDDEN
@@ -657,7 +776,10 @@ async fn postgres_a3_real_player_request_refuses_revoked_session_after_authentic
         .header("cookie", format!("__Host-oteryn_session={session_id}"))
         .header("x-csrf-token", csrf)
         .header("content-type", "application/x-www-form-urlencoded")
-        .body(Body::from("action=note&body=Session+revocation+regression"))?;
+        .body(Body::from(format!(
+            "action=note&body=Session+revocation+regression&reason=support_case&submission={}",
+            Uuid::now_v7()
+        )))?;
     let task = tokio::spawn(async move { app.oneshot(request).await });
     tokio::time::timeout(std::time::Duration::from_secs(3), authenticated.notified()).await?;
     let mut revoke = db.pool.begin().await?;
@@ -918,7 +1040,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     let escrow = "DELETE FROM role_permissions WHERE role_id=(SELECT id FROM roles WHERE key='platform_admin') AND permission='admin.roles.grant'";
     sqlx::query(escrow).execute(&db.pool).await?;
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
-    for form in [edit.as_str(), confirmed.as_str(), create] {
+    for form in [confirmed.as_str(), create] {
         assert_eq!(
             post(&db, &cookie, &csrf, form.to_owned()).await?,
             StatusCode::FORBIDDEN
@@ -941,7 +1063,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     crate::test_staff::recent_password(&db.pool, &cookie).await?;
     assert_eq!(
         post(&db, &cookie, &csrf, edit.clone()).await?,
-        StatusCode::FORBIDDEN
+        StatusCode::UNPROCESSABLE_ENTITY
     );
     assert_eq!(
         post(&db, &cookie, &csrf, format!("{edit}&reason=unapproved")).await?,
@@ -987,7 +1109,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     assert_eq!(
         created,
         (
-            serde_json::json!({"permissions": ["admin.roles.grant"]}),
+            serde_json::json!({"key": "delegation_new", "permissions": ["admin.roles.grant"]}),
             "role_assignment".into()
         )
     );
@@ -1093,7 +1215,7 @@ async fn widening_an_assigned_role_requires_the_direct_grant_controls() -> TestR
             &db,
             &cookie,
             &csrf,
-            format!("action=set-permissions&role={assigned}&permissions=")
+            format!("action=set-permissions&role={assigned}&permissions=&reason=role_assignment")
         )
         .await?,
         StatusCode::SEE_OTHER

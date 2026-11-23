@@ -75,7 +75,7 @@ pub fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool) -> Router<S> {
         Arc::new(UnavailableAuthority),
     ))
 }
-fn configured_settings(get: impl Fn(&str) -> Option<String>) -> Settings {
+pub(super) fn configured_settings(get: impl Fn(&str) -> Option<String>) -> Settings {
     Settings {
         enabled: get("OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED").as_deref() == Some("true")
             && oteryn_core::restricted_environment(&get),

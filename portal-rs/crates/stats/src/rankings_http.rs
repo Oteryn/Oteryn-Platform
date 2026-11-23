@@ -13,7 +13,7 @@ use serde::Deserialize;
 struct Unavailable;
 impl PublicCatalog for Unavailable {
     fn characters(&self, _: Kind) -> CatalogFuture<'_> {
-        Box::pin(async { Err(Error::Unavailable) })
+        Box::pin(async { Err(Error::MissingGameData) })
     }
 }
 /// A current privacy/catalog adapter is required before enabling public statistics.
@@ -216,23 +216,24 @@ async fn handle(
         Ok(())
     }
     .await;
+    let missing_game_data = matches!(result, Err(Error::MissingGameData));
     let status = match result {
         Ok(()) => StatusCode::OK,
         Err(e) => {
             page.message = text.get(match e {
                 Error::Disabled | Error::NotFound => "not-found",
                 Error::Invalid => "invalid",
-                Error::Unavailable => "unavailable",
+                Error::Unavailable | Error::MissingGameData => "unavailable",
             });
             match e {
                 Error::Disabled | Error::NotFound => StatusCode::NOT_FOUND,
                 Error::Invalid => StatusCode::BAD_REQUEST,
-                Error::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+                Error::Unavailable | Error::MissingGameData => StatusCode::SERVICE_UNAVAILABLE,
             }
         }
     };
     let body = page.render().unwrap_or_else(|_| text.get("unavailable"));
-    (
+    let response = (
         status,
         [
             (header::CACHE_CONTROL, "no-store, private"),
@@ -250,7 +251,12 @@ async fn handle(
         ],
         Html(body),
     )
-        .into_response()
+        .into_response();
+    if missing_game_data {
+        oteryn_ui::missing_game_data(response)
+    } else {
+        response
+    }
 }
 
 #[cfg(test)]

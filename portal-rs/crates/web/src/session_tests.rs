@@ -507,6 +507,188 @@ async fn chrome_reads_existing_session_without_refreshing_it() -> TestResult {
 }
 
 #[tokio::test]
+async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,locale,status,email_verified_at) VALUES($1,'staff-menu@example.invalid','fixture','en','active',now())")
+        .bind(account).execute(&db.pool).await?;
+    let session = BrowserSession::new(
+        db.pool.clone(),
+        SessionConfig::default(),
+        None,
+        "chrome test",
+    );
+    rotate(&session, PrivilegeChange::Login(account)).await?;
+    let id = session
+        .inner
+        .lock()
+        .await
+        .record
+        .as_ref()
+        .ok_or("missing record")?
+        .id
+        .clone();
+    let render = |staff_host: Option<String>, host: &'static str, cookie: String| {
+        let pool = db.pool.clone();
+        async move {
+            let dashboard = staff_host.as_ref().map(|host| {
+                let pool = pool.clone();
+                crate::chrome::StaffDashboard {
+                    url: format!("https://{host}/admin"),
+                    allows: std::sync::Arc::new(move |account| {
+                        let pool = pool.clone();
+                        Box::pin(async move {
+                            sqlx::query_scalar::<_, bool>(
+                                "SELECT EXISTS(SELECT 1 FROM account_roles ar
+                                 JOIN role_permissions rp USING(role_id)
+                                 WHERE ar.account_id=$1 AND rp.permission='admin.access')",
+                            )
+                            .bind(account)
+                            .fetch_one(&pool)
+                            .await
+                            .unwrap_or(false)
+                        })
+                    }),
+                }
+            });
+            let mut registry = oteryn_ui::Registry::default();
+            registry.account = true;
+            registry.staff_host = staff_host;
+            let app = Router::new()
+                .route(
+                    "/en/",
+                    get(
+                        |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
+                            oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
+                        },
+                    ),
+                )
+                .layer(axum::middleware::from_fn_with_state(
+                    crate::chrome::Shell {
+                        registry,
+                        sessions: SessionLayer::new(pool),
+                    },
+                    crate::chrome::middleware,
+                ));
+            let app = if let Some(dashboard) = dashboard {
+                app.layer(Extension(dashboard))
+            } else {
+                app
+            };
+            let request = HttpRequest::get("/en/")
+                .header(header::HOST, host)
+                .header(header::ACCEPT, "text/html")
+                .header(header::COOKIE, format!("{COOKIE_NAME}={cookie}"))
+                .body(Body::empty())?;
+            let response = app.oneshot(request).await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert!(!response.headers().contains_key(header::SET_COOKIE));
+            let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+            Ok::<_, Box<dyn std::error::Error>>(html)
+        }
+    };
+    let panel = Some("staff.test".to_owned());
+    assert!(
+        !render(panel.clone(), "staff.test", id.clone())
+            .await?
+            .contains("Staff dashboard")
+    );
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' AND built_in")
+        .bind(account).execute(&db.pool).await?;
+    let snapshot = || {
+        sqlx::query_scalar::<_, String>("SELECT row_to_json(s)::text FROM web_sessions s LIMIT 1")
+            .fetch_one(&db.pool)
+    };
+    let session_before = snapshot().await?;
+    let same_host = render(panel.clone(), "staff.test", id.clone()).await?;
+    assert!(same_host.contains(r#"href="/admin" data-staff-dashboard>Staff dashboard</a>"#));
+    let public_host = render(panel.clone(), "public.test", id.clone()).await?;
+    assert!(
+        public_host.contains(
+            r#"href="https://staff.test/admin" data-staff-dashboard>Staff dashboard</a>"#
+        )
+    );
+    assert!(
+        !render(None, "staff.test", id)
+            .await?
+            .contains("Staff dashboard")
+    );
+    assert!(
+        !render(panel, "staff.test", "malformed".into())
+            .await?
+            .contains("Staff dashboard")
+    );
+    assert!(
+        snapshot().await? == session_before,
+        "rendering the staff menu changed the session"
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn chrome_passkey_link_tracks_account_eligibility() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let account = Uuid::now_v7();
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,locale,status,email_verified_at) VALUES($1,'passkey-menu@example.invalid','fixture','en','active',now())")
+        .bind(account).execute(&db.pool).await?;
+    let layer = SessionLayer::new(db.pool.clone());
+    let mut registry = oteryn_ui::Registry::default();
+    registry.section(
+        true,
+        "account-passkeys",
+        "shell-account-passkeys",
+        "account/passkeys",
+        oteryn_ui::Group::Account,
+        false,
+    );
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='moderator' AND built_in")
+        .bind(account).execute(&db.pool).await?;
+    for (status, verified, mandatory, expected) in [
+        ("active", true, false, true),
+        ("active", true, true, false),
+        ("active", false, false, false),
+        ("suspended", true, false, false),
+    ] {
+        sqlx::query("UPDATE accounts SET status=$2,email_verified_at=CASE WHEN $3 THEN now() END,login_mfa_required=$4 WHERE id=$1")
+            .bind(account).bind(status).bind(verified).bind(mandatory).execute(&db.pool).await?;
+        // Credential and status changes revoke the previous browser session.
+        let session = BrowserSession::new(
+            db.pool.clone(),
+            SessionConfig::default(),
+            None,
+            "chrome test",
+        );
+        rotate(&session, PrivilegeChange::Login(account)).await?;
+        let id = session
+            .inner
+            .lock()
+            .await
+            .record
+            .as_ref()
+            .ok_or("missing record")?
+            .id
+            .clone();
+        let mut request = HttpRequest::get("/en/")
+            .header(header::COOKIE, format!("{COOKIE_NAME}={id}"))
+            .body(Body::empty())?;
+        let (presentation, account_id) = chrome_account(&layer, &mut request).await;
+        assert_eq!(account_id, Some(account));
+        let chrome = registry.chrome("en", "/en/", presentation);
+        assert!(chrome.signed_in());
+        assert_eq!(
+            chrome.link("account-passkeys").is_some(),
+            expected,
+            "{status}, verified={verified}, mandatory MFA={mandatory}"
+        );
+    }
+    db.close().await
+}
+
+#[tokio::test]
 async fn nwave_consent_forms_accept_public_origin_and_reject_forgery() -> TestResult {
     let db = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
     let layer = crate::public_sessions(db.clone(), Some("https://portal.test".into()));

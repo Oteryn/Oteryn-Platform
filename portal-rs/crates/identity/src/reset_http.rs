@@ -44,20 +44,23 @@ fn router(pool: PgPool, key: DeliveryKey, sessions: SessionLayer) -> Router {
     let mut routes = Router::new();
     routes = routes
         .route("/forgot-password", axum::routing::post(submit_forgot))
-        .route("/reset-password", get(show_reset).post(submit_reset));
+        .route(
+            "/reset-password",
+            oteryn_web::html::get(show_reset).post(submit_reset),
+        );
     for prefix in ["/pl", "/en"] {
         routes = routes
             .route(
                 &format!("{prefix}/forgot-password"),
-                get(forgot).post(submit_forgot),
+                oteryn_web::html::get(forgot).post(submit_forgot),
             )
             .route(
                 &format!("{prefix}/reset-password"),
-                get(show_reset).post(submit_reset),
+                oteryn_web::html::get(show_reset).post(submit_reset),
             )
             .route(
                 &format!("{prefix}/reset-password/{{token}}"),
-                get(show_link),
+                oteryn_web::html::get(show_link),
             );
     }
     oteryn_web::ratelimit::finish_routes(

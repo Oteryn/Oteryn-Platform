@@ -208,10 +208,20 @@ impl online::PublicVisibility for Authority {
         characters: &'a [online::CharacterRef],
     ) -> online::VisibilityResult<'a> {
         Box::pin(async move {
+            if characters.is_empty()
+                && sqlx::query_scalar::<_, bool>(
+                    "SELECT highest_epoch IS NULL FROM account_character_feed WHERE id=1",
+                )
+                .fetch_one(&self.db)
+                .await
+                .map_err(|_| online::Unavailable::Failure)?
+            {
+                return Err(online::Unavailable::MissingGameData);
+            }
             self.privacy
                 .ready()
                 .await
-                .map_err(|_| online::Unavailable)?;
+                .map_err(|_| online::Unavailable::Failure)?;
             if characters.is_empty() {
                 let baseline: bool = sqlx::query_scalar(from_current_profile_family!(
                     "SELECT EXISTS(SELECT 1 FROM public_snapshots s
@@ -221,9 +231,9 @@ impl online::PublicVisibility for Authority {
                 ))
                 .fetch_one(&self.db)
                 .await
-                .map_err(|_| online::Unavailable)?;
+                .map_err(|_| online::Unavailable::Failure)?;
                 if !baseline {
-                    return Err(online::Unavailable);
+                    return Err(online::Unavailable::Failure);
                 }
             }
             let mut result = Vec::with_capacity(characters.len());
@@ -242,12 +252,12 @@ impl online::PublicVisibility for Authority {
                 .bind(c.observed_at)
                 .fetch_one(&self.db)
                 .await
-                .map_err(|_| online::Unavailable)?;
+                .map_err(|_| online::Unavailable::Failure)?;
                 result.push(if ids.len() == 1 {
                     !self
                         .reference(&ids[0], &c.world, &c.name)
                         .await
-                        .map_err(|_| online::Unavailable)?
+                        .map_err(|_| online::Unavailable::Failure)?
                         .is_some_and(|p| !p.hidden && p.show_status)
                 } else {
                     true

@@ -96,6 +96,15 @@ async fn postgres_news_lifecycle() {
     let mut first = make();
     first.expected_revision = revision.clone();
     save(&pool, &auth, context, Some(id), first).await.unwrap();
+    let publication: (String, String) = sqlx::query_as(
+        "SELECT before->>'published_at',after->>'published_at' FROM audit_log
+         WHERE action='cms.news_updated' AND target=$1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(publication.0, publication.1);
     let mut stale = make();
     stale.expected_revision = revision;
     stale.title = "Stale editor overwrite".into();
@@ -265,8 +274,18 @@ async fn postgres_news_lifecycle() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let _ = to_bytes(response.into_body(), 1024).await.unwrap();
+    let response = admin_router(pool.clone())
+        .layer(Extension(context))
+        .oneshot(
+            Request::get("/admin/news?page=0")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(context.account)
@@ -644,8 +663,8 @@ async fn postgres_pagination_language_and_caps() {
             !admin_index(
                 State(pool.clone()),
                 Extension(context),
-                Query(q),
-                axum::http::HeaderMap::new(),
+                Default::default(),
+                Query(q)
             )
             .await
             .unwrap()

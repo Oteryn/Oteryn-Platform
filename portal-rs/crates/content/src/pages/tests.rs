@@ -241,6 +241,22 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
         action: "save".into(),
         ..Default::default()
     };
+    let missing = format!("missing-{slug}");
+    let delete = PageForm {
+        action: "delete".into(),
+        ..form.clone()
+    };
+    assert!(matches!(
+        persist(&pool, &auth, ctx, &missing, "en", &delete).await,
+        Err(oteryn_admin::rbac::Error::InvalidInput)
+    ));
+    let missing_artifacts: (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM pages WHERE slug=$1), EXISTS(SELECT 1 FROM audit_log WHERE target=$1)",
+    )
+    .bind(&missing)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(missing_artifacts, (false, false));
     let op_pool = pool.clone();
     let op_auth = auth.clone();
     let op_slug = slug.clone();
@@ -254,6 +270,14 @@ async fn postgres_pages_publication_and_legal_history() -> Result<(), Box<dyn st
     let mut reviewed = form.clone();
     reviewed.expected_revision = sqlx::query_scalar("SELECT e.updated_at::text FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale='en'").bind(&slug).fetch_one(&pool).await?;
     persist(&pool, &auth, ctx, &slug, "en", &reviewed).await?;
+    let publication: (String, String) = sqlx::query_as(
+        "SELECT before->>'published_at',after->>'published_at' FROM audit_log
+         WHERE action='cms.page.saved' AND target=$1 AND before <> 'null'::jsonb",
+    )
+    .bind(&slug)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(publication.0, publication.1);
     assert!(matches!(
         persist(&pool, &auth, ctx, &slug, "en", &reviewed).await,
         Err(oteryn_admin::rbac::Error::InvalidInput)
@@ -439,6 +463,14 @@ Updated English source",
     persist_current(&pool, &auth, ctx, &slug, "en", &form).await?;
     let remaining:i64=sqlx::query_scalar("SELECT count(*) FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1 AND e.locale='en'").bind(&slug).fetch_one(&pool).await?;
     assert_eq!(remaining, 0);
+    let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE action='cms.page.deleted' AND target=$1",
+    )
+    .bind(&slug)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(before["title"], "Safe title");
+    assert_eq!(after, serde_json::Value::Null);
     form.action = "save".into();
     form.published_at = "2020-01-01T00:00:00Z".into();
     persist_current(&pool, &auth, ctx, &slug, "en", &form).await?;
@@ -523,6 +555,14 @@ Updated English source",
         .fetch_one(&pool)
         .await?;
     assert_eq!(versions, 8);
+    let audited_approvals: Vec<bool> = sqlx::query_scalar(
+        "SELECT (after->>'final_approved')::boolean FROM audit_log
+         WHERE action='cms.page.saved' AND target='terms-of-service'
+           AND after->>'locale'='en' AND after->>'legal_version'='test-v2'",
+    )
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(audited_approvals, [true, true]);
     assert_eq!(legal::install(&pool, Some("testing")).await?, 0);
     let edited: String = sqlx::query_scalar(
         "SELECT e.body FROM editorial_pages e JOIN pages p ON p.id=e.page_id

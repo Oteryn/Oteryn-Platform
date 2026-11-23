@@ -441,6 +441,14 @@ or eligibility. Request-time Character blockers, password, sudo and CSRF stay re
 
 The closure producer reads `/internal/v1/game-auth/account-closure/lifecycle/read` with its Character mTLS identity before each new decision. It checks current phase, lifecycle/recovery generation, the five-second observation window and financial eligibility; refusal leaves the command pending. No key ID is used for this read.
 
+## Native device panel fixtures
+
+| Configuration | Local value |
+| --- | --- |
+| `PORTAL_E2E_NATIVE_DEVICE_CLIENT` | Local OAuth allowlist and seed CLI client for device ticket issuance |
+| `PORTAL_E2E_NATIVE_DEVICE_ORIGIN` | Direct loopback TLS listener for the real remembered-device ticket route |
+| `PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN` | Loopback browser origin for the second portal process with its native settings flag off |
+
 ## Full-shell qualification configuration
 
 The full-shell harness enables every literal `*_ENABLED` switch discovered in crates and bin source, the explicit non-suffix module switches in local.mjs, and analytics ingestion/presentation. `APP_ENV=testing` and `PORTAL_PUBLIC_PROJECTIONS_ENABLED=true` are mandatory. All 87 discovered `*_ENABLED` switches were locally enabled; no switch had to be disabled. Native HTTPS/mTLS, catalogue, atlas, journal, progress, season and authority seams can still refuse without their accepted producers; a true switch does not create those producers. OAuth uses one explicit local test client. Secrets remain generated in scratch and are excluded from this record.
@@ -550,3 +558,14 @@ The closure producer and LCFA/privacy, account-character and character-command
 readers share `characterSourceAuthority` from game-closure-producer.mjs. This
 prevents a background closure watermark from replacing a differently configured
 privacy authority during the combined suite; authority checks remain enabled.
+
+## GM player console
+
+`harness.mjs --staff-console` configures `OTERYN_ADMIN_PANEL`,
+`OTERYN_ADMIN_CONSOLE`, `OTERYN_ADMIN_HOST` and
+`PORTAL_ADMIN_CONTROL_ENABLED` for an isolated run, with an agent identity
+and signing material generated under the run's private directory. Point
+`PORTAL_E2E_ADMIN_AGENT_DIRECTORY` to the run directory to reuse it in Playwright.
+During the broader local browser suite, the spec can launch its own isolated
+agent harness using the existing disposable PostgreSQL connection. The agent
+advertises only the four player reads and uses no staff command allowlist.

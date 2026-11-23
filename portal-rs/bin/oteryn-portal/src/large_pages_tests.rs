@@ -303,6 +303,7 @@ async fn l5_league_fourteen_full_seasons_are_complete() -> Result {
             accepted_season_rules: true,
             accepted_final_freeze: true,
             accepted_pki: true,
+            ..league::Flags::default()
         },
         SignedAuthority,
     );
