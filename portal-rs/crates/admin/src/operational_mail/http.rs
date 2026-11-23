@@ -1,13 +1,13 @@
 use super::{AUDIENCE_LIMIT, Audience, Campaign, Decision, Draft, Error, preview, review};
 use crate::{
     rbac::{self, CheckContext, MutationAuthorization, Permission},
-    web::{Panel, StaffSession, language, message, messages, text},
+    web::{Panel, StaffSession, charge_staff_quota, language, message, messages, text},
 };
 use askama::Template;
 use axum::{
     Extension, Form,
     extract::{DefaultBodyLimit, Path, Query, State, rejection::FormRejection},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -30,11 +30,19 @@ pub(crate) fn routes<I: StaffSession, A: rbac::AccountStateReader + 'static>()
             "/admin/operational-mail/{id}",
             get(detail::<I, A>).post(decide::<I, A>),
         )
-        .layer(DefaultBodyLimit::max(32 * 1024))
+        .layer(DefaultBodyLimit::max(128 * 1024))
 }
 
 impl Error {
     fn response(&self, lang: &str) -> Response {
+        if let Self::RateLimit(retry_after) = self {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, retry_after.to_string())],
+                text(lang, "operational-mail-rate-limit"),
+            )
+                .into_response();
+        }
         let (status, key) = match self {
             Self::Invalid => (StatusCode::BAD_REQUEST, "operational-mail-invalid"),
             Self::Missing => (StatusCode::NOT_FOUND, "operational-mail-missing"),
@@ -44,7 +52,6 @@ impl Error {
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "operational-mail-audience-limit",
             ),
-            Self::RateLimit => (StatusCode::TOO_MANY_REQUESTS, "operational-mail-rate-limit"),
             Self::Authorization(rbac::Error::Denied) => {
                 (StatusCode::FORBIDDEN, "operational-mail-denied")
             }
@@ -80,6 +87,20 @@ pub(crate) async fn visible<A: rbac::AccountStateReader>(
 fn configured_delivery() -> Option<Unsubscribe> {
     let unsubscribe = Unsubscribe::configured().ok()?;
     (unsubscribe.operational_ready() && SmtpSender::configured().is_ok()).then_some(unsubscribe)
+}
+
+async fn charge<A: rbac::AccountStateReader>(
+    panel: &Panel<impl StaffSession, A>,
+    actor: CheckContext,
+    permission: Permission,
+    name: &str,
+    limit: i64,
+) -> Result<(), Error> {
+    panel.auth.check(actor, permission).await?;
+    if let Some(retry_after) = charge_staff_quota(&panel.pool, actor.account, name, limit).await? {
+        return Err(Error::RateLimit(retry_after));
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -285,15 +306,30 @@ async fn compose<I: StaffSession, A: rbac::AccountStateReader>(
     form: Result<Form<ComposeForm>, FormRejection>,
 ) -> Response {
     let lang = language(&headers);
-    let Ok(Form(form)) = form else {
-        return Error::Invalid.response(lang);
+    if let Err(error) = charge(
+        &panel,
+        actor,
+        Permission::ComposeOperationalMail,
+        "operational-mail-preview",
+        5,
+    )
+    .await
+    {
+        return error.response(lang);
+    }
+    let form = match form {
+        Ok(Form(form)) => form,
+        Err(error) if error.status() == StatusCode::PAYLOAD_TOO_LARGE => {
+            return (error.status(), text(lang, "operational-mail-invalid")).into_response();
+        }
+        Err(_) => return Error::Invalid.response(lang),
     };
     let draft = Draft {
         audience: form.audience,
         subject_pl: form.subject_pl,
-        body_pl: form.body_pl,
+        body_pl: form.body_pl.replace("\r\n", "\n").replace('\r', "\n"),
         subject_en: form.subject_en,
-        body_en: form.body_en,
+        body_en: form.body_en.replace("\r\n", "\n").replace('\r', "\n"),
     };
     mutation_result(
         preview(&panel.pool, &auth, actor, form.request_id, &draft).await,
@@ -311,6 +347,17 @@ async fn decide<I: StaffSession, A: rbac::AccountStateReader>(
     form: Result<Form<ReviewForm>, FormRejection>,
 ) -> Response {
     let lang = language(&headers);
+    if let Err(error) = charge(
+        &panel,
+        actor,
+        Permission::ReviewOperationalMail,
+        "operational-mail-review",
+        15,
+    )
+    .await
+    {
+        return error.response(lang);
+    }
     let Ok(Form(form)) = form else {
         return Error::Invalid.response(lang);
     };

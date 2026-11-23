@@ -24,6 +24,11 @@ fn accepts_only_defined_audiences_and_valid_bilingual_mail() {
     draft.subject_en = "Maintenance".into();
     draft.body_pl = "   ".into();
     assert!(draft.validate().is_err());
+    draft.subject_pl = "ę".repeat(200);
+    draft.body_pl = "ą".repeat(4000);
+    assert!(draft.validate().is_ok());
+    draft.body_pl.push('ą');
+    assert!(draft.validate().is_err());
 }
 
 use crate::{
@@ -148,6 +153,7 @@ async fn exercise_campaign(pool: &PgPool) {
     let ok = account(pool, "recipient@example.test", "en").await;
     let before = account(pool, "leave-before-review@example.test", "en").await;
     let after = account(pool, "leave-after-review@example.test", "en").await;
+    let paused = account(pool, "paused-at-dispatch@example.test", "en").await;
     let late = account(pool, "join-after-preview@example.test", "en").await;
     let other_locale = account(pool, "other-language@example.test", "pl").await;
     assert_eq!(
@@ -157,7 +163,7 @@ async fn exercise_campaign(pool: &PgPool) {
             .unwrap(),
         (false, false)
     );
-    for id in [ok, before, after, other_locale] {
+    for id in [ok, before, after, paused, other_locale] {
         preference(&notifications, id, true).await;
     }
 
@@ -190,7 +196,7 @@ async fn exercise_campaign(pool: &PgPool) {
     let audited: i64 = sqlx::query_scalar(
         "SELECT (after->>'eligible')::bigint FROM audit_log WHERE target=$1 AND action='mail.operational.previewed'",
     ).bind(campaign.to_string()).fetch_one(pool).await.unwrap();
-    assert_eq!(audited, 3);
+    assert_eq!(audited, 4);
     for actor in [viewer, author] {
         assert!(matches!(
             review(
@@ -232,8 +238,8 @@ async fn exercise_campaign(pool: &PgPool) {
         (first, second),
         (Ok(()), Err(Error::Conflict)) | (Err(Error::Conflict), Ok(()))
     ));
-    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
-        .bind(after)
+    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=ANY($1)")
+        .bind([after, paused].as_slice())
         .execute(pool)
         .await
         .unwrap();
@@ -251,10 +257,23 @@ async fn exercise_campaign(pool: &PgPool) {
 
     let sender = CaptureSender::default();
     let jobs = outbox::claim(pool, 10, 30).await.unwrap();
-    assert_eq!(jobs.len(), 2);
-    for job in jobs {
-        notifications.deliver(&job, &sender).await.unwrap();
-        assert!(outbox::finish(pool, &job, None, false).await.unwrap());
+    assert_eq!(jobs.len(), 3);
+    for job in &jobs {
+        let (first, second) = tokio::join!(
+            notifications.deliver(job, &sender),
+            notifications.deliver(job, &sender),
+        );
+        first.unwrap();
+        second.unwrap();
+        assert!(outbox::finish(pool, job, None, false).await.unwrap());
+    }
+    sqlx::query("UPDATE accounts SET status='active' WHERE id=$1")
+        .bind(paused)
+        .execute(pool)
+        .await
+        .unwrap();
+    for job in &jobs {
+        notifications.deliver(job, &sender).await.unwrap();
     }
     {
         let sent = sender.emails.lock().unwrap();
@@ -277,7 +296,7 @@ async fn exercise_campaign(pool: &PgPool) {
     .fetch_one(pool)
     .await
     .unwrap();
-    assert_eq!(outcomes, (1, 1));
+    assert_eq!(outcomes, (1, 2));
 
     let rejected = Uuid::now_v7();
     preview(pool, &auth, author, rejected, &draft)

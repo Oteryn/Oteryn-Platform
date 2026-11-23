@@ -26,7 +26,7 @@ pub(super) enum Error {
     #[error("campaign audience exceeds the limit")]
     AudienceLimit,
     #[error("campaign preview rate exceeded")]
-    RateLimit,
+    RateLimit(i64),
     #[error("operational mail unavailable")]
     Unavailable,
     #[error(transparent)]
@@ -100,7 +100,6 @@ async fn authorize(
     actor: CheckContext,
     permission: Permission,
 ) -> Result<(), Error> {
-    rbac::mutation_budget(tx).await?;
     rbac::authorize_mutation(tx, &[], auth, actor, &[Permission::Access, permission]).await?;
     Ok(())
 }
@@ -117,6 +116,7 @@ pub(super) async fn preview(
         return Err(Error::Invalid);
     }
     let mut tx = pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
     authorize(&mut tx, auth, actor, Permission::ComposeOperationalMail).await?;
     let existing: Option<bool> = sqlx::query_scalar(
         "SELECT (author,audience,subject_pl,body_pl,subject_en,body_en)=($2,$3,$4,$5,$6,$7)
@@ -137,16 +137,6 @@ pub(super) async fn preview(
         } else {
             Err(Error::Conflict)
         };
-    }
-    let recent: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM operational_mail_campaigns
-         WHERE author=$1 AND created_at > now()-interval '1 minute'",
-    )
-    .bind(actor.account)
-    .fetch_one(&mut *tx)
-    .await?;
-    if recent >= 5 {
-        return Err(Error::RateLimit);
     }
     sqlx::query(
         "INSERT INTO operational_mail_campaigns(id,author,audience,subject_pl,body_pl,subject_en,body_en)
@@ -222,6 +212,7 @@ pub(super) async fn review(
     unsubscribe: Option<&Unsubscribe>,
 ) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
+    rbac::mutation_budget(&mut tx).await?;
     authorize(&mut tx, auth, actor, Permission::ReviewOperationalMail).await?;
     let campaign: Campaign = sqlx::query_as(
         "SELECT id,author,audience,subject_pl,body_pl,subject_en,body_en,

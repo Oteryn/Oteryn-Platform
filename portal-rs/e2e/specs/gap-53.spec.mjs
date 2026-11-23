@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, mailLink, submit } from '../helpers.mjs';
 import { query, seededAccount, seededLogin, seededMfaAccount } from '../staff-rbac-helpers.mjs';
@@ -20,6 +21,32 @@ async function post(page, path, form, csrf) {
     maxRedirects: 0,
   });
 }
+
+test('i18n-parity for operational email', () => {
+  const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+  const expectKeys = (source, prefix, required) => {
+    const keys = [...source.matchAll(/^([a-z0-9-]+) = (\S.*)$/gm)]
+      .map(([, key]) => key).filter(key => key.startsWith(prefix));
+    expect(keys.sort()).toEqual([...required].sort());
+  };
+  const keys = (path, pattern) => [...read(path).matchAll(pattern)].map(([, key]) => key);
+  const admin = new Set([
+    ...keys('../../templates/admin/operational_mail.html', /tr\("(operational-mail-[a-z0-9-]+)"\)/g),
+    ...keys('../../crates/admin/src/operational_mail/http.rs',
+      /"(operational-mail-[a-z0-9-]+)"(?=\)|,\s*\))/g),
+    ...keys('../../crates/admin/src/web.rs', /text\(lang, "(operational-mail-[a-z0-9-]+)"\)/g),
+  ]);
+  for (const audience of ['all', 'pl', 'en']) admin.add(`operational-mail-audience-${audience}`);
+  for (const status of ['pending', 'approved', 'rejected', 'expired']) {
+    admin.add(`operational-mail-status-${status}`);
+  }
+  for (const lang of ['pl', 'en']) {
+    expectKeys(read(`../../templates/admin/${lang}.ftl`), 'operational-mail-', admin);
+    expectKeys(read(`../../crates/notify/locales/${lang}.ftl`), 'operational-', ['operational-unsubscribe']);
+    expectKeys(read(`../../crates/identity/src/account_lifecycle_${lang}.ftl`),
+      'operational', ['operational', 'operational-opt-in']);
+  }
+});
 
 test('a player opts in, staff preview and approve, and the player unsubscribes from the delivered mailing', async ({ page, browser }, info) => {
   test.setTimeout(240_000);
@@ -67,6 +94,7 @@ test('a player opts in, staff preview and approve, and the player unsubscribes f
     await composer.goto('/admin');
     await composer.locator(`nav a[href="${root}"]`).click();
     await expect(composer.locator('html')).toHaveAttribute('lang', lang);
+    await expect(composer.locator('.op-shell__page main')).toBeVisible();
     expect(await composer.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
     const form = composer.locator(`form[action="${root}"]`);
     const request_id = await form.locator('[name=request_id]').inputValue();
@@ -75,9 +103,9 @@ test('a player opts in, staff preview and approve, and the player unsubscribes f
     const draft = {
       request_id,
       audience: lang,
-      subject_pl: `Przerwa ${marker}`,
+      subject_pl: 'ą'.repeat(200),
       body_pl: `Przerwa techniczna ${marker} <serwis>`,
-      subject_en: `Maintenance ${marker}`,
+      subject_en: 'W'.repeat(200),
       body_en: `Scheduled maintenance ${marker} <service>`,
     };
     await csrfRejected(composer, root, draft);
@@ -103,6 +131,7 @@ test('a player opts in, staff preview and approve, and the player unsubscribes f
     const approver = await open();
     await seededLogin(approver, lang, reviewer);
     await approver.goto(root);
+    expect(await approver.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
     await approver.locator(`main a[href="${path}"]`).click();
     const review = approver.locator(`form[action="${path}"]`);
     await csrfRejected(approver, path, { decision: 'approve' });
@@ -132,8 +161,24 @@ test('a player opts in, staff preview and approve, and the player unsubscribes f
       "SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='operational'",
       [recipient.id],
     ))[0].email_enabled).toBe(true);
+    const origin = new URL(page.url()).origin;
+    expect((await page.request.post(link, {
+      form: { 'List-Unsubscribe': 'One-Click' }, headers: { origin },
+    })).status()).toBe(403);
     await page.locator('main form button').click();
     expect((await page.goto(preferencePath)).status()).toBe(200);
+    await expect(page.locator('[name=operational_email]')).not.toBeChecked();
+
+    await setConsent(page, true);
+    const mailClient = (await open()).request;
+    expect((await mailClient.post(link, {
+      form: { 'List-Unsubscribe': 'Unknown' },
+    })).status()).toBe(422);
+    const encoding = lang === 'pl' ? 'multipart' : 'form';
+    expect((await mailClient.post(link, {
+      [encoding]: { 'List-Unsubscribe': 'One-Click' },
+    })).status()).toBe(200);
+    await page.reload();
     await expect(page.locator('[name=operational_email]')).not.toBeChecked();
   } finally {
     await query(
@@ -142,4 +187,33 @@ test('a player opts in, staff preview and approve, and the player unsubscribes f
     );
     await Promise.all(contexts.map(context => context.close()));
   }
+});
+
+
+test('preview requests have a bounded allowance', async ({ page }, info) => {
+  const lang = info.project.metadata.locale;
+  const author = await seededMfaAccount(lang);
+  await grant(author, ['mail.operational.compose']);
+  await seededLogin(page, lang, author);
+  expect((await page.goto(root)).status()).toBe(200);
+  const form = page.locator(`form[action="${root}"]`);
+  const request_id = await form.locator('[name=request_id]').inputValue();
+  const csrf = await form.locator('[name=_csrf]').inputValue();
+  await query(`
+    INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+    SELECT 'operational-mail-preview',sha256(uuid_send($1)),date_trunc('minute',now()) + window_offset,4
+    FROM (VALUES (interval '0 minutes'), (interval '1 minute')) AS windows(window_offset)
+  `, [author.id]);
+  const draft = {
+    request_id,
+    audience: 'all',
+    subject_pl: 'Przerwa',
+    body_pl: '   ',
+    subject_en: 'Maintenance',
+    body_en: 'Scheduled maintenance',
+  };
+  expect((await post(page, root, draft, csrf)).status()).toBe(400);
+  const limited = await post(page, root, draft, csrf);
+  expect(limited.status()).toBe(429);
+  expect(Number(limited.headers()['retry-after'])).toBeGreaterThan(0);
 });

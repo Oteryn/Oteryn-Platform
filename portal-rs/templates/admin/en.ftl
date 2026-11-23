@@ -105,6 +105,6 @@ operational-mail-missing = The mailing could not be found.
 operational-mail-conflict = The mailing has already been reviewed, has expired or conflicts with a saved preview.
 operational-mail-empty = No eligible recipients. Choose an audience with opted-in players and create a new preview.
 operational-mail-audience-limit = The audience exceeds the recipient limit. Choose a smaller segment.
-operational-mail-rate-limit = Too many previews. Try again in a minute.
+operational-mail-rate-limit = Too many requests. Try again in a minute.
 operational-mail-denied = You do not have permission to perform this action.
 operational-mail-unavailable = Operational email is currently unavailable.

@@ -12,9 +12,12 @@
   white-space: normal;
 }
 
+.operational-mail :is(h3, li, .operational-mail-body) {
+  overflow-wrap: anywhere;
+}
+
 .operational-mail .operational-mail-body {
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .operational-mail-counts {

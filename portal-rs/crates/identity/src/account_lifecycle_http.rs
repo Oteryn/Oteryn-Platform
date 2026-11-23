@@ -2,8 +2,9 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode},
+    extract::{ConnectInfo, FromRequest, Multipart, Request, State},
+    http::{HeaderMap, StatusCode, header},
+    middleware::Next,
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -147,12 +148,18 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
             .route("/{lang}/unsubscribe", get(unsubscribe_page));
     }
     let mut routes = routes.route_layer(axum::middleware::from_fn_with_state(
-        sessions,
+        sessions.clone(),
         oteryn_web::session::middleware,
     ));
     if notifications.is_some() {
-        routes = routes
-            .merge(Router::new().route("/{lang}/unsubscribe", axum::routing::post(unsubscribe)));
+        routes = routes.merge(
+            Router::new()
+                .route("/{lang}/unsubscribe", axum::routing::post(unsubscribe))
+                .route_layer(axum::middleware::from_fn_with_state(
+                    sessions,
+                    unsubscribe_session,
+                )),
+        );
     }
     let routes = routes
         .with_state(Services {
@@ -453,18 +460,81 @@ async fn unsubscribe_page(
     );
     Ok(response)
 }
+async fn unsubscribe_session(state: State<SessionLayer>, request: Request, next: Next) -> Response {
+    let Ok(query) = axum::extract::Query::<Token>::try_from_uri(request.uri()) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    if query.token.is_empty() || query.token.len() > 256 {
+        return StatusCode::UNPROCESSABLE_ENTITY.into_response();
+    }
+    let headers = request.headers();
+    if headers.contains_key(header::ORIGIN)
+        || headers.contains_key("sec-fetch-site")
+        || headers.contains_key("sec-fetch-mode")
+    {
+        oteryn_web::session::middleware(state, request, next).await
+    } else {
+        next.run(request).await
+    }
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OneClick {
+    #[serde(rename = "List-Unsubscribe")]
+    action: String,
+}
+
+async fn one_click(request: Request) -> Result<(), StatusCode> {
+    let invalid = StatusCode::UNPROCESSABLE_ENTITY;
+    let multipart = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("multipart/form-data;"));
+    let action = if multipart {
+        let mut fields = Multipart::from_request(request, &())
+            .await
+            .map_err(|_| invalid)?;
+        let field = fields
+            .next_field()
+            .await
+            .map_err(|_| invalid)?
+            .ok_or(invalid)?;
+        if field.name() != Some("List-Unsubscribe") || field.file_name().is_some() {
+            return Err(invalid);
+        }
+        let action = field.text().await.map_err(|_| invalid)?;
+        if fields.next_field().await.map_err(|_| invalid)?.is_some() {
+            return Err(invalid);
+        }
+        action
+    } else {
+        Form::<OneClick>::from_request(request, &())
+            .await
+            .map_err(|_| invalid)?
+            .0
+            .action
+    };
+    if action != "One-Click" {
+        return Err(invalid);
+    }
+    Ok(())
+}
+
 async fn unsubscribe(
     State(st): State<Services>,
     supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
+    browser: Option<Extension<BrowserSession>>,
     axum::extract::Query(q): axum::extract::Query<Token>,
+    request: Request,
 ) -> Result<Response, StatusCode> {
     let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
     if let Err(r) = rate(
         &limiter,
-        &headers,
+        request.headers(),
         peer,
         None,
         l,
@@ -474,6 +544,9 @@ async fn unsubscribe(
     .await
     {
         return Ok(r);
+    }
+    if browser.is_none() {
+        one_click(request).await?;
     }
     let mut tx = st
         .pool

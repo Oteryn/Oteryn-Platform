@@ -9,10 +9,10 @@ pub const BODY_LIMIT: usize = 4000;
 
 pub fn valid_content(subject: &str, body: &str) -> bool {
     !subject.trim().is_empty()
-        && subject.len() <= SUBJECT_LIMIT
+        && subject.chars().count() <= SUBJECT_LIMIT
         && !subject.chars().any(char::is_control)
         && !body.trim().is_empty()
-        && body.len() <= BODY_LIMIT
+        && body.chars().count() <= BODY_LIMIT
         && !body
             .chars()
             .any(|c| c.is_control() && !matches!(c, '\t' | '\r' | '\n'))
@@ -98,12 +98,30 @@ pub async fn enqueue(
 
 pub(crate) async fn deliver(
     pool: &PgPool,
+    job: Uuid,
     account: Uuid,
     email: &Email,
     sender: &dyn EmailSender,
 ) -> Result<()> {
     let mut tx = pool.begin().await?;
     oteryn_db::mutation_budget(&mut tx).await?;
+    let skipped: bool = outbox::query_scalar(
+        "SELECT skipped_at IS NOT NULL FROM operational_mail_recipients
+         WHERE mail_id=$1 AND job_id=$2 AND account_id=$3 FOR UPDATE",
+    )
+    .bind(email.id)
+    .bind(job)
+    .bind(account)
+    .fetch_one(&mut *tx)
+    .await?;
+    let delivered: bool =
+        outbox::query_scalar("SELECT delivered_at IS NOT NULL FROM email_outbox WHERE id=$1")
+            .bind(email.id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if skipped || delivered {
+        return Ok(());
+    }
     // The account and consent locks serialize dispatch with preference changes
     // and address/locale changes. SMTP is bounded while the locks are held.
     let account_matches: Option<bool> = outbox::query_scalar(

@@ -470,7 +470,7 @@ impl Notifications {
             unsubscribe,
         };
         if category == Category::Operational {
-            return crate::operational::deliver(&self.pool, account, &email, sender).await;
+            return crate::operational::deliver(&self.pool, job.id, account, &email, sender).await;
         }
         let state = self
             .accounts

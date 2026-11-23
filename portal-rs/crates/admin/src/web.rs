@@ -471,6 +471,28 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
+pub(crate) async fn charge_staff_quota(
+    pool: &PgPool,
+    actor: Uuid,
+    name: &str,
+    limit: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES($1,sha256(uuid_send($2)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$3+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(name)
+    .bind(actor)
+    .bind(limit)
+    .fetch_one(pool)
+    .await?;
+    Ok((count > limit).then_some(retry_after))
+}
+
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)

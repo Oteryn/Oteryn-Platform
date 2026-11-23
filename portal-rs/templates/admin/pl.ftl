@@ -105,6 +105,6 @@ operational-mail-missing = Nie znaleziono wysyłki.
 operational-mail-conflict = Wysyłka została już rozpatrzona, termin minął lub wystąpił konflikt z zapisanym podglądem.
 operational-mail-empty = Brak uprawnionych odbiorców. Wybierz grupę z wyrażoną zgodą i utwórz nowy podgląd.
 operational-mail-audience-limit = Grupa przekracza limit odbiorców. Wybierz mniejszą grupę.
-operational-mail-rate-limit = Utworzono zbyt wiele podglądów. Spróbuj ponownie za minutę.
+operational-mail-rate-limit = Zbyt wiele żądań. Spróbuj ponownie za minutę.
 operational-mail-denied = Brak uprawnień do wykonania tej czynności.
 operational-mail-unavailable = Wiadomości organizacyjne są obecnie niedostępne.
