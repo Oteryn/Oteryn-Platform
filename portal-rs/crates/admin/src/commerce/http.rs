@@ -53,6 +53,10 @@ fn routes<A: rbac::AccountStateReader + 'static, E: Effects + 'static>(
     Router::new()
         .route("/admin/commerce", get(page::<A, E>))
         .route("/admin/commerce/{action}", post(submit::<A, E>))
+        .route(
+            "/admin/commerce/operation-status",
+            get(super::operation_status::page::<A, E>),
+        )
         .route("/admin/commerce/approvals/{id}", post(approve::<A, E>))
         .route("/admin/commerce/cancellations/{id}", post(cancel::<A, E>))
         .with_state(service.clone())
@@ -121,9 +125,9 @@ fn enabled(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("true")
 }
 #[derive(Clone, Copy)]
-pub(super) struct Locale(&'static str);
+pub(super) struct Locale(pub(super) &'static str);
 impl Locale {
-    fn from_headers(headers: &HeaderMap) -> Self {
+    pub(super) fn from_headers(headers: &HeaderMap) -> Self {
         for header in headers.get_all(axum::http::header::COOKIE) {
             if let Ok(cookies) = header.to_str() {
                 for cookie in cookies.split(';') {
@@ -210,6 +214,7 @@ struct Page {
     next_label: String,
     next: Option<Uuid>,
     csrf: String,
+    operation_status: Option<String>,
     actions: Vec<Action>,
     pending: Vec<Pending>,
 }
@@ -285,6 +290,11 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
             Err(error) => return failure(locale, error),
         }
     }
+    let operation_status = match s.authorize(context, &Command::Reconcile).await {
+        Ok(()) => Some(locale.text("status-title")),
+        Err(Error::Denied) => None,
+        Err(error) => return failure(locale, error),
+    };
     // Apply permission predicates in SQL before exposing any queue entries.
     let rows = sqlx::query("SELECT id,target_id,actor_id,command,review FROM commerce_operations WHERE result IS NULL AND ($3::uuid IS NULL OR (created_at,id)>(SELECT created_at,id FROM commerce_operations WHERE id=$3)) AND ((command->>'kind'='adjust' AND $1) OR (command->>'kind'='refund' AND $2) OR (command->>'kind'='grant' AND $4)) ORDER BY created_at,id LIMIT 101")
         .bind(actions.iter().any(|a| a.key=="adjust")).bind(actions.iter().any(|a| a.key=="refund")).bind(filter.after).bind(actions.iter().any(|a| a.key=="grant")).fetch_all(&s.pool).await;
@@ -357,6 +367,7 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         next_label: locale.text("next"),
         next,
         csrf,
+        operation_status,
         actions,
         pending,
     })
@@ -499,7 +510,7 @@ async fn cancel<A: rbac::AccountStateReader, E: Effects>(
         Err(e) => failure(Locale::from_headers(&headers), e),
     }
 }
-fn failure(locale: Locale, error: Error) -> Response {
+pub(super) fn failure(locale: Locale, error: Error) -> Response {
     let (status, key) = match error {
         Error::Invalid => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
         Error::Denied => (StatusCode::FORBIDDEN, "denied"),

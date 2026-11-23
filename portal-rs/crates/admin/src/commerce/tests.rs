@@ -2666,3 +2666,148 @@ async fn payment_qualification_requires_reconciliation_permission_and_valid_ids(
     }
     h.close().await;
 }
+
+#[tokio::test]
+async fn postgres_coin_operation_lookup_permissions_and_input() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(h) = Harness::new().await else {
+        return;
+    };
+    let ledger = wallet::Ledger::new(
+        h.pool.clone(),
+        wallet::WalletFlags { enabled: true },
+        wallet::wire::DatabasePolicy,
+        wallet::wire::DatabasePolicy,
+        Authority(h.pool.clone()),
+    );
+    h.effects()
+        .wallet
+        .adjust(
+            Uuid::now_v7(),
+            h.target,
+            20,
+            h.actor,
+            "Qualification funding",
+        )
+        .await
+        .unwrap();
+    let operation = Uuid::now_v7();
+    for replay in [false, true] {
+        assert_eq!(
+            ledger
+                .transfer(operation, h.target, h.second, 7)
+                .await
+                .unwrap()
+                .replayed,
+            replay
+        );
+    }
+    let reservation = Uuid::now_v7();
+    let trade = Uuid::now_v7();
+    ledger
+        .reserve_offer(reservation, h.target, 10, 4)
+        .await
+        .unwrap();
+    for replay in [false, true] {
+        assert_eq!(
+            ledger
+                .settle(trade, reservation, h.second, 6)
+                .await
+                .unwrap()
+                .replayed,
+            replay
+        );
+    }
+    sqlx::query(
+        "INSERT INTO account_roles(account_id, role_id)
+         SELECT $1, id FROM roles WHERE key = 'moderator'",
+    )
+    .bind(h.target)
+    .execute(&h.pool)
+    .await
+    .unwrap();
+    for (actor, query, status, expected) in [
+        (
+            h.actor,
+            format!("source=wallet&id={operation}"),
+            StatusCode::OK,
+            "Coin transfer",
+        ),
+        (
+            h.actor,
+            format!("source=wallet&id={trade}"),
+            StatusCode::OK,
+            "Coin market settlement",
+        ),
+        (
+            h.actor,
+            format!("source=wallet&id={reservation}"),
+            StatusCode::OK,
+            "Coin market reservation",
+        ),
+        (
+            h.actor,
+            format!("source=wallet&id={}", Uuid::now_v7()),
+            StatusCode::OK,
+            "No committed Platform record",
+        ),
+        (
+            h.actor,
+            format!("source=store&id={operation}"),
+            StatusCode::OK,
+            "No committed Platform record",
+        ),
+        (
+            h.actor,
+            "source=wallet&id=invalid".into(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "Invalid input",
+        ),
+        (
+            h.target,
+            format!("source=wallet&id={operation}"),
+            StatusCode::FORBIDDEN,
+            "",
+        ),
+    ] {
+        let response = router(
+            h.pool.clone(),
+            crate::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Session(actor, h.pool.clone()),
+            Authority(h.pool.clone()),
+            h.effects(),
+            flags(),
+        )
+        .oneshot(
+            HttpRequest::get(format!("/admin/commerce/operation-status?{query}"))
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), status);
+        let html = String::from_utf8(
+            to_bytes(response.into_body(), 200_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        if status == StatusCode::FORBIDDEN {
+            assert!(!html.contains(&operation.to_string()));
+        } else {
+            assert!(html.contains(expected));
+        }
+        if query.ends_with(&trade.to_string()) {
+            assert!(html.contains("Game gold settlement"));
+            assert!(html.contains("Commerce is temporarily unavailable."));
+            assert!(html.contains("<dd>4</dd>"));
+        }
+    }
+    h.close().await;
+}
