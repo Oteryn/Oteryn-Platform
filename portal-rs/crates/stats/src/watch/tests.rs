@@ -78,6 +78,13 @@ async fn database() -> Result<Option<PgPool>> {
     ))
     .execute(&pool)
     .await?;
+    sqlx::query(
+        "ALTER TABLE email_outbox ADD COLUMN template_kind text CHECK (
+            template_kind IN ('new-device', 'password-changed', 'news', 'support')
+        )",
+    )
+    .execute(&pool)
+    .await?;
     Ok(Some(pool))
 }
 async fn dispose(pool: PgPool) -> Result<()> {

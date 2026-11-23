@@ -8,6 +8,10 @@ const ENABLED: Features = Features {
     game_access: true,
 };
 
+pub(super) const AUDIT_ACTOR_SOURCE_COLUMN: &str =
+    "ALTER TABLE audit_log ADD COLUMN actor_source text
+     CHECK (actor_source IS NULL OR (actor_source='operator-cli' AND actor IS NULL))";
+
 struct Database {
     pool: PgPool,
     admin: PgPool,
@@ -61,6 +65,9 @@ impl Database {
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
+        sqlx::query(AUDIT_ACTOR_SOURCE_COLUMN)
+            .execute(&pool)
+            .await?;
         let session_generation =
             include_str!("../../../../migrations/20261115110002_fix_02_identity.sql")
                 .lines()

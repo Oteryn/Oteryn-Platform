@@ -503,8 +503,9 @@ mod tests {
         ] {
             assert!(body.contains(expected), "missing {expected}");
         }
-        assert_eq!(body.matches("<script").count(), 1);
+        assert_eq!(body.matches("<script").count(), 2);
         assert!(body.contains("src=\"/static/thais/home.js\""));
+        assert!(body.contains("src=\"/static/status/status.js\""));
         assert!(!body.contains("style="));
         Ok(())
     }

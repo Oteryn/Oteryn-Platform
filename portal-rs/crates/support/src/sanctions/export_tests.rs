@@ -197,6 +197,9 @@ impl Database {
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
+        sqlx::query(crate::sanctions::tests::AUDIT_ACTOR_SOURCE_COLUMN)
+            .execute(&pool)
+            .await?;
         let session_generation =
             include_str!("../../../../migrations/20261115110002_fix_02_identity.sql")
                 .lines()
