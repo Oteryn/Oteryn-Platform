@@ -1,9 +1,10 @@
 //! News storage and public and staff routes.
 use crate::revisions::{self, Edit, Target};
+use crate::editorial::{self, Window};
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
@@ -90,6 +91,13 @@ impl Options {
             "pl"
         }
     }
+    fn staff_lang(&self, chrome: Option<&oteryn_ui::Chrome>, headers: &HeaderMap) -> &'static str {
+        match self.lang.as_deref() {
+            Some("pl") => "pl",
+            Some("en") => "en",
+            _ => editorial::staff_language(chrome, headers),
+        }
+    }
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
         let n = self.page.unwrap_or(1);
         if !(1..=MAX_PAGE).contains(&n) {
@@ -125,6 +133,12 @@ struct Input {
     body_pl: String,
     #[serde(default)]
     translation_published_at: String,
+    #[serde(default)]
+    action: String,
+    #[serde(default)]
+    schedule_at: String,
+    #[serde(default)]
+    schedule_until: String,
 }
 fn slug_valid(s: &str) -> bool {
     !s.is_empty()
@@ -237,7 +251,7 @@ pub async fn headlines(
     limit: i64,
 ) -> Result<Vec<oteryn_ui::HomeNews>, sqlx::Error> {
     let lang = lang.code();
-    let rows = sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,to_char(published_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day FROM news WHERE NOT is_changelog AND published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT $2").bind(lang).bind(limit.clamp(0, 10)).fetch_all(pool).await?;
+    let rows = sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,to_char(published_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS day FROM news WHERE NOT is_changelog AND published_at <= now() AND (expires_at IS NULL OR now() < expires_at) AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT $2").bind(lang).bind(limit.clamp(0, 10)).fetch_all(pool).await?;
     let mut entries = Vec::with_capacity(rows.len());
     for row in rows {
         let slug: String = row.try_get("slug")?;
@@ -296,6 +310,7 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
                 CASE WHEN $1='pl' THEN body_pl ELSE body END AS body
            FROM news
           WHERE published_at <= now() AND slug=$2
+            AND (expires_at IS NULL OR now() < expires_at)
             AND ($1='en' OR (translation_published_at <= now()
                  AND translation_source_updated_at >= updated_at
                  AND length(trim(title_pl)) > 0 AND length(trim(body_pl)) > 0))",
@@ -321,55 +336,110 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
         ),
     ))
 }
+#[derive(askama::Template)]
+#[template(path = "admin/news/index.html", config = "src/pages/askama.toml")]
+struct NewsQueue<'a> {
+    lang: &'a str,
+    title: String,
+    create: String,
+    next: Option<i64>,
+    next_label: String,
+    end_label: String,
+    rows: Vec<NewsQueueRow>,
+}
+
+struct NewsQueueRow {
+    id: Uuid,
+    title: String,
+    kind: String,
+    en_status: String,
+    pl_status: String,
+    start: String,
+    pl_start: String,
+    end: String,
+}
 
 async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+) -> Result<Response, StatusCode> {
     let rows = sqlx::query(
-        "SELECT id,title,is_changelog FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
+        "SELECT id,title,is_changelog,to_jsonb(published_at)#>>'{}' AS starts_at,
+                 to_jsonb(pl_start)#>>'{}' AS pl_starts_at,to_jsonb(expires_at)#>>'{}' AS ends_at,
+                 COALESCE(published_at>now(),false) AS pending,
+                 COALESCE(pl_start>now(),false) AS pending_pl,
+                 COALESCE(expires_at<=now(),false) AS expired,
+                 COALESCE(translation_source_updated_at>=updated_at
+                    AND length(trim(title_pl))>0 AND length(trim(body_pl))>0,false) AS current_pl
+         FROM (
+             SELECT news.*, CASE WHEN published_at IS NOT NULL AND translation_published_at IS NOT NULL
+                 THEN greatest(published_at,translation_published_at) END AS pl_start
+             FROM news
+         ) editions
+         ORDER BY CASE WHEN published_at>now() THEN published_at END NULLS LAST,
+                  updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
     .bind(q.offset(25)?)
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.lang();
-    let mut html = format!(
-        "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
-        label(lang, "new")
-    );
-    let has_next = rows.len() > 25 && q.page.unwrap_or(1) < MAX_PAGE;
-    for row in rows.into_iter().take(25) {
-        let id: Uuid = row.get("id");
-        let kind = if row.get("is_changelog") {
-            "changelog"
-        } else {
-            "news"
-        };
-        html.push_str(&format!(
-            "<p><a href=\"/admin/news/{id}/edit?lang={lang}\">{}</a> · {}</p>",
-            escape(row.get("title")),
-            label(lang, kind)
-        ));
-    }
-    if has_next {
-        html.push_str(&format!(
-            "<a href=\"?page={}&amp;lang={lang}\">{}</a>",
-            q.page.unwrap_or(1) + 1,
-            label(lang, "next")
-        ));
-    }
-    Ok(page(lang, &label(lang, "news"), html))
+    let lang = q.staff_lang(chrome.as_deref(), &headers);
+    let next = q.page.unwrap_or(1) + 1;
+    let next = (rows.len() > 25 && next <= MAX_PAGE).then_some(next);
+    let rows = rows
+        .into_iter()
+        .take(25)
+        .map(|row| {
+            let start: Option<String> = row.get("starts_at");
+            let pl_start: Option<String> = row.get("pl_starts_at");
+            let expired = row.get("expired");
+            NewsQueueRow {
+                id: row.get("id"),
+                title: row.get("title"),
+                kind: label(lang, if row.get("is_changelog") { "changelog" } else { "news" }),
+                en_status: crate::pages::text(
+                    lang,
+                    editorial::status(start.is_some(), row.get("pending"), expired, true),
+                ),
+                pl_status: crate::pages::text(
+                    lang,
+                    editorial::status(
+                        pl_start.is_some(),
+                        row.get("pending_pl"),
+                        expired,
+                        row.get("current_pl"),
+                    ),
+                ),
+                start: start.unwrap_or_default(),
+                pl_start: pl_start.unwrap_or_default(),
+                end: row.get::<Option<String>, _>("ends_at").unwrap_or_default(),
+            }
+        })
+        .collect();
+    Ok(oteryn_web::render(&NewsQueue {
+        lang,
+        title: label(lang, "news"),
+        create: label(lang, "new"),
+        next,
+        next_label: label(lang, "next"),
+        end_label: crate::pages::text(lang, "publication-end-label"),
+        rows,
+    }))
 }
+
 async fn new(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     Query(q): Query<Options>,
+    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
-        q.lang(),
-        q.lang(),
+        q.staff_lang(chrome.as_deref(), &headers),
+        editorial::staff_language(chrome.as_deref(), &headers),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -381,18 +451,32 @@ async fn edit(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
+    headers: HeaderMap,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
-    let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,is_changelog,tags,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
-    let history_lang = revisions::language(chrome.as_deref());
-    let lang = q
-        .lang
-        .as_deref()
-        .filter(|lang| matches!(*lang, "en" | "pl"))
-        .unwrap_or(history_lang);
+    let row = sqlx::query(
+        "SELECT updated_at::text AS expected_revision,slug,title,body,is_changelog,tags,
+                COALESCE(to_jsonb(published_at)#>>'{}','') AS published_at,
+                COALESCE(to_jsonb(expires_at)#>>'{}','') AS expires_at,
+                coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,
+                COALESCE(to_jsonb(translation_published_at)#>>'{}','') AS translation_published_at
+         FROM news WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(unavailable)?
+    .ok_or(StatusCode::NOT_FOUND)?;
+    let published_at: String = row.get("published_at");
+    let translation_published_at: String = row.get("translation_published_at");
+    let schedule_at = if published_at == translation_published_at {
+        published_at.clone()
+    } else {
+        String::new()
+    };
     Ok(form(
-        lang,
-        history_lang,
+        q.staff_lang(chrome.as_deref(), &headers),
+        editorial::staff_language(chrome.as_deref(), &headers),
         Some(id),
         Input {
             kind: Some(if row.get("is_changelog") {
@@ -405,10 +489,13 @@ async fn edit(
             slug: row.get("slug"),
             title: row.get("title"),
             body: row.get("body"),
-            published_at: row.get("published_at"),
+            published_at,
             title_pl: row.get("title_pl"),
             body_pl: row.get("body_pl"),
-            translation_published_at: row.get("translation_published_at"),
+            translation_published_at,
+            schedule_at,
+            schedule_until: row.get("expires_at"),
+            ..Input::default()
         },
         session.csrf_token().await.map_err(unavailable)?,
     ))
@@ -432,7 +519,8 @@ fn form(
         )
     });
     html.push_str(&format!(
-        "<form class=\"op-stack\" method=\"post\" action=\"{action}?lang={lang}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\">",
+        "<a href=\"/admin/news?lang={lang}\">{}</a><form class=\"op-stack\" method=\"post\" action=\"{action}?lang={lang}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\">",
+        label(lang, "news"),
         escape(&csrf)
     ));
     html.push_str(&format!(
@@ -492,9 +580,23 @@ fn form(
             )
         });
     }
+    let text = |key| crate::pages::text(lang, key);
     html.push_str(&format!(
-        "<button class=\"op-button\">{}</button></form>",
-        label(lang, "save")
+        "<button class=\"op-button\" name=\"action\" value=\"save\">{}</button>
+        <fieldset class=\"op-stack\"><legend>{}</legend><p id=\"window-format\">{}</p>
+        <label for=\"schedule_at\">{}</label>
+        <input class=\"op-input\" id=\"schedule_at\" name=\"schedule_at\" value=\"{}\" maxlength=\"35\" aria-describedby=\"window-format\">
+        <label for=\"schedule_until\">{}</label>
+        <input class=\"op-input\" id=\"schedule_until\" name=\"schedule_until\" value=\"{}\" maxlength=\"35\" aria-describedby=\"window-format\">
+        <button class=\"op-button\" name=\"action\" value=\"schedule\">{}</button></fieldset></form>",
+        label(lang, "save"),
+        text("publication-queue"),
+        text("publication-format"),
+        text("publication-start"),
+        escape(&input.schedule_at),
+        text("publication-end"),
+        escape(&input.schedule_until),
+        text("publication-schedule"),
     ));
     if let Some(id) = id {
         html.push_str(&format!("<form class=\"op-stack\" method=\"post\" action=\"/admin/news/{id}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><button class=\"op-button\">{}</button></form>",escape(&csrf),escape(&expected_revision),label(lang,"delete")));
@@ -539,19 +641,60 @@ async fn create(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
+    Query(q): Query<Options>,
+    headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    save(&pool, &auth, context, None, input).await
+    let scheduled = input.action == "schedule";
+    let lang = q.staff_lang(chrome.as_deref(), &headers);
+    match save(&pool, &auth, context, None, input).await {
+        Err(StatusCode::UNPROCESSABLE_ENTITY) if scheduled => Ok(editorial::form_error(
+            lang,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "publication-news-invalid",
+            &format!("/admin/news/create?lang={lang}"),
+        )),
+        Ok(response) => Ok(preserve_staff_language(response, &q, lang)),
+        Err(status) => Err(status),
+    }
 }
 async fn update(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    Query(q): Query<Options>,
+    (headers, chrome): (HeaderMap, Option<Extension<oteryn_ui::Chrome>>),
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    save(&pool, &auth, context, Some(id), input).await
+    let scheduled = input.action == "schedule";
+    let lang = q.staff_lang(chrome.as_deref(), &headers);
+    match save(&pool, &auth, context, Some(id), input).await {
+        Err(StatusCode::UNPROCESSABLE_ENTITY) if scheduled => Ok(editorial::form_error(
+            lang,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "publication-news-invalid",
+            &format!("/admin/news/{id}/edit?lang={lang}"),
+        )),
+        Ok(response) => Ok(preserve_staff_language(response, &q, lang)),
+        Err(status) => Err(status),
+    }
 }
+fn preserve_staff_language(mut response: Response, q: &Options, lang: &str) -> Response {
+    use axum::http::header::LOCATION;
+    if q.lang.is_some()
+        && let Some(location) = response
+            .headers()
+            .get(LOCATION)
+            .and_then(|value| value.to_str().ok())
+        && let Ok(location) = format!("{location}?lang={lang}").parse()
+    {
+        response.headers_mut().insert(LOCATION, location);
+    }
+    response
+}
+
 fn storage(e: sqlx::Error) -> StatusCode {
     if e.as_database_error().is_some_and(|e| {
         e.is_unique_violation()
@@ -621,7 +764,7 @@ async fn save_change(
                 unavailable(e)
             }
         })?;
-    let (input, restored_from) = match change {
+    let (mut input, restored_from) = match change {
         Edit::Save(input) => {
             if let Some(id) = id {
                 verify_revision(&mut tx, id, &input.expected_revision).await?;
@@ -665,6 +808,17 @@ async fn save_change(
             )
         }
     };
+    let paired = match input.action.as_str() {
+        "" | "save" => None,
+        "schedule" if !input.title_pl.trim().is_empty() && !input.body_pl.trim().is_empty() => {
+            let window = Window::parse(&input.schedule_at, &input.schedule_until)
+                .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+            input.published_at = editorial::format_timestamp(Some(window.start));
+            input.translation_published_at.clone_from(&input.published_at);
+            Some(window)
+        }
+        _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
+    };
     if !input.valid() {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
@@ -677,7 +831,8 @@ async fn save_change(
     } else {
         "cms.news_created"
     };
-    let (id, is_changelog, tags): (Uuid, bool, Vec<String>) = if let Some(id) = id {
+    let end = paired.as_ref().and_then(|window| window.end);
+    let (id, is_changelog, tags, expiry): (Uuid, bool, Vec<String>, Option<String>) = if let Some(id) = id {
         sqlx::query_as(
             "WITH revision AS MATERIALIZED (
                 SELECT greatest(clock_timestamp(), updated_at + interval '1 microsecond') AS stamp
@@ -686,7 +841,9 @@ async fn save_change(
              UPDATE news SET slug=$2, title=$3, body=$4, published_at=NULLIF($5,'')::timestamptz,
                    title_pl=NULLIF($6,''), body_pl=NULLIF($7,''),
                    translation_published_at=NULLIF($8,'')::timestamptz,
+                   expires_at=CASE WHEN $11 THEN $12 WHEN $5='' THEN NULL ELSE expires_at END,
                    translation_source_updated_at=CASE
+                       WHEN $11 THEN (SELECT stamp FROM revision)
                        WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz
                            AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision)
                        WHEN (title,body) IS DISTINCT FROM ($3,$4)
@@ -697,7 +854,7 @@ async fn save_change(
                        ELSE NULL END,
                    is_changelog=coalesce($9,is_changelog), tags=coalesce($10,tags),
                    updated_at=(SELECT stamp FROM revision)
-             WHERE id=$1 RETURNING id,is_changelog,tags",
+             WHERE id=$1 RETURNING id,is_changelog,tags,to_jsonb(expires_at)#>>'{}'",
         )
         .bind(id)
         .bind(&input.slug)
@@ -709,6 +866,8 @@ async fn save_change(
         .bind(&input.translation_published_at)
         .bind(is_changelog)
         .bind(&tags)
+        .bind(paired.is_some())
+        .bind(end)
         .fetch_optional(&mut *tx)
         .await
         .map_err(|error| {
@@ -724,9 +883,9 @@ async fn save_change(
     } else {
         sqlx::query_as(
             "INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,
-                              translation_source_updated_at,is_changelog,tags)
+                              translation_source_updated_at,is_changelog,tags,expires_at)
              VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),
-                    NULLIF($7,'')::timestamptz,now(),$8,$9) RETURNING id,is_changelog,tags",
+                    NULLIF($7,'')::timestamptz,now(),$8,$9,$10) RETURNING id,is_changelog,tags,to_jsonb(expires_at)#>>'{}'",
         )
         .bind(&input.slug)
         .bind(&input.title)
@@ -737,6 +896,7 @@ async fn save_change(
         .bind(&input.translation_published_at)
         .bind(is_changelog.unwrap_or_default())
         .bind(tags.unwrap_or_default())
+        .bind(end)
         .fetch_one(&mut *tx)
         .await
         .map_err(storage)?
@@ -745,7 +905,7 @@ async fn save_change(
         .append(&mut tx, context.account, restored_from)
         .await
         .map_err(unavailable)?;
-    let mut after = json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at,"is_changelog":is_changelog,"tags":tags});
+    let mut after = json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at,"is_changelog":is_changelog,"tags":tags,"expires_at":expiry});
     if let Some(source) = restored_from {
         after["restored_from"] = json!(source);
     }
@@ -893,6 +1053,7 @@ async fn headers(
             "permissions-policy",
             "camera=(), microphone=(), geolocation=()",
         ),
+        ("cache-control", "no-store"),
     ] {
         response.headers_mut().insert(
             axum::http::HeaderName::from_static(name),

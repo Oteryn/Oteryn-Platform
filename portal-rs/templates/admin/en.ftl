@@ -268,3 +268,5 @@ system-configuration = Configuration presence
 system-set = Set
 system-unset = Unset
 forum = Community forum
+editorial-news = News
+editorial-pages = Pages

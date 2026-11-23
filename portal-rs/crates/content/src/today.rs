@@ -106,7 +106,7 @@ async fn latest_news(
     lang: &str,
     at: OffsetDateTime,
 ) -> Result<Vec<Item>, sqlx::Error> {
-    let rows:Vec<(String,String,String)>=sqlx::query_as("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END,CASE WHEN $1='pl' THEN body_pl ELSE body END FROM news WHERE published_at <= $2 AND ($1='en' OR (translation_published_at <= $2 AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 3").bind(lang).bind(at).fetch_all(pool).await?;
+    let rows:Vec<(String,String,String)>=sqlx::query_as("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END,CASE WHEN $1='pl' THEN body_pl ELSE body END FROM news WHERE published_at <= $2 AND (expires_at IS NULL OR $2 < expires_at) AND ($1='en' OR (translation_published_at <= $2 AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 3").bind(lang).bind(at).fetch_all(pool).await?;
     Ok(rows
         .into_iter()
         .map(|(slug, title, body)| Item {

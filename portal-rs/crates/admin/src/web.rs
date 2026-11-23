@@ -662,6 +662,8 @@ struct Page {
     can_view_charts: bool,
     newsletter_label: Option<String>,
     forum_label: Option<String>,
+    news_label: Option<String>,
+    pages_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -788,6 +790,18 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         .await
         .ok()
         .map(|()| text(lang, "system-title"));
+    let news_label = s
+        .auth
+        .check(context, Permission::ManageNews)
+        .await
+        .is_ok()
+        .then(|| text(lang, "editorial-news"));
+    let pages_label = s
+        .auth
+        .check(context, Permission::ManagePages)
+        .await
+        .is_ok()
+        .then(|| text(lang, "editorial-pages"));
     oteryn_web::render(&Page {
         lang,
         registration_policy_label,
@@ -829,6 +843,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .ok()
             .map(|()| text(lang, "forum")),
+        news_label,
+        pages_label,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

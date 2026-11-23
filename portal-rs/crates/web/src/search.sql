@@ -1,12 +1,15 @@
 WITH documents AS (
  SELECT 'news'::text kind, slug, CASE WHEN $1='pl' THEN title_pl ELSE title END title,
  CASE WHEN $1='pl' THEN body_pl ELSE body END body FROM news
- WHERE published_at<=now() AND ($1='en' OR (translation_published_at<=now() AND translation_source_updated_at>=updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0))
+ WHERE published_at<=now() AND (expires_at IS NULL OR now()<expires_at)
+ AND ($1='en' OR (translation_published_at<=now() AND translation_source_updated_at>=updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0))
  UNION ALL
  SELECT 'pages',p.slug,e.title,e.body FROM pages p
  JOIN editorial_pages e ON e.page_id=p.id AND e.locale=$1
  JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
  WHERE p.slug <> 'getting-started' AND e.published_at<=now() AND source.published_at<=now()
+ AND (e.expires_at IS NULL OR now()<e.expires_at)
+ AND (source.expires_at IS NULL OR now()<source.expires_at)
  AND (e.locale='en' OR e.source_revision=source.revision)
  AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))
  UNION ALL

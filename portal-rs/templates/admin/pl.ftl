@@ -268,3 +268,5 @@ system-configuration = Obecność ustawień
 system-set = Ustawiono
 system-unset = Brak
 forum = Forum społeczności
+editorial-news = Aktualności
+editorial-pages = Strony

@@ -111,6 +111,7 @@ async fn entries(
                      THEN to_char(published_at AT TIME ZONE 'UTC', 'Dy, DD Mon YYYY HH24:MI:SS') END AS rss_date
            FROM news
           WHERE is_changelog=$2 AND published_at<=now()
+            AND (expires_at IS NULL OR now() < expires_at)
             AND ($1='en' OR (translation_published_at<=now()
                  AND translation_source_updated_at>=updated_at
                  AND length(trim(title_pl))>0 AND length(trim(body_pl))>0))

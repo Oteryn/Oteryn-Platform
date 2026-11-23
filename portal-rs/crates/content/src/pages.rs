@@ -44,25 +44,40 @@ pub(crate) fn valid_slug(slug: &str) -> bool {
         })
 }
 pub(crate) fn text(lang: &str, key: &str) -> String {
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
-    let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
-    let source = if lang == "en" {
-        include_str!("../../../templates/pages/en.ftl")
-    } else {
-        include_str!("../../../templates/pages/pl.ftl")
-    };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
+    use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+    use std::sync::LazyLock;
+    type Catalogue = FluentBundle<FluentResource>;
+
+    fn load(lang: unic_langid::LanguageIdentifier, source: &str) -> Option<Catalogue> {
+        let mut bundle = FluentBundle::new_concurrent(vec![lang]);
+        bundle
+            .add_resource(FluentResource::try_new(source.to_owned()).ok()?)
+            .ok()?;
+        Some(bundle)
     }
-    bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
+
+    static EN: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load(
+            unic_langid::langid!("en"),
+            include_str!("../../../templates/pages/en.ftl"),
+        )
+    });
+    static PL: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load(
+            unic_langid::langid!("pl"),
+            include_str!("../../../templates/pages/pl.ftl"),
+        )
+    });
+    (if lang == "en" { &EN } else { &PL })
+        .as_ref()
+        .and_then(|bundle| {
+            let pattern = bundle.get_message(key)?.value()?;
+            Some(
+                bundle
+                    .format_pattern(pattern, None, &mut vec![])
+                    .into_owned(),
+            )
+        })
         .unwrap_or_default()
 }
 #[derive(Template)]
@@ -116,7 +131,7 @@ async fn custom(
     show(&pool, lang, &slug).await
 }
 async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
-    let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
+    let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.expires_at IS NULL OR now()<e.expires_at) AND (source.expires_at IS NULL OR now()<source.expires_at) AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
     let help_links = matches!(&result, Ok(None)) && matches!(slug, "support" | "report-a-bug");
     let (status, title, body, version, draft_notice) = match result {
         Ok(Some(row)) => {

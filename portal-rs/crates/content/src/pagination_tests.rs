@@ -118,6 +118,17 @@ async fn postgres_a3_staff_libraries_reach_records_beyond_each_cap()
             format!("/admin/media/{media}/thumbnail"),
         ),
     ];
+    sqlx::query("DELETE FROM pages WHERE slug='archive-501'")
+        .execute(&pool)
+        .await?;
+    assert!(
+        !html(routes[0].1.clone(), "/admin/pages")
+            .await?
+            .contains("?page=1")
+    );
+    sqlx::query("WITH restored AS (INSERT INTO pages(id,slug) VALUES(uuidv7(),'archive-501') RETURNING id,slug) INSERT INTO editorial_pages(page_id,locale,title,body) SELECT id,'en',slug,'Editorial library content' FROM restored")
+        .execute(&pool)
+        .await?;
     for (path, app, expected) in routes {
         assert!(html(app.clone(), path).await?.contains("?page=1"));
         assert!(
