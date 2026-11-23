@@ -29,3 +29,5 @@ main-character = Main character
 profile-preferences = Profile preferences
 termination-none = No closure scheduled
 termination-pending = Pending closure
+create-character = Create character
+recent-character-requests = Recent creation requests

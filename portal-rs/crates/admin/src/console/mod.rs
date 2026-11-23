@@ -11,6 +11,7 @@ mod projection;
 mod stored;
 pub use stored::StoredChannel;
 mod alerts;
+mod character_creation;
 mod dashboard;
 mod database;
 mod nodes;
@@ -660,6 +661,7 @@ async fn render<P: Permissions, C: Channel>(
             sections.push(dashboard::section(&s.pool, language).await);
         }
         sections.push(alerts::section(&s.pool, language).await);
+        sections.push(character_creation::section(&s.pool, language).await);
     }
     let mut nav = Vec::new();
     for op in [

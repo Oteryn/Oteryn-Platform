@@ -61,18 +61,8 @@ where
     Fut: Future<Output = Result<BrowserContext, sqlx::Error>> + Send + 'static,
     A: Clone + Send + Sync + 'static,
 {
-    let flag = |key| std::env::var(key).is_ok_and(|v| v == "true");
-    let settings = Settings {
-        enabled: flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED"),
-        commands: crate::commands::Settings {
-            enabled: flag("OTERYN_CHARACTER_COMMANDS_ENABLED"),
-            create_enabled: flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
-            source_authority: std::env::var("OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY")
-                .unwrap_or_default(),
-            ..Default::default()
-        },
-    };
-    if !settings.enabled || !settings.commands.enabled || !settings.commands.create_enabled {
+    let settings = Settings::configured();
+    if !settings.mounted() {
         return Router::new();
     }
     router(pool, settings, session)
@@ -329,15 +319,17 @@ where
     let account = account(&ctx)?;
     let operation = canonical_uuid(&operation).map_err(|_| StatusCode::NOT_FOUND)?;
     Ok(match state.creation.status(account, operation).await {
-        Ok(outcome) => page::notice(
-            &lang,
-            StatusCode::OK,
-            match outcome {
-                Outcome::Pending => "pending",
-                Outcome::Created => "created",
-                Outcome::Rejected(key) => key,
-            },
-        ),
+        Ok(Outcome::Pending) => page::notice(&lang, StatusCode::OK, "pending"),
+        Ok(Outcome::Created(character)) => {
+            let roster = state.creation.current_roster(account).await;
+            page::created(
+                &lang,
+                character,
+                roster.as_deref(),
+                oteryn_identity::navigation::overview_enabled(),
+            )
+        }
+        Ok(Outcome::Rejected(key)) => page::notice(&lang, StatusCode::OK, key),
         Err(error) => failure(&lang, error),
     })
 }
@@ -352,6 +344,7 @@ fn error_key(error: &Error) -> &'static str {
     match error {
         Error::Invalid => "name-invalid",
         Error::Reserved => "reserved",
+        Error::Duplicate => "name-unavailable",
         Error::Unavailable => "unavailable",
         Error::Denied => "denied",
         Error::NotFound => "missing",
@@ -360,7 +353,7 @@ fn error_key(error: &Error) -> &'static str {
 }
 fn failure(lang: &str, error: Error) -> Response {
     let status = match error {
-        Error::Invalid | Error::Reserved => StatusCode::UNPROCESSABLE_ENTITY,
+        Error::Invalid | Error::Reserved | Error::Duplicate => StatusCode::UNPROCESSABLE_ENTITY,
         Error::Denied => StatusCode::FORBIDDEN,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Limited => StatusCode::TOO_MANY_REQUESTS,

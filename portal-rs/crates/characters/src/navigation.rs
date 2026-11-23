@@ -2,12 +2,8 @@
 use oteryn_ui::{Group, Registry};
 /// Register the character creation link when the browser route is mounted.
 pub fn register(registry: &mut Registry) {
-    let flag = |key| std::env::var(key).as_deref() == Ok("true");
-    // Match the mount condition in create_web::configured_router.
     registry.section(
-        flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED")
-            && flag("OTERYN_CHARACTER_COMMANDS_ENABLED")
-            && flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
+        crate::create_web::Settings::configured().mounted(),
         "create-character",
         "shell-create-character",
         "account/characters/new",

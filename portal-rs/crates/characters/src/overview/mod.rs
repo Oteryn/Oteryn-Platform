@@ -43,6 +43,9 @@ struct Page {
     title: String,
     facts: Vec<(String, String)>,
     characters_label: String,
+    create_character: Option<String>,
+    recent_requests_label: String,
+    recent_requests: Vec<(Uuid, String)>,
     main_label: String,
     preferences_label: String,
     state: String,
@@ -216,11 +219,22 @@ async fn load(
                 .collect()
         })
         .unwrap_or_default();
+    let creation_mounted = crate::create_web::Settings::configured().mounted();
+    let recent_requests = if creation_mounted {
+        crate::create_web::recent_requests(pool, account)
+            .await
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let page = Page {
         lang,
         title: t("overview"),
         facts,
         characters_label: t("characters"),
+        create_character: creation_mounted.then(|| t("create-character")),
+        recent_requests_label: t("recent-character-requests"),
+        recent_requests,
         main_label: t("main-character"),
         preferences_label: t("profile-preferences"),
         state: t(match read_state {

@@ -29,3 +29,5 @@ main-character = Główna postać
 profile-preferences = Preferencje profilu
 termination-none = Brak zaplanowanego zamknięcia
 termination-pending = Zamknięcie w toku
+create-character = Utwórz postać
+recent-character-requests = Ostatnie prośby o utworzenie postaci

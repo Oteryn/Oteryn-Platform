@@ -39,6 +39,17 @@
 </li>
 {% endfor %}
 </ul>
+{% if let Some(label) = create_character %}
+<p><a class="op-button op-button--secondary" href="/{{ lang }}/account/characters/new">{{ label }}</a></p>
+{% endif %}
+{% if !recent_requests.is_empty() %}
+<h3>{{ recent_requests_label }}</h3>
+<ul>
+{% for request in recent_requests %}
+<li><a href="/{{ lang }}/account/characters/requests/{{ request.0 }}">{{ request.1 }}</a></li>
+{% endfor %}
+</ul>
+{% endif %}
 </section>
 <nav aria-label="{{ shortcuts }}"><ul class="op-row">
 {% if let Some(path) = security_shortcut %}
