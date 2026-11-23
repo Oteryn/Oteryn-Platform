@@ -2,8 +2,9 @@ import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {isolatedStaff} from '../staff-rbac-helpers.mjs';
+import {isolatedStaff,seededLogin} from '../staff-rbac-helpers.mjs';
 import {seedAccount} from '../security/auth-fixtures.mjs';
+import {uuid7} from '../support/bazaar-game.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
 let cookies,account,gameMasterCookies,platformAdminCookies;
@@ -31,6 +32,16 @@ for(const row of rows)test(row.case??`route ${row.crate} ${row.route}`,async({pa
  }else if(row.actor==='staff') {
    platformAdminCookies??=await staffCookies(browser,info,'platform_admin');
    await context.addCookies(platformAdminCookies);
+ }else if(row.route.endsWith('/account/characters/{name}/profile')) {
+   const buyer=await seedAccount(lang);
+   const seller=await seedAccount(lang);
+   const sellerCharacter=uuid7();
+   const projection=await page.request.post('/__bazaar_game/seed',{data:{
+     kind:'character',seller:seller.id,buyer:buyer.id,asset_id:sellerCharacter,
+     seller_character_id:sellerCharacter,buyer_character_id:uuid7(),
+   }});
+   expect(projection.status(),'publish a healthy portfolio before probing a missing character').toBe(201);
+   await seededLogin(page,lang,buyer);
  }else await context.addCookies(cookies);
  if(row.redirect) {
    const landing=await page.request.get(target,{maxRedirects:0});
