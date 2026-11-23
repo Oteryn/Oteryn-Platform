@@ -20,6 +20,10 @@
 <fieldset><legend>{{ self.text("support") }}</legend><label><input type="checkbox" name="support_email" value="true"{% if choices.support.0 %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="support_portal" value="true"{% if choices.support.1 %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
 <fieldset><legend>{{ self.text("events") }}</legend><label><input type="checkbox" name="events_email" value="true"{% if choices.events %} checked{% endif %}>{{ self.text("email") }}</label></fieldset>
 <fieldset><legend>{{ self.text("forum-digest") }}</legend><label><input type="checkbox" name="forum_digest_email" value="true"{% if choices.forum_digest %} checked{% endif %}>{{ self.text("email") }}</label></fieldset>
+<fieldset><legend>{{ self.text("operational") }}</legend>
+<input type="hidden" name="operational_present" value="true">
+<label><input type="checkbox" name="operational_email" value="true"{% if choices.operational == Some(true) %} checked{% endif %}>{{ self.text("operational-opt-in") }}</label>
+</fieldset>
 <button class="op-button" type="submit">{{ self.text("save") }}</button>
 {% endif %}</form>
 {% if !unsubscribe && self.overview_enabled() %}<p><a href="/account">{{ self.shell_text("shell-account-overview-back") }}</a></p>{% endif %}

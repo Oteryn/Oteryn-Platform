@@ -22,3 +22,5 @@ polish-autonym = Polski
 english-autonym = English
 events = Events
 forum-digest = Forum digest
+operational = Operational email
+operational-opt-in = Email me about planned downtime and events.

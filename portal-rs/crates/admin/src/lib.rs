@@ -9,6 +9,7 @@ pub mod web;
 pub mod bazaar;
 pub mod commerce;
 mod mail_ops;
+mod operational_mail;
 pub use control::controls;
 pub mod players;
 pub mod status;
@@ -66,3 +67,6 @@ async fn test_staff_authenticate(
         )
         .await
 }
+
+#[cfg(test)]
+mod operational_mail_tests;

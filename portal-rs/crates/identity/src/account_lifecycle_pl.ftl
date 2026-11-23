@@ -22,3 +22,5 @@ polish-autonym = Polski
 english-autonym = English
 events = Wydarzenia
 forum-digest = Podsumowanie forum
+operational = Wiadomości organizacyjne
+operational-opt-in = Chcę otrzymywać e-maile o planowanych przerwach i wydarzeniach.

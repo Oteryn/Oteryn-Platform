@@ -363,6 +363,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
         )
         .route("/admin/incidents/{id}", get(incidents::detail::<I, A>))
         .route("/admin/incidents/assign", post(incidents::assign::<I, A>))
+        .merge(crate::operational_mail::http::routes::<I, A>())
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -582,6 +583,28 @@ fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'s
     }
 }
 
+pub(crate) async fn charge_staff_quota(
+    pool: &PgPool,
+    actor: Uuid,
+    name: &str,
+    limit: i64,
+) -> Result<Option<i64>, sqlx::Error> {
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES($1,sha256(uuid_send($2)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$3+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(name)
+    .bind(actor)
+    .bind(limit)
+    .fetch_one(pool)
+    .await?;
+    Ok((count > limit).then_some(retry_after))
+}
+
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     for cookie in headers.get_all(header::COOKIE) {
         if let Ok(cookie) = cookie.to_str() {
@@ -665,6 +688,7 @@ struct Page {
     moderate_reports: bool,
     mail_link: Option<String>,
     incidents_link: Option<String>,
+    operational_mail_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -824,6 +848,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let operational_mail_link = match crate::operational_mail::http::visible(&s.auth, context).await
+    {
+        Ok(visible) => visible.then(|| text(lang, "operational-mail-title")),
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -834,6 +863,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         moderate_reports,
         mail_link,
         incidents_link,
+        operational_mail_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s

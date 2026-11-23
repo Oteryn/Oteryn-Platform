@@ -24,6 +24,7 @@ pub struct Choices {
     pub support: (bool, bool),
     pub events: bool,
     pub forum_digest: bool,
+    pub operational: Option<bool>,
 }
 
 #[derive(Debug)]
@@ -69,6 +70,7 @@ pub async fn current(
             Some("support") => choices.support = (email, portal),
             Some("events") => choices.events = email,
             Some("forum_digest") => choices.forum_digest = email,
+            Some("operational") => choices.operational = Some(email),
             _ => continue,
         }
     }
@@ -113,6 +115,11 @@ pub async fn save(
         email.extend([choices.events, choices.forum_digest]);
         portal.extend([None, None]);
     }
+    if let Some(operational) = choices.operational {
+        categories.push("operational");
+        email.push(operational);
+        portal.push(Some(false));
+    }
     sqlx::query(
         "INSERT INTO account_notification_prefs(account_id, category, email_enabled, portal_enabled)
          SELECT $1, category, email, coalesce(portal, true)
@@ -121,7 +128,10 @@ pub async fn save(
              email_enabled = excluded.email_enabled,
              portal_enabled = CASE WHEN excluded.category IN ('news', 'support')
                  THEN excluded.portal_enabled ELSE account_notification_prefs.portal_enabled END,
-             updated_at = now()",
+             updated_at = CASE WHEN excluded.category = 'operational'
+                 THEN clock_timestamp() ELSE now() END
+         WHERE excluded.category <> 'operational'
+             OR account_notification_prefs.email_enabled IS DISTINCT FROM excluded.email_enabled",
     )
     .bind(account)
     .bind(categories)
