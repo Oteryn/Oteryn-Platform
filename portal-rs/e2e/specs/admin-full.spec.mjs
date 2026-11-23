@@ -39,7 +39,7 @@ async function enrollAndSignIn(page, lang, account) {
 
 let manager;
 let roles;
-const matrixActors = [];
+const matrixActorIds = [];
 
 async function roleDenialCount(actor) {
   const [{ count }] = await query(
@@ -72,7 +72,7 @@ test.afterAll(async () => {
   if (!manager) return;
   await manager.context.close();
   await query('DELETE FROM account_roles WHERE account_id=ANY($1::uuid[])', [
-    [manager.id, ...matrixActors.filter(Boolean).map(account => account.id)],
+    [manager.id, ...matrixActorIds],
   ]);
 });
 
@@ -150,17 +150,14 @@ test('roles page labels, validation, self-grant and last administrator protectio
   }
 });
 
-for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
+for (const key of [...platformRoles, ...gameRoles]) {
   test(`only ${key} · grant, MFA, permission matrix and revoke`, async ({ page }, info) => {
     const lang = info.project.metadata.locale;
     const staff = manager.page;
-    // Each actor has a distinct unused recovery code for each login.
-    const actorSlot = Math.floor(index / 8);
-    if (!matrixActors[actorSlot]) {
-      const seeded = seedAdminAccount(lang);
-      matrixActors[actorSlot] = { ...seeded, codes: seedAdminMfa(seeded) };
-    }
-    const account = matrixActors[actorSlot];
+    // Give each role case independent login and MFA account quotas.
+    const account = seedAdminAccount(lang);
+    matrixActorIds.push(account.id);
+    const [code] = seedAdminMfa(account);
     const role = roles[key];
     const protectedGrant = roleManagers.includes(key);
     expect(await accountRoles(account.id)).toEqual([]);
@@ -191,7 +188,6 @@ for (const [index, key] of [...platformRoles, ...gameRoles].entries()) {
     const pending = await page.request.get('/admin', { maxRedirects: 0 });
     expect(pending.status()).toBe(303);
     expect(pending.headers().location).toBe('/login');
-    const code = account.codes[index % 8];
     expect(Boolean(code), 'seeded recovery code for this login').toBe(true);
     await submit(page, 'form[action$="/mfa/challenge"]', { code });
     await expect(page).not.toHaveURL(/mfa\/challenge/);

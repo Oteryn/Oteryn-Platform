@@ -91,7 +91,16 @@ export async function seedPasswordRange(fixture = 'replacement') {
   const [example, prefix] = passwordExamples[fixture];
   const db=pool();
   try {
-    await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-registration' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThan(5);
+    // Challenge requests and failed proofs can spend budget before signup reaches the registration handler.
+    await expect.poll(async () => {
+      const {rows: [{count}]} = await db.query(`
+        SELECT COALESCE(max(count), 0)::int AS count
+        FROM web_rate_limits
+        WHERE limiter_name IN ('identity-registration', 'identity-registration-attempt', 'identity-registration-challenge')
+          AND window_start = date_trunc('minute', clock_timestamp())
+      `);
+      return count;
+    }, {timeout: 65_000, intervals: [1000]}).toBeLessThan(5);
     await db.query('UPDATE registration_abuse_policy SET enabled=true WHERE singleton=true');
     await db.query("INSERT INTO world_status(id,name) SELECT uuidv7(),'Local Browser World' WHERE NOT EXISTS(SELECT 1 FROM world_status)");
     await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
