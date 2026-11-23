@@ -8,8 +8,8 @@ import { createInterface } from 'node:readline';
 export async function withFallback(adminURL, run) {
   const scratch = await mkdtemp(join(tmpdir(), 'portal-e2e-bazaar-'));
   const output = join(scratch, 'run');
-  const origin = 'http://127.0.0.1:18082';
-  const child = spawn(process.execPath, ['harness.mjs'], {
+  const origin = 'http://localhost:18082';
+  const child = spawn(process.execPath, ['harness.mjs', '--serve-only'], {
     cwd: new URL('../', import.meta.url),
     env: {
       ...process.env,
@@ -18,7 +18,12 @@ export async function withFallback(adminURL, run) {
       PORTAL_E2E_KEEP_DATABASE: '0',
       PORTAL_E2E_SEED_PLAN: '',
       PORTAL_E2E_HTTP_PORT: '18082',
+      PORTAL_E2E_ADMISSION_PORT: '18092',
       OTERYN_PUBLIC_ORIGIN: origin,
+      OTERYN_ACCOUNT_LOGIN: 'false',
+      OTERYN_ACCOUNT_PASSKEYS: 'false',
+      OTERYN_ADMIN_PANEL: 'false',
+      OTERYN_REPORTS_ENABLED: 'false',
       PORTAL_GAME_RESTORE_NOTICE_ENABLED: 'false',
     },
     stdio: ['ignore', 'pipe', 'ignore'],
