@@ -813,6 +813,7 @@ async fn postgres_pagination_language_and_caps() {
             .to_vec(),
     )
     .unwrap();
+    assert!(html.contains("English news"));
     assert!(html.contains("/en/news/pagination-16"));
     assert!(!html.contains("/en/news/pagination-26"));
     let budget = ratelimit::NamedPolicy::PublicGameData;
@@ -849,12 +850,6 @@ async fn postgres_pagination_language_and_caps() {
             .unwrap()
             > 0
     );
-    let context = CheckContext {
-        account: Uuid::now_v7(),
-        require_staff_mfa: true,
-        mfa_verified: true,
-        session_proof: None,
-    };
     sqlx::query(
         "INSERT INTO news(slug,title,body,published_at)
          VALUES('long-horizon','Long horizon','English body','12000-01-01T00:00:00Z')",
@@ -862,15 +857,14 @@ async fn postgres_pagination_language_and_caps() {
     .execute(&pool)
     .await
     .unwrap();
-    let response = admin_index(
-        State(pool.clone()),
-        Extension(context),
-        Query(Options {
+    let response = admin_listing(
+        &pool,
+        Options {
             lang: Some("en".into()),
             ..Options::default()
-        }),
-        HeaderMap::new(),
-        None,
+        },
+        "en",
+        false,
     )
     .await
     .unwrap();
@@ -894,13 +888,7 @@ async fn postgres_pagination_language_and_caps() {
                 .contains(r#"rel="next""#)
         );
         assert!(!public::listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
-        let response = admin_index(
-            State(pool.clone()),
-            Extension(context),
-            Query(q),
-            HeaderMap::new(),
-            None,
-        )
+        let response = admin_listing(&pool, q, "en", false)
         .await
         .unwrap();
         assert_eq!(response.status(), StatusCode::OK);

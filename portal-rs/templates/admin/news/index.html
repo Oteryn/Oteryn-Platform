@@ -11,6 +11,7 @@
 <main class="op-panel op-stack">
   <h1>{{ title }}</h1>
   <a href="/admin/news/create?lang={{ lang }}">{{ create }}</a>
+  {% if let Some(library) = media_library %}<a href="/admin/media?lang={{ lang }}">{{ library }}</a>{% endif %}
   <ul class="op-stack">
   {% for row in rows %}
     <li>
@@ -21,7 +22,7 @@
     </li>
   {% endfor %}
   </ul>
-  {% if let Some(page) = next %}<a href="?page={{ page }}&amp;lang={{ lang }}">{{ next_label }}</a>{% endif %}
+  {% if let Some(page) = next %}<a href="?page={{ page }}&amp;lang={{ lang }}{% if let Some(id) = media_id %}&amp;media_id={{ id }}{% endif %}">{{ next_label }}</a>{% endif %}
 </main>
 </body>
 </html>
