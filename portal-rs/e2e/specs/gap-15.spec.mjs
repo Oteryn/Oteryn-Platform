@@ -63,19 +63,45 @@ function routeFor(route, lang, id) {
   return route.replace('{lang}', lang).replace('{id}', id);
 }
 
-async function postForm(page, method, target, values = {}, upload) {
+async function requestForm(page, method, target, values) {
   const form = page.locator(`main form[action="${target}"]`);
   const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
   return page.request.fetch(target, {
     method,
-    ...(upload ? {multipart: {...fields, ...values, image: upload}} : {form: {...fields, ...values}}),
+    form: {...fields, ...values},
     headers: {origin: new URL(page.url()).origin},
     maxRedirects: 0,
   });
 }
 
+async function submitTicketForm(page, target, values, upload) {
+  const form = page.locator(`main form[action="${target}"]`);
+  for (const [name, value] of Object.entries(values)) {
+    const field = form.locator(`[name="${name}"]`);
+    if (name === 'status') {
+      await field.selectOption(value);
+    } else {
+      await field.fill(value);
+    }
+  }
+  if (upload) {
+    await form.locator('input[type="file"]').setInputFiles(upload);
+  }
+  const [response] = await Promise.all([
+    page.waitForResponse(response =>
+      response.request().isNavigationRequest()
+      && response.request().method() === 'POST'
+      && new URL(response.url()).pathname === target),
+    form.locator('button[type="submit"], button:not([type])').click(),
+  ]);
+  return response;
+}
+
 async function ticketState(id) {
-  const [row] = await query('SELECT status, lock_version, unread_reply FROM tickets WHERE id = $1', [id]);
+  const [row] = await query(`
+    SELECT account_id, status, lock_version, unread_reply,
+      (SELECT count(*) FROM ticket_messages WHERE ticket_id = tickets.id) AS messages
+    FROM tickets WHERE id = $1`, [id]);
   return row;
 }
 
@@ -107,23 +133,35 @@ test('ticket owner and support staff complete the ticket mutation matrix', async
       const definition = definitions.find(row => keyOf(row) === key);
       expect(definition, key).toBeDefined();
       const target = routeFor(route, lang, id);
-      const response = await postForm(actorPage, method, target, values, upload);
+      let response;
+      if (method === 'POST') {
+        response = await submitTicketForm(actorPage, target, values, upload);
+      } else {
+        expect((await requestForm(actorPage, method, target, {...values, _csrf: ''})).status()).toBe(403);
+        response = await requestForm(actorPage, method, target, values);
+      }
       expect(response.status(), key).toBe(302);
       await verify(response.headers().location);
       evidence.push({...definition, status: response.status()});
     }
 
-    await open(page, base);
+    await open(page, `/${lang}/`);
+    if (info.project.use.viewport.width <= 960) {
+      await page.locator('#portal-menu-toggle').click();
+    }
+    await page.locator('[data-account-link]').click();
+    await page.locator(`#podglad-konta a[href="${base}"]`).click();
+    await expect(page).toHaveURL(url => url.pathname === base);
     await page.locator(`main a[href="${base}/create"]`).click();
     await expect(page).toHaveURL(url => url.pathname === `${base}/create`);
     await assertShell(page);
     await mutation(page, 'POST', '/{lang}/support/tickets', {subject, body: 'Please help with my account.'}, async location => {
       expect(location).toMatch(new RegExp(`^${base}/[a-f0-9-]{36}$`));
       id = location.split('/').at(-1);
-      await open(page, location);
+      await expect(page).toHaveURL(url => url.pathname === location);
       await expect(page.locator('main')).toContainText(subject);
       await expect(page.locator('main')).toContainText('Please help with my account.');
-      expect(await ticketState(id)).toMatchObject({status: 'open'});
+      expect(await ticketState(id)).toMatchObject({account_id: owner.id, status: 'open', messages: '1'});
     });
     const ownerPath = routeFor(ticket, lang, id);
     const staffPath = routeFor(staffTicket, lang, id);
@@ -139,12 +177,15 @@ test('ticket owner and support staff complete the ticket mutation matrix', async
     });
     expect(forbidden.status()).toBe(403);
     expect(await ticketState(id)).toEqual(beforeBadInput);
-    expect((await postForm(page, 'POST', `${ownerPath}/reply`, {body: ''})).status()).toBe(422);
+    expect((await requestForm(page, 'POST', `${ownerPath}/reply`, {body: ''})).status()).toBe(422);
     expect(await ticketState(id)).toEqual(beforeBadInput);
 
     await mutation(page, 'POST', `${ticket}/reply`, {body: playerReply}, async location => {
       expect(location).toBe(ownerPath);
-      await open(staffPage, staffPath);
+      await open(staffPage, '/admin/support/tickets');
+      await staffPage.getByRole('link', {name: subject, exact: true}).click();
+      await staffPage.locator(`main a[href="${staffPath}#screenshots"]`).click();
+      await expect(staffPage).toHaveURL(url => url.pathname === staffPath);
       await expect(staffPage.locator('main')).toContainText(playerReply);
       expect(await ticketState(id)).toMatchObject({status: 'waiting_staff'});
     });
@@ -157,7 +198,6 @@ test('ticket owner and support staff complete the ticket mutation matrix', async
     await mutation(page, 'POST', `${ticket}/read`, {}, async location => {
       expect(location).toBe(ownerPath);
       expect(await ticketState(id)).toMatchObject({unread_reply: false});
-      await open(page, ownerPath);
       await expect(page.locator('main form[action$="/read"]')).toHaveCount(0);
     });
 
@@ -197,7 +237,7 @@ test('ticket owner and support staff complete the ticket mutation matrix', async
     const resolved = await ticketState(id);
     await open(page, ownerPath);
     await expect(page.locator('main')).toContainText(lang === 'pl' ? 'Rozwiązane' : 'Resolved');
-    expect((await postForm(page, 'PUT', `${ownerPath}/status`, {status: 'open'})).status()).toBe(409);
+    expect((await requestForm(page, 'PUT', `${ownerPath}/status`, {status: 'open'})).status()).toBe(409);
     expect(await ticketState(id)).toEqual(resolved);
     await transition(staffPage, 'PUT', staffTicket, 'open');
     await transition(page, 'POST', ticket, 'closed');
