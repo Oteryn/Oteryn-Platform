@@ -85,9 +85,11 @@ test('shop links, unavailable catalogue, and empty or malformed wallet history',
   const shop = new URL(`/${lang}/shop`, page.url()).href;
   await csrfRejected(page, shop);
   await refusal(await postAs(page, shop, { _csrf: topup.fields._csrf }), 503, l.unavailable);
-  const malformed = await page.goto(`/${lang}/shop/history?before=invalid`);
-  expect(malformed.status()).toBe(422);
-  await expect(page.getByRole('status')).toHaveText(l.invalid);
+  for (const cursor of ['invalid', '550e8400-e29b-41d4-a716-446655440000']) {
+    const malformed = await page.goto(`/${lang}/shop/history?before=${cursor}`);
+    expect(malformed.status()).toBe(400);
+    await expect(page.getByRole('status')).toHaveText(l.invalid);
+  }
 });
 
 for (const action of ['pay', 'reject', 'cancel']) {
@@ -136,9 +138,12 @@ for (const action of ['pay', 'reject', 'cancel']) {
       await pressCheckout(page, action, l[action]);
       const resultURL = `/${lang}/shop/coins?checkout=${intent}`;
       await expect(page).toHaveURL(new RegExp(`/shop/coins\\?checkout=${intent}$`));
-      const replay = await postAs(page, checkout.url, { ...checkout.fields, action: 'pay' });
+      const replay = await postAs(page, checkout.url, { ...checkout.fields, action });
       expect(replay.status()).toBe(303);
       expect(replay.headers().location).toBe(resultURL);
+      await refusal(await postAs(page, checkout.url, {
+        ...checkout.fields, action: action === 'pay' ? 'reject' : 'pay',
+      }), 409, l.conflict);
 
       const credits = async () => (await db.query(
         'SELECT available_delta FROM wallet_entries WHERE operation_id=$1', [intent],

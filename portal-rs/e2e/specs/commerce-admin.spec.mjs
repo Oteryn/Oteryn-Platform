@@ -386,10 +386,16 @@ test('Bazaar staff reviews reports, suspends a listing, and requires independent
       const accepted = lang === 'pl' ? 'Uznaj zgłoszenie' : 'Accept report';
       const dismissed = lang === 'pl' ? 'Odrzuć zgłoszenie' : 'Dismiss report';
       await expect(review.locator('option')).toHaveText([accepted, dismissed]);
-      await csrfRejected(staff, request.url, { ...request.fields, accepted: decision });
-      expect((await postAs(staff, request.url, { ...request.fields, accepted: 'invalid' })).status()).toBe(422);
+      const reviewReason = 'Review the evidence for a disposable report';
+      await csrfRejected(staff, request.url, { ...request.fields, accepted: decision, reason: reviewReason });
+      expect((await postAs(staff, request.url, { ...request.fields, accepted: 'invalid', reason: reviewReason })).status()).toBe(422);
+      expect((await postAs(staff, request.url, { ...request.fields, accepted: decision, reason: '' })).status()).toBe(422);
       await review.locator('select[name="accepted"]').selectOption(decision);
+      await review.locator('[name="reason"]').fill(reviewReason);
+      const submitted = staff.waitForResponse(response =>
+        response.url() === request.url && response.request().method() === 'POST');
       await review.getByRole('button').click();
+      expect((await submitted).status()).toBe(303);
       await expect(review).toHaveCount(0);
       expect((await db.query('SELECT state FROM bazaar_reports WHERE id=$1', [report])).rows).toEqual([{ state }]);
     }
@@ -402,14 +408,18 @@ test('Bazaar staff reviews reports, suspends a listing, and requires independent
       .toEqual([{ revision: '1' }]);
     const invalidation = await readForm(staff.locator(form('request')));
     const id = invalidation.fields.id;
+    const requestRow = `[data-invalidation="${id}"]`;
+    const pendingRow = `${requestRow}[data-request-state="pending"]`;
     await submit(staff, form('request'), { listing, reason: 'Request independent invalidation review' });
-    await expect(staff.getByText(id, { exact: true })).toBeVisible();
+    await expect(staff.locator(pendingRow)).toBeVisible();
     const self = await readForm(staff.locator(form('approve')));
-    expect((await postAs(staff, self.url, { ...self.fields, id })).status()).toBe(403);
+    const approvalReason = 'Confirm the independent invalidation review';
+    expect((await postAs(staff, self.url, { ...self.fields, id, reason: approvalReason })).status()).toBe(403);
 
     await reviewer.goto(path);
-    await submit(reviewer, form('approve'), { id });
-    await expect(reviewer.getByText(id, { exact: true })).toHaveCount(0);
+    await submit(reviewer, form('approve'), { id, reason: approvalReason });
+    await expect(reviewer.locator(pendingRow)).toHaveCount(0);
+    await expect(reviewer.locator(`${requestRow}[data-request-state="approved"]`)).toBeVisible();
     expect((await db.query(
       'SELECT approved_by IS NOT NULL AS approved FROM bazaar_invalidation_requests WHERE id=$1', [id],
     )).rows).toEqual([{ approved: true }]);

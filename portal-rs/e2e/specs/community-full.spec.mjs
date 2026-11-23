@@ -39,7 +39,7 @@ test('editorial events order, detail links, pagination and empty page', async ({
 
     await open(page, path);
     const next = page.locator('main a[rel=next]');
-    await expect(next).toHaveText(lang === 'pl' ? 'Następna strona' : 'Next page');
+    await expect(next).toHaveText(t.next);
     await follow(page, next, path, 200, {page: '1'});
     await expect(articles.locator('h2')).toHaveText([`${title} 201`]);
     await follow(page, articles.getByRole('link'), `${path}/community-e2e-201`);
