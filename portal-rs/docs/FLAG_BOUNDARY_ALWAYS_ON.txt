@@ -227,6 +227,8 @@ public P /admin/discovery/announcements/{id}
 public P /admin/discovery/events/{id}
 public P /admin/discovery/news/{id}
 public P /admin/discovery/pages/{id}
+internal P /admin/media/{id}
+native P /admin/media/{id}
 public P /admin/media/{id}
 
 # Account sanctions and appeals.
