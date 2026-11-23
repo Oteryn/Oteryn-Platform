@@ -13,6 +13,7 @@ drops = Dropy
 character-note = Notatka do postaci
 weekly-notes = Prywatne notatki tygodniowe
 weekly-notes-export = Pobierz moje notatki tygodniowe (JSON)
+weekly-note-invalid = Wpisz zwykły tekst o długości do 4000 bajtów.
 report-unavailable = Tygodniowe dane z gry są niedostępne.
 weeks = Wybierz tydzień
 previous-week = Poprzedni tydzień

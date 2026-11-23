@@ -1,4 +1,5 @@
 use super::{Cohort, Error, Flags, PlacesStore, UnresolvedSource};
+use crate::quota::Action;
 use askama::Template;
 use axum::{
     Extension, Form, Json, Router,
@@ -68,7 +69,7 @@ async fn private(request: Request, next: Next) -> Response {
 impl From<Error> for StatusCode {
     fn from(value: Error) -> Self {
         match value {
-            Error::Disabled | Error::Database(_) => Self::SERVICE_UNAVAILABLE,
+            Error::Disabled | Error::Unavailable | Error::Database(_) => Self::SERVICE_UNAVAILABLE,
             Error::Denied => Self::FORBIDDEN,
             Error::Invalid => Self::BAD_REQUEST,
             Error::Conflict => Self::CONFLICT,
@@ -183,6 +184,9 @@ async fn update(
         "false" => false,
         _ => return Err(StatusCode::BAD_REQUEST),
     };
+    Action::PlacesParticipation
+        .charge(store.pool(), account)
+        .await?;
     store
         .set_preference(account, account, participating)
         .await?;
@@ -198,9 +202,12 @@ async fn page(
     no_filters(query)?;
     let account = owner(&session).await?;
     let participating = store.preference(account, account).await?;
+    Action::PlacesRead.charge(store.pool(), account).await?;
     let (status, rows) = match store.daily(account).await {
         Ok(rows) => (StatusCode::OK, rows),
-        Err(Error::Disabled) => (StatusCode::SERVICE_UNAVAILABLE, Vec::new()),
+        Err(Error::Disabled | Error::Unavailable | Error::Database(_)) => {
+            (StatusCode::SERVICE_UNAVAILABLE, Vec::new())
+        }
         Err(error) => return Err(error.into()),
     };
     let view = Page {

@@ -13,6 +13,7 @@ drops = Drops
 character-note = Character note
 weekly-notes = Private weekly notes
 weekly-notes-export = Download my weekly notes (JSON)
+weekly-note-invalid = Use up to 4000 bytes of plain text.
 report-unavailable = Weekly gameplay data is unavailable.
 weeks = Select week
 previous-week = Previous week

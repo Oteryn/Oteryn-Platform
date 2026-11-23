@@ -1,5 +1,6 @@
 //! Browser-only adapters. Account IDs are resolved from server-side sessions.
 use super::*;
+use crate::quota::Action;
 use axum::{
     Form, Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
@@ -257,6 +258,7 @@ async fn weekly_note(
             clock,
             &token,
             note.as_ref().map_or("", |note| &note.body),
+            false,
         )
         .map_err(status)?,
     ))
@@ -268,20 +270,30 @@ async fn save_weekly_note(
     headers: HeaderMap,
     Query(query): Query<NoteWeek>,
     Form(form): Form<NoteForm>,
-) -> std::result::Result<Redirect, StatusCode> {
+) -> std::result::Result<Response, StatusCode> {
     let locale = Locale::parse(&lang).map_err(status)?;
     let (account, token) = browser_actor(&service, &headers).await?;
     csrf(&token, &form.csrf)?;
-    let week = Week::closed(query.week, now()?).map_err(status)?;
-    service
-        .save_weekly_note(account, week, &form.body.replace("\r\n", "\n"))
-        .await
-        .map_err(status)?;
+    let clock = now()?;
+    let week = Week::closed(query.week, clock).map_err(status)?;
+    Action::WeeklyNoteSave
+        .charge(&service.pool, account)
+        .await?;
+    let body = form.body.replace("\r\n", "\n");
+    if let Err(error) = service.save_weekly_note(account, week, &body).await {
+        if error == Error::Invalid {
+            let html =
+                render::weekly_note(locale, week, clock, &token, &body, true).map_err(status)?;
+            return Ok((StatusCode::UNPROCESSABLE_ENTITY, Html(html)).into_response());
+        }
+        return Err(status(error));
+    }
     Ok(Redirect::to(&format!(
         "/{}/account/journal/reports/weekly-note?week={}",
         locale.code(),
         week.start
-    )))
+    ))
+    .into_response())
 }
 
 async fn weekly_note_export(
@@ -299,6 +311,9 @@ async fn weekly_note_export(
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    Action::WeeklyNoteExport
+        .charge(&service.pool, account)
+        .await?;
     Ok((
         [(
             header::CONTENT_DISPOSITION,
@@ -347,7 +362,10 @@ pub fn router(service: Reports) -> Router {
         .route("/{locale}/account/journal/reports/email", post(preference))
         .route(
             "/{locale}/account/journal/reports/weekly-note",
-            get(weekly_note).post(save_weekly_note),
+            // URL encoding can use nine bytes per UTF-16 code unit in the textarea.
+            get(weekly_note)
+                .post(save_weekly_note)
+                .layer(DefaultBodyLimit::max(36 * 1024)),
         )
         .route(
             "/{locale}/account/journal/reports/weekly-note/export",

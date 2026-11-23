@@ -649,6 +649,21 @@ async fn postgres_weekly_note_browser_round_trip() -> TestResult {
             .await?;
         assert_eq!(response.status(), expected);
     }
+    let full_note = format!("_csrf={}&body=x{}", "c".repeat(64), "%0D%0A".repeat(3999));
+    let response = app
+        .clone()
+        .oneshot(
+            request("POST", path, "a")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(full_note))?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let stored: String = sqlx::query_scalar("SELECT body FROM pd_weekly_notes WHERE account_id=$1")
+        .bind(id(1))
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(stored, format!("x{}", "\n".repeat(3999)));
     let response = app
         .clone()
         .oneshot(
@@ -659,8 +674,48 @@ async fn postgres_weekly_note_browser_round_trip() -> TestResult {
         .await?;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let response = app
+        .clone()
         .oneshot(request("GET", &format!("{export}?id={note}"), "a").body(Body::empty())?)
         .await?;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let mut statuses = Vec::new();
+    for _ in 0..21 {
+        let response = app
+            .clone()
+            .oneshot(request("GET", &export, "a").body(Body::empty())?)
+            .await?;
+        statuses.push(response.status());
+    }
+    assert!(statuses.contains(&StatusCode::TOO_MANY_REQUESTS));
+    let other = app
+        .oneshot(request("GET", &export, "b").body(Body::empty())?)
+        .await?;
+    assert_eq!(other.status(), StatusCode::OK);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_weekly_notes_follow_account_lifecycle() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let (service, _) = db.service();
+    let week = Week::closed(START, NOW)?;
+    service.save_weekly_note(id(1), week, "First note").await?;
+    service.save_weekly_note(id(2), week, "Second note").await?;
+    sqlx::query("UPDATE accounts SET status='closed' WHERE id=$1")
+        .bind(id(1))
+        .execute(&db.pool)
+        .await?;
+    crate::retention::Retention(db.pool.clone())
+        .expire_batch()
+        .await?;
+
+    assert!(service.weekly_note(id(1), week).await?.is_none());
+    let remaining = service
+        .weekly_note(id(2), week)
+        .await?
+        .ok_or("missing note")?;
+    assert_eq!(remaining.body, "Second note");
     db.close().await
 }

@@ -50,4 +50,4 @@ known-empty weeks), and accepted catalogue and NPC valuation evidence. The
 Platform integration must bind the adapters to that evidence and jointly qualify
 cohort privacy, transfer and invalidation behavior before switching on reads.
 Any deployment of weekly email also needs a qualified source and scheduling.
-See the [G-9 contract proposal](../contracts/OTERYN_V2_GAME_JOURNAL_SESSIONS_CONTRACT_PROPOSAL.md).
+See the [G-9 contract proposal](../../../docs/contracts/OTERYN_V2_GAME_JOURNAL_SESSIONS_CONTRACT_PROPOSAL.md).

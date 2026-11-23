@@ -1,19 +1,39 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
 import { login } from '../helpers.mjs';
 import { seedPlayer, visit } from '../public-depth-helpers.mjs';
+import { assertShell } from '../shell.mjs';
 
 test('a player records a private weekly note and downloads it while reports are unavailable', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const report = `/${lang}/account/journal/reports`;
   const editor = `${report}/weekly-note`;
   const download = `${editor}/export`;
-  const body = 'Remember to review the <route> next week.\nCheck the notes before playing.';
+  const body = '\nRemember to review the <route> next week.\nCheck the notes before playing.';
 
   await login(page, lang, await seedPlayer(lang));
   await visit(page, report, 503);
   await page.locator(`main a[href^="reports/weekly-note"]`).click();
   await expect(page).toHaveURL(new RegExp(`${editor}\\?week=\\d+$`));
   const form = page.locator('main form');
+  await expect(page.locator('header#portal-header')).toHaveCount(1);
+  await expect(page.locator('footer.foot')).toHaveCount(1);
+  await expect(page.getByRole('main')).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+  await expect(page.locator('header#portal-header a, #podglad-konta a').filter({
+    hasText: lang === 'pl' ? 'Prywatne notatki tygodniowe' : 'Private weekly notes',
+  }).first()).toHaveAttribute('aria-current', 'page');
+  const overLimit = 'ż'.repeat(2001);
+  await form.locator('textarea').fill(overLimit);
+  const [invalid] = await Promise.all([
+    page.waitForResponse(response => response.request().method() === 'POST' && response.url().includes(editor)),
+    form.locator('button[type=submit]').click(),
+  ]);
+  expect(invalid.status()).toBe(422);
+  await expect(page.getByRole('alert')).toHaveText(lang === 'pl'
+    ? 'Wpisz zwykły tekst o długości do 4000 bajtów.'
+    : 'Use up to 4000 bytes of plain text.');
+  await expect(form.locator('textarea')).toHaveValue(overLimit);
   await form.locator('textarea').fill(body);
   await form.locator('button[type=submit]').click();
   await expect(form.locator('textarea')).toHaveValue(body);
@@ -55,6 +75,7 @@ test('Atlas keeps participation controls usable when cohort evidence is unavaila
   const places = `/${lang}/atlas/places`;
   await login(page, lang, await seedPlayer(lang));
   await visit(page, places, 503);
+  await assertShell(page, { status: 503 });
   const form = page.locator('main form');
   for (const participating of [true, false]) {
     await form.locator(`input[name=participating][value="${participating}"]`).check();
@@ -64,5 +85,20 @@ test('Atlas keeps participation controls usable when cohort evidence is unavaila
     expect(state.status()).toBe(200);
     expect(await state.json()).toEqual({ participating });
     await expect(page.locator('main .places li')).toHaveCount(0);
+  }
+});
+
+test('i18n-parity for journal notes and hunting places', () => {
+  for (const source of [
+    'crates/playerdata/src/reports_{lang}.ftl',
+    'crates/playerdata/src/places/{lang}.ftl',
+    'crates/ui/i18n/{lang}.ftl',
+  ]) {
+    const keys = lang => [...readFileSync(new URL(`../../${source.replace('{lang}', lang)}`, import.meta.url), 'utf8')
+      .matchAll(/^([\w-]+)\s*=/gm)].map(match => match[1]).sort();
+    const english = keys('en');
+    expect(english.length).toBeGreaterThan(0);
+    expect(new Set(english).size).toBe(english.length);
+    expect(keys('pl')).toEqual(english);
   }
 });

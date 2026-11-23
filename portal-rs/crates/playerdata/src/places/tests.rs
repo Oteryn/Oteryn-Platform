@@ -245,6 +245,11 @@ async fn postgres_published_day_is_withdrawn_after_participation_changes() {
     }
     let reader = accounts[0];
     assert_eq!(store.daily(reader).await.unwrap()[0].sessions, 12);
+    sqlx::query("SET DateStyle TO 'SQL, DMY'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(store.daily(reader).await.unwrap()[0].sessions, 12);
     let departing = accounts[5];
     store
         .set_preference(departing, departing, false)
@@ -282,7 +287,7 @@ async fn postgres_unknown_evidence_bad_input_and_flags_deny() {
     s.place_key = "place:cave".into();
     store.ingest(&s).await.unwrap();
     source.revoked.store(true, Ordering::SeqCst);
-    assert!(matches!(store.daily(id).await, Err(Error::Denied)));
+    assert!(matches!(store.daily(id).await, Err(Error::Unavailable)));
     assert!(matches!(store.ingest(&s).await, Err(Error::Denied)));
     let unresolved = PlacesStore::new(
         pool.clone(),
@@ -323,7 +328,8 @@ async fn postgres_unknown_evidence_bad_input_and_flags_deny() {
 async fn postgres_http_owner_form_csrf_and_localization() {
     let Some(pool) = database().await else { return };
     let id = account(&pool).await;
-    let store = store(&pool, Arc::new(Source::default()));
+    let source = Arc::new(Source::default());
+    let store = store(&pool, source.clone());
     let clock = now(&pool).await;
     for _ in 0..5 {
         let participant = account(&pool).await;
@@ -459,6 +465,7 @@ async fn postgres_http_owner_form_csrf_and_localization() {
     assert_eq!(cross_origin.status(), StatusCode::FORBIDDEN);
     assert!(store.preference(id, id).await.unwrap());
     let filtered = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/en/atlas/places?account_id=other")
@@ -469,6 +476,27 @@ async fn postgres_http_owner_form_csrf_and_localization() {
         .await
         .unwrap();
     assert_eq!(filtered.status(), StatusCode::BAD_REQUEST);
+    source.revoked.store(true, Ordering::SeqCst);
+    let unavailable = app
+        .oneshot(
+            Request::builder()
+                .uri("/pl/atlas/places")
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        unavailable.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let bytes = to_bytes(unavailable.into_body(), 65536).await.unwrap();
+    let html = std::str::from_utf8(&bytes).unwrap();
+    assert!(html.contains("Dane o łowiskach są niedostępne."));
+    assert!(html.contains("name=\"participating\""));
+    assert!(!html.contains("place:cave"));
     eprintln!("PostgreSQL T81: HTTP owner/CSRF/Polish page passed");
     pool.close().await;
 }

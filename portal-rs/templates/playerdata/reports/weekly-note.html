@@ -20,7 +20,9 @@
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <label for="note">{{ label }}</label>
     <p id="hint">{{ hint }}</p>
-    <textarea class="op-input" id="note" name="body" rows="8" cols="24" maxlength="4000" aria-describedby="hint">{{ body }}</textarea>
+    {% if let Some(error) = error %}<p id="note-error" role="alert">{{ error }}</p>{% endif %}
+    <textarea class="op-input" id="note" name="body" rows="8" cols="24" maxlength="4000" aria-describedby="hint{% if error.is_some() %} note-error{% endif %}"{% if error.is_some() %} aria-invalid="true"{% endif %}>
+{{ body }}</textarea>
     <button class="op-button" type="submit">{{ save }}</button>
   </form>
   <a href="weekly-note/export?format=json">{{ export }}</a>

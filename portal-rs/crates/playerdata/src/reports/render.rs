@@ -183,6 +183,7 @@ struct WeeklyNote<'a> {
     next: Option<i64>,
     csrf: &'a str,
     body: &'a str,
+    error: Option<String>,
 }
 
 pub fn weekly_note(
@@ -191,6 +192,7 @@ pub fn weekly_note(
     clock: i64,
     csrf: &str,
     body: &str,
+    invalid: bool,
 ) -> Result<String> {
     let date = |seconds| {
         time::OffsetDateTime::from_unix_timestamp(seconds)
@@ -217,6 +219,9 @@ pub fn weekly_note(
         next: Week::closed(week.end, clock).ok().map(|value| value.start),
         csrf,
         body,
+        error: invalid
+            .then(|| message(locale, "weekly-note-invalid"))
+            .transpose()?,
     }
     .render()
     .map_err(|_| Error::Unavailable)

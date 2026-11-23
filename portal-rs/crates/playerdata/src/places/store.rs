@@ -17,6 +17,7 @@ pub struct Flags {
 #[derive(Debug)]
 pub enum Error {
     Disabled,
+    Unavailable,
     Denied,
     Invalid,
     Conflict,
@@ -311,14 +312,14 @@ impl PlacesStore {
         let rows: Vec<serde_json::Value>=sqlx::query_scalar("SELECT s.snapshot FROM pd_places_sessions s JOIN pd_places_preferences p USING(account_id) JOIN accounts a ON a.id=s.account_id WHERE p.participating AND p.privacy_revision=s.privacy_revision AND a.status='active' AND a.email_verified_at IS NOT NULL AND s.ended_at<=date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'-interval '24 hours' LIMIT 4097 FOR SHARE OF a")
             .fetch_all(&mut *tx).await?;
         if rows.len() > 4096 {
-            return Err(Error::Denied);
+            return Err(Error::Unavailable);
         }
         let mut sessions = Vec::new();
         for row in rows {
-            let session: Session = serde_json::from_value(row).map_err(|_| Error::Denied)?;
-            session.validate(now)?;
+            let session: Session = serde_json::from_value(row).map_err(|_| Error::Unavailable)?;
+            session.validate(now).map_err(|_| Error::Unavailable)?;
             if !self.source.verify(&mut tx, &session).await? {
-                return Err(Error::Denied);
+                return Err(Error::Unavailable);
             }
             sessions.push(session);
         }
@@ -338,7 +339,7 @@ async fn publish(
         days.entry(row.utc_day.clone()).or_default().push(row);
     }
     let days_with_rows: Vec<_> = days.keys().cloned().collect();
-    sqlx::query("UPDATE pd_places_publication_days SET withdrawn=true WHERE NOT withdrawn AND NOT (utc_day::text = ANY($1))")
+    sqlx::query("UPDATE pd_places_publication_days SET withdrawn=true WHERE NOT withdrawn AND NOT (utc_day = ANY($1::text[]::date[]))")
         .bind(days_with_rows)
         .execute(&mut *connection)
         .await?;
