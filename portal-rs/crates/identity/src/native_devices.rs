@@ -123,6 +123,7 @@ pub async fn revoke(
     family: Uuid,
 ) -> Result<Revocation, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     let active: Option<Uuid> = sqlx::query_scalar(
         "SELECT id FROM accounts WHERE id=$1 AND status='active'
          AND email_verified_at IS NOT NULL FOR UPDATE",

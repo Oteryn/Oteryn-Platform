@@ -77,6 +77,7 @@ fn validate_reminder(date: Option<Date>, today: Date) -> Result<(), Error> {
 }
 
 async fn lock_owner(tx: &mut Transaction<'_, Postgres>, account: Uuid) -> Result<(), Error> {
+    oteryn_db::mutation_budget(tx).await?;
     // Serialize per-account limits and lifecycle changes with goal creation.
     sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM accounts WHERE id=$1 AND status='active'
