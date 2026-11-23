@@ -159,6 +159,7 @@ struct Settings {
     text: Text,
     csrf: String,
     active: bool,
+    has_watches: bool,
     token: Option<String>,
 }
 
@@ -175,21 +176,14 @@ async fn settings(
 ) -> Result<Response, StatusCode> {
     check(&state, &lang)?;
     let (account, hash) = actor(&session).await?;
-    let active = access::active(&state.pool, account, &hash).await?;
-    settings_page(lang, &session, active, None).await
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum Action {
-    Issue,
-    Revoke,
+    let (active, has_watches) = access::status(&state.pool, account, &hash).await?;
+    settings_page(lang, &session, active, has_watches, None).await
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Change {
-    action: Action,
+    action: access::Action,
     #[serde(rename = "_csrf")]
     _csrf: String,
 }
@@ -202,10 +196,10 @@ async fn update(
 ) -> Result<Response, StatusCode> {
     check(&state, &lang)?;
     let (account, hash) = actor(&session).await?;
-    let issue = matches!(change.action, Action::Issue);
-    let token = access::update(&state.pool, account, &hash, issue).await?;
-    if token.is_some() {
-        settings_page(lang, &session, true, token).await
+    if let Some((token, has_watches)) =
+        access::update(&state.pool, account, &hash, change.action).await?
+    {
+        settings_page(lang, &session, true, has_watches, Some(token)).await
     } else {
         Ok(Redirect::to(&format!("/{lang}/account/stats-watches")).into_response())
     }
@@ -223,6 +217,7 @@ async fn settings_page(
     lang: String,
     session: &BrowserSession,
     active: bool,
+    has_watches: bool,
     token: Option<String>,
 ) -> Result<Response, StatusCode> {
     render(Settings {
@@ -230,6 +225,7 @@ async fn settings_page(
         lang,
         csrf: session.csrf_token().await.map_err(http::unavailable)?,
         active,
+        has_watches,
         token,
     })
 }

@@ -22,3 +22,7 @@ token = Watch token
 issue = Create token
 replace = Replace token
 revoke = Revoke token
+saved-watches = Saved watches
+watches-saved = You have saved watches.
+watches-empty = You have no saved watches.
+remove-all = Remove all watches

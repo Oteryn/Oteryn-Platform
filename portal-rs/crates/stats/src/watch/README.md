@@ -22,7 +22,8 @@ subscriptions passing current disclosure policy. All responses use private,
 no-store caching. Requests have a database-backed 60/minute/account budget
 (429), and subscription creation has a serialized 100/account ceiling.
 Removal remains possible after the subject becomes hidden. The credential page
-uses the standard browser session and CSRF middleware.
+uses the standard browser session and CSRF middleware. It displays whether the
+account has saved watches and can remove them all without resolving targets.
 
 `Policy` is the narrow integration seam for absent T66: it validates the bearer,
 active account, scope, current source and privacy generations, event-time and

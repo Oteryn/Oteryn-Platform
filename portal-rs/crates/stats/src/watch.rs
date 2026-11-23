@@ -102,11 +102,7 @@ impl Watches {
         self.check(owner, s)?;
         let mut tx = self.pool.begin().await?;
         oteryn_db::mutation_budget(&mut tx).await?;
-        // Serialize per owner so concurrent requests cannot bypass the subscription cap.
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,70))")
-            .bind(owner.to_string())
-            .execute(&mut *tx)
-            .await?;
+        lock_subscriptions(&mut tx, owner).await?;
         if !self.policy.allowed(&mut tx, owner, s, None).await? {
             return Err(invalid());
         }
@@ -202,6 +198,17 @@ impl Watches {
         Ok(sent)
     }
 }
+async fn lock_subscriptions(
+    db: &mut sqlx::PgConnection,
+    owner: Uuid,
+) -> std::result::Result<(), sqlx::Error> {
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,70))")
+        .bind(owner.to_string())
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 async fn delete<'e>(
     db: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
     owner: Uuid,

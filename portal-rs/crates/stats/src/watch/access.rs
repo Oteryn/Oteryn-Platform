@@ -43,57 +43,97 @@ async fn session_id(
     .ok_or(StatusCode::FORBIDDEN)
 }
 
-pub async fn active(pool: &PgPool, account: Uuid, session_hash: &[u8]) -> Result<bool, StatusCode> {
+async fn read_status(
+    db: &mut PgConnection,
+    session: Uuid,
+    session_hash: &[u8],
+    account: Uuid,
+) -> Result<(bool, bool), StatusCode> {
+    sqlx::query_as("SELECT
+        EXISTS(SELECT 1 FROM stats_watch_access WHERE session_id=$1 AND session_hash=$2 AND expires_at>clock_timestamp()),
+        EXISTS(SELECT 1 FROM stats_watches WHERE account_id=$3)")
+        .bind(session).bind(session_hash).bind(account).fetch_one(db).await.map_err(unavailable)
+}
+
+pub async fn status(
+    pool: &PgPool,
+    account: Uuid,
+    session_hash: &[u8],
+) -> Result<(bool, bool), StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_db::mutation_budget(&mut tx)
         .await
         .map_err(unavailable)?;
     let session = session_id(&mut tx, account, session_hash).await?;
-    let enabled = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM stats_watch_access WHERE session_id=$1 AND session_hash=$2 AND expires_at>clock_timestamp())")
-        .bind(session).bind(session_hash).fetch_one(&mut *tx).await.map_err(unavailable)?;
+    let status = read_status(&mut tx, session, session_hash, account).await?;
     tx.commit().await.map_err(unavailable)?;
-    Ok(enabled)
+    Ok(status)
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Action {
+    Issue,
+    Revoke,
+    RemoveAll,
 }
 
 pub async fn update(
     pool: &PgPool,
     account: Uuid,
     session_hash: &[u8],
-    issue: bool,
-) -> Result<Option<String>, StatusCode> {
+    action: Action,
+) -> Result<Option<(String, bool)>, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_db::mutation_budget(&mut tx)
         .await
         .map_err(unavailable)?;
+    if matches!(action, Action::RemoveAll) {
+        super::lock_subscriptions(&mut tx, account)
+            .await
+            .map_err(unavailable)?;
+    }
     let session = session_id(&mut tx, account, session_hash).await?;
-    let token = if issue {
-        super::http::budget(&mut *tx, account).await?;
-        let mut entropy = [0_u8; 32];
-        getrandom::fill(&mut entropy).map_err(unavailable)?;
-        let token = format!("{:x}", Sha256::digest(entropy));
-        sqlx::query(
-            "INSERT INTO stats_watch_access(session_id,session_hash,token_hash,expires_at)
-                    VALUES($1,$2,$3,clock_timestamp()+interval '1 hour')
-                    ON CONFLICT(session_id) DO UPDATE SET session_hash=EXCLUDED.session_hash,
-                    token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at",
-        )
-        .bind(session)
-        .bind(session_hash)
-        .bind(hash(&token))
-        .execute(&mut *tx)
-        .await
-        .map_err(unavailable)?;
-        Some(token)
-    } else {
-        sqlx::query("DELETE FROM stats_watch_access WHERE session_id=$1")
+    let issued = match action {
+        Action::Issue => {
+            super::http::budget(&mut *tx, account).await?;
+            let mut entropy = [0_u8; 32];
+            getrandom::fill(&mut entropy).map_err(unavailable)?;
+            let token = format!("{:x}", Sha256::digest(entropy));
+            sqlx::query(
+                "INSERT INTO stats_watch_access(session_id,session_hash,token_hash,expires_at)
+                        VALUES($1,$2,$3,clock_timestamp()+interval '1 hour')
+                        ON CONFLICT(session_id) DO UPDATE SET session_hash=EXCLUDED.session_hash,
+                        token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at",
+            )
             .bind(session)
+            .bind(session_hash)
+            .bind(hash(&token))
             .execute(&mut *tx)
             .await
             .map_err(unavailable)?;
-        None
+            let (_, has_watches) = read_status(&mut tx, session, session_hash, account).await?;
+            Some((token, has_watches))
+        }
+        Action::Revoke => {
+            sqlx::query("DELETE FROM stats_watch_access WHERE session_id=$1")
+                .bind(session)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+            None
+        }
+        Action::RemoveAll => {
+            sqlx::query("DELETE FROM stats_watches WHERE account_id=$1")
+                .bind(account)
+                .execute(&mut *tx)
+                .await
+                .map_err(unavailable)?;
+            None
+        }
     };
     tx.commit().await.map_err(unavailable)?;
-    Ok(token)
+    Ok(issued)
 }
 
 pub async fn owner(pool: &PgPool, token: &str) -> Result<Option<Uuid>, StatusCode> {

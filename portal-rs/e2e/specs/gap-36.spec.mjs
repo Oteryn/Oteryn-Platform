@@ -50,7 +50,7 @@ test('a verified player uses and revokes session watch API access', async ({page
   await page.locator('main').getByRole('link', {name: t.access}).click();
   const settings = `/${lang}/account/stats-watches`;
   expect((await page.request.post(settings, {form: {action: 'issue'}})).status()).toBe(403);
-  await expect(page.locator('main [role=status]')).toHaveText(t.inactive);
+  await expect(page.locator('main').getByText(t.inactive, {exact: true})).toBeVisible();
   await page.getByRole('button', {name: t.issue}).click();
   const token = await page.locator('#watch-token').inputValue();
   expect(/^[a-f0-9]{64}$/.test(token)).toBe(true);
@@ -65,7 +65,12 @@ test('a verified player uses and revokes session watch API access', async ({page
   expect((await page.request.delete(watches, {headers, data})).status()).toBe(204);
   const remaining = await query('SELECT account_id FROM stats_watches WHERE account_id=$1 AND target_id=$2', [actor.id, target]);
   expect(remaining).toEqual([]);
+  await query("INSERT INTO stats_watches(account_id,target_kind,target_id,event_kind) VALUES($1,'guild',$2,'guild_change')", [actor.id, target]);
+  await page.goto(settings);
+  await expect(page.locator('main').getByText(t['watches-saved'], {exact: true})).toBeVisible();
+  await page.getByRole('button', {name: t['remove-all']}).click();
+  await expect(page.locator('main').getByText(t['watches-empty'], {exact: true})).toBeVisible();
   await page.getByRole('button', {name: t.revoke}).click();
-  await expect(page.locator('main [role=status]')).toHaveText(t.inactive);
+  await expect(page.locator('main').getByText(t.inactive, {exact: true})).toBeVisible();
   expect((await page.request.get(watches, {headers})).status()).toBe(401);
 });

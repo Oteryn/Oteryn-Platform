@@ -26,6 +26,16 @@
       {% if active %}<button class="op-button" type="submit" name="action" value="revoke">{{ text.label("revoke") }}</button>{% endif %}
     </form>
   </section>
+  <section class="op-card op-stack">
+    <h2>{{ text.label("saved-watches") }}</h2>
+    <p role="status">{% if has_watches %}{{ text.label("watches-saved") }}{% else %}{{ text.label("watches-empty") }}{% endif %}</p>
+    {% if has_watches %}
+    <form action="/{{ lang }}/account/stats-watches" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button class="op-button" type="submit" name="action" value="remove_all">{{ text.label("remove-all") }}</button>
+    </form>
+    {% endif %}
+  </section>
 </main>
 </body>
 </html>

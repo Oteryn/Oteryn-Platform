@@ -22,3 +22,7 @@ token = Token obserwacji
 issue = Utwórz token
 replace = Zastąp token
 revoke = Unieważnij token
+saved-watches = Zapisane obserwacje
+watches-saved = Masz zapisane obserwacje.
+watches-empty = Nie masz zapisanych obserwacji.
+remove-all = Usuń wszystkie obserwacje

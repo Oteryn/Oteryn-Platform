@@ -458,6 +458,30 @@ async fn postgres_configured_watch_access_lifecycle() -> Result<()> {
         .fetch_all(&pool)
         .await?;
     assert_eq!(remaining, vec![other]);
+    sqlx::query("INSERT INTO stats_watches(account_id,target_kind,target_id,event_kind) VALUES($1,'guild',$2,'guild_change')")
+        .bind(account).bind(watch.target_id).execute(&pool).await?;
+    for (body, expected) in [
+        ("action=remove_all".to_owned(), StatusCode::FORBIDDEN),
+        (
+            format!("action=remove_all&_csrf={csrf}"),
+            StatusCode::SEE_OTHER,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post(settings)
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .body(Body::from(body))?,
+            )
+            .await?;
+        assert_eq!(response.status(), expected);
+    }
+    let remaining: Vec<Uuid> = sqlx::query_scalar("SELECT account_id FROM stats_watches")
+        .fetch_all(&pool)
+        .await?;
+    assert_eq!(remaining, vec![other]);
     let authorization = format!("Bearer {token}");
     sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
         .bind(account)
@@ -502,5 +526,42 @@ async fn postgres_configured_watch_access_lifecycle() -> Result<()> {
         .fetch_one(&pool)
         .await?;
     assert_eq!(remaining_tokens, 0);
+    let (previous, _) = access::update(&pool, account, &session_hash, access::Action::Issue)
+        .await
+        .map_err(|code| code.to_string())?
+        .ok_or("credential was not issued")?;
+    assert_eq!(
+        access::owner(&pool, &previous)
+            .await
+            .map_err(|code| code.to_string())?,
+        Some(account)
+    );
+    let (replacement, _) = access::update(&pool, account, &session_hash, access::Action::Issue)
+        .await
+        .map_err(|code| code.to_string())?
+        .ok_or("credential was not replaced")?;
+    assert!(
+        access::owner(&pool, &previous)
+            .await
+            .map_err(|code| code.to_string())?
+            .is_none()
+    );
+    assert_eq!(
+        access::owner(&pool, &replacement)
+            .await
+            .map_err(|code| code.to_string())?,
+        Some(account)
+    );
+    sqlx::query("UPDATE web_sessions SET id_hash=$1 WHERE id_hash=$2")
+        .bind(Sha256::digest("c".repeat(64)).to_vec())
+        .bind(session_hash)
+        .execute(&pool)
+        .await?;
+    assert!(
+        access::owner(&pool, &replacement)
+            .await
+            .map_err(|code| code.to_string())?
+            .is_none()
+    );
     dispose(pool).await
 }
