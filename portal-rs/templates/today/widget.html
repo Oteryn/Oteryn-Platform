@@ -1,5 +1,6 @@
-<aside class="op-theme op-card op-stack" aria-label="{{ title }}">
-<strong>{{ title }}</strong>
-{% if available %}<dl><dt>{{ creature_label }}</dt><dd>{{ creature }}</dd><dt>{{ boss_label }}</dt><dd>{{ boss }}</dd></dl>
-{% else %}<p role="status">{{ unavailable }}</p>{% endif %}
+<aside class="op-theme op-card op-stack" aria-label="{{ self.text("title") }}">
+  <strong>{{ self.text("title") }}</strong>
+  {% if let Some(boost) = boost %}
+  <dl><dt>{{ self.text("creature") }}</dt><dd>{{ boost.creature }}</dd><dt>{{ self.text("boss") }}</dt><dd>{{ boost.boss }}</dd></dl>
+  {% else %}<p role="status">{{ self.text("unavailable") }}</p>{% endif %}
 </aside>

@@ -313,3 +313,4 @@ build-effective-min = Effective minimum sequence
 build-minimum-blocked = This threshold lacks a current verified Windows x86-64 update that meets the minimum.
 build-invalid = Check the update channel and rollout state. Supply a valid release ID and sequence together. Sequences must be integers from 1 to 9007199254740991.
 build-policy-revision = Policy revision
+world-daily = World daily projection

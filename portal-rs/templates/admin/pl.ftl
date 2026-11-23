@@ -313,3 +313,4 @@ build-effective-min = Obowiązujący minimalny numer wydania
 build-minimum-blocked = Brak bieżącej zweryfikowanej aktualizacji dla Windows x86-64, która spełnia to minimum.
 build-invalid = Sprawdź kanał aktualizacji i stan wdrożenia. Podaj razem poprawny identyfikator i numer wydania. Numery wydań muszą być liczbami całkowitymi od 1 do 9007199254740991.
 build-policy-revision = Wersja zasad aktualizacji
+world-daily = Projekcja dziennych danych świata

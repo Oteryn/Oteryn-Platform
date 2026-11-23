@@ -209,3 +209,6 @@ public P /{lang}/unsubscribe/confirm
 public P /{locale}/events/calendar/month
 public G /{lang}/admin/character-services
 public G /admin/client-build
+internal G /admin/today
+native G /admin/today
+public G /admin/today
