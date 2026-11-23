@@ -2,7 +2,7 @@ use super::*;
 use askama::Template;
 use axum::{
     extract::Request,
-    http::{HeaderValue, header},
+    http::{HeaderValue, Method, header},
     middleware::Next,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
@@ -15,6 +15,8 @@ struct Labels {
     level: String,
     profession: String,
     filter: String,
+    previous: String,
+    next: String,
     create: String,
     character: String,
     min: String,
@@ -22,7 +24,6 @@ struct Labels {
     starts: String,
     expires: String,
     note: String,
-    contact: String,
     reason: String,
     report: String,
     remove: String,
@@ -31,15 +32,20 @@ struct Labels {
     more_reports: String,
     empty: String,
     hint: String,
-    hunt: String,
-    boss: String,
-    quest: String,
-    any: String,
-    knight: String,
-    paladin: String,
-    sorcerer: String,
-    druid: String,
-    monk: String,
+    all: String,
+    reset: String,
+    owned: String,
+    no_owned: String,
+    discoveries: String,
+    queue_empty: String,
+    queue: String,
+    status: String,
+    feed_status: String,
+    feed_hint: String,
+    ownership_feed: String,
+    profile_feed: String,
+    fresh: String,
+    data_unavailable: String,
 }
 fn translate(bundle: &FluentBundle<FluentResource>, key: &str) -> Result<String, Error> {
     let value = bundle
@@ -53,140 +59,71 @@ fn translate(bundle: &FluentBundle<FluentResource>, key: &str) -> Result<String,
     }
     Ok(text.into_owned())
 }
+#[derive(Default)]
+pub(super) struct PublicPage {
+    pub filter: Filter,
+    pub worlds: Vec<(Uuid, String)>,
+    pub actor: Option<Uuid>,
+    pub previous: Option<u16>,
+    pub next: Option<u16>,
+    pub can_report: bool,
+    pub characters: Vec<Character>,
+    pub owned: Vec<party_store::Listing>,
+    pub staff_url: Option<String>,
+}
+impl PublicPage {
+    fn can_report(&self, owner: &Uuid) -> bool {
+        self.can_report && self.actor.as_ref() != Some(owner)
+    }
+
+    fn selected_world_missing(&self) -> bool {
+        self.filter
+            .world
+            .is_some_and(|selected| !self.worlds.iter().any(|(world, _)| *world == selected))
+    }
+}
+
+pub(super) enum View {
+    Public(Box<PublicPage>),
+    Staff((bool, bool)),
+}
+
 #[derive(Template)]
-#[template(
-    source = r###"<!doctype html>
-<html lang="{{ lang }}">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{ t.title }}</title>
-<link rel="stylesheet" href="/static/css/tokens.css">
-<link rel="stylesheet" href="/static/css/components.css">
-<link rel="stylesheet" href="/static/css/app.css">
-</head>
-<body class="op-theme">
-<main class="op-stack">
-<h1>{{ t.title }}</h1>
-<p>{{ t.hint }}</p>
-{% if moderation %}<a href="/admin/{{ lang }}/party">{{ t.moderation }}</a>{% endif %}
-{% if !moderation %}<form class="op-stack" method="get">
-<label class="op-field">{{ t.world }}<input class="op-input" name="world" type="text"  required>
-</label>
-<label class="op-field">{{ t.purpose }}<select class="op-input" name="purpose">
-<option value="hunt">{{ t.hunt }}</option>
-<option value="boss">{{ t.boss }}</option>
-<option value="quest">{{ t.quest }}</option>
-</select>
-</label>
-<label class="op-field">{{ t.level }}<input class="op-input" name="level" type="number" min="1" max="100000" required>
-</label>
-<label class="op-field">{{ t.profession }}<select class="op-input" name="profession">
-<option value="any">{{ t.any }}</option>
-<option value="knight">{{ t.knight }}</option>
-<option value="paladin">{{ t.paladin }}</option>
-<option value="sorcerer">{{ t.sorcerer }}</option>
-<option value="druid">{{ t.druid }}</option>
-<option value="monk">{{ t.monk }}</option>
-</select>
-</label>
-<button class="op-button">{{ t.filter }}</button>
-</form>
-{% if can_post %}<h2>{{ t.create }}</h2>
-<form class="op-stack" method="post" action="/{{ lang }}/party">
-<input class="op-input" type="hidden" name="_csrf" value="{{ token }}">
-<label class="op-field">{{ t.character }}<input class="op-input" name="character" type="text"  required>
-</label>
-<label class="op-field">{{ t.purpose }}<select class="op-input" name="purpose">
-<option value="hunt">{{ t.hunt }}</option>
-<option value="boss">{{ t.boss }}</option>
-<option value="quest">{{ t.quest }}</option>
-</select>
-</label>
-<label class="op-field">{{ t.min }}<input class="op-input" name="min_level" type="number" min="1" max="100000" required>
-</label>
-<label class="op-field">{{ t.max }}<input class="op-input" name="max_level" type="number" min="1" max="100000" required>
-</label>
-<label class="op-field">{{ t.profession }}<select class="op-input" name="profession">
-<option value="any">{{ t.any }}</option>
-<option value="knight">{{ t.knight }}</option>
-<option value="paladin">{{ t.paladin }}</option>
-<option value="sorcerer">{{ t.sorcerer }}</option>
-<option value="druid">{{ t.druid }}</option>
-<option value="monk">{{ t.monk }}</option>
-</select>
-</label>
-<label class="op-field">{{ t.starts }}<input class="op-input" name="starts_at" type="number" min="0" required>
-</label>
-<label class="op-field">{{ t.expires }}<input class="op-input" name="expires_at" type="number" min="0" required>
-</label>
-<label class="op-field">{{ t.note }}<textarea class="op-input" name="note" maxlength="500">
-</textarea>
-</label>
-<button class="op-button">{{ t.create }}</button>
-</form>{% else %}<p>{{ t.unavailable }}</p>{% endif %}{% endif %}
-{% for row in rows %}<article class="op-panel op-stack">
-<h2>{{ row.name }}</h2>
-<dl>
-<dt>{{ t.world }}</dt>
-<dd>{{ row.world }}</dd>
-<dt>{{ t.purpose }}</dt>
-<dd>{{ row.purpose }}</dd>
-<dt>{{ t.level }}</dt>
-<dd>{{ row.min }}–{{ row.max }}</dd>
-<dt>{{ t.profession }}</dt>
-<dd>{{ row.profession }}</dd>
-<dt>{{ t.starts }}</dt>
-<dd>{{ row.starts }}</dd>
-<dt>{{ t.expires }}</dt>
-<dd>{{ row.expires }}</dd>
-<dt>{{ t.contact }}</dt>
-<dd>{{ row.name }}</dd>
-</dl>
-<p>{{ row.note }}</p>
-{% if moderation %}<p>{{ row.reports }}</p>
-{% if row.more_reports > 0 %}<p>{{ row.more_reports }} {{ t.more_reports }}</p>{% endif %}
-<form class="op-stack" method="post" action="/admin/{{ lang }}/party/{{ row.id }}/moderate">
-<input type="hidden" name="report_ids" value="{{ row.report_ids }}">
-<input class="op-input" type="hidden" name="_csrf" value="{{ token }}">
-<label class="op-field">{{ t.reason }}<input class="op-input" name="reason" type="text" maxlength="500" required>
-</label>
-<button class="op-button" name="action" value="remove">{{ t.remove }}</button>
-<button class="op-button" name="action" value="dismiss">{{ t.dismiss }}</button>
-</form>{% else %}<form class="op-stack" method="post" action="/{{ lang }}/party/{{ row.id }}/report">
-<input class="op-input" type="hidden" name="_csrf" value="{{ token }}">
-<label class="op-field">{{ t.reason }}<input class="op-input" name="reason" type="text" maxlength="500" required>
-</label>
-<button class="op-button">{{ t.report }}</button>
-</form>
-<form class="op-stack" method="post" action="/{{ lang }}/party/{{ row.id }}/remove">
-<input class="op-input" type="hidden" name="_csrf" value="{{ token }}">
-<button class="op-button">{{ t.remove }}</button>
-</form>{% endif %}</article>{% else %}<p>{{ t.empty }}</p>{% endfor %}</main>
-</body>
-</html>"###,
-    ext = "html"
-)]
+#[template(path = "community/party.html", config = "src/party.askama.toml")]
 struct Page<'a> {
     lang: &'a str,
     token: &'a str,
     t: Labels,
     rows: Vec<party_store::Listing>,
-    moderation: bool,
-    can_post: bool,
+    view: View,
+    purposes: [(&'static str, String); 3],
+    professions: [(&'static str, String); 6],
 }
+
+#[derive(Template)]
+#[template(
+    path = "community/party_input_error.html",
+    config = "src/party.askama.toml"
+)]
+struct InputError {
+    lang: &'static str,
+    board: String,
+    title: String,
+    description: String,
+    back: String,
+}
+
 pub(super) fn page(
     lang: &str,
     token: &str,
     mut rows: Vec<party_store::Listing>,
-    moderation: bool,
-    can_post: bool,
+    mut view: View,
 ) -> Result<Response, Error> {
     let resource = FluentResource::try_new(
         if lang == "pl" {
-            include_str!("party_pl.ftl")
+            include_str!("../../../../templates/community/party_pl.ftl")
         } else {
-            include_str!("party_en.ftl")
+            include_str!("../../../../templates/community/party_en.ftl")
         }
         .into(),
     )
@@ -205,6 +142,8 @@ pub(super) fn page(
         level: translate(&bundle, "level")?,
         profession: translate(&bundle, "profession")?,
         filter: translate(&bundle, "filter")?,
+        previous: translate(&bundle, "previous")?,
+        next: translate(&bundle, "next")?,
         create: translate(&bundle, "create")?,
         character: translate(&bundle, "character")?,
         min: translate(&bundle, "min")?,
@@ -212,7 +151,6 @@ pub(super) fn page(
         starts: translate(&bundle, "starts")?,
         expires: translate(&bundle, "expires")?,
         note: translate(&bundle, "note")?,
-        contact: translate(&bundle, "contact")?,
         reason: translate(&bundle, "reason")?,
         report: translate(&bundle, "report")?,
         remove: translate(&bundle, "remove")?,
@@ -221,31 +159,93 @@ pub(super) fn page(
         more_reports: translate(&bundle, "more-reports")?,
         empty: translate(&bundle, "empty")?,
         hint: translate(&bundle, "hint")?,
-        hunt: translate(&bundle, "hunt")?,
-        boss: translate(&bundle, "boss")?,
-        quest: translate(&bundle, "quest")?,
-        any: translate(&bundle, "any")?,
-        knight: translate(&bundle, "knight")?,
-        paladin: translate(&bundle, "paladin")?,
-        sorcerer: translate(&bundle, "sorcerer")?,
-        druid: translate(&bundle, "druid")?,
-        monk: translate(&bundle, "monk")?,
+        all: translate(&bundle, "all")?,
+        reset: translate(&bundle, "reset")?,
+        owned: translate(&bundle, "owned")?,
+        no_owned: translate(&bundle, "no-owned")?,
+        discoveries: translate(&bundle, "discoveries")?,
+        queue_empty: translate(&bundle, "queue-empty")?,
+        queue: translate(&bundle, "queue")?,
+        status: translate(&bundle, "status")?,
+        feed_status: translate(&bundle, "feed-status")?,
+        feed_hint: translate(&bundle, "feed-hint")?,
+        ownership_feed: translate(&bundle, "ownership-feed")?,
+        profile_feed: translate(&bundle, "profile-feed")?,
+        fresh: translate(&bundle, "fresh")?,
+        data_unavailable: translate(&bundle, "data-unavailable")?,
     };
-    for row in &mut rows {
+    let option = |key| translate(&bundle, key).map(|label| (key, label));
+    let purposes = [option("hunt")?, option("boss")?, option("quest")?];
+    let professions = [
+        option("any")?,
+        option("knight")?,
+        option("paladin")?,
+        option("sorcerer")?,
+        option("druid")?,
+        option("monk")?,
+    ];
+    let owned = match &mut view {
+        View::Public(public) => public.owned.as_mut_slice(),
+        View::Staff(_) => &mut [],
+    };
+    for row in rows.iter_mut().chain(owned) {
         row.purpose = translate(&bundle, &row.purpose)?;
         row.profession = translate(&bundle, &row.profession)?;
+        row.status = translate(&bundle, &row.status)?;
     }
     Ok(oteryn_web::render(&Page {
         lang,
         token,
         t,
         rows,
-        moderation,
-        can_post,
+        view,
+        purposes,
+        professions,
     }))
 }
 pub(super) async fn headers(request: Request, next: Next) -> Response {
+    let input_error = if request.method() == Method::POST
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("text/html"))
+    {
+        let path = request.uri().path();
+        let (prefix, local) = path
+            .strip_prefix("/admin/")
+            .map_or(("", path.trim_start_matches('/')), |local| {
+                ("/admin", local)
+            });
+        let lang = match local.split('/').next() {
+            Some("pl") => Some("pl"),
+            Some("en") => Some("en"),
+            _ => None,
+        };
+        lang.map(|lang| (lang, prefix))
+    } else {
+        None
+    };
     let mut response = next.run(request).await;
+    if response.status() == StatusCode::UNPROCESSABLE_ENTITY
+        && let Some((lang, prefix)) = input_error
+    {
+        let (parts, body) = oteryn_web::render(&InputError {
+            lang,
+            board: format!("{prefix}/{lang}/party"),
+            title: oteryn_ui::text(lang, "error-422-title"),
+            description: oteryn_ui::text(lang, "error-422-description"),
+            back: oteryn_ui::text(lang, "shell-back"),
+        })
+        .into_parts();
+        if let Some(content_type) = parts.headers.get(header::CONTENT_TYPE) {
+            response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, content_type.clone());
+            response.headers_mut().remove(header::CONTENT_LENGTH);
+            *response.body_mut() = body;
+        }
+    }
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

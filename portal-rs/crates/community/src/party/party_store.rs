@@ -1,14 +1,26 @@
 use super::*;
 use oteryn_admin::audit::{self, AuditContext, Entry};
 use serde_json::json;
+use std::collections::HashMap;
 
 pub(super) const REPORT_BATCH_SIZE: usize = 50;
+const DISCOVERY_PAGE_SIZE: usize = 100;
+
+pub(super) struct Discovery {
+    pub rows: Vec<Listing>,
+    pub has_next: bool,
+}
 
 #[derive(Debug)]
 pub(super) struct Listing {
     pub id: Uuid,
     pub name: String,
-    pub world: Uuid,
+    pub owner: Uuid,
+    pub character: Uuid,
+    pub world_id: Uuid,
+    pub world: Option<String>,
+    pub status: String,
+    pub active: bool,
     pub purpose: String,
     pub min: i32,
     pub max: i32,
@@ -26,14 +38,129 @@ impl Board {
         Ok(sqlx::query("UPDATE pd_party_posts SET status='expired', updated_at=now() WHERE status='active' AND expires_at<=now()")
             .execute(&self.db).await?.rows_affected())
     }
-    pub(super) async fn list(&self, filter: &Filter) -> Result<Vec<Listing>, Error> {
+    pub(super) async fn list(&self, filter: &Filter) -> Result<Discovery, Error> {
         if !filter.valid() {
             return Err(Error::Invalid);
         }
-        let rows = sqlx::query("SELECT *, starts_at::text AS starts, expires_at::text AS expires FROM pd_party_posts p WHERE status='active' AND expires_at>clock_timestamp() AND EXISTS (SELECT 1 FROM account_characters c WHERE c.account_id=p.account_id AND c.character_id=p.character_id AND c.world_id=p.world_id AND c.availability='AVAILABLE') AND ($1::uuid IS NULL OR world_id=$1) AND ($2::text IS NULL OR purpose=$2) AND ($3::int IS NULL OR $3 BETWEEN min_level AND max_level) AND ($4::text IS NULL OR profession='any' OR profession=$4) ORDER BY starts_at,id LIMIT 100")
-            .bind(filter.world).bind(&filter.purpose).bind(filter.level).bind(&filter.profession).fetch_all(&self.db).await?;
+        let page = filter.page.unwrap_or(1);
+        let rows = sqlx::query(
+            "SELECT p.*, w.name AS world_name, p.status AS effective_status,
+                    to_char(p.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS starts,
+                    to_char(p.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS expires
+             FROM pd_party_posts p LEFT JOIN world_status w ON w.id=p.world_id
+             WHERE p.status='active' AND p.expires_at>clock_timestamp()
+               AND EXISTS (
+                   SELECT 1 FROM account_characters c WHERE c.account_id=p.account_id
+                     AND c.character_id=p.character_id AND c.world_id=p.world_id
+                     AND c.availability='AVAILABLE' AND c.name=p.character_name
+               )
+               AND ($1::uuid IS NULL OR p.world_id=$1)
+               AND ($2::text IS NULL OR p.purpose=$2)
+               AND ($3::int IS NULL OR $3 BETWEEN p.min_level AND p.max_level)
+               AND ($4::text IS NULL OR $4='any' OR p.profession='any' OR p.profession=$4)
+             ORDER BY p.starts_at,p.id LIMIT $5 OFFSET $6",
+        )
+        .bind(filter.world)
+        .bind(&filter.purpose)
+        .bind(filter.level)
+        .bind(&filter.profession)
+        .bind((DISCOVERY_PAGE_SIZE + 1) as i64)
+        .bind(i64::from(page - 1) * DISCOVERY_PAGE_SIZE as i64)
+        .fetch_all(&self.db)
+        .await?;
+        let has_next = page < MAX_DISCOVERY_PAGE && rows.len() > DISCOVERY_PAGE_SIZE;
+        let mut visible = Vec::with_capacity(rows.len().min(DISCOVERY_PAGE_SIZE));
+        let mut proofs = HashMap::new();
+        for row in rows.into_iter().take(DISCOVERY_PAGE_SIZE) {
+            let row = listing(row)?;
+            let key = (row.owner, row.character);
+            let proof = match proofs.entry(key) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(self.authority.character(row.owner, row.character).await)
+                }
+            };
+            if proof.as_ref().is_some_and(|character| {
+                character.id == row.character
+                    && character.world == row.world_id
+                    && character.name == row.name
+                    && valid_character(character)
+            }) {
+                visible.push(row);
+            }
+        }
+        Ok(Discovery {
+            rows: visible,
+            has_next,
+        })
+    }
+
+    pub(super) async fn worlds(&self) -> Result<Vec<(Uuid, String)>, Error> {
+        Ok(
+            sqlx::query_as("SELECT id,name FROM world_status ORDER BY name,id LIMIT 256")
+                .fetch_all(&self.db)
+                .await?,
+        )
+    }
+
+    pub(super) async fn characters(&self, actor: Uuid) -> Result<Vec<Character>, Error> {
+        let ids = sqlx::query_scalar(
+            "SELECT character_id FROM account_characters
+             WHERE account_id=$1 AND availability='AVAILABLE' ORDER BY name,character_id LIMIT 100",
+        )
+        .bind(actor)
+        .fetch_all(&self.db)
+        .await?;
+        let mut qualified = Vec::with_capacity(ids.len());
+        for id in ids {
+            if let Some(character) = self.authority.character(actor, id).await
+                && character.id == id
+                && valid_character(&character)
+            {
+                qualified.push(character);
+            }
+        }
+        Ok(qualified)
+    }
+
+    pub(super) async fn owned(&self, actor: Uuid) -> Result<Vec<Listing>, Error> {
+        let rows = sqlx::query(
+            "SELECT p.*, w.name AS world_name, to_char(p.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS starts,
+                    to_char(p.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS expires,
+                    CASE WHEN p.status='active' AND p.expires_at<=clock_timestamp()
+                         THEN 'expired' ELSE p.status END AS effective_status
+             FROM pd_party_posts p LEFT JOIN world_status w ON w.id=p.world_id
+             WHERE p.account_id=$1 ORDER BY (p.status='active' AND p.expires_at>clock_timestamp()) DESC,
+             p.created_at DESC,p.id DESC LIMIT 100",
+        )
+        .bind(actor)
+        .fetch_all(&self.db)
+        .await?;
         rows.into_iter().map(listing).collect()
     }
+
+    /// Feed freshness is a diagnostic. Character eligibility still needs the
+    /// account snapshot, ownership cut and a matching per-character profile.
+    pub(super) async fn feed_status(&self) -> Result<(bool, bool), Error> {
+        Ok(sqlx::query_as(
+            "WITH stamp AS (SELECT floor(extract(epoch FROM statement_timestamp()))::bigint AS now)
+             SELECT EXISTS (
+                 SELECT 1 FROM account_character_feed f, stamp
+                 WHERE f.id=1 AND f.highest_epoch=f.watermark_epoch
+                   AND f.source_authority<>'' AND f.complete_through BETWEEN now-29 AND now+1
+             ), EXISTS (
+                 SELECT 1 FROM public_snapshots w
+                 JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=w.epoch
+                 CROSS JOIN stamp
+                 WHERE w.family='character_profile' AND w.is_watermark
+                   AND NOT public_projection_conflicted('character_profile')
+                   AND w.watermark BETWEEN now-29 AND now+1
+             )",
+        )
+        .fetch_one(&self.db)
+        .await?)
+    }
+
     pub async fn create(&self, owner: Uuid, draft: Draft) -> Result<Uuid, Error> {
         if owner.is_nil() {
             return Err(Error::Denied);
@@ -59,13 +186,7 @@ impl Board {
             .character_in(&mut tx, owner, draft.character)
             .await
             .ok_or(Error::Denied)?;
-        if character.id != draft.character
-            || character.world.is_nil()
-            || !text(&character.name, 1, 64)
-            || !(1..=100000).contains(&character.level)
-            || !profession(&character.profession)
-            || character.profession == "any"
-        {
+        if character.id != draft.character || !valid_character(&character) {
             return Err(Error::Denied);
         }
         self.authority
@@ -177,7 +298,10 @@ impl Board {
     }
     pub(super) async fn reports(&self) -> Result<Vec<Listing>, Error> {
         let rows = sqlx::query(
-            "SELECT p.*, p.starts_at::text AS starts, p.expires_at::text AS expires,
+            "SELECT p.*, w.name AS world_name, to_char(p.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS starts,
+                    to_char(p.expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS expires,
+                    CASE WHEN p.status='active' AND p.expires_at<=clock_timestamp()
+                         THEN 'expired' ELSE p.status END AS effective_status,
                     batch.reasons, batch.report_ids, batch.more_reports
              FROM (
                  SELECT p.* FROM pd_party_posts p
@@ -186,6 +310,7 @@ impl Board {
                  )
                  ORDER BY p.created_at, p.id LIMIT 100
              ) p
+             LEFT JOIN world_status w ON w.id=p.world_id
              CROSS JOIN LATERAL (
                  SELECT string_agg(reason, ' | ' ORDER BY created_at, id) AS reasons,
                         string_agg(id::text, ',' ORDER BY created_at, id) AS report_ids,
@@ -271,8 +396,11 @@ impl Board {
             .bind(after)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("UPDATE pd_party_reports SET status='resolved',updated_at=now() WHERE post_id=$1 AND status='open' AND id=ANY($2)")
+        let resolved = sqlx::query("UPDATE pd_party_reports SET status='resolved',updated_at=now() WHERE post_id=$1 AND status='open' AND id=ANY($2)")
             .bind(id).bind(report_ids).execute(&mut *tx).await?;
+        if resolved.rows_affected() != report_ids.len() as u64 {
+            return Err(Error::Missing);
+        }
         audit::append(
             &mut tx,
             Entry {
@@ -301,10 +429,16 @@ impl Board {
     }
 }
 fn listing(row: sqlx::postgres::PgRow) -> Result<Listing, Error> {
+    let status: String = row.try_get("effective_status")?;
     Ok(Listing {
         id: row.try_get("id")?,
         name: row.try_get("character_name")?,
-        world: row.try_get("world_id")?,
+        owner: row.try_get("account_id")?,
+        character: row.try_get("character_id")?,
+        world_id: row.try_get("world_id")?,
+        world: row.try_get("world_name")?,
+        active: status == "active",
+        status,
         purpose: row.try_get("purpose")?,
         min: row.try_get("min_level")?,
         max: row.try_get("max_level")?,

@@ -41,14 +41,6 @@ impl Authority for Trusted {
         self.character(account, character)
     }
 
-    fn moderator_in<'a>(
-        &'a self,
-        _: &'a mut sqlx::PgConnection,
-        account: Uuid,
-    ) -> CheckFuture<'a, ()> {
-        self.moderator(account)
-    }
-
     fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()> {
         self.active(account)
     }
@@ -224,9 +216,11 @@ fn validates_bounded_filters_and_drafts() {
         profession: "any".into(),
         starts_at: 100,
         expires_at: 200,
-        note: String::new(),
+        note: "  ".into(),
         csrf: None,
     };
+    assert!(!draft.valid(100));
+    draft.note = "Hunt together".into();
     assert!(draft.valid(100));
     draft.max_level = 0;
     assert!(!draft.valid(100));
@@ -249,6 +243,37 @@ fn validates_bounded_filters_and_drafts() {
     );
     assert!(!text("\n", 0, 500));
 }
+#[test]
+fn browser_filters_and_utc_schedule_parse() {
+    let default: Filter =
+        serde_urlencoded::from_str("world=&purpose=&level=&profession=any").unwrap();
+    assert!(default.valid());
+    assert!(default.world.is_none() && default.purpose.is_none() && default.level.is_none());
+    assert!(serde_urlencoded::from_str::<Filter>("level=unknown").is_err());
+    assert!(serde_urlencoded::from_str::<Filter>("world=unknown").is_err());
+    assert!(serde_urlencoded::from_str::<Filter>("purpose=hunt&purpose=boss").is_err());
+
+    let fields = format!(
+        "character={}&purpose=hunt&min_level=1&max_level=8&profession=any&note=Party",
+        Uuid::now_v7()
+    );
+    let draft: Draft = serde_urlencoded::from_str(&format!(
+        "{fields}&starts_at=2026-11-23T12%3A30&expires_at=2026-11-23T13%3A30"
+    ))
+    .unwrap();
+    assert_eq!(draft.expires_at - draft.starts_at, 3600);
+    assert_eq!(
+        draft.starts_at,
+        time::macros::datetime!(2026-11-23 12:30 UTC).unix_timestamp()
+    );
+    assert!(
+        serde_urlencoded::from_str::<Draft>(&format!(
+            "{fields}&starts_at=2026-11-31T12%3A30&expires_at=2026-11-23T13%3A30"
+        ))
+        .is_err()
+    );
+}
+
 #[tokio::test]
 async fn unavailable_authority_and_disabled_router_deny() {
     let pool = oteryn_db::lazy_pool("postgres://unused@127.0.0.1:1/unused").unwrap();
@@ -286,7 +311,10 @@ async fn db_listing_filters_ownership_and_expiry() {
         .create(db.trusted.owner, db.draft().await)
         .await
         .unwrap();
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows.len(),
+        1
+    );
     for filter in [
         Filter {
             world: Some(Uuid::now_v7()),
@@ -305,7 +333,7 @@ async fn db_listing_filters_ownership_and_expiry() {
             ..Default::default()
         },
     ] {
-        assert!(db.board.list(&filter).await.unwrap().is_empty());
+        assert!(db.board.list(&filter).await.unwrap().rows.is_empty());
     }
     assert_eq!(
         db.board
@@ -316,6 +344,7 @@ async fn db_listing_filters_ownership_and_expiry() {
             })
             .await
             .unwrap()
+            .rows
             .len(),
         1
     );
@@ -324,14 +353,88 @@ async fn db_listing_filters_ownership_and_expiry() {
         Err(Error::Missing)
     ));
     sqlx::query("UPDATE pd_party_posts SET starts_at=now()-interval '2 hours',expires_at=now()-interval '1 second' WHERE id=$1").bind(id).execute(&db.pool).await.unwrap();
-    assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        db.board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     assert!(matches!(
         db.board.report(db.trusted.reporter, id, "spam").await,
         Err(Error::Missing)
     ));
+    let owned = db.board.owned(db.trusted.owner).await.unwrap();
+    assert_eq!(owned[0].id, id);
+    assert_eq!(owned[0].status, "expired");
+    assert!(!owned[0].active);
     assert_eq!(db.board.expire().await.unwrap(), 1);
     db.close().await;
 }
+#[tokio::test]
+async fn discovery_can_advance_past_unavailable_results() {
+    let db = Database::open().await.expect("PostgreSQL required");
+    let id = db
+        .board
+        .create(db.trusted.owner, db.draft().await)
+        .await
+        .unwrap();
+    let world = db.trusted.character.world;
+    sqlx::query(
+        "WITH unavailable AS (
+             INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+             VALUES (uuidv7(),uuidv7(),$1,'Unavailable profile','AVAILABLE')
+             RETURNING account_id,character_id,world_id,name
+         )
+         INSERT INTO pd_party_posts
+             (account_id,character_id,world_id,character_name,purpose,min_level,max_level,
+              profession,note,starts_at,expires_at)
+         SELECT account_id,character_id,world_id,name,'hunt',1,100,'any','Fixture',
+                now(),now()+interval '1 hour'
+         FROM unavailable CROSS JOIN generate_series(1,100)",
+    )
+    .bind(world)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+
+    let app = router(db.board.clone(), true);
+    let response = app
+        .oneshot(
+            Request::get(format!("/en/party?world={world}&purpose=hunt"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(r#"form="party-filter" name="page" value="2">Next page"#));
+    assert!(!html.contains("Unavailable profile"));
+
+    let second = db
+        .board
+        .list(&Filter {
+            world: Some(world),
+            purpose: Some("hunt".into()),
+            page: Some(2),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(second.rows.len(), 1);
+    assert_eq!(second.rows[0].id, id);
+    assert!(!second.has_next);
+    db.close().await;
+}
+
 #[tokio::test]
 async fn db_reports_moderation_audit_and_caps() {
     let Some(db) = Database::open().await else {
@@ -372,7 +475,10 @@ async fn db_reports_moderation_audit_and_caps() {
         .await
         .unwrap();
     assert!(db.board.reports().await.unwrap().is_empty());
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows.len(),
+        1
+    );
     db.moderate(db.trusted.staff, id, "remove", "spam")
         .await
         .unwrap();
@@ -382,7 +488,14 @@ async fn db_reports_moderation_audit_and_caps() {
             .await
             .unwrap();
     assert_eq!(count, 2);
-    assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        db.board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     for _ in 0..5 {
         db.board
             .create(db.trusted.owner, db.draft().await)
@@ -615,7 +728,10 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
             .await
             .is_err()
     );
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows.len(),
+        1
+    );
     assert_eq!(db.board.reports().await.unwrap().len(), 1);
     sqlx::raw_sql("DROP TRIGGER fail_party_audit ON audit_log; DROP FUNCTION fail_party_audit();")
         .execute(&db.pool)
@@ -640,15 +756,27 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        db.board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     db.close().await;
 }
 
 #[tokio::test]
 async fn public_board_does_not_link_to_the_staff_queue() -> Result<(), Box<dyn std::error::Error>> {
     for lang in ["pl", "en"] {
-        let response = super::party_view::page(lang, "csrf", Vec::new(), false, false)
-            .map_err(|_| "public party template failed to render")?;
+        let response = party_view::page(
+            lang,
+            "csrf",
+            Vec::new(),
+            party_view::View::Public(Default::default()),
+        )
+        .map_err(|_| "public party template failed to render")?;
         let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
         let html = String::from_utf8(bytes.to_vec())?;
         assert!(!html.contains(&format!("href=\"/admin/{lang}/party\"")));
@@ -687,7 +815,31 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
             .is_none()
     );
     let app = router(board.clone(), true);
+    assert_eq!(board.feed_status().await.unwrap(), (true, true));
+    assert!(board.characters(reporter).await.unwrap().is_empty());
     let (token, csrf) = db.session(owner).await;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get("/en/party?world=&purpose=&level=&profession=any")
+                .header(
+                    header::COOKIE,
+                    format!("{}={token}", oteryn_web::session::COOKIE_NAME),
+                )
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(&format!("<option value=\"{character}\">Aldric</option>")));
     let draft = db.draft().await;
     let body = format!(
         "character={character}&purpose=hunt&min_level=80&max_level=180&profession=knight&starts_at={}&expires_at={}&note=Team",
@@ -714,6 +866,15 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         .fetch_one(&db.pool)
         .await
         .unwrap();
+    let filter = Filter {
+        world: Some(world),
+        purpose: Some("hunt".into()),
+        level: Some(120),
+        profession: Some("any".into()),
+        ..Default::default()
+    };
+    assert_eq!(board.list(&filter).await.unwrap().rows[0].id, id);
+    assert!(board.owned(reporter).await.unwrap().is_empty());
     sqlx::query("DELETE FROM web_sessions")
         .execute(&db.pool)
         .await
@@ -777,7 +938,14 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
         .bind(owner)
         .execute(&db.pool)
@@ -1263,14 +1431,17 @@ async fn r7_transferred_character_hidden() {
         .create(db.trusted.owner, db.draft().await)
         .await
         .unwrap();
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap()[0].id, id);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows[0].id,
+        id
+    );
     sqlx::query("UPDATE account_characters SET account_id=$1 WHERE character_id=$2")
         .bind(db.trusted.reporter)
         .bind(db.trusted.character.id)
         .execute(&db.pool)
         .await
         .unwrap();
-    let visible = db.board.list(&Filter::default()).await.unwrap();
+    let visible = db.board.list(&Filter::default()).await.unwrap().rows;
     db.close().await;
     assert!(visible.is_empty(), "transferred character still advertised");
 }
@@ -1289,7 +1460,8 @@ async fn r7_queue_shows_all_open_reasons() {
     assert_eq!(rows[0].reports.split(" | ").count(), 50);
     assert_eq!(rows[0].report_ids.split(',').count(), 50);
     assert_eq!(rows[0].more_reports, 1);
-    let response = party_view::page("en", "csrf", rows, true, false).unwrap();
+    let response =
+        party_view::page("en", "csrf", rows, party_view::View::Staff((false, false))).unwrap();
     let html = String::from_utf8(
         to_bytes(response.into_body(), 65536)
             .await
