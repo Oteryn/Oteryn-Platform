@@ -2659,6 +2659,7 @@ dependencies = [
  "oteryn-internal-api",
  "oteryn-payments",
  "oteryn-store",
+ "oteryn-ui",
  "oteryn-wallet",
  "oteryn-web",
  "rand_core 0.6.4",
@@ -3312,6 +3313,7 @@ dependencies = [
  "askama",
  "axum",
  "fluent-bundle",
+ "fluent-syntax",
  "unic-langid",
 ]
 

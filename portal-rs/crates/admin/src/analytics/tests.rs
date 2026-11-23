@@ -56,6 +56,28 @@ fn uint64_and_activity_arithmetic_boundaries() {
         assert!(wire::parse("page", &serde_json::to_vec(&p).unwrap(), NOW).is_err());
     }
 }
+#[test]
+fn configured_ingestion_requires_the_flag_and_its_peer_mapping() {
+    let config = Config {
+        ingest: true,
+        ..Config::default()
+    };
+    assert!(!resolve_ingest(&config, None).unwrap().1.0);
+    assert!(
+        resolve_ingest(&config, Some("game-admin-analytics"))
+            .unwrap()
+            .1
+            .0
+    );
+    assert!(resolve_ingest(&config, Some("another-purpose")).is_err());
+    assert!(
+        !resolve_ingest(&Config::default(), Some("game-admin-analytics"))
+            .unwrap()
+            .1
+            .0
+    );
+}
+
 #[tokio::test]
 async fn wrong_purpose_transport_and_bounds() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
@@ -342,10 +364,13 @@ fn panel(pool: PgPool, actor: Option<crate::web::StaffIdentity>, present: bool) 
     )
 }
 async fn get(app: Router, path: &str) -> axum::response::Response {
+    get_in_language(app, path, "en").await
+}
+async fn get_in_language(app: Router, path: &str, lang: &str) -> axum::response::Response {
     app.oneshot(
         Request::get(path)
             .header("host", "staff.test")
-            .header("accept-language", "en")
+            .header("accept-language", lang)
             .body(Body::empty())
             .unwrap(),
     )
@@ -860,7 +885,7 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     };
     // The historical down migration predates later permissions; remove their
     // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate')")
+    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate','admin.roles.grant','admin.rate_limits.view','admin.flags.view','admin.health.view')")
         .execute(&pool)
         .await
         .unwrap();
@@ -1227,16 +1252,19 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
     .unwrap();
     for text in [
         "48210377",
+        "Key / item / currency",
+        "Source",
+        "<th scope=\"col\">Status</th>",
+        "Epoch / revision",
         "low-n (below five)",
         "depot source coverage not yet delivered by Game",
-        "gold_in / gold_out",
-        "median_unit_price",
-        "purchased",
-        "Platform wallet ledger",
+        "Gold in / gold out",
+        "median unit price",
+        "Purchased",
+        "Platform wallet ledger (all worlds)",
         "spent_in_game/coin",
         "refund/coin",
-        "Data cut",
-        "freshness",
+        "Data cut (UTC) / freshness",
     ] {
         assert!(body.contains(text), "{text}");
     }
@@ -1244,6 +1272,98 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
     assert!(!body.contains("/journal"));
     let audit:i64=sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE action='admin.analytics.read' AND target='/admin/analytics/economy'").fetch_one(&pool).await.unwrap();
     assert_eq!(audit, 1);
+    let response = get(
+        panel(pool.clone(), Some(admin), true),
+        &path.replace("/economy?", "/economy/data?"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let wire: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 200000).await.unwrap()).unwrap();
+    let groups = wire["groups"].as_array().unwrap();
+    for (family, columns) in [
+        ("economy_flows_daily", "gold_in / gold_out"),
+        (
+            "economy_market_daily",
+            "traded_units / traded_gold / offers_created / median_unit_price",
+        ),
+    ] {
+        let group = groups
+            .iter()
+            .find(|group| group["family"] == family)
+            .unwrap();
+        assert_eq!(group["columns"], columns);
+        assert!(group["age"].is_u64());
+    }
+
+    let response = get_in_language(panel(pool.clone(), Some(admin), true), &path, "pl").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let polish = String::from_utf8(
+        to_bytes(response.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    for text in [
+        "Klucz / przedmiot / waluta",
+        "<th scope=\"col\">Źródło</th>",
+        "<th scope=\"col\">Stan</th>",
+        "Stan danych (UTC) / aktualność",
+        "Epoka / rewizja",
+        "Wpływy złota / wypływy złota",
+        "mediana ceny jednostkowej",
+        "Mała próba (poniżej pięciu)",
+        "Niekompletne: Gra nie dostarczyła jeszcze danych dla klucza depot",
+        "Widoczne",
+        "Zakupy — księga portfela Platformy (wszystkie światy)",
+        "48210377",
+    ] {
+        assert!(polish.contains(text), "{text}");
+    }
+    assert!(!polish.contains("source coverage not yet delivered by Game"));
+    assert!(!polish.contains("median_unit_price"));
+    let data = path.replacen("/economy?", "/economy/data?", 1);
+    for lang in ["en", "pl"] {
+        let response = get_in_language(panel(pool.clone(), Some(admin), true), &data, lang).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let raw: serde_json::Value =
+            serde_json::from_slice(&to_bytes(response.into_body(), 200000).await.unwrap()).unwrap();
+        let group = &raw["groups"][0];
+        assert_eq!(group["family"], "economy_circulation_daily");
+        assert_eq!(group["columns"], "gold (end-of-day stock by location)");
+        assert_eq!(group["source"], "Game");
+        let cells = group["cells"].as_array().unwrap();
+        let depot = cells.iter().find(|cell| cell["key"] == "depot").unwrap();
+        assert_eq!(depot["state"], "incomplete");
+        assert_eq!(
+            depot["gap"],
+            "economy_circulation_daily: depot source coverage not yet delivered by Game"
+        );
+        assert!(cells.iter().any(|cell| cell["state"] == "low_n"));
+    }
+
+    for (path, title) in [
+        ("/admin/analytics", "Przegląd analityki administratora"),
+        (path.as_str(), "Analityka gospodarki"),
+    ] {
+        let response = panel(pool.clone(), Some(admin), true)
+            .oneshot(
+                Request::get(path)
+                    .header("host", "staff.test")
+                    .header(header::ACCEPT_LANGUAGE, "en")
+                    .header(header::COOKIE, "portal_language=pl")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = to_bytes(response.into_body(), 200000).await.unwrap();
+        let html = std::str::from_utf8(&html).unwrap();
+        assert!(html.contains("<html lang=\"pl\">"));
+        assert!(html.contains(title));
+    }
     for query in [
         "family=characters_created_daily",
         "account=0192f4a0-7c00-7000-8000-000000000001",

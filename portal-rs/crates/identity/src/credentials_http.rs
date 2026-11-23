@@ -2,8 +2,8 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::State,
-    http::{HeaderMap, StatusCode},
+    extract::{Query, State},
+    http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -67,25 +67,31 @@ pub fn configured_router(pool: sqlx::PgPool) -> Router {
     if !std::env::var("OTERYN_ACCOUNT_CREDENTIALS").is_ok_and(|v| v == "true") {
         return Router::new();
     }
-    // Security messages never use unsubscribe links. Keep the optional service
-    // unconfigured if its signing configuration cannot be constructed.
-    let Ok(unsubscribe) =
+    configured_service(pool).map_or_else(Router::new, router)
+}
+
+fn configured_service(pool: sqlx::PgPool) -> Option<Credentials> {
+    // Security messages never use unsubscribe links.
+    let unsubscribe =
         oteryn_notify::Unsubscribe::new(vec![0; 32], "https://localhost/unsubscribe".into())
-    else {
-        return Router::new();
-    };
-    let service = Credentials {
+            .ok()?;
+    Some(Credentials {
         pool: pool.clone(),
         enabled: true,
         revoker: Arc::new(credentials::TransactionalRevoker),
         notifications: Arc::new(oteryn_notify::Notifications {
             pool: pool.clone(),
-            accounts: Arc::new(AccountState(Accounts { pool: pool.clone() })),
+            accounts: Arc::new(AccountState(Accounts { pool })),
             unsubscribe,
         }),
-    };
-    router(service)
+    })
 }
+
+#[path = "staff_confirmation_http.rs"]
+mod staff_confirmation_http;
+use staff_confirmation_http::StaffConfirmation;
+pub use staff_confirmation_http::routes as staff_confirmation_routes;
+
 /// Supply the real T16/T21 revoker at composition once those modules are integrated.
 pub fn router(service: Credentials) -> Router {
     if !service.enabled {
@@ -96,7 +102,14 @@ pub fn router(service: Credentials) -> Router {
         .ok()
         .into_iter()
         .collect();
-    let limiter = RateLimiter::new(service.pool.clone());
+    if let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
+        && let Ok(authority) = host.parse::<axum::http::uri::Authority>()
+    {
+        sessions
+            .csrf
+            .trusted_origins
+            .push(format!("https://{authority}"));
+    }
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
         routes = routes
@@ -107,11 +120,18 @@ pub fn router(service: Credentials) -> Router {
             .route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo))
             .route(&format!("{prefix}/account/security"), get(security_landing));
     }
-    let routes = routes
-        .route_layer(axum::middleware::from_fn_with_state(
+    rate_limited(
+        routes.route_layer(axum::middleware::from_fn_with_state(
             sessions,
             session::middleware,
-        ))
+        )),
+        service,
+    )
+}
+
+fn rate_limited(routes: Router<Credentials>, service: Credentials) -> Router {
+    let limiter = RateLimiter::new(service.pool.clone());
+    let routes = routes
         .layer(axum::middleware::from_fn_with_state(
             limiter,
             oteryn_web::ratelimit::supply,
@@ -275,8 +295,11 @@ async fn change(
     State(service): State<Credentials>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
-    headers: HeaderMap,
+    (oteryn_web::ratelimit::ClientSource(peer), headers): (
+        oteryn_web::ratelimit::ClientSource,
+        HeaderMap,
+    ),
+    method: Method,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
     if let Err(response) = check(
@@ -291,7 +314,7 @@ async fn change(
         return Ok(*response);
     }
     let hash = session_hash(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
-    match service
+    let mut response = match service
         .change(
             &hash,
             PasswordChange {
@@ -318,17 +341,44 @@ async fn change(
             refuse(lang, &session, "password/change").await
         }
         Outcome::Unavailable => Err(StatusCode::SERVICE_UNAVAILABLE),
+    }?;
+    if method == Method::PUT && response.status() == StatusCode::FOUND {
+        *response.status_mut() = StatusCode::SEE_OTHER;
     }
+    Ok(response)
 }
+#[derive(Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SudoDestination {
+    #[default]
+    Security,
+    Export,
+    Roles,
+}
+
+#[derive(serde::Deserialize)]
+struct SudoQuery {
+    #[serde(default)]
+    return_to: SudoDestination,
+}
+
 async fn sudo(
+    (Query(query), staff): (Query<SudoQuery>, Option<Extension<StaffConfirmation>>),
     Extension(lang): Extension<Language>,
     State(service): State<Credentials>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
-    headers: HeaderMap,
+    (oteryn_web::ratelimit::ClientSource(peer), headers): (
+        oteryn_web::ratelimit::ClientSource,
+        HeaderMap,
+    ),
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
+    let destination = if staff.is_some() {
+        SudoDestination::Roles
+    } else {
+        query.return_to
+    };
     if let Err(response) = check(
         &limiter,
         &session,
@@ -359,7 +409,13 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(lang, &session, "account/sudo").await;
+        let path = match destination {
+            SudoDestination::Roles if staff.is_some() => "admin/roles/confirm",
+            SudoDestination::Security => "account/sudo",
+            SudoDestination::Export => "account/sudo?return_to=export",
+            SudoDestination::Roles => "account/sudo?return_to=roles",
+        };
+        return refuse(lang, &session, path).await;
     }
     let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
     sqlx::query(
@@ -376,7 +432,12 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&format!("/{}/account/security", lang.code())))
+    let next = match destination {
+        SudoDestination::Security => format!("/{}/account/security", lang.code()),
+        SudoDestination::Export => format!("/{}/account/privacy/export", lang.code()),
+        SudoDestination::Roles => "/admin/roles".into(),
+    };
+    Ok(redirect(&next))
 }
 
 #[cfg(test)]

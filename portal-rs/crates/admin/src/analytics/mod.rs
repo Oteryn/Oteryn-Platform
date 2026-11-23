@@ -186,10 +186,44 @@ async fn ingest(
         Err(_) => guard::failure(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
+/// Startup status of the purpose-bound ingestion route.
+#[derive(Clone, Copy, Debug)]
+pub struct IngestAvailability(pub(crate) bool);
+
+fn resolve_ingest(
+    config: &Config,
+    peer_san: Option<&str>,
+) -> Result<(IdentityMap, IngestAvailability), guard::ConfigError> {
+    let bindings = match peer_san {
+        Some(san @ "game-admin-analytics") => vec![guard::Binding {
+            identity: guard::Identity::san(san)?,
+            group: "game-admin-analytics".into(),
+        }],
+        Some(_) => return Err(guard::ConfigError),
+        None => Vec::new(),
+    };
+    let availability = IngestAvailability(config.ingest && !bindings.is_empty());
+    Ok((IdentityMap::new(bindings)?, availability))
+}
+
+fn configured_ingest(
+    config: &Config,
+) -> Result<(IdentityMap, IngestAvailability), guard::ConfigError> {
+    let peer_san = std::env::var("OTERYN_ADMIN_ANALYTICS_PEER_SAN").ok();
+    resolve_ingest(config, peer_san.as_deref())
+}
+
+impl IngestAvailability {
+    pub(crate) fn configured() -> Result<Self, guard::ConfigError> {
+        configured_ingest(&Config::from_env()?).map(|(_, availability)| availability)
+    }
+}
+
 /// The TLS adapter uses the same global IdentityMap as every other internal purpose.
 /// Configuration here supplies only a SAN mapping, never a bearer credential.
 pub fn configured_router(pool: sqlx::PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
+    let (identities, _) = configured_ingest(&config)?;
     let maintenance = pool.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
@@ -198,19 +232,7 @@ pub fn configured_router(pool: sqlx::PgPool) -> Result<Router, Box<dyn std::erro
             let _ = store::purge(&maintenance, now()).await;
         }
     });
-    let bindings = match std::env::var("OTERYN_ADMIN_ANALYTICS_PEER_SAN") {
-        Ok(san) if san == "game-admin-analytics" => vec![guard::Binding {
-            identity: guard::Identity::san(&san)?,
-            group: "game-admin-analytics".into(),
-        }],
-        Ok(_) => return Err(Box::new(guard::ConfigError)),
-        Err(_) => Vec::new(),
-    };
-    let internal = router(
-        pool.clone(),
-        config.clone(),
-        Arc::new(IdentityMap::new(bindings)?),
-    );
+    let internal = router(pool.clone(), config.clone(), Arc::new(identities));
     Ok(internal.merge(web::configured_router(pool, config)?))
 }
 

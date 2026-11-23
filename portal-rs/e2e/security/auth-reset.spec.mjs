@@ -1,5 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
-import { csrfRejected, login, mailLink, password, seedPasswordRange } from '../helpers.mjs';
+import { csrfRejected, login, mailLink, seedPasswordRange } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { cookie, emailAddress, expectSession, postForm, seedAccount } from './auth-fixtures.mjs';
 
@@ -43,8 +43,7 @@ test('reset request has a generic localized confirmation and the token is bound,
   );
   expect(advanced?.account_id).toBe(expired.id);
 
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   async function complete(url, email, accepted) {
     expect((await page.goto(url)).status()).toBe(200);
     const values = { email, password: next, password_confirmation: next };

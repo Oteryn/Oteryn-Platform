@@ -444,6 +444,23 @@ async fn postgres_staff_announcement_dispatch() {
             .to_vec(),
     )
     .unwrap();
+    assert!(html.contains("<html lang=\"pl\">"));
+    assert!(html.contains("value=\"maintenance\">Prace techniczne</option>"));
+    let english = app(true, "staff.test", true)
+        .oneshot(
+            Request::get("/admin/announcements/create")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(english.status(), StatusCode::OK);
+    let english = to_bytes(english.into_body(), 100000).await.unwrap();
+    let english = std::str::from_utf8(&english).unwrap();
+    assert!(english.contains("<html lang=\"en\">"));
+    assert!(english.contains("value=\"maintenance\">Maintenance</option>"));
     let token = html
         .split("name=\"_csrf\" value=\"")
         .nth(1)
@@ -455,6 +472,43 @@ async fn postgres_staff_announcement_dispatch() {
         Request::post(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",&cookie).header("content-type","application/x-www-form-urlencoded").body(Body::from(format!("_csrf={token}&lock_version={version}&publication_state={state}&severity=info&starts_at=2026-01-01T00:00:00Z&title={title}&body=Body&title_pl=Tytul&body_pl=Tresc&translation_published_at={translation}"))).unwrap()
     };
     let service = Announcements::new(pool.clone());
+    for (lang, body, message) in [
+        (
+            "en",
+            "lock_version=text",
+            "Some information could not be accepted. Check your input and try again.",
+        ),
+        (
+            "pl",
+            "lock_version=0&publication_state=draft&severity=info&starts_at=invalid&title=Original&body=Body",
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.",
+        ),
+    ] {
+        let response = app(true, "staff.test", true)
+            .oneshot(
+                Request::post("/admin/announcements")
+                    .header("host", "staff.test")
+                    .header("origin", "https://staff.test")
+                    .header("cookie", &cookie)
+                    .header("content-type", "application/x-www-form-urlencoded")
+                    .header("accept-language", lang)
+                    .body(Body::from(format!("_csrf={token}&{body}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            to_bytes(response.into_body(), 256).await.unwrap().as_ref(),
+            message.as_bytes()
+        );
+    }
+    assert!(
+        !sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM announcements)")
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+    );
     assert_eq!(
         app(true, "staff.test", true)
             .oneshot(send(

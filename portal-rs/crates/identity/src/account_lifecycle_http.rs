@@ -468,10 +468,12 @@ async fn deletion(
     Extension(s): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
-    let pending = st.termination.has_pending(id).await.map_err(failure)?;
-    if !pending && !st.termination.accepts_requests() {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    let pending = st
+        .termination
+        .deletion_page(id)
+        .await
+        .map_err(failure)?
+        .ok_or(StatusCode::NOT_FOUND)?;
     let action = if pending {
         format!("/{}/account/privacy/delete/cancel", l.code())
     } else {

@@ -1,7 +1,9 @@
 //! PostgreSQL pool and migrations for the Oteryn portal.
 
 use sqlx::{
-    PgConnection,
+    PgConnection, Postgres,
+    migrate::{Migrate, MigrateError, Migrator},
+    pool::PoolConnection,
     postgres::{PgPool, PgPoolOptions},
 };
 
@@ -15,9 +17,101 @@ pub fn lazy_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
         .connect_lazy(database_url)
 }
 
+struct MigrationConnection<'a> {
+    connection: &'a mut PoolConnection<Postgres>,
+    unlocked: bool,
+}
+
+impl Drop for MigrationConnection<'_> {
+    fn drop(&mut self) {
+        if !self.unlocked {
+            self.connection.close_on_drop();
+        }
+    }
+}
+
 /// Applies pending migrations.
-pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
-    MIGRATOR.run(pool).await
+pub async fn migrate(pool: &PgPool) -> Result<(), MigrateError> {
+    let mut connection = pool.acquire().await?;
+    // Closing on failure or cancellation releases the session-level migration lock.
+    let mut guard = MigrationConnection {
+        connection: &mut connection,
+        unlocked: false,
+    };
+    let connection = &mut **guard.connection;
+    // Match SQLx's PostgreSQL lock key and release each statement snapshot
+    // between attempts.
+    let mut retry = tokio::time::interval(std::time::Duration::from_millis(25));
+    loop {
+        retry.tick().await;
+        if sqlx::query_scalar(
+            "SELECT pg_try_advisory_lock(x'3d32ad9e'::int * crc32(convert_to(current_database(), 'UTF8')))",
+        )
+        .fetch_one(&mut *connection)
+        .await?
+        {
+            break;
+        }
+    }
+    let migrator = Migrator {
+        migrations: MIGRATOR.migrations.clone(),
+        locking: false,
+        ..Migrator::DEFAULT
+    };
+    connection
+        .ensure_migrations_table(&migrator.table_name)
+        .await?;
+    if let Some(version) = connection.dirty_version(&migrator.table_name).await? {
+        return Err(MigrateError::Dirty(version));
+    }
+    let applied = connection
+        .list_applied_migrations(&migrator.table_name)
+        .await?;
+    for (version, index, drop_index) in [
+        (
+            20261122160701,
+            "accounts_operations_created_at",
+            "DROP INDEX accounts_operations_created_at",
+        ),
+        (
+            20261122160702,
+            "security_events_operations_login_created_at",
+            "DROP INDEX security_events_operations_login_created_at",
+        ),
+    ] {
+        if applied.iter().any(|migration| migration.version == version) {
+            continue;
+        }
+        let valid: Option<bool> = sqlx::query_scalar(
+            "SELECT i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid
+             WHERE c.relname = $1 AND c.relnamespace = to_regnamespace(current_schema())",
+        )
+        .bind(index)
+        .fetch_optional(&mut *connection)
+        .await?;
+        match valid {
+            Some(false) => {
+                sqlx::query(drop_index).execute(&mut *connection).await?;
+            }
+            Some(true) => {
+                // The build finished before its migration receipt was written.
+                // Record the original checksum without rebuilding the index.
+                migrator
+                    .run_direct(Some(version - 1), connection, false)
+                    .await?;
+                let migration = migrator
+                    .iter()
+                    .find(|migration| migration.version == version)
+                    .ok_or(MigrateError::VersionMissing(version))?;
+                connection.skip(&migrator.table_name, migration).await?;
+            }
+            None => {}
+        }
+    }
+    migrator.run_direct(None, connection, false).await?;
+    connection.unlock().await?;
+    guard.unlocked = true;
+    Ok(())
 }
 
 /// Readiness probe: one round trip to PostgreSQL.

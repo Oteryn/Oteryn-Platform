@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -158,7 +158,7 @@ pub fn staff_router<
         oteryn_admin::rbac::Permission::ManageSupportTickets,
     )
 }
-async fn private(request: Request, next: Next) -> Response {
+pub(crate) async fn private(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
         header::CACHE_CONTROL,
@@ -225,7 +225,10 @@ fn fail(error: Error, language: &str) -> Response {
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::NotFound => StatusCode::NOT_FOUND,
         Error::Denied => StatusCode::FORBIDDEN,
-        Error::Conflict | Error::RequestKeyConflict => StatusCode::CONFLICT,
+        Error::Conflict
+        | Error::RequestKeyConflict
+        | Error::StaleVersion
+        | Error::StateConflict => StatusCode::CONFLICT,
         _ => StatusCode::SERVICE_UNAVAILABLE,
     };
     (code, text::text(language, "error")).into_response()
@@ -478,7 +481,7 @@ async fn mark_read(
     State(t): State<Tickets>,
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
-    Form(form): Form<ReadForm>,
+    form: std::result::Result<Form<ReadForm>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = lang(&language) {
         return e.into_response();
@@ -486,6 +489,13 @@ async fn mark_read(
     let (owner, _) = match account(&t, &session, None).await {
         Ok(v) => v,
         Err(e) => return e.into_response(),
+    };
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return fail(Error::Invalid, &language);
+        }
+        Err(rejection) => return rejection.into_response(),
     };
     match t
         .load_page(owner, false, id, form.after, Acknowledge::Reply(form.reply))
@@ -539,11 +549,7 @@ async fn show(
     page.status = text::text(&language, &ticket.status);
     page.version = ticket.lock_version;
     page.id = id;
-    page.can_reply = if staff.is_some() {
-        active(&ticket.status)
-    } else {
-        matches!(ticket.status.as_str(), "open" | "waiting_user")
-    };
+    page.can_reply = can_reply(&ticket.status, staff.is_some());
     page.messages = messages
         .into_iter()
         .map(|m| DisplayMessage {
@@ -646,16 +652,17 @@ fn form_bool<'de, D: serde::Deserializer<'de>>(
         _ => Err(serde::de::Error::custom("invalid boolean")),
     }
 }
+fn ticket_path(language: &str, staff: bool, id: Uuid) -> String {
+    format!(
+        "/{language}/{}support/tickets/{id}",
+        if staff { "admin/" } else { "" }
+    )
+}
+
 fn redirect(language: &str, staff: bool, id: Uuid) -> Response {
     (
         StatusCode::FOUND,
-        [(
-            header::LOCATION,
-            format!(
-                "/{language}/{}support/tickets/{id}",
-                if staff { "admin/" } else { "" }
-            ),
-        )],
+        [(header::LOCATION, ticket_path(language, staff, id))],
     )
         .into_response()
 }
@@ -679,13 +686,19 @@ async fn status(
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
     peer: Option<ClientSource>,
+    method: Method,
     form: std::result::Result<Form<Mutation>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     let form = match form {
         Ok(Form(form)) => form,
         Err(_) => return fail(Error::Invalid, &language),
     };
-    mutate(t, (language, id), session, staff, peer, form, false).await
+    let mut response = mutate(t, (language, id), session, staff, peer, form, false).await;
+    if method == Method::PUT && response.status() == StatusCode::FOUND {
+        // Browsers can preserve PUT across a 302. The ticket detail accepts GET.
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    response
 }
 async fn mutate(
     t: Tickets,
@@ -726,11 +739,25 @@ async fn mutate(
         Change::Status(&form.status)
     };
     match t
-        .change(account, staff, id, form.lock_version, change)
+        .change_checked(account, staff, id, form.lock_version, change)
         .await
     {
         Ok(_) => redirect(&language, staff.is_some(), id),
-        Err(e) => fail(e, &language),
+        Err(error) => {
+            use oteryn_web::chrome::TicketConflict;
+            let reason = match error {
+                Error::StaleVersion => Some(TicketConflict::StaleVersion {
+                    recovery_path: ticket_path(&language, staff.is_some(), id),
+                }),
+                Error::StateConflict => Some(TicketConflict::State),
+                _ => None,
+            };
+            let mut response = fail(error, &language);
+            if let Some(reason) = reason {
+                response.extensions_mut().insert(reason);
+            }
+            response
+        }
     }
 }
 

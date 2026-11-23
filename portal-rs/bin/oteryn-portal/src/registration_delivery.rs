@@ -1,7 +1,7 @@
 //! Delivery of registration verification jobs through the existing outbox worker.
 //! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
 use crate::worker::{Handler, HandlerFuture, Registry};
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::SinglePart};
 use oteryn_identity::verify::token_hash;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -111,7 +111,10 @@ impl Mailer {
                 .parse()
                 .map_err(|_| "invalid account-exists recipient")?)
             .subject(subject)
-            .body(format!("{body}\n\n{}/{locale}/login", self.origin))
+            .singlepart(SinglePart::plain(format!(
+                "{body}\n\n{}/{locale}/login",
+                self.origin
+            )))
             .map(Some)
             .map_err(|_| "account-exists message unavailable".into())
     }
@@ -146,10 +149,10 @@ impl Mailer {
                 .parse()
                 .map_err(|_| "invalid verification recipient")?)
             .subject(subject)
-            .body(format!(
+            .singlepart(SinglePart::plain(format!(
                 "{introduction}\n\n{}/{locale}/verify-email?token={}",
                 self.origin, payload.token
-            ))
+            )))
             .map(Some)
             .map_err(|_| "verification message unavailable".into())
     }
@@ -240,6 +243,8 @@ mod tests {
         )?
         .replace("=\r\n", "")
         .replace("=3D", "=");
+        assert!(raw.contains("MIME-Version: 1.0\r\n"));
+        assert!(raw.contains("Content-Type: text/plain; charset=utf-8\r\n"));
         assert!(raw.contains(&format!("/pl/verify-email?token={}", payload.token)));
         payload.locale = "en".into();
         assert!(mailer.prepare(&payload).await.is_err());

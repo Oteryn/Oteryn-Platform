@@ -3,6 +3,7 @@
 pub mod audit;
 pub mod rbac;
 
+pub mod staff_actions;
 pub mod web;
 
 pub mod bazaar;
@@ -59,3 +60,5 @@ async fn test_staff_authenticate(
         )
         .await
 }
+
+pub mod operations;

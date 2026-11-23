@@ -1,5 +1,7 @@
 //! Browser adapter for personal-data exports.
-use crate::export::{ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until};
+use crate::export::{
+    ExportConfig, PRODUCER_DEADLINE, export_account, session_owner, stream_download_until,
+};
 use askama::Template;
 use axum::{
     Extension, Router,
@@ -22,6 +24,7 @@ struct ExportState {
     pool: PgPool,
     config: ExportConfig,
     limiter: RateLimiter,
+    password_confirmation: bool,
 }
 
 pub(super) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
@@ -37,6 +40,21 @@ pub(super) fn session_cookie(headers: &HeaderMap) -> Option<&str> {
         }
     }
     found
+}
+
+/// The owner can reach the download form or its mounted password confirmation.
+pub(super) async fn link_available(
+    pool: &PgPool,
+    headers: &HeaderMap,
+    account: sqlx::types::Uuid,
+    password_confirmation: bool,
+) -> bool {
+    let Some(session) = session_cookie(headers) else {
+        return false;
+    };
+    session_owner(pool, session).await.is_ok_and(|owner| {
+        owner.is_some_and(|(id, confirmed)| id == account && (confirmed || password_confirmation))
+    })
 }
 
 #[derive(Template)]
@@ -73,7 +91,21 @@ async fn confirmation(
         }))
     }
     .await;
-    private_response(result.into_response())
+    let response = match result {
+        Err(StatusCode::FORBIDDEN) if state.password_confirmation => {
+            match session_owner(&state.pool, session).await {
+                Ok(Some((_, false))) => axum::response::Redirect::to(&format!(
+                    "/{}/account/sudo?return_to=export",
+                    language.code()
+                ))
+                .into_response(),
+                Ok(_) => StatusCode::FORBIDDEN.into_response(),
+                Err(status) => status.into_response(),
+            }
+        }
+        result => result.into_response(),
+    };
+    private_response(response)
 }
 
 async fn handler(
@@ -145,7 +177,14 @@ fn private_response(mut response: Response) -> Response {
     response
 }
 
-pub(super) fn router(pool: PgPool, config: ExportConfig) -> Router {
+pub(super) fn configured_browser_router(
+    pool: PgPool,
+    config: ExportConfig,
+    password_confirmation: bool,
+) -> Router {
+    if !config.enabled {
+        return Router::new();
+    }
     let mut sessions = SessionLayer::new(pool.clone());
     if let Ok(origin) = std::env::var("OTERYN_PUBLIC_ORIGIN") {
         sessions.csrf.trusted_origins.push(origin);
@@ -171,5 +210,6 @@ pub(super) fn router(pool: PgPool, config: ExportConfig) -> Router {
             limiter: RateLimiter::new(pool.clone()),
             pool,
             config,
+            password_confirmation,
         })
 }

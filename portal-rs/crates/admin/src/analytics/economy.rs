@@ -12,6 +12,7 @@ struct EconomyCell {
     epoch: String,
     revision: String,
 }
+
 #[derive(serde::Serialize)]
 struct Group {
     family: String,
@@ -24,6 +25,7 @@ struct Group {
     age: u64,
     cells: Vec<EconomyCell>,
 }
+
 #[derive(Template)]
 #[template(path = "admin/analytics_economy.html", config = "src/web_askama.toml")]
 struct EconomyPage {
@@ -33,6 +35,23 @@ struct EconomyPage {
     to: String,
     policy: String,
     groups: Vec<Group>,
+}
+impl EconomyPage {
+    fn text(&self, key: &str) -> String {
+        oteryn_ui::text(self.lang, key)
+    }
+
+    fn group_text(&self, group: &Group, field: &str) -> String {
+        let family = match group.family.as_str() {
+            "economy_circulation_daily" => "circulation",
+            "economy_flows_daily" => "flows",
+            "economy_trades_daily" => "trades",
+            "economy_market_daily" => "market",
+            "economy_store_daily" => "store",
+            _ => "purchases",
+        };
+        self.text(&format!("ops-economy-{family}-{field}"))
+    }
 }
 pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     s: Arc<Context<I, A>>,
@@ -211,13 +230,11 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
     let page = EconomyPage {
-        lang: if english { "en" } else { "pl" },
+        lang: crate::web::page_language(
+            request.headers(),
+            request.extensions().get::<oteryn_ui::Chrome>(),
+        ),
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: input_time(start),
         to: input_time(end),
@@ -227,5 +244,56 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     match page.render() {
         Ok(html) => Html(html).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::{EconomyPage, Group, Template};
+
+    #[test]
+    fn available_empty_game_results_use_the_page_language() -> Result<(), askama::Error> {
+        for (lang, state, revision, explanation) in [
+            (
+                "pl",
+                "Dostępny",
+                "Epoka / rewizja",
+                "Zestaw wierszy jest kompletny i pusty. Brak wiersza nie oznacza wartości zero.",
+            ),
+            (
+                "en",
+                "Available",
+                "Epoch / revision",
+                "Complete empty row set; no unlisted zero inferred.",
+            ),
+        ] {
+            let html = EconomyPage {
+                lang,
+                world: String::new(),
+                from: String::new(),
+                to: String::new(),
+                policy: "test-policy".into(),
+                groups: vec![Group {
+                    family: "economy_circulation_daily".into(),
+                    source: "Game",
+                    columns: "gold",
+                    state: "available",
+                    epoch: "1".into(),
+                    revision: "2".into(),
+                    cut: "2026-01-01T00:00:00Z".into(),
+                    age: 60,
+                    cells: vec![],
+                }],
+            }
+            .render()?;
+            let status = html
+                .split_once("data-state=\"available\">")
+                .and_then(|(_, content)| content.split_once("</p>"))
+                .map(|(label, _)| label.trim());
+            assert_eq!(status, Some(state));
+            assert!(html.contains(&format!("{revision}: 1 / 2")));
+            assert!(html.contains(explanation));
+        }
+        Ok(())
     }
 }

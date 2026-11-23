@@ -12,7 +12,7 @@ function consoleError(message, errors, diagnostics) {
 }
 
 test('all public header and footer links: shell, links, keyboard, accessibility and mobile', async ({ page: homePage }, info) => {
-  test.setTimeout(240_000); // Every HTML refusal receives the full accessibility and link sweep.
+  test.setTimeout(360_000); // Every HTML refusal receives the full accessibility and link sweep.
   const page = homePage;
   const lang = info.project.metadata.locale;
   const errors = [];

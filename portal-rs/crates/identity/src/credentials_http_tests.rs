@@ -127,37 +127,51 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
     )?;
     assert!(html.contains("Change password"));
     assert!(html.contains("name=\"_csrf\""));
-    let response = app
-        .clone()
-        .oneshot(request(
-            "POST",
-            "/en/account/sudo",
-            &cookie,
-            &csrf,
-            "current_password=test+password",
-        )?)
-        .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    let rotated = response
-        .headers()
-        .get(header::SET_COOKIE)
-        .ok_or("missing cookie")?
-        .to_str()?
-        .split(';')
-        .next()
-        .ok_or("missing cookie")?
-        .to_owned();
-    assert_ne!(rotated, cookie);
-    assert_eq!(service.require_sudo(&hash).await?, None);
-    let raw = rotated.split_once('=').ok_or("invalid cookie")?.1;
-    let hash = Sha256::digest(raw.as_bytes()).to_vec();
-    assert_eq!(service.require_sudo(&hash).await?, Some(id));
-    let next_csrf: String =
-        sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
-            .bind(&hash)
-            .fetch_one(&pool)
+    let mut rotated = cookie;
+    let mut hash = hash;
+    let mut next_csrf = csrf.clone();
+    for (path, destination) in [
+        ("/en/account/sudo", "/en/account/security"),
+        (
+            "/en/account/sudo?return_to=export",
+            "/en/account/privacy/export",
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                "POST",
+                path,
+                &rotated,
+                &next_csrf,
+                "current_password=test+password",
+            )?)
             .await?;
-    assert_ne!(csrf, next_csrf);
+        assert_eq!(response.status(), StatusCode::FOUND);
+        assert_eq!(response.headers()[header::LOCATION], destination);
+        let new_cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .ok_or("missing cookie")?
+            .to_str()?
+            .split(';')
+            .next()
+            .ok_or("missing cookie")?
+            .to_owned();
+        assert_ne!(new_cookie, rotated);
+        assert_eq!(service.require_sudo(&hash).await?, None);
+        rotated = new_cookie;
+        let raw = rotated.split_once('=').ok_or("invalid cookie")?.1;
+        hash = Sha256::digest(raw.as_bytes()).to_vec();
+        assert_eq!(service.require_sudo(&hash).await?, Some(id));
+        let new_csrf: String =
+            sqlx::query_scalar("SELECT csrf_token FROM web_sessions WHERE id_hash=$1")
+                .bind(&hash)
+                .fetch_one(&pool)
+                .await?;
+        assert_ne!(new_csrf, next_csrf);
+        next_csrf = new_csrf;
+    }
     assert_eq!(app.clone().oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?.status(),StatusCode::SERVICE_UNAVAILABLE);
     sqlx::query("UPDATE web_sessions SET sudo_until=now() WHERE id_hash=$1")
         .bind(&hash)
@@ -227,28 +241,60 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .fetch_one(&pool)
         .await?;
     assert_eq!(count, 1);
-    let response = success.oneshot(request("POST","/en/password/change",&rotated,&next_csrf,"current_password=test+password&password=next+password&password_confirmation=next+password")?).await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
-    assert_eq!(
-        response
-            .headers()
-            .get(header::LOCATION)
-            .ok_or("missing redirect")?,
-        "/login"
-    );
-    assert!(
-        response
-            .headers()
-            .get(header::SET_COOKIE)
-            .ok_or("missing cleared cookie")?
-            .to_str()?
-            .contains("Max-Age=0")
-    );
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
-        .bind(id)
-        .fetch_one(&pool)
-        .await?;
-    assert_eq!(count, 0);
+    let second: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id",
+    )
+    .bind(format!("{}@example.test", uuid::Uuid::now_v7()))
+    .bind(&stored)
+    .fetch_one(&pool)
+    .await?;
+    let second_raw = "c".repeat(64);
+    let second_cookie = format!("{}={second_raw}", session::COOKIE_NAME);
+    sqlx::query(
+        "INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES($1,$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')",
+    )
+    .bind(Sha256::digest(second_raw.as_bytes()).to_vec())
+    .bind(second)
+    .bind(&csrf)
+    .execute(&pool)
+    .await?;
+    for (method, account, cookie, token, status) in [
+        ("POST", id, &rotated, &next_csrf, StatusCode::FOUND),
+        ("PUT", second, &second_cookie, &csrf, StatusCode::SEE_OTHER),
+    ] {
+        let response = success
+            .clone()
+            .oneshot(request(
+                method,
+                "/en/password/change",
+                cookie,
+                token,
+                "current_password=test+password&password=next+password&password_confirmation=next+password",
+            )?)
+            .await?;
+        assert_eq!(response.status(), status);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::LOCATION)
+                .ok_or("missing redirect")?,
+            "/login"
+        );
+        assert!(
+            response
+                .headers()
+                .get(header::SET_COOKIE)
+                .ok_or("missing cleared cookie")?
+                .to_str()?
+                .contains("Max-Age=0")
+        );
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM web_sessions WHERE account_id=$1")
+                .bind(account)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(count, 0);
+    }
     db.close().await?;
     Ok(())
 }

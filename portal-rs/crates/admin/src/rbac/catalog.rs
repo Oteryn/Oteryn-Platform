@@ -8,6 +8,9 @@ pub enum Permission {
     Access,
     AdminAnalyticsView,
     AdminAnalyticsExport,
+    ViewRateLimits,
+    ViewEffectiveFlags,
+    ViewPlatformHealth,
     ManageRoles,
     ViewAudit,
     ManageNews,
@@ -76,6 +79,7 @@ pub enum Permission {
     ImportStoreCatalog,
     ActivateStoreCatalog,
     GenerateStoreCodes,
+    GrantRoles,
 }
 
 impl Permission {
@@ -94,6 +98,9 @@ impl Permission {
         Self::Access,
         Self::AdminAnalyticsView,
         Self::AdminAnalyticsExport,
+        Self::ViewRateLimits,
+        Self::ViewEffectiveFlags,
+        Self::ViewPlatformHealth,
         Self::ManageRoles,
         Self::ViewAudit,
         Self::ManageNews,
@@ -160,12 +167,16 @@ impl Permission {
         Self::ImportStoreCatalog,
         Self::ActivateStoreCatalog,
         Self::GenerateStoreCodes,
+        Self::GrantRoles,
     ];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AdminAnalyticsView => "admin.analytics.view",
             Self::AdminAnalyticsExport => "admin.analytics.export",
+            Self::ViewRateLimits => "admin.rate_limits.view",
+            Self::ViewEffectiveFlags => "admin.flags.view",
+            Self::ViewPlatformHealth => "admin.health.view",
             Self::Access => "admin.access",
             Self::ManageRoles => "admin.roles.manage",
             Self::ViewAudit => "audit.view",
@@ -232,6 +243,7 @@ impl Permission {
             Self::ImportStoreCatalog => "store.catalog.import",
             Self::ActivateStoreCatalog => "store.catalog.activate",
             Self::GenerateStoreCodes => "store.codes.generate",
+            Self::GrantRoles => "admin.roles.grant",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
@@ -313,6 +325,9 @@ impl BuiltInRole {
             Self::PlatformAdmin => &[
                 Permission::AdminAnalyticsView,
                 Permission::AdminAnalyticsExport,
+                Permission::ViewRateLimits,
+                Permission::ViewEffectiveFlags,
+                Permission::ViewPlatformHealth,
                 Permission::Access,
                 Permission::ManageRoles,
                 Permission::ViewAudit,
@@ -348,11 +363,13 @@ impl BuiltInRole {
                 Permission::ImportStoreCatalog,
                 Permission::ActivateStoreCatalog,
                 Permission::GenerateStoreCodes,
+                Permission::GrantRoles,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,
                 Permission::ManageRoles,
                 Permission::ViewAudit,
+                Permission::GrantRoles,
             ],
             Self::ContentEditor => &[
                 Permission::ManageNews,
@@ -503,6 +520,125 @@ impl BuiltInRole {
                 Permission::GameSanctionRead,
             ],
             Self::GameRelease => &[Permission::Access, Permission::GameNodeDeploy],
+        }
+    }
+}
+
+/// Platform and Game panel sections reuse the permissions enforced by their routes.
+pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
+    (
+        "/admin/operations/statistics",
+        "ops-statistics",
+        Permission::AdminAnalyticsView,
+        None,
+    ),
+    (
+        "/admin/operations/rate-limits",
+        "ops-rate-limits",
+        Permission::ViewRateLimits,
+        None,
+    ),
+    (
+        "/admin/operations/flags",
+        "ops-flags",
+        Permission::ViewEffectiveFlags,
+        None,
+    ),
+    (
+        "/admin/operations/health",
+        "ops-health",
+        Permission::ViewPlatformHealth,
+        None,
+    ),
+    ("/admin", "panel-admin", Permission::Access, None),
+    ("/admin/roles", "panel-roles", Permission::ManageRoles, None),
+    (
+        "/admin/players",
+        "panel-accounts",
+        Permission::ManageSupportTickets,
+        Some("OTERYN_ADMIN_PLAYERS"),
+    ),
+    (
+        "/admin/{lang}/bazaar",
+        "panel-bazaar",
+        Permission::ManageMarketplace,
+        Some("OTERYN_BAZAAR_MODERATION"),
+    ),
+    (
+        "/admin/store-catalog?lang={lang}",
+        "commerce-catalog",
+        Permission::ImportStoreCatalog,
+        Some("OTERYN_PANEL_STORE_CATALOG_ENABLED"),
+    ),
+    (
+        "/admin/store-activation?lang={lang}",
+        "commerce-activation",
+        Permission::ActivateStoreCatalog,
+        Some("OTERYN_PANEL_STORE_CATALOG_ENABLED"),
+    ),
+    (
+        "/admin/payment-review?lang={lang}",
+        "commerce-payment-review",
+        Permission::ReconcilePayments,
+        Some("OTERYN_PANEL_PAYMENTS_ENABLED"),
+    ),
+];
+
+use crate::console::Operation;
+
+pub const GM_PANEL_SECTIONS: &[(&str, &str, Permission, Operation)] = &[
+    (
+        "/console/dashboard?lang={lang}",
+        "panel-game-overview",
+        Permission::GameOpsRead,
+        Operation::Overview,
+    ),
+    (
+        "/console/worlds?lang={lang}",
+        "panel-worlds",
+        Permission::GameWorldRead,
+        Operation::Worlds,
+    ),
+    (
+        "/console/nodes?lang={lang}",
+        "panel-nodes",
+        Permission::GameNodeRead,
+        Operation::Nodes,
+    ),
+    (
+        "/console/database?lang={lang}",
+        "panel-database",
+        Permission::GameDbRead,
+        Operation::Database,
+    ),
+];
+
+#[cfg(test)]
+mod panel_permissions {
+    use super::*;
+
+    #[test]
+    fn panel_sections_and_grant_round_trip_through_the_catalog() {
+        for permission in ADMIN_PANEL_SECTIONS
+            .iter()
+            .map(|entry| entry.2)
+            .chain(GM_PANEL_SECTIONS.iter().map(|entry| entry.2))
+            .chain([Permission::GrantRoles])
+        {
+            assert_eq!(
+                permission.as_str().parse::<Permission>().ok(),
+                Some(permission)
+            );
+        }
+        for &(_, _, permission, operation) in GM_PANEL_SECTIONS {
+            assert_eq!(permission.as_str(), operation.permission());
+        }
+        assert_ne!(Permission::GrantRoles, Permission::ManageRoles);
+        for role in BuiltInRole::ALL {
+            assert_eq!(
+                role.permissions().contains(&Permission::GrantRoles),
+                role.permissions().contains(&Permission::ManageRoles)
+            );
         }
     }
 }

@@ -13,8 +13,8 @@ When using an already running isolated testing portal, run
 against its database before running `specs/legal-pages.spec.mjs` or exercising
 browser signup.
 
-From the repository root, with a native Node 22+ on `PATH` and a throwaway local
-PostgreSQL 18.6 already running (nothing outside the repository is sourced):
+From the repository root, with a native Node 22+ on `PATH`, `certutil` from
+`libnss3-tools`, and a throwaway local PostgreSQL 18.6 already running:
 
 ```sh
 cd portal-rs/e2e
@@ -34,6 +34,9 @@ path printed by the launcher:
 cd portal-rs/e2e
 CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test
 ```
+
+The runner adds the fixture CAs to a temporary Chromium trust store and to the
+Playwright Node process. Certificate validation stays enabled in both clients.
 
 The launcher also starts the outbox harness on loopback ports 18180, 18544, 18191 and
 18190. The outbox spec uses that harness's separate database, Game mTLS identities,

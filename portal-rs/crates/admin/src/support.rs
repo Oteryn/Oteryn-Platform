@@ -7,10 +7,13 @@ use crate::{
     audit::{self, AuditContext, Entry},
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
 };
+use oteryn_web::session::SessionMutationDeadline;
 use serde::Deserialize;
 use sqlx::{PgPool, Postgres, Transaction};
 use std::future::Future;
 use uuid::Uuid;
+
+const MAX_APPEAL_OUTCOME_LENGTH: usize = 4000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Area {
@@ -73,6 +76,10 @@ pub enum Error {
     Invalid,
     #[error("conflict")]
     Conflict,
+    #[error("ticket version mismatch")]
+    StaleTicketVersion,
+    #[error("ticket state blocks the action")]
+    TicketStateConflict,
 }
 impl Command {
     pub fn area(&self) -> Area {
@@ -125,7 +132,11 @@ impl Command {
                 matches!(
                     appeal_status.as_str(),
                     "reviewing" | "accepted" | "rejected"
-                ) && text(appeal_outcome, 4000, appeal_status != "reviewing")
+                ) && text(
+                    appeal_outcome,
+                    MAX_APPEAL_OUTCOME_LENGTH,
+                    appeal_status != "reviewing",
+                )
             }
         };
         if valid { Ok(()) } else { Err(Error::Invalid) }
@@ -182,6 +193,7 @@ pub struct Record {
     pub title: String,
     pub status: String,
     pub messages: Vec<Message>,
+    pub appeal_status: Option<String>,
     pub next_message: Option<Uuid>,
 }
 #[derive(Debug, Clone)]
@@ -258,6 +270,19 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
     version: i64,
     command: &Command,
 ) -> Result<(), Error> {
+    execute_with_deadline(pool, auth, backend, context, (id, version), command, None).await
+}
+
+async fn execute_with_deadline<A: AccountStateReader, B: Backend>(
+    pool: &PgPool,
+    auth: &Authorizer<A>,
+    backend: &B,
+    context: CheckContext,
+    target: (Uuid, i64),
+    command: &Command,
+    deadline: Option<&SessionMutationDeadline>,
+) -> Result<(), Error> {
+    let (id, version) = target;
     if id.is_nil()
         || version < 1
         || (matches!(command, Command::Sanction { create: true, .. }) && version != 1)
@@ -269,13 +294,17 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         return Err(Error::Denied);
     }
     for permission in [Permission::Access, command.area().permission()] {
-        auth.check(context, permission).await.map_err(|e| match e {
-            crate::rbac::Error::Storage(_) => Error::Unavailable,
-            _ => Error::Denied,
-        })?;
+        crate::web::read_request(deadline, auth.check(context, permission))
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .map_err(commit_authorization_error)?;
     }
-    let mut tx = pool.begin().await.map_err(|_| Error::Unavailable)?;
     // Preparation precedes the RBAC fence, but retains its bounded lock waits.
+    let mut tx = match deadline {
+        Some(deadline) => deadline.begin(pool).await,
+        None => pool.begin().await,
+    }
+    .map_err(|_| Error::Unavailable)?;
     crate::rbac::mutation_budget(&mut tx)
         .await
         .map_err(|_| Error::Unavailable)?;
@@ -292,14 +321,6 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         crate::rbac::Error::Storage(_) => Error::Unavailable,
         _ => Error::Denied,
     })?;
-    for permission in [Permission::Access, command.area().permission()] {
-        auth.check_in(&mut tx, context, permission)
-            .await
-            .map_err(|e| match e {
-                crate::rbac::Error::Storage(_) => Error::Unavailable,
-                _ => Error::Denied,
-            })?;
-    }
     let (before, after) = backend
         .apply(&mut tx, context, id, version, command)
         .await?;
@@ -330,7 +351,21 @@ pub async fn execute<A: AccountStateReader, B: Backend>(
         crate::rbac::Error::Storage(_) => Error::Unavailable,
         _ => Error::Denied,
     })?;
+    let expiry = crate::rbac::SessionExpiry::capture(&mut tx, context)
+        .await
+        .map_err(commit_authorization_error)?;
+    expiry
+        .arm_commit(&mut tx, deadline.is_some())
+        .await
+        .map_err(commit_authorization_error)?;
     tx.commit().await.map_err(|_| Error::Unavailable)
+}
+
+fn commit_authorization_error(error: crate::rbac::Error) -> Error {
+    match error {
+        crate::rbac::Error::Storage(_) => Error::Unavailable,
+        _ => Error::Denied,
+    }
 }
 
 #[cfg(test)]

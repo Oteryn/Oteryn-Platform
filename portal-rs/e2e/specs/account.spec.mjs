@@ -7,7 +7,7 @@ import {register,login,csrfRejected,submit,pool,exportOptions} from '../helpers.
 function previousWeek(){const d=new Date();d.setUTCHours(0,0,0,0);d.setUTCDate(d.getUTCDate()-(d.getUTCDay()+6)%7-7);return Math.floor(d.getTime()/1000);}
 
 const surfaces=[
- ['/account','overview'],['account/privacy','privacy'],['account/sessions','sessions'],['account/passkeys','passkeys'],
+ ['/account','overview'],['account/privacy','privacy'],['account/sessions','sessions'],['account/passkeys/manage','passkeys'],
  ['account/security/email','email change'],['password/change','password change'],['account/sudo','sudo'],['mfa','MFA settings'],
  ['account/characters/new','character creation'],['shop/history','wallet balance'],['panel/premium','premium'],['panel/payments','payments'],
  ['shop','store'],['shop/coins','top up'],['shop/history','wallet history'],['shop/transfer','transfer'],
@@ -48,9 +48,31 @@ for(const [path,label] of surfaces) test(gameRefusals[path]?`${label}: documente
    return;
  }
  if(path.endsWith('/export')) {
-   await page.goto(`/${lang}/account/sudo`);
-   await submit(page,'main form',{current_password:account.password});
-   const exported=await page.request.post(target,await exportOptions(page,lang));
+   const challenge = await page.request.get(target, {maxRedirects: 0});
+   expect(challenge.status()).toBe(303);
+   const sudo = `/${lang}/account/sudo?return_to=export`;
+   expect(challenge.headers().location).toBe(sudo);
+   expect((await page.goto(sudo)).status()).toBe(200);
+   await csrfRejected(page, sudo, {current_password: account.password});
+   const passwordForm = page.locator('main form');
+   await passwordForm.locator('[name=current_password]').fill(account.password);
+   const [confirmed] = await Promise.all([
+     page.waitForResponse(response => response.request().method() === 'POST'
+       && new URL(response.url()).pathname === new URL(sudo, page.url()).pathname),
+     passwordForm.getByRole('button').click(),
+   ]);
+   expect(confirmed.status()).toBe(302);
+   expect(confirmed.headers().location).toBe(target);
+   await expect(page).toHaveURL(new RegExp(target + '$'));
+   await csrfRejected(page, target);
+   const [download] = await Promise.all([
+     page.waitForEvent('download'),
+     page.locator('main form').getByRole('button').click(),
+   ]);
+   const chunks = [];
+   for await (const chunk of await download.createReadStream()) chunks.push(chunk);
+   expect(Buffer.concat(chunks).toString('utf8')).toContain(account.email);
+   const exported = await page.request.post(target, await exportOptions(page, lang));
    expect(exported.status()).toBe(200);
    expect(exported.headers()['content-type']).toContain('json');
    expect(await exported.text()).toContain(account.email);

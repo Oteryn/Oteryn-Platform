@@ -45,8 +45,14 @@ export async function csrfRejected(page, action, fields={}) {
     target.searchParams.delete('token');
     delete clean.token;
   }
-  const response=await page.request.post(target.href,{...payload,headers:{origin:new URL(page.url()).origin},maxRedirects:0});
-  expect(response.status(), `missing authorization token: ${target.pathname}`).toBe(signedMail?422:403);
+  const response=await page.request.post(target.href,{
+    ...payload,headers:{origin:new URL(page.url()).origin,connection:'close'},maxRedirects:0,
+  });
+  try {
+    expect(response.status(), `missing authorization token: ${target.pathname}`).toBe(signedMail?422:403);
+  } finally {
+    await response.dispose();
+  }
 }
 export async function submit(page, selector='main form', values={}) {
   const form=page.locator(selector).first();
@@ -59,6 +65,8 @@ export async function submit(page, selector='main form', values={}) {
     else await input.fill(value);
   }
   await form.locator('button[type=submit], button:not([type])').first().click({timeout:30_000});
+  // A form navigation can commit before its response has been parsed.
+  await page.waitForLoadState('domcontentloaded');
 }
 export async function mailLink(page,email,pattern,timeout=30_000) {
   let found;
@@ -72,26 +80,34 @@ export async function mailLink(page,email,pattern,timeout=30_000) {
   },{timeout}).toBe(true);
   return found;
 }
-export async function seedPasswordRange(value) {
+// Public test inputs and their precomputed breach-provider range prefixes.
+const passwordExamples = {
+  registration: ['RegistrationExampleOnly!2026', '98E4F'],
+  replacement: ['ReplacementExampleOnly!2026', '5D930'],
+  alternate: ['AlternateExampleOnly!2026', '34B96'],
+};
+
+export async function seedPasswordRange(fixture = 'replacement') {
+  const [example, prefix] = passwordExamples[fixture];
   const db=pool();
   try {
     await expect.poll(async()=>Number((await db.query("SELECT COALESCE(max(count),0) AS count FROM web_rate_limits WHERE limiter_name='identity-registration' AND window_start=date_trunc('minute',clock_timestamp())")).rows[0].count),{timeout:65000,intervals:[1000]}).toBeLessThan(5);
     await db.query('UPDATE registration_abuse_policy SET enabled=true WHERE singleton=true');
     await db.query("INSERT INTO world_status(id,name) SELECT uuidv7(),'Local Browser World' WHERE NOT EXISTS(SELECT 1 FROM world_status)");
-    // Synthetic local corpus, matching the identity crate's registration fixtures.
-    const prefix=crypto.createHash('sha1').update(value).digest('hex').toUpperCase().slice(0,5);
     await db.query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES($1,ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id()) ON CONFLICT(prefix) DO UPDATE SET suffixes=EXCLUDED.suffixes,expires_at=EXCLUDED.expires_at,complete=true,complete_xact=pg_current_xact_id()",[prefix]);
   } finally { await db.end(); }
+  return example;
 }
 export async function register(page,lang) {
-  const email=`browser-${crypto.randomUUID()}@local.test`, pass=password();
-  await seedPasswordRange(pass);
+  const email=`browser-${crypto.randomUUID()}@local.test`, pass=await seedPasswordRange('registration');
   const registration=await page.goto(`/${lang}/register`);
   expect(registration.status()).toBe(200);
   await page.locator('[name=work_token]').waitFor({state:'attached'});
   await submit(page,'main form',{email,password:pass,password_confirmation:pass,terms:true,privacy:true});
   await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox`),{timeout:90_000});
-  const link=await mailLink(page,email,/https:\/\/localhost:18443\/(?:pl|en)\/verify-email\?token=[a-f0-9]+/);
+  const verificationUrl = new URL(`/${lang}/verify-email`, registration.url());
+  const verificationPath = verificationUrl.href.replace(/[\^$.*+?()[\]{}|\\]/g, '\\$&');
+  const link = await mailLink(page, email, new RegExp(verificationPath + '\\?token=[a-f0-9]+'));
   // Reserve room for the verification GET and form submissions in the current minute.
   const db=pool();
   try {
@@ -106,12 +122,15 @@ export async function register(page,lang) {
 export async function logout(page,lang) {
  await page.goto(`/${lang}/`);
  const formSelector = 'form[action$="/logout"]';
- const form = page.locator(formSelector);
- if (!await form.count()) return;
+ if (!await page.locator(formSelector).count()) return;
+ const visibleForm = `${formSelector}:visible`;
  const menu = page.locator('#portal-menu-toggle');
  if (await menu.isVisible()) await menu.click();
- if (!await form.isVisible()) await page.locator('[data-account-link]').click();
- await submit(page, formSelector);
+ if (!await page.locator(visibleForm).count()) {
+  await page.locator('[data-account-link]:visible').click();
+  await expect(page.locator(visibleForm)).toBeVisible();
+ }
+ await submit(page, visibleForm);
 }
 // Wiki entities and the portal search share the 30/minute WikiSearch policy.
 export async function waitForWikiBudget(target, needed=1) {

@@ -1,13 +1,76 @@
 <!doctype html>
-<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{% if lang == "en" %}Economy analytics{% else %}Analityka gospodarki{% endif %}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme"><main class="op-panel op-stack"><h1>{% if lang == "en" %}Economy analytics{% else %}Analityka gospodarki{% endif %}</h1>
-<nav><a href="/admin/analytics">Analytics</a></nav>
-<form method="get" class="op-stack"><label>World / Świat<input class="op-input" name="world" value="{{ world }}" required></label><label>UTC from (inclusive)<input class="op-input" type="datetime-local" name="from" value="{{ from }}" step="86400" required></label><label>UTC to (exclusive)<input class="op-input" type="datetime-local" name="to" value="{{ to }}" step="86400" required></label><button class="op-button" type="submit">Show / Pokaż</button></form>
-<p>World × UTC day. Release delay: 24 hours. Retention: 400 days. Privacy policy: {{ policy }}.</p>
-<p>Stocks and flows are separate. Circulation excludes ground, houses, escrow, mail and in-flight gold. Store currencies are separate units and are never added to gold. Platform purchases cover all worlds.</p>
-{% for group in groups %}<section class="op-stack"><h2>{{ group.family }}</h2><p>{{ group.columns }}</p>
-{% if group.cells.is_empty() %}<p role="status" data-state="{{ group.state }}">{{ group.state }}{% if group.state == "unavailable" %}: accepted resync baseline and fresh Game evidence required{% endif %}</p><p>Data cut / freshness: {% if group.state == "available" %}{{ group.cut }} / {{ group.age }} s; epoch / revision: {{ group.epoch }} / {{ group.revision }}. Complete empty row set; no unlisted zero inferred.{% else %}—{% endif %}</p>{% else %}
-<table><thead><tr><th>Key / item / currency</th><th>Source</th><th>State</th><th>{{ group.columns }}</th><th>Data cut (UTC) / freshness</th><th>Epoch / revision</th></tr></thead><tbody>
-{% for cell in group.cells %}<tr data-state="{{ cell.state }}"><td>{{ cell.key }}</td><td>{{ group.source }}</td><td>{{ cell.state }}{% if cell.state == "low_n" %} — low-n (below five){% endif %}{% if cell.state == "incomplete" %}: {{ cell.gap }}{% endif %}</td><td>{% for value in cell.values %}<span>{{ value }}</span> {% endfor %}</td><td>{{ cell.cut }} / {{ cell.age }} s</td><td>{{ cell.epoch }} / {{ cell.revision }}</td></tr>{% endfor %}
-</tbody></table>{% endif %}</section>{% endfor %}
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("ops-economy-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme"><main class="op-panel op-stack">
+<h1>{{ self.text("ops-economy-title") }}</h1>
+<nav aria-label="{{ self.text("ops-analytics") }}"><a href="/admin/analytics">{{ self.text("ops-analytics") }}</a></nav>
+<form method="get" class="op-stack">
+  <label>{{ self.text("ops-analytics-world") }}<input class="op-input" name="world" value="{{ world }}" required></label>
+  <label>{{ self.text("ops-analytics-from") }}<input class="op-input" type="datetime-local" name="from" value="{{ from }}" step="86400" required></label>
+  <label>{{ self.text("ops-analytics-to") }}<input class="op-input" type="datetime-local" name="to" value="{{ to }}" step="86400" required></label>
+  <button class="op-button" type="submit">{{ self.text("ops-show") }}</button>
+</form>
+<p>{{ self.text("ops-economy-retention") }} {{ self.text("ops-analytics-privacy") }} {{ policy }}.</p>
+<p>{{ self.text("ops-economy-units") }}</p>
+{% let visible = self.text("ops-analytics-visible") %}
+{% let low_n = self.text("ops-economy-low-n") %}
+{% let incomplete = self.text("ops-analytics-incomplete") %}
+{% let suppressed = self.text("ops-analytics-suppressed") %}
+{% let unavailable = self.text("ops-unavailable") %}
+{% let gap = self.text("ops-economy-gap") %}
+{% for group in groups %}
+  {% let columns = self.group_text(group, "columns") %}
+  <section class="op-stack">
+    <h2>{{ self.group_text(group, "title") }}</h2>
+    <p>{{ columns }}</p>
+    {% if group.cells.is_empty() %}
+      <p role="status" data-state="{{ group.state }}">{% match group.state %}
+          {% when "available" %}{{ self.text("ops-available") }}
+          {% when "expired" %}{{ self.text("ops-analytics-expired") }}
+          {% else %}{{ self.text("ops-economy-unavailable") }}
+        {% endmatch %}</p>
+      {% if group.state == "available" %}
+        <p>{{ self.text("ops-analytics-cut") }} {{ group.cut }} / {{ group.age }} s.
+           {{ self.text("ops-analytics-epoch") }}: {{ group.epoch }} / {{ group.revision }}.
+           {{ self.text("ops-economy-empty") }}</p>
+      {% else %}
+        <p>{{ self.text("ops-economy-cut") }}: —</p>
+      {% endif %}
+    {% else %}
+      {% let game = self.text("ops-economy-game") %}
+      {% let platform = self.text("ops-economy-platform") %}
+      <div class="op-table-wrap" tabindex="0" role="region" aria-label="{{ self.group_text(group, "title") }}">
+      <table class="op-table"><thead><tr>
+        <th scope="col">{{ self.text("ops-economy-key") }}</th>
+        <th scope="col">{{ self.text("ops-economy-source") }}</th>
+        <th scope="col">{{ self.text("ops-status") }}</th>
+        <th scope="col">{{ columns }}</th>
+        <th scope="col">{{ self.text("ops-economy-cut") }}</th>
+        <th scope="col">{{ self.text("ops-analytics-epoch") }}</th>
+      </tr></thead><tbody>
+      {% for cell in group.cells %}
+        <tr data-state="{{ cell.state }}">
+          <td>{{ cell.key }}</td><td>{% if group.source == "Game" %}{{ game }}{% else %}{{ platform }}{% endif %}</td>
+          <td>{% match cell.state.as_str() %}
+            {% when "visible" %}{{ visible }}
+            {% when "low_n" %}{{ low_n }}
+            {% when "incomplete" %}{{ incomplete }}: {% if lang == "pl" %}{{ gap }} {{ cell.key }}{% else %}{{ cell.key }} {{ gap }}{% endif %}
+            {% when "suppressed" %}{{ suppressed }}
+            {% else %}{{ unavailable }}
+          {% endmatch %}</td>
+          <td>{% for value in cell.values %}<span>{{ value }}</span> {% endfor %}</td>
+          <td>{{ cell.cut }} / {{ cell.age }} s</td><td>{{ cell.epoch }} / {{ cell.revision }}</td>
+        </tr>
+      {% endfor %}
+      </tbody></table>
+      </div>
+    {% endif %}
+  </section>
+{% endfor %}
 </main></body></html>

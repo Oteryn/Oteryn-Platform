@@ -226,6 +226,7 @@ async fn postgres_news_lifecycle() {
         Extension(context),
         Extension(auth.clone()),
         Path(id),
+        axum::http::Method::POST,
         Form(Revision {
             expected_revision: sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
                 .bind(id)
@@ -246,6 +247,7 @@ async fn postgres_news_lifecycle() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            axum::http::Method::POST,
             Form(Revision {
                 expected_revision: String::new()
             })
@@ -359,6 +361,28 @@ async fn postgres_news_lifecycle() {
         guarded().oneshot(mutation("bad")).await.unwrap().status(),
         StatusCode::FORBIDDEN
     );
+    for language in [oteryn_web::Language::Pl, oteryn_web::Language::En] {
+        let mut request = mutation(token);
+        *request.uri_mut() = format!("/admin/news?lang={}", language.code())
+            .parse()
+            .unwrap();
+        *request.body_mut() = Body::from(format!(
+            "_csrf={token}&slug=browser-news&title=&body=Body&published_at="
+        ));
+        let refused = guarded().oneshot(request).await.unwrap();
+        assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+            language.text("error-422-description").as_bytes()
+        );
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM news WHERE slug='browser-news'")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
     assert_eq!(
         guarded().oneshot(mutation(token)).await.unwrap().status(),
         StatusCode::FOUND
@@ -377,10 +401,25 @@ async fn postgres_news_lifecycle() {
             token,
             &update_path,
             &stale,
-            "First editor"
+            "First editor",
+            "POST",
         )
         .await,
         StatusCode::FOUND
+    );
+    let revision = browser_news_revision(guarded(), &cookie, &edit_path).await;
+    assert_eq!(
+        browser_news_submit(
+            guarded(),
+            &cookie,
+            token,
+            &update_path,
+            &revision,
+            "First editor",
+            "PUT",
+        )
+        .await,
+        StatusCode::SEE_OTHER
     );
     assert_eq!(
         browser_news_submit(
@@ -389,10 +428,29 @@ async fn postgres_news_lifecycle() {
             token,
             &update_path,
             &stale,
-            "Stale overwrite"
+            "Stale overwrite",
+            "POST",
         )
         .await,
         StatusCode::CONFLICT
+    );
+    let refused = guarded()
+        .oneshot(
+            Request::delete(&update_path)
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("accept-language", "en")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from(format!("_csrf={token}&expected_revision=old")))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        to_bytes(refused.into_body(), 1024).await.unwrap().as_ref(),
+        b"The news entry changed after you opened the form. Reload and try again."
     );
     assert_eq!(
         browser_news_submit(
@@ -401,7 +459,8 @@ async fn postgres_news_lifecycle() {
             token,
             &format!("{update_path}/delete"),
             &stale,
-            "Stale delete"
+            "Stale delete",
+            "POST",
         )
         .await,
         StatusCode::CONFLICT
@@ -422,10 +481,34 @@ async fn postgres_news_lifecycle() {
             token,
             &format!("{update_path}/delete"),
             &current,
-            "Reviewed delete"
+            "Reviewed delete",
+            "POST",
         )
         .await,
         StatusCode::FOUND
+    );
+    assert_eq!(
+        guarded().oneshot(mutation(token)).await.unwrap().status(),
+        StatusCode::FOUND
+    );
+    let recreated: Uuid = sqlx::query_scalar("SELECT id FROM news WHERE slug='browser-news'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let revision =
+        browser_news_revision(guarded(), &cookie, &format!("/admin/news/{recreated}/edit")).await;
+    assert_eq!(
+        browser_news_submit(
+            guarded(),
+            &cookie,
+            token,
+            &format!("/admin/news/{recreated}"),
+            &revision,
+            "Reviewed delete",
+            "DELETE",
+        )
+        .await,
+        StatusCode::SEE_OTHER
     );
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
@@ -558,11 +641,16 @@ async fn postgres_pagination_language_and_caps() {
         };
         assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
         assert!(
-            !admin_index(State(pool.clone()), Extension(context), Query(q))
-                .await
-                .unwrap()
-                .0
-                .contains("?page=")
+            !admin_index(
+                State(pool.clone()),
+                Extension(context),
+                Query(q),
+                axum::http::HeaderMap::new(),
+            )
+            .await
+            .unwrap()
+            .0
+            .contains("?page=")
         );
     }
     pool.close().await;
@@ -628,8 +716,9 @@ async fn browser_news_submit(
     path: &str,
     version: &str,
     title: &str,
+    method: &str,
 ) -> StatusCode {
     let version = version.replace('+', "%2B").replace(' ', "%20");
-    app.oneshot(Request::post(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
+    app.oneshot(Request::builder().method(method).uri(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
         .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&slug=browser-news&title={title}&body=Reviewed+body&published_at="))).unwrap()).await.unwrap().status()
 }

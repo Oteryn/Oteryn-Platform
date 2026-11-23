@@ -110,7 +110,7 @@
       <div class="om-tools">
         {% if chrome.signed_in() %}
           {% if chrome.account_mounted %}
-          <a class="om-login" href="/account" data-account-link{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}>
+          <a class="om-login" href="{% if let Some(overview) = chrome.link("account-overview") %}{{ overview.url }}{% else %}#podglad-konta{% endif %}" data-account-link{% if chrome.current_section == "account-overview" %} aria-current="page"{% endif %}>
             <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("stage-my-account") }}
           </a>
           {% if interior %}

@@ -11,7 +11,10 @@ use uuid::Uuid;
 
 pub(crate) mod staff;
 mod web;
-pub use staff::{StaffSupport, configured_staff_router, configured_staff_router_from};
+pub use staff::{
+    StaffSupport, configured_staff_router, configured_staff_router_from, configured_support_router,
+};
+pub(crate) use web::private;
 pub use web::{configured_router, router, staff_router};
 #[cfg(test)]
 mod tests;
@@ -37,6 +40,10 @@ pub enum Error {
     RequestKeyConflict,
     #[error("ticket conflict")]
     Conflict,
+    #[error("ticket version mismatch")]
+    StaleVersion,
+    #[error("ticket state blocks the action")]
+    StateConflict,
     #[error("database unavailable")]
     Database(#[from] sqlx::Error),
     #[error("notification unavailable")]
@@ -72,6 +79,13 @@ fn valid_text(value: &str, max: usize) -> bool {
 }
 fn active(status: &str) -> bool {
     matches!(status, "open" | "waiting_user" | "waiting_staff")
+}
+fn can_reply(status: &str, staff: bool) -> bool {
+    if staff {
+        active(status)
+    } else {
+        matches!(status, "open" | "waiting_user")
+    }
 }
 enum Acknowledge {
     Never,
@@ -215,6 +229,22 @@ impl Tickets {
         version: i64,
         change: Change<'_>,
     ) -> Result<Ticket> {
+        self.change_checked(actor, staff, id, version, change)
+            .await
+            .map_err(|error| match error {
+                Error::StaleVersion | Error::StateConflict => Error::Conflict,
+                error => error,
+            })
+    }
+
+    pub(super) async fn change_checked(
+        &self,
+        actor: Uuid,
+        staff: Option<CheckContext>,
+        id: Uuid,
+        version: i64,
+        change: Change<'_>,
+    ) -> Result<Ticket> {
         self.validate_change(actor, staff, version, change)?;
         let mut tx = self.pool.begin().await?;
         let (ticket, _) = self
@@ -326,17 +356,21 @@ impl Tickets {
         if !STATUSES.contains(&ticket.status.as_str()) {
             return Err(Error::Denied);
         }
+        match change {
+            Change::Reply { .. } if !can_reply(&ticket.status, is_staff) => {
+                return Err(Error::StateConflict);
+            }
+            Change::Status("open") if !is_staff && ticket.status != "closed" => {
+                return Err(Error::StateConflict);
+            }
+            _ => {}
+        }
         if ticket.lock_version != version {
-            return Err(Error::Conflict);
+            return Err(Error::StaleVersion);
         }
         let before = ticket.status.clone();
         let (status, notify, reply) = match change {
             Change::Reply { body, internal } => {
-                if (is_staff && !active(&ticket.status))
-                    || (!is_staff && !matches!(ticket.status.as_str(), "open" | "waiting_user"))
-                {
-                    return Err(Error::Conflict);
-                }
                 Self::message(tx, id, actor, body, is_staff, internal).await?;
                 (
                     if internal {
@@ -351,9 +385,6 @@ impl Tickets {
                 )
             }
             Change::Status(status) => {
-                if !is_staff && status == "open" && ticket.status != "closed" {
-                    return Err(Error::Conflict);
-                }
                 if active(status) && !active(&ticket.status) {
                     self.capacity(tx, ticket.account_id).await?;
                 }
@@ -392,7 +423,7 @@ impl Tickets {
             } else {
                 // Queue mutations use the locked account snapshot, so a caller
                 // holding the sole pool connection never re-enters the pool.
-                staff::notify(tx, &self.notifications, ticket.account_id, body)
+                staff::notify(tx, &self.notifications, ticket.account_id, |_| body)
                     .await
                     .map_err(|_| Error::Notification)?;
             }

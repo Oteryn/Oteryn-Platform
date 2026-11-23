@@ -3,6 +3,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {confirmStaffPassword,recoveryCodes} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',async({page,browser},info)=>{
@@ -16,21 +17,25 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
  }finally{await db.end();}
  await login(page,lang,staff);
  expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(403);
+ const saved=lang==='pl'?'en':'pl';
+ expect((await page.goto(`/language/${saved}`)).status()).toBe(200);
+ expect((await page.goto('/admin')).status()).toBe(403);
+ await expect(page.locator('html')).toHaveAttribute('lang',saved);
+ await expect(page.locator('main h1')).toHaveText(saved==='pl'?'Wymagane uwierzytelnianie wieloskładnikowe':'Multi-factor authentication required');
+ expect((await page.goto(`/language/${lang}`)).status()).toBe(200);
  await page.goto(`/${lang}/mfa`);
  await submit(page,'main form[action$="/mfa/enroll"]',{password:staff.password});
  const secret=await page.locator('main .op-prose').innerText();
  const totp=new OTPAuth.TOTP({secret,algorithm:'SHA1',digits:6,period:30});
  await submit(page,'main form[action$="/mfa/confirm"]',{password:staff.password,code:totp.generate()});
- const recoveryFields=page.locator('main textarea[readonly]');
- await expect(recoveryFields.first()).toBeVisible({timeout:30_000});
- const codes=await recoveryFields.allTextContents();
+ const codes=await recoveryCodes(page, {timeout:30_000});
  expect(codes.length).toBeGreaterThan(0);
  await login(page,lang,staff);
  await expect(page).toHaveURL(/mfa\/challenge/);
  await submit(page,'main form[action$="/mfa/challenge"]',{code:codes[0]});
  const response=await page.goto(`/admin?lang=${lang}`);
  expect(response.status()).toBe(200);
- fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
+ expect(new URL(response.url()).pathname).toBe('/admin');
  const linked=await page.locator('nav a[href]').evaluateAll(nodes=>nodes.map(n=>n.getAttribute('href')).filter(h=>/^\/(?:pl\/|en\/)?admin(?:\/|$)|^\/console(?:\/|$)/.test(h)));
  const paths=[...new Set([...linked,'/admin/players','/admin/roles','/admin/console/audit','/admin/news','/admin/pages','/admin/events','/admin/media','/admin/wiki','/admin/world','/admin/commerce','/admin/support/tickets',`/${lang}/admin/support/tickets`,'/admin/moderation/reports','/admin/moderation/enforcement',`/admin/${lang}/bazaar`,'/admin/control/step-up','/console/dashboard','/admin/console/access','/admin/console/players','/admin/console/approvals'])];
  const failures=[];
@@ -46,13 +51,17 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
        attempted.push(path);
        try {
          await test.step(path,async()=>{
-           const localized=['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
-           const response=await screen.goto(localized?path:`${path}?lang=${lang}`);
+           const localized=linked.includes(path)||['/admin/world','/admin/support/tickets','/admin/moderation/reports','/admin/moderation/enforcement','/admin/control/step-up'].includes(path)||path.startsWith(`/${lang}/admin/`);
+           const target=new URL(path,page.url());
+           if(!localized) target.searchParams.set('lang',lang);
+           const response=await screen.goto(target.href);
            const status=response.status();
-           if(status===200) {
+           const expected=path==='/console/dashboard'?403:200;
+           if(response.url()!==target.href) failures.push(`${path}: wrong terminal route`);
+           if(status===expected) {
              if(await screen.locator('html').getAttribute('lang')!==lang) failures.push(`${path}: wrong page language`);
              // assertShell also checks CSRF on every POST form.
-             await assertShell(screen);
+             await assertShell(screen,{status:expected,isolateLanguageProbes:true});
            } else {
              failures.push(`${path}: HTTP ${status}`);
              const forms=await screen.locator('form[method=post i]').evaluateAll(forms=>forms.map(f=>({action:f.getAttribute('action')||location.pathname,fields:Object.fromEntries(new FormData(f))})));
@@ -83,13 +92,17 @@ test('staff bootstrap, mandatory MFA, admin navigation and non-staff refusal',as
    try {
      const target=(await db.query('SELECT id FROM accounts WHERE email=$1',[account.email])).rows[0].id;
      const role=(await db.query("SELECT id FROM roles WHERE key='platform_admin'")).rows[0].id;
-     await page.goto('/admin/roles');
+     await confirmStaffPassword(page,lang,staff.password);
+     fs.writeFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),JSON.stringify(await page.context().storageState()),{mode:0o600});
      const token=await page.locator('input[name=_csrf]').first().inputValue();
-     const fields={account:target,role,action:'grant'};
+     const fields={account:target,role,action:'grant',reason:'role_assignment'};
      await csrfRejected(page,'/admin/roles',fields);
+     const denials=async()=>Number((await db.query("SELECT count(*) AS n FROM audit_log WHERE actor=(SELECT id FROM accounts WHERE email=$1) AND action='admin.access.denied' AND target='/admin/roles'",[staff.email])).rows[0].n);
+     const before=await denials();
      const refused=await page.request.post('/admin/roles',{form:{...fields,_csrf:token},headers:{origin:new URL(page.url()).origin},maxRedirects:0});
      expect(refused.status()).toBe(403);
      expect(Number((await db.query('SELECT count(*) AS n FROM account_roles WHERE account_id=$1 AND role_id=$2',[target,role])).rows[0].n)).toBe(0);
+     expect(await denials()).toBe(before+1);
    }finally{await db.end();}
  });
  expect((await ordinary.goto('/admin')).status()).toBe(403);

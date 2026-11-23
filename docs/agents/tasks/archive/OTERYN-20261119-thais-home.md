@@ -27,7 +27,7 @@ head: 19d2490b80e5acb30ddf2dea5c64c098a40d54a3
 branch: feat/thais-portal-home
 pr: 1985
 terminal_pr_policy: archive_pending
-status: validating
+status: completed
 context_routes: []
 owned_paths:
   - portal-rs/templates/pages/home.html
@@ -59,7 +59,7 @@ validation:
     result: PASS
     evidence: PL and EN desktop and mobile pass; authenticated mobile account and logout verified on the isolated portal.
 blockers: []
-next_action: Verify the public release and archive this packet.
+next_action: none; delivered by PR #1985 and archived
 ```
 
 ## Source branch closeout
@@ -67,5 +67,5 @@ next_action: Verify the public release and archive this packet.
 ```yaml
 source_branch_disposition: auto_delete_after_merge
 source_branch_reason: One release candidate on its dedicated Platform branch.
-source_branch_evidence: pending integration
+source_branch_evidence: PR #1985 merged as 6f8038b355dde4d9007d4e7117670137f78188b8 and live branch lookup confirms refs/heads/feat/thais-portal-home is absent
 ```

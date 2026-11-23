@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <title>{{ self.label("title") }}</title>
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ self.label("title") }}</h1>
+  {% if detail %}
+  <p><a href="/{{ lang }}/support/appeals">{{ self.label("title") }}</a></p>
+  {% for row in rows %}
+  <h2>{{ row.public_reason }}</h2>
+  <p>{{ self.label(row.status.as_str()) }}</p>
+  {% if let Some(message) = row.message %}
+  <h3>{{ self.label("message") }}</h3>
+  <p>{{ message }}</p>
+  {% endif %}
+  {% if let Some(outcome) = row.outcome %}
+  <h3>{{ self.label("outcome") }}</h3>
+  <p>{{ outcome }}</p>
+  {% endif %}
+  {% if row.can_submit %}
+  <form method="post" action="/{{ lang }}/support/appeals/{{ row.id }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <input type="hidden" name="version" value="{{ row.version }}">
+    <p><label>{{ self.label("message") }}<br>
+      <textarea class="op-input" name="message" rows="5" cols="24" maxlength="4000" required></textarea>
+    </label></p>
+    <button class="op-button" type="submit">{{ self.label("submit") }}</button>
+  </form>
+  {% endif %}
+  {% endfor %}
+  {% else if rows.is_empty() %}
+  <p>{{ self.label("empty") }}</p>
+  {% else %}
+  <ul>
+    {% for row in rows %}
+    <li><a href="/{{ lang }}/support/appeals/{{ row.id }}">{{ row.public_reason }}</a> — {{ self.label(row.status.as_str()) }}</li>
+    {% endfor %}
+  </ul>
+  {% if let Some(page) = next %}
+  <a href="/{{ lang }}/support/appeals?page={{ page }}">{{ self.label("next") }}</a>
+  {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

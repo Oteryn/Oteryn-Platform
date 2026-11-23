@@ -415,6 +415,13 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         60,
         Arc::new(oteryn_web::ratelimit::RateLimitCleanup { pool: pool.clone() }),
     )?;
+    if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true") {
+        registry.cleanup(
+            "operations.refresh-statistics",
+            300,
+            Arc::new(oteryn_admin::operations::StatisticsRefresh { pool: pool.clone() }),
+        )?;
+    }
     registry.cleanup(
         "cleanup.game-ticket-budgets",
         60,
@@ -491,6 +498,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "league.ingest",
         "identity.email-change",
         "admin.control.expire",
+        "operations.refresh-statistics",
         "referrals.process",
         "stats.poll",
     ] {

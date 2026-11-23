@@ -315,7 +315,42 @@ async fn change<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
     Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
-    Form(form): Form<Action>,
+    headers: HeaderMap,
+    form: Result<Form<Action>, axum::extract::rejection::FormRejection>,
+) -> Result<Response, Error> {
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(rejection) if rejection.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return Ok(validation(&headers, StatusCode::UNPROCESSABLE_ENTITY));
+        }
+        Err(rejection) => return Ok(rejection.into_response()),
+    };
+    match apply_change(&s, context, id, form).await {
+        Ok(response) => Ok(response),
+        Err(Error::BadInput) => Ok(validation(&headers, StatusCode::BAD_REQUEST)),
+        Err(error) => Err(error),
+    }
+}
+
+fn validation(headers: &HeaderMap, status: StatusCode) -> Response {
+    let language = if language(headers) == "en" {
+        oteryn_web::Language::En
+    } else {
+        oteryn_web::Language::Pl
+    };
+    let key = if status == StatusCode::BAD_REQUEST {
+        "error-400-description"
+    } else {
+        "error-422-description"
+    };
+    (status, language.text(key)).into_response()
+}
+
+async fn apply_change<A: AccountStateReader, I: Accounts>(
+    s: &Players<A, I>,
+    context: CheckContext,
+    id: Uuid,
+    form: Action,
 ) -> Result<Response, Error> {
     let mut location = format!("/admin/players/{id}");
     match form.action.as_str() {

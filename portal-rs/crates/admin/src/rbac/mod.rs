@@ -8,7 +8,8 @@ mod catalog;
 pub mod guard;
 mod storage;
 
-pub use catalog::{BuiltInRole, Permission};
+pub use catalog::{ADMIN_PANEL_SECTIONS, BuiltInRole, GM_PANEL_SECTIONS, Permission};
+
 pub use storage::Change;
 
 use sqlx::{PgConnection, PgPool};
@@ -194,6 +195,24 @@ impl SessionExpiry {
         let expiry = sqlx::query_scalar("SELECT least(s.idle_expires_at,s.absolute_expires_at,t.expires_at) FROM web_sessions s JOIN account_mfa_tokens t ON t.account_id=s.account_id WHERE s.account_id=$1 AND s.id_hash=$2 AND t.token_hash=$3")
             .bind(context.account).bind(proof.session_hash.as_slice()).bind(proof.grant_hash.as_slice()).fetch_optional(connection).await?.ok_or(Error::Denied)?;
         Ok(Self(Some(expiry)))
+    }
+
+    /// Keep the locked browser proof's earliest expiry active during COMMIT.
+    pub(crate) async fn arm_commit(
+        self,
+        connection: &mut PgConnection,
+        has_request_deadline: bool,
+    ) -> Result<(), Error> {
+        if (has_request_deadline || self.0.is_some())
+            && !oteryn_db::transaction::arm_commit(connection, self.0).await?
+        {
+            return Err(if has_request_deadline {
+                sqlx::Error::PoolTimedOut.into()
+            } else {
+                Error::Denied
+            });
+        }
+        Ok(())
     }
 
     pub(crate) async fn check(self, connection: &mut PgConnection) -> Result<(), Error> {

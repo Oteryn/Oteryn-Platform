@@ -1010,7 +1010,8 @@ async fn sixteen_locked_topups_finish_after_heartbeat_with_exhausted_handler_poo
         .options()
         .clone()
         .max_connections(16)
-        .min_connections(0)
+        // Open the handler connections before the lock-wait budgets begin.
+        .min_connections(16)
         .acquire_timeout(Duration::from_secs(5))
         .connect_with((*db.pool.connect_options()).clone())
         .await?;

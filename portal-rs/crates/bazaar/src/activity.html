@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("title") }} · Oteryn</title>
+</head>
+<body>
+<main class="op-stack">
+  <h1>{{ self.text("title") }}</h1>
+  <p role="status">{{ self.text("unavailable") }}</p>
+  <p>{{ self.text("updated") }}
+    {% if let Some(value) = latest %}
+    <time datetime="{{ self.timestamp(value) }}">{{ self.timestamp(value) }}</time>
+    {% else %}
+    {{ self.text("no-update") }}
+    {% endif %}
+  </p>
+  {% for section in sections %}
+  <section class="op-stack" data-activity="{{ section.key }}">
+    <h2>{{ self.text(section.key) }}</h2>
+    {% if section.records.is_empty() %}
+    <p>{{ self.text("empty") }}</p>
+    {% else %}
+    <ul class="op-stack">
+      {% for record in section.records %}
+      <li class="op-panel" data-listing="{{ record.listing }}">
+        <a href="?listing={{ record.listing }}">{{ record.listing }}</a>
+        <p>{{ self.text(&record.kind) }} · {{ self.text(&record.state) }}</p>
+        <p>{{ self.text(section.amount) }} {{ record.amount }} {{ self.text(&record.currency) }}</p>
+        <time datetime="{{ self.timestamp(&record.updated_at) }}">{{ self.timestamp(&record.updated_at) }}</time>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  {% endfor %}
+  <p>
+    <a href="/{{ lang }}/account/bazaar/activity">{{ self.text("all") }}</a>
+    {% if let Some(url) = previous %}<a rel="prev" href="{{ url }}">{{ self.text("previous") }}</a>{% endif %}
+    {% if let Some(url) = next %}<a rel="next" href="{{ url }}">{{ self.text("next") }}</a>{% endif %}
+  </p>
+</main>
+</body>
+</html>

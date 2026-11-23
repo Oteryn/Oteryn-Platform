@@ -4,7 +4,7 @@ mod test_clock;
 use super::*;
 use axum::{
     body::{Body, to_bytes},
-    http::Request,
+    http::{Request, header},
 };
 use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -530,14 +530,26 @@ async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
-    let denied = body(
-        get(
-            app(db.pool.clone(), actor, fixture(3), false, true),
-            "/console/dashboard?lang=en",
+    let denied = app(db.pool.clone(), actor, fixture(3), false, true)
+        .oneshot(
+            Request::get("/console/dashboard?lang=pl")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .header("cookie", "portal_language=en")
+                .extension(oteryn_ui::Registry::default().chrome(
+                    "en",
+                    "/console/dashboard",
+                    oteryn_ui::Account::Anonymous,
+                ))
+                .body(Body::empty())
+                .unwrap(),
         )
-        .await,
-    )
-    .await;
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let denied = body(denied).await;
+    assert!(denied.contains("<html lang=\"pl\""));
+    assert!(denied.contains("Brak dostępu"));
     assert!(!denied.contains(&alarm.to_string()));
     db.close().await;
     eprintln!(

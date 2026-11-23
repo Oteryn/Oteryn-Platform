@@ -171,15 +171,30 @@ pub async fn finish(
     error: Option<&str>,
     permanent: bool,
 ) -> Result<bool, Error> {
-    Ok(sqlx::query(
-        "UPDATE outbox SET
+    sqlx::query_scalar(
+        "WITH finished AS (
+         UPDATE outbox SET
            state = CASE WHEN $3::text IS NULL THEN 'done'
                         WHEN $4 OR attempts >= max_attempts THEN 'dead' ELSE 'pending' END,
            run_after = CASE WHEN $3::text IS NULL THEN run_after ELSE
              now() + make_interval(secs => LEAST(3600.0, power(2.0, LEAST(attempts, 12))) * (0.5 + random() * 0.5)) END,
            leased_until = NULL, last_error = left($3, 2048), updated_at = now()
-         WHERE id = $1 AND attempts = $2 AND state = 'running' AND leased_until > now()",
-    ).bind(job.id).bind(job.attempts).bind(error).bind(permanent).execute(pool).await?.rows_affected() == 1)
+         WHERE id = $1 AND attempts = $2 AND state = 'running' AND leased_until > now()
+         RETURNING kind, schedule_slot, updated_at
+         ), recorded AS (
+           INSERT INTO outbox_schedule_success (kind, completed_at)
+           SELECT kind, updated_at FROM finished WHERE $3::text IS NULL AND schedule_slot IS NOT NULL
+           ON CONFLICT (kind) DO UPDATE
+           SET completed_at = greatest(outbox_schedule_success.completed_at, EXCLUDED.completed_at)
+         )
+         SELECT EXISTS(SELECT 1 FROM finished)",
+    )
+    .bind(job.id)
+    .bind(job.attempts)
+    .bind(error)
+    .bind(permanent)
+    .fetch_one(pool)
+    .await
 }
 
 /// Counts for metrics exporters, including zero values for empty states. No payloads or errors.

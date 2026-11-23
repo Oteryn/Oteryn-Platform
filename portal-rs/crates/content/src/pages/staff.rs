@@ -234,10 +234,26 @@ async fn save(
     Path((slug, locale)): Path<(String, String)>,
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
-    Form(form): Form<PageForm>,
+    form: Result<Form<PageForm>, axum::extract::rejection::FormRejection>,
 ) -> Response {
+    let language = if locale == "en" {
+        oteryn_web::Language::En
+    } else {
+        oteryn_web::Language::Pl
+    };
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(error) if error.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return (error.status(), language.text("error-422-description")).into_response();
+        }
+        Err(error) => return error.into_response(),
+    };
     if !valid(&form, &slug, &locale) {
-        return StatusCode::BAD_REQUEST.into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            language.text("error-400-description"),
+        )
+            .into_response();
     }
     match persist(&pool, &auth, context, &slug, &locale, &form).await {
         Ok(()) => Redirect::to("/admin/pages").into_response(),

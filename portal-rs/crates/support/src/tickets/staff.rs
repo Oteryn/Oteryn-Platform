@@ -110,6 +110,27 @@ pub fn configured_staff_router_from(
         lookup,
     )
 }
+/// Mount the player workflow together with its configured staff decision surface.
+pub fn configured_support_router(
+    pool: PgPool,
+    origin: &str,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    configured_support_router_from(pool, origin, &|key| std::env::var(key).ok())
+}
+
+pub(crate) fn configured_support_router_from(
+    pool: PgPool,
+    origin: &str,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    let staff = StaffSupport::configured_from(pool.clone(), lookup)?;
+    let submissions = staff.available(Area::Enforcement).is_ok()
+        && oteryn_identity::mfa::challenge_enabled(lookup)
+        && oteryn_identity::mfa::Mfa::configured_from(pool.clone(), lookup).is_ok();
+    let routes = oteryn_admin::support::web::configured_router_from(pool.clone(), staff, lookup)?;
+    Ok(routes.merge(crate::appeals::web::router(pool, origin, submissions)))
+}
+
 impl Backend for StaffSupport {
     async fn prepare(
         &self,
@@ -217,28 +238,35 @@ impl Backend for StaffSupport {
         self.available(area)?;
         let query = match area {
             Area::Tickets => {
-                "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,subject,status,NULL::text FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,target_reference,status,NULL::text FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT s.id,s.lock_version+coalesce(a.version,1)-1,s.public_reason,s.status,a.status
+                 FROM sanctions s
+                 LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.status<>'pending'
+                 ORDER BY coalesce(a.status IN ('requested','reviewing'),false) DESC,
+                          s.created_at DESC,s.id DESC LIMIT 30 OFFSET $1"
             }
         };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|_| StaffError::Unavailable)?;
+        let rows: Vec<(Uuid, i64, String, String, Option<String>)> =
+            sqlx::query_as(sqlx::AssertSqlSafe(query))
+                .bind(i64::from(page.saturating_sub(1)) * 30)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
         Ok(rows
             .into_iter()
-            .map(|(id, version, title, status)| Record {
+            .map(|(id, version, title, status, appeal_status)| Record {
                 id,
                 version,
                 title,
                 status,
                 messages: vec![],
+                appeal_status,
                 next_message: None,
             })
             .collect())
@@ -261,6 +289,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                appeal_status: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -277,10 +306,16 @@ impl Backend for StaffSupport {
         }
         let query = match area {
             Area::Reports => {
-                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
+                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message, NULL::text AS appeal_status FROM player_reports WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT s.id,s.lock_version+coalesce(a.version,1)-1 AS lock_version,
+                        s.public_reason AS title,s.status,
+                        CASE WHEN a.status<>'none' THEN concat_ws(E'\n',a.message,a.outcome) END AS public_message,
+                        s.moderator_notes AS private_message,a.status AS appeal_status
+                 FROM sanctions s
+                 LEFT JOIN support_appeal_workflows a ON a.sanction_id=s.id AND a.owner_id=s.account_id
+                 WHERE s.id=$1 AND s.status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -306,6 +341,7 @@ impl Backend for StaffSupport {
                 title: row.try_get("title")?,
                 status: row.try_get("status")?,
                 messages,
+                appeal_status: row.try_get("appeal_status")?,
                 next_message: None,
             })
         };
@@ -360,6 +396,8 @@ fn ticket_error(error: Error) -> StaffError {
         Error::NotFound => StaffError::NotFound,
         Error::Denied => StaffError::Denied,
         Error::Conflict | Error::RequestKeyConflict => StaffError::Conflict,
+        Error::StaleVersion => StaffError::StaleTicketVersion,
+        Error::StateConflict => StaffError::TicketStateConflict,
         _ => StaffError::Unavailable,
     }
 }
@@ -371,7 +409,7 @@ pub(crate) async fn notify(
     tx: &mut Transaction<'_, Postgres>,
     notifications: &Notifications,
     recipient: Uuid,
-    body: String,
+    body: impl FnOnce(oteryn_notify::Locale) -> String + Send,
 ) -> std::result::Result<(), StaffError> {
     let (email, locale, verified, status): (String, String, bool, String) = sqlx::query_as(
         "SELECT email,locale,email_verified_at IS NOT NULL,status FROM accounts WHERE id=$1",
@@ -391,7 +429,7 @@ pub(crate) async fn notify(
         "en" => oteryn_notify::Locale::En,
         _ => return Err(StaffError::Denied),
     };
-    let template = EmailTemplate::Support { body };
+    let template = EmailTemplate::Support { body: body(locale) };
     if !verified || status == "closed" {
         let portal:bool=sqlx::query_scalar("SELECT coalesce((SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support'),true)").bind(recipient).fetch_one(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         if portal {

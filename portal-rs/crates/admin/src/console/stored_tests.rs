@@ -945,7 +945,14 @@ async fn game_staff_access_respects_console_and_platform_permissions()
         .merge(web::router(pool.clone(), panel, Browser(actor), accounts));
 
         for (path, expected) in [
-            ("/console/dashboard", expected_console),
+            (
+                "/console/dashboard",
+                if role == "platform_admin" {
+                    StatusCode::FORBIDDEN
+                } else {
+                    expected_console
+                },
+            ),
             ("/admin/console/players", expected_console),
             ("/admin/console/audit", expected_console),
             ("/admin/roles", expected_platform),

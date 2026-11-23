@@ -1,5 +1,8 @@
 //! Read the existing browser session for presentation without adding a CSRF gate.
-use crate::session::SessionLayer;
+use crate::{
+    session::{BrowserMutationDeadline, SessionLayer},
+    surface::Language,
+};
 use axum::{
     body::Body,
     extract::{Request, State},
@@ -18,19 +21,114 @@ pub struct Shell {
 /// CSP for portal HTML that only loads same-origin scripts and styles.
 pub const PORTAL_CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
+pub type StaffAccess = std::sync::Arc<
+    dyn Fn(sqlx::types::Uuid) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct StaffDashboard {
+    pub url: String,
+    pub allows: StaffAccess,
+}
+
+impl std::fmt::Debug for StaffDashboard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffDashboard").finish_non_exhaustive()
+    }
+}
+
+pub type OwnerAccess = std::sync::Arc<
+    dyn for<'a> Fn(
+            sqlx::types::Uuid,
+            &'a axum::http::HeaderMap,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>
+        + Send
+        + Sync,
+>;
+
+#[derive(Clone)]
+pub struct OwnerLink {
+    pub route: &'static str,
+    pub allows: OwnerAccess,
+}
+
+impl std::fmt::Debug for OwnerLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnerLink")
+            .field("route", &self.route)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Unprefixed panel routes can request a locale before their guards run.
+fn panel_locale(uri: &axum::http::Uri) -> Option<Language> {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+    if !matches!(
+        uri.path(),
+        "/console"
+            | "/console/dashboard"
+            | "/console/worlds"
+            | "/console/nodes"
+            | "/console/database"
+            | "/admin/store-catalog"
+            | "/admin/store-activation"
+            | "/admin/payment-review"
+            | "/admin/commerce/reconcile"
+    ) {
+        return None;
+    }
+    let axum::extract::Query(query) =
+        axum::extract::Query::<LocaleQuery>::try_from_uri(uri).ok()?;
+    match query.lang.as_deref() {
+        Some("pl") => Some(Language::Pl),
+        Some("en") => Some(Language::En),
+        _ => None,
+    }
+}
+
 /// Install as the outermost application middleware so every module can extract Chrome.
 /// Session validation and mutation authorization remain in their existing route layers.
 pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: Next) -> Response {
+    if !crate::surface::browser_path(request.uri().path()) {
+        return next.run(request).await;
+    }
     let lang = crate::surface::path_language(request.uri().path())
+        .or_else(|| panel_locale(request.uri()))
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
-    let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
-    let path = request.uri().path();
+    let browser_navigation = request.method() == axum::http::Method::GET
+        && !request.uri().path().starts_with("/api/")
+        && !request.uri().path().starts_with("/internal/")
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("text/html"));
+    let deadline = request
+        .extensions()
+        .get::<BrowserMutationDeadline>()
+        .copied();
+    let account = crate::session::chrome_account(&shell.sessions, &mut request);
+    let (account, account_id) = match deadline {
+        Some(deadline) => deadline
+            .within(account)
+            .await
+            .unwrap_or((oteryn_ui::Account::Anonymous, None)),
+        None => account.await,
+    };
+    let uri = request.uri().clone();
+    let path = uri.path();
     let local = path
         .strip_prefix("/pl/")
         .or_else(|| path.strip_prefix("/en/"))
         .unwrap_or(path.trim_start_matches('/'));
-    if request.method() == axum::http::Method::GET
+    if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD)
         && matches!(account, oteryn_ui::Account::Anonymous)
         // The passkey page doubles as the anonymous passkey sign-in ceremony.
         && local != "account/passkeys"
@@ -44,28 +142,72 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    let mut chrome = shell.registry.chrome(lang, path, account);
+    if browser_navigation
+        && let (Some(id), Some(staff)) = (account_id, request.extensions().get::<StaffDashboard>())
+        && (staff.allows)(id).await
+    {
+        chrome.staff_dashboard = Some(staff.url.clone());
+    }
+    if let (Some(id), Some(links)) = (account_id, request.extensions().get::<Vec<OwnerLink>>()) {
+        for rule in links {
+            let url = format!("/{lang}/{}", rule.route);
+            let Some(index) = chrome
+                .player_navigation
+                .iter()
+                .position(|link| link.url == url)
+            else {
+                continue;
+            };
+            let allowed = (rule.allows)(id, request.headers());
+            let allowed = match deadline {
+                Some(deadline) => deadline.within(allowed).await.unwrap_or(false),
+                None => allowed.await,
+            };
+            if !allowed {
+                chrome.player_navigation.remove(index);
+            }
+        }
+    }
+    let browser_method = matches!(
+        request.method(),
+        &axum::http::Method::GET | &axum::http::Method::POST
+    );
+    let browser = !crate::surface::oauth_protocol_path(path)
+        && crate::surface::error_representation(request.headers())
+            == crate::surface::ErrorRepresentation::Html;
     request.extensions_mut().insert(chrome.clone());
-    let browser = request.method() == axum::http::Method::GET
-        && !request.uri().path().starts_with("/api/")
-        && !request.uri().path().starts_with("/internal/")
-        && request
-            .headers()
-            .get(header::ACCEPT)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.contains("text/html"));
     let mut response = next.run(request).await;
-    if browser && (response.status().is_client_error() || response.status().is_server_error()) {
+    let ticket_conflict = response.extensions().get::<TicketConflict>();
+    if browser
+        && (browser_method || ticket_conflict.is_some())
+        && (response.status().is_client_error() || response.status().is_server_error())
+    {
         let html = response
             .headers()
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok())
             .is_some_and(|v| v.starts_with("text/html"));
         if !html {
-            let mut replacement = oteryn_ui::error(&chrome, response.status());
+            let status = response.status();
+            let mut replacement = match (status, ticket_conflict) {
+                (
+                    axum::http::StatusCode::CONFLICT,
+                    Some(TicketConflict::StaleVersion { recovery_path }),
+                ) => oteryn_ui::stale_form(&chrome, recovery_path),
+                (axum::http::StatusCode::CONFLICT, Some(TicketConflict::State)) => {
+                    oteryn_ui::error_with_message(
+                        &chrome,
+                        status,
+                        &chrome.text("error-409-ticket-state-description"),
+                    )
+                }
+                _ => oteryn_ui::error(&chrome, status),
+            };
             for name in [
                 header::ALLOW,
                 header::RETRY_AFTER,
+                header::WWW_AUTHENTICATE,
                 header::CONTENT_SECURITY_POLICY,
                 header::STRICT_TRANSPORT_SECURITY,
                 header::X_CONTENT_TYPE_OPTIONS,
@@ -73,9 +215,12 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::CONTENT_LANGUAGE,
                 header::VARY,
                 axum::http::HeaderName::from_static("permissions-policy"),
+                axum::http::HeaderName::from_static("x-robots-tag"),
             ] {
-                if let Some(value) = response.headers().get(&name) {
-                    replacement.headers_mut().insert(name, value.clone());
+                for value in response.headers().get_all(&name) {
+                    replacement
+                        .headers_mut()
+                        .append(name.clone(), value.clone());
                 }
             }
             for value in response.headers().get_all(header::SET_COOKIE) {
@@ -105,10 +250,14 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
                 header::CACHE_CONTROL,
                 axum::http::HeaderValue::from_static("no-store"),
             );
+            replacement
+                .headers_mut()
+                .entry(header::CONTENT_LANGUAGE)
+                .or_insert(header::HeaderValue::from_static(lang));
             response = replacement;
         }
     }
-    let mut response = wrap_document(response, &chrome).await;
+    let mut response = wrap_document(response, &shell.registry, path, &chrome).await;
     if response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -125,6 +274,16 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             .insert(header::CONTENT_SECURITY_POLICY, value);
     }
     response
+}
+
+/// A ticket mutation's conflict reason from the authorized, locked domain check.
+#[derive(Clone, Debug)]
+pub enum TicketConflict {
+    StaleVersion {
+        /// Server-built same-origin GET path of the current ticket form.
+        recovery_path: String,
+    },
+    State,
 }
 
 // The shell requires only local fonts and images. Preserve every existing explicit
@@ -147,7 +306,12 @@ const WRAP_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Give a module page that renders its own HTML document the shared header, footer and theme.
 /// Pages already built on the shared layout, non-HTML, encoded and oversized bodies pass through.
-async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Response {
+async fn wrap_document(
+    response: Response,
+    registry: &oteryn_ui::Registry,
+    path: &str,
+    chrome: &oteryn_ui::Chrome,
+) -> Response {
     let html = response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -162,7 +326,10 @@ async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Respon
         Err(body) => return Response::from_parts(parts, body),
     };
     let wrapped = std::str::from_utf8(&bytes).ok().and_then(|page| {
-        let (top, bottom) = oteryn_ui::shell_parts(chrome)?;
+        let localized = document_language(page)
+            .filter(|lang| *lang != chrome.lang)
+            .map(|lang| registry.chrome(lang, path, chrome.account.clone()));
+        let (top, bottom) = oteryn_ui::shell_parts(localized.as_ref().unwrap_or(chrome))?;
         inject(page, &top, &bottom)
     });
     match wrapped {
@@ -240,9 +407,30 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
     ))
 }
 
-// Inspect only actual attributes of the opening body element.
+fn document_language(page: &str) -> Option<&'static str> {
+    let html = page
+        .as_bytes()
+        .windows(5)
+        .position(|part| part.eq_ignore_ascii_case(b"<html"))?
+        + 5;
+    let end = html + page[html..].find('>')?;
+    match attribute(&page[html..end], "lang")? {
+        lang if lang.eq_ignore_ascii_case("pl") => Some("pl"),
+        lang if lang.eq_ignore_ascii_case("en") => Some("en"),
+        _ => None,
+    }
+}
+
 fn has_shell_classes(tag: &str) -> bool {
-    let mut rest = &tag[5..];
+    attribute(&tag[5..], "class").is_some_and(|value| {
+        ["op-theme", "op-shell"]
+            .iter()
+            .all(|class| value.split_ascii_whitespace().any(|token| token == *class))
+    })
+}
+
+// Inspect opening-tag attributes without matching names embedded in another value.
+fn attribute<'a>(mut rest: &'a str, wanted: &str) -> Option<&'a str> {
     while !rest.trim_start().is_empty() {
         rest = rest.trim_start();
         let end = rest
@@ -263,14 +451,12 @@ fn has_shell_classes(tag: &str) -> bool {
             let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
             (&rest[..end], &rest[end..])
         };
-        if name.eq_ignore_ascii_case("class") {
-            return ["op-theme", "op-shell"]
-                .iter()
-                .all(|class| value.split_ascii_whitespace().any(|token| token == *class));
+        if name.eq_ignore_ascii_case(wanted) {
+            return Some(value);
         }
         rest = tail;
     }
-    false
+    None
 }
 
 // Older standalone documents have a main landmark but no skip-link target.
@@ -328,7 +514,7 @@ fn without_attribute(tag: &str, name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{content_landmark, inject, shell_asset_policy};
+    use super::{WRAP_LIMIT, content_landmark, inject, shell_asset_policy, wrap_document};
 
     #[test]
     fn article_shell_phrase_does_not_suppress_composition() -> Result<(), &'static str> {
@@ -401,6 +587,28 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn shell_uses_the_document_language_for_a_fixed_locale_alias()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use axum::response::IntoResponse;
+
+        let registry = oteryn_ui::Registry::default();
+        for (document, request) in [("pl", "en"), ("en", "pl")] {
+            let path = "/legacy";
+            let chrome = registry.chrome(request, path, oteryn_ui::Account::Anonymous);
+            let response = axum::response::Html(format!(
+                "<!doctype html><html data-language='ignored' LANG = '{document}'><head><title>Legacy</title></head><body><main>Text</main></body></html>"
+            )).into_response();
+            let html = wrap_document(response, &registry, path, &chrome).await;
+            let bytes = axum::body::to_bytes(html.into_body(), WRAP_LIMIT).await?;
+            let body = std::str::from_utf8(&bytes)?;
+            assert!(body.contains(&format!("LANG = '{document}'")));
+            assert!(body.contains(&oteryn_ui::text(document, "skip")));
+            assert!(!body.contains(&oteryn_ui::text(request, "skip")));
+        }
+        Ok(())
+    }
+
     #[test]
     fn composed_document_has_only_the_shared_skip_link() -> Result<(), &'static str> {
         let skip = "<a class=\"op-skip\" href=\"#main\">Skip</a>";
@@ -438,6 +646,49 @@ mod response_tests {
         routing::get,
     };
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn anonymous_head_uses_the_same_localized_gate_as_get()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let site = Router::new()
+            .route(
+                "/{lang}/account/sessions",
+                get(|| async { StatusCode::NO_CONTENT }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        for lang in ["en", "pl"] {
+            for method in [axum::http::Method::GET, axum::http::Method::HEAD] {
+                let response = site
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(format!("/{lang}/account/sessions"))
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::SEE_OTHER);
+                assert_eq!(
+                    response.headers()[header::LOCATION],
+                    format!("/{lang}/login")
+                );
+                assert!(
+                    axum::body::to_bytes(response.into_body(), 0)
+                        .await?
+                        .is_empty()
+                );
+            }
+        }
+        Ok(())
+    }
+
     #[tokio::test]
     async fn article_phrase_keeps_shared_navigation_and_footer()
     -> Result<(), Box<dyn std::error::Error>> {
@@ -492,6 +743,17 @@ mod response_tests {
                         "",
                     )
                 }),
+            )
+            .route(
+                "/{lang}/refused",
+                get(|| async {
+                    (
+                        StatusCode::UNAUTHORIZED,
+                        [(header::WWW_AUTHENTICATE, "Bearer")],
+                        "private unauthorized detail",
+                    )
+                })
+                .post(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "private database detail") }),
             )
             .route("/api/refused", get(|| async { StatusCode::FORBIDDEN }))
             .route(
@@ -550,6 +812,49 @@ mod response_tests {
             assert!(html.contains("id=\"portal-header\""));
             assert!(html.contains("class=\"foot foot-interior\""));
             assert!(html.contains("/static/thais/interior.css"));
+            for (method, status, title) in [
+                (
+                    axum::http::Method::GET,
+                    StatusCode::UNAUTHORIZED,
+                    if lang == "pl" {
+                        "Wymagane logowanie"
+                    } else {
+                        "Sign-in required"
+                    },
+                ),
+                (
+                    axum::http::Method::POST,
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    if lang == "pl" {
+                        "Wystąpił błąd"
+                    } else {
+                        "Something went wrong"
+                    },
+                ),
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        Request::builder()
+                            .method(method)
+                            .uri(format!("/{lang}/refused"))
+                            .header(header::ACCEPT, "text/html")
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), status);
+                assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+                assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+                if status == StatusCode::UNAUTHORIZED {
+                    assert_eq!(response.headers()[header::WWW_AUTHENTICATE], "Bearer");
+                }
+                let body = axum::body::to_bytes(response.into_body(), 100000).await?;
+                let body = std::str::from_utf8(&body)?;
+                assert!(body.contains("id=\"portal-header\""));
+                assert!(body.contains(&format!("<h1>{title}</h1>")));
+                assert!(!body.contains("private unauthorized detail"));
+                assert!(!body.contains("private database detail"));
+            }
             let response = app
                 .clone()
                 .oneshot(Request::get(format!("/{lang}/account/privacy")).body(Body::empty())?)

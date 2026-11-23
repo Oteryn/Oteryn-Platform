@@ -222,6 +222,13 @@ async fn show(
         .collect();
     Ok(oteryn_web::render(&page))
 }
+fn revocation_redirect(method: Method, mut response: Response) -> Response {
+    // A browser must read the destination after DELETE, never repeat DELETE there.
+    if method == Method::DELETE && response.status() == StatusCode::FOUND {
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    response
+}
 async fn mutate(
     pool: PgPool,
     language: Language,
@@ -272,8 +279,11 @@ macro_rules! bulk_handler {
             Extension(limiter): Extension<RateLimiter>,
             peer: Option<Extension<ConnectInfo<SocketAddr>>>,
             headers: HeaderMap,
+            method: Method,
         ) -> Result<Response, StatusCode> {
-            mutate(pool, language, session, limiter, peer, headers, $selection).await
+            let response =
+                mutate(pool, language, session, limiter, peer, headers, $selection).await?;
+            Ok(revocation_redirect(method, response))
         }
     };
 }
@@ -284,12 +294,12 @@ async fn revoke_one(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
-    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
+    (peer, headers): (Option<Extension<ConnectInfo<SocketAddr>>>, HeaderMap),
     Path(id): Path<String>,
+    method: Method,
 ) -> Result<Response, StatusCode> {
     let id = uuid::Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
-    mutate(
+    let response = mutate(
         pool,
         language,
         session,
@@ -298,7 +308,8 @@ async fn revoke_one(
         headers,
         Revocation::One(id),
     )
-    .await
+    .await?;
+    Ok(revocation_redirect(method, response))
 }
 /// T04 remains unchanged: this composition middleware observes only login redirects
 /// carrying a newly rotated authenticated cookie. Refusals never create login events.

@@ -1,4 +1,5 @@
 //! Staff surface. Authentication adapters are trusted server configuration, never request data.
+use crate::staff_actions;
 use crate::{
     audit::{self, AuditContext, Entry},
     rbac::{
@@ -9,13 +10,14 @@ use crate::{
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Query, Request, State},
+    extract::{Query, Request, State, rejection::FormRejection},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_ui::panels::{self, Panel as PanelKind};
+use oteryn_web::session::{BrowserSession, SessionLayer, SessionMutationDeadline};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -139,6 +141,7 @@ struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
     required: Option<Permission>,
+    grant_confirmation: bool,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -162,12 +165,16 @@ pub(crate) fn config_from(
     })
 }
 
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+pub fn configured_router(
+    pool: PgPool,
+    grant_confirmation: bool,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(roles_router(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
+        grant_confirmation,
     ))
 }
 
@@ -212,11 +219,15 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     permission: Permission,
 ) -> Router {
     let mut session = SessionLayer::new(pool.clone());
+    if permission == Permission::ManageSupportEnforcement {
+        session = session.with_bounded_refresh();
+    }
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: Some(permission),
+        grant_confirmation: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -240,12 +251,23 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    roles_router(pool, config, identity, accounts, true)
+}
+
+fn roles_router<I: StaffSession, A: AccountStateReader + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    grant_confirmation: bool,
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
+        grant_confirmation,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -261,6 +283,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             session,
             oteryn_web::session::middleware,
         ))
+        .route_layer(Extension(oteryn_web::csrf::LocalizedRefusal))
         .route_layer(axum::Extension(admin_csrf))
         .route_layer(middleware::from_fn_with_state(state.clone(), host::<I, A>))
         .with_state(state)
@@ -353,20 +376,31 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let Some(session) = request.extensions().get::<BrowserSession>() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let Some(identity) = s.identity.resolve(session).await else {
-        return Redirect::to("/login").into_response();
+    let deadline = request.extensions().get::<SessionMutationDeadline>();
+    let identity = match read_request(deadline, s.identity.resolve(session)).await {
+        Ok(Some(identity)) => identity,
+        Ok(None) => return Redirect::to("/login").into_response(),
+        Err(status) => return status.into_response(),
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        let locale = request.extensions().get::<oteryn_ui::Chrome>().map_or_else(
+            || language(request.headers()),
+            |chrome| chrome.lang.as_str(),
+        );
+        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{locale}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(locale, "mfa")))).into_response();
     }
-    let proof = match (
-        session.identity_hash().await,
-        session
-            .get(oteryn_web::session::SessionKey::<String>::new(
-                oteryn_identity::mfa::SESSION_GRANT_KEY,
-            ))
-            .await,
-    ) {
+    let grant = match read_request(
+        deadline,
+        session.get(oteryn_web::session::SessionKey::<String>::new(
+            oteryn_identity::mfa::SESSION_GRANT_KEY,
+        )),
+    )
+    .await
+    {
+        Ok(grant) => grant,
+        Err(status) => return status.into_response(),
+    };
+    let proof = match (session.identity_hash().await, grant) {
         (Some(hash), Ok(Some(grant))) => {
             use sha2::{Digest, Sha256};
             hash.try_into()
@@ -392,12 +426,29 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             Permission::Access
         });
     for required in [Permission::Access, permission] {
-        if let Err(error) = s.auth.check(context, required).await {
+        let checked = match read_request(deadline, s.auth.check(context, required)).await {
+            Ok(checked) => checked,
+            Err(status) => return status.into_response(),
+        };
+        if let Err(error) = checked {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
-            return match refusal(&s.pool, context.account, request.uri().path()).await {
-                Ok(()) => StatusCode::FORBIDDEN.into_response(),
+            return match refusal(&s.pool, context.account, request.uri().path(), deadline).await {
+                Ok(()) => {
+                    let fallback = oteryn_ui::Registry::default().chrome(
+                        language(request.headers()),
+                        request.uri().path(),
+                        oteryn_ui::Account::Anonymous,
+                    );
+                    oteryn_ui::error(
+                        request
+                            .extensions()
+                            .get::<oteryn_ui::Chrome>()
+                            .unwrap_or(&fallback),
+                        StatusCode::FORBIDDEN,
+                    )
+                }
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             };
         }
@@ -408,8 +459,57 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         .insert(crate::rbac::MutationAuthorization::new(s.auth.clone()));
     next.run(request).await
 }
-async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {
-    let mut tx = pool.begin().await?;
+/// Presentation check for the shared account menu.
+pub fn configured_dashboard_link(
+    pool: PgPool,
+) -> Result<Option<oteryn_web::chrome::StaffDashboard>, Box<dyn std::error::Error>> {
+    let config = config_from_env()?;
+    if !config.admin_panel {
+        return Ok(None);
+    }
+    let auth = Arc::new(Authorizer::new(
+        pool.clone(),
+        PortalIdentity::configured(pool),
+    ));
+    Ok(Some(oteryn_web::chrome::StaffDashboard {
+        url: format!("{}/admin", config.csrf_origin()),
+        allows: Arc::new(move |account| {
+            let auth = auth.clone();
+            Box::pin(async move {
+                auth.check(
+                    CheckContext {
+                        require_staff_mfa: false,
+                        ..CheckContext::new(account)
+                    },
+                    Permission::Access,
+                )
+                .await
+                .is_ok()
+            })
+        }),
+    }))
+}
+
+pub(crate) async fn read_request<T>(
+    deadline: Option<&SessionMutationDeadline>,
+    read: impl Future<Output = T>,
+) -> Result<T, StatusCode> {
+    match deadline {
+        Some(deadline) => deadline.read_request(read).await,
+        None => Ok(read.await),
+    }
+}
+
+async fn refusal(
+    pool: &PgPool,
+    actor: Uuid,
+    target: &str,
+    deadline: Option<&SessionMutationDeadline>,
+) -> Result<(), Error> {
+    let mut tx = match deadline {
+        Some(deadline) => deadline.begin(pool).await?,
+        None => pool.begin().await?,
+    };
     audit::append(
         &mut tx,
         Entry {
@@ -424,19 +524,25 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
         },
     )
     .await?;
+    if deadline.is_some() && !oteryn_db::transaction::arm_commit(&mut tx, None).await? {
+        return Err(sqlx::Error::PoolTimedOut.into());
+    }
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
+pub(crate) fn page_language(
+    headers: &axum::http::HeaderMap,
+    chrome: Option<&oteryn_ui::Chrome>,
+) -> &'static str {
+    match chrome.map(|chrome| chrome.lang.as_str()) {
+        Some("en") => "en",
+        Some(_) => "pl",
+        None => language(headers),
     }
+}
+
+fn language(headers: &axum::http::HeaderMap) -> &'static str {
+    oteryn_web::negotiate(headers).code()
 }
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
@@ -469,6 +575,11 @@ struct Page {
     account_label: String,
     role_label: String,
     grant: String,
+    can_grant: bool,
+    reason_label: String,
+    reason_assignment: String,
+    step_up_label: String,
+    navigation: Vec<panels::Link>,
     revoke: String,
     csrf: String,
     roles: Vec<(Uuid, String)>,
@@ -511,6 +622,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     headers: axum::http::HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Query(query): Query<RolePageQuery>,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {
@@ -534,7 +646,61 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = page_language(&headers, chrome.as_deref());
+    let mut registry = panels::Registry::default();
+    for &(route, label, permission, flag) in crate::rbac::ADMIN_PANEL_SECTIONS {
+        registry.register(
+            flag.is_none_or(|key| std::env::var(key).as_deref() == Ok("true"))
+                && s.auth.check(context, permission).await.is_ok(),
+            panels::Entry {
+                panel: PanelKind::Admin,
+                route,
+                label,
+                permission: panels::Permission::Staff(permission.as_str()),
+            },
+        );
+    }
+    if std::env::var("OTERYN_ADMIN_ANALYTICS_PRESENT").as_deref() == Ok("true") {
+        let analytics_auth = crate::analytics::web::view_authorizer(
+            s.pool.clone(),
+            PortalIdentity::configured(s.pool.clone()),
+            true,
+        );
+        if let Some(permission) =
+            crate::analytics::web::view_permission(&analytics_auth, context).await
+        {
+            registry.register(
+                true,
+                panels::Entry {
+                    panel: PanelKind::Admin,
+                    route: crate::analytics::web::OVERVIEW_ROUTE,
+                    label: "ops-analytics",
+                    permission: panels::Permission::Staff(permission.as_str()),
+                },
+            );
+        }
+    }
+    if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true") {
+        let game_auth = Authorizer::new(s.pool.clone(), PortalIdentity::configured(s.pool.clone()))
+            .with_game_flags(crate::rbac::GamePermissionFlags {
+                enabled: true,
+                deploy: false,
+            });
+        for &(_, _, permission, _) in crate::rbac::GM_PANEL_SECTIONS {
+            if game_auth.check(context, permission).await.is_ok() {
+                registry.register(
+                    true,
+                    panels::Entry {
+                        panel: PanelKind::Admin,
+                        route: PanelKind::Gm.root(),
+                        label: PanelKind::Gm.label(),
+                        permission: panels::Permission::Staff(permission.as_str()),
+                    },
+                );
+                break;
+            }
+        }
+    }
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -542,6 +708,13 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
+        can_grant: manage
+            && s.grant_confirmation
+            && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
+        reason_label: oteryn_ui::text(lang, "staff-action-reason"),
+        reason_assignment: oteryn_ui::text(lang, "staff-action-role-assignment"),
+        step_up_label: oteryn_ui::text(lang, "staff-action-step-up"),
+        navigation: registry.links(PanelKind::Admin, lang, |_| true),
         revoke: text(lang, "revoke"),
         csrf,
         next: (roles.len() == ROLE_PAGE_SIZE as usize)
@@ -562,14 +735,58 @@ struct RoleForm {
     key: String,
     #[serde(default)]
     permissions: String,
+    #[serde(default)]
+    reason: String,
 }
-async fn change<I: StaffSession, A: AccountStateReader>(
+async fn change<I: StaffSession, A: AccountStateReader + 'static>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
-    Form(form): Form<RoleForm>,
+    Extension(authority): Extension<crate::rbac::MutationAuthorization>,
+    csrf: Option<Extension<oteryn_web::csrf::Verified>>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+    headers: axum::http::HeaderMap,
+    form: Result<Form<RoleForm>, FormRejection>,
 ) -> Response {
+    let localized = |status: StatusCode| {
+        (
+            status,
+            oteryn_web::negotiate(&headers).text(&format!("error-{}-description", status.as_u16())),
+        )
+            .into_response()
+    };
+    let invalid = || localized(StatusCode::BAD_REQUEST);
+    let standalone = chrome.is_none();
+    let fallback = oteryn_ui::Registry::default().chrome(
+        language(&headers),
+        "/admin/roles",
+        oteryn_ui::Account::Anonymous,
+    );
+    let chrome = chrome
+        .as_ref()
+        .map_or(&fallback, |Extension(chrome)| chrome);
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(error) if error.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            if standalone {
+                return localized(StatusCode::UNPROCESSABLE_ENTITY);
+            }
+            return staff_actions::Error::Invalid.response(chrome);
+        }
+        Err(error) => return error.into_response(),
+    };
+    let guard = staff_actions::Guard {
+        actor: context,
+        authority: &authority,
+        csrf: csrf.map(|Extension(proof)| proof),
+    };
+    let grant_action = staff_actions::Action {
+        permission: Permission::GrantRoles,
+        reason: &form.reason,
+        reason_codes: &["role_assignment"],
+        step_up: staff_actions::StepUp::RecentPassword,
+    };
     let result = match form.action.as_str() {
-        "create" | "set-permissions" => {
+        "create" | "create-grant-role" | "set-permissions" => {
             let permissions: Result<Vec<Permission>, _> = form
                 .permissions
                 .split(|c: char| c.is_whitespace() || c == ',')
@@ -577,49 +794,115 @@ async fn change<I: StaffSession, A: AccountStateReader>(
                 .map(str::parse)
                 .collect();
             let Ok(permissions) = permissions else {
-                return StatusCode::BAD_REQUEST.into_response();
+                return invalid();
             };
-            let change = if form.action == "create" {
-                Change::CreateRole {
-                    key: &form.key,
-                    permissions: &permissions,
+            if form.action == "set-permissions" {
+                if form.role.is_nil() {
+                    return invalid();
                 }
-            } else {
-                Change::SetPermissions {
-                    role: form.role,
-                    permissions: &permissions,
+                let result = s
+                    .auth
+                    .edit_permissions_from_panel(
+                        guard,
+                        grant_action,
+                        s.grant_confirmation,
+                        form.role,
+                        permissions,
+                    )
+                    .await;
+                return staff_action_response(&s.pool, context.account, result, chrome).await;
+            }
+            if form.action == "create-grant-role" {
+                if !s.grant_confirmation {
+                    return staff_actions::Error::Forbidden.response(chrome);
                 }
-            };
+                let auth = s.auth.clone();
+                let result = staff_actions::run(
+                    &s.pool,
+                    guard,
+                    grant_action,
+                    || Ok((Vec::new(), (form.key, permissions))),
+                    move |connection, (key, permissions)| {
+                        Box::pin(async move {
+                            Ok(Some(
+                                auth.create_grant_role(connection, context, &key, &permissions)
+                                    .await?,
+                            ))
+                        })
+                    },
+                )
+                .await;
+                return staff_action_response(&s.pool, context.account, result, chrome).await;
+            }
             s.auth
-                .change_from_panel(context, Uuid::now_v7(), change)
+                .change_from_panel(
+                    context,
+                    Uuid::now_v7(),
+                    Change::CreateRole {
+                        key: &form.key,
+                        permissions: &permissions,
+                    },
+                )
                 .await
                 .map(|_| ())
         }
-        "grant" if !form.account.is_nil() && !form.role.is_nil() => s
-            .auth
-            .change_from_panel(
-                context,
-                Uuid::now_v7(),
-                Change::Grant {
-                    account: form.account,
-                    role: form.role,
+        "grant" => {
+            if !s.grant_confirmation {
+                return staff_actions::Error::Forbidden.response(chrome);
+            }
+            if form.account.is_nil() || form.role.is_nil() {
+                return invalid();
+            }
+            use staff_actions::AuditChange;
+            let auth = s.auth.clone();
+            let result = staff_actions::run(
+                &s.pool,
+                guard,
+                grant_action,
+                || Ok((vec![form.account], (form.account, form.role))),
+                move |connection, (account, role)| {
+                    Box::pin(async move {
+                        let granted = auth
+                            .grant_from_staff_action(connection, context, account, role)
+                            .await?;
+                        Ok(granted.then_some(AuditChange::RoleGrant { account, role }))
+                    })
                 },
             )
-            .await
-            .map(|_| ()),
+            .await;
+            return staff_action_response(&s.pool, context.account, result, chrome).await;
+        }
         "revoke" => revoke(&s, context, form.account, form.role).await,
-        _ => return StatusCode::BAD_REQUEST.into_response(),
+        _ => return invalid(),
     };
     match result {
         Ok(()) => Redirect::to("/admin/roles").into_response(),
-        Err(Error::Denied) => match refusal(&s.pool, context.account, "/admin/roles").await {
+        Err(Error::Denied) => match refusal(&s.pool, context.account, "/admin/roles", None).await {
             Ok(()) => StatusCode::FORBIDDEN.into_response(),
             Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         },
-        Err(Error::InvalidInput | Error::RoleNotFound) => StatusCode::BAD_REQUEST.into_response(),
+        Err(Error::InvalidInput | Error::RoleNotFound) => invalid(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+async fn staff_action_response(
+    pool: &PgPool,
+    actor: Uuid,
+    result: Result<(), staff_actions::Error>,
+    chrome: &oteryn_ui::Chrome,
+) -> Response {
+    match result {
+        Ok(()) => Redirect::to("/admin/roles").into_response(),
+        Err(error @ (staff_actions::Error::Forbidden | staff_actions::Error::StepUp)) => {
+            match refusal(pool, actor, "/admin/roles", None).await {
+                Ok(()) => error.response(chrome),
+                Err(_) => staff_actions::Error::Unavailable.response(chrome),
+            }
+        }
+        Err(error) => error.response(chrome),
+    }
+}
+
 /// Serialize with every T10 role writer and recheck authorization under that lock.
 /// T10 has no owner key: its full-access platform administrator is also protected.
 async fn revoke<I: StaffSession, A: AccountStateReader>(

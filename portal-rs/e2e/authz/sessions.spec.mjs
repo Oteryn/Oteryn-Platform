@@ -1,0 +1,340 @@
+import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { expect, test } from '@playwright/test';
+import { pool } from '../helpers.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
+import { accountBadgeRoutes, exerciseBadges } from './account-writes.mjs';
+import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
+import { calendarRoutes, exerciseCalendar, exercisePublishedContent } from './calendar.mjs';
+import { characterFamilies, exerciseCharacterFamilies } from './character-families.mjs';
+import { collectionRoutes, exerciseCollection } from './collection.mjs';
+import { commerceRoutes, exerciseCommerce } from './commerce.mjs';
+import { consoleRoutes, exerciseConsole } from './console.mjs';
+import { assertRefusalState, database } from './database.mjs';
+import { downloadRoutes, exerciseDownloads } from './downloads.mjs';
+import { exerciseFeatureGates, featureGateRoutes, withPublishedPuzzle } from './feature-gates.mjs';
+import { exerciseGateway } from './gateway.mjs';
+import { exerciseJournal, journalRoutes } from './journal.mjs';
+import { exerciseNativeCheckout, nativeCheckoutRoutes } from './native-checkout.mjs';
+import { exerciseOAuth, oauthRoutes } from './oauth.mjs';
+import { exerciseParty, partyRoutes } from './party.mjs';
+import { exerciseProtocol, exerciseUnavailableAuthorities, protocolRoutes } from './protocol.mjs';
+import { emailChangeRoutes, exerciseRecovery, recoveryMethods } from './recovery.mjs';
+import { exerciseReferrals, referralRoutes } from './referrals.mjs';
+import { exerciseResourceReads, resourceReads } from './resource-reads.mjs';
+import { exerciseShop, shopRoutes } from './shop.mjs';
+import { exercisePublication, exerciseStaffActions, publicationRoutes, staffActionRoutes } from './staff-actions.mjs';
+import { exerciseSupport, supportRoutes } from './support.mjs';
+
+const { routes, roles } = JSON.parse(readFileSync(new URL('./routes.json', import.meta.url), 'utf8'));
+const signedOutFixture = '019a541b-a000-7000-8000-000000000001';
+const variants = [
+  { method: 'DELETE', suffix: '', selection: 'others' },
+  { method: 'POST', suffix: '/others', selection: 'others' },
+  { method: 'POST', suffix: '/{id}', selection: 'one' },
+  { method: 'DELETE', suffix: '/{id}', selection: 'one' },
+  { method: 'POST', suffix: '/all', selection: 'all' },
+];
+const aliases = ['', '/pl', '/en'];
+for (const prefix of aliases) {
+  for (const { method, suffix } of variants) {
+    const path = `${prefix}/account/sessions${suffix}`;
+    if (!routes.some(route => route.listener === 'public' && route.method === method && route.path === path)) {
+      throw new Error(`No session revocation registration for ${method} ${path}`);
+    }
+  }
+  const logout = routes.find(route => route.listener === 'public' && route.method === 'POST'
+    && route.path === `${prefix}/logout`);
+  if (logout?.registrations[0].guard.kind !== 'logged-in') {
+    throw new Error(`No authenticated POST registration for ${prefix}/logout`);
+  }
+  for (const [method, suffix] of recoveryMethods) {
+    const path = `${prefix}/account/recovery-key${suffix}`;
+    const route = routes.find(r => r.listener === 'public' && r.method === method && r.path === path);
+    if (route?.registrations[0].guard.kind !== 'logged-in') {
+      throw new Error(`No authenticated registration for ${method} ${path}`);
+    }
+  }
+}
+
+for (const [method, path] of [
+  ...supportRoutes, ...calendarRoutes, ...protocolRoutes, ...consoleRoutes, ...characterFamilies, ...resourceReads,
+  ...accountBadgeRoutes, ...collectionRoutes, ...journalRoutes, ...downloadRoutes, ...staffActionRoutes, ...publicationRoutes,
+  ...emailChangeRoutes, ...referralRoutes, ...shopRoutes, ...partyRoutes, ...nativeCheckoutRoutes, ...featureGateRoutes,
+  ...commerceRoutes, ...oauthRoutes,
+]) {
+  if (!routes.some(route => route.listener === 'public' && route.method === method && route.path === path)) {
+    throw new Error(`No workflow registration for ${method} ${path}`);
+  }
+}
+
+async function secondSession(sessionHash) {
+  const rows = await query(`
+    INSERT INTO web_sessions(id_hash, account_id, authorization_generation, idle_expires_at,
+                             absolute_expires_at, user_agent_summary, csrf_token)
+    SELECT $1, account_id, authorization_generation, clock_timestamp() + interval '10 minutes',
+           clock_timestamp() + interval '20 minutes', 'Local revocation target', $2
+    FROM web_sessions WHERE id_hash=$3 AND account_id IS NOT NULL
+    RETURNING session_id
+  `, [randomBytes(32), randomBytes(32).toString('hex'), sessionHash]);
+  expect(rows.length, 'secondary session belongs to the authenticated actor').toBe(1);
+  return rows[0].session_id;
+}
+
+async function assertRevocationRefusals(request, method, pattern, selection, owned, foreign, origin, token, snapshot, verify) {
+  const target = pattern.replace('{id}', owned);
+  for (const [description, csrf] of [['missing', {}], ['invalid', { 'x-csrf-token': '0'.repeat(64) }]]) {
+    await test.step(`${description} CSRF on ${method} ${pattern}`, async () => {
+      const before = await snapshot();
+      const response = await request.fetch(target, { method, headers: { origin, ...csrf }, maxRedirects: 0 });
+      try {
+        expect(response.status()).toBe(403);
+        await verify(before);
+      } finally {
+        await response.dispose();
+      }
+    });
+  }
+  if (selection !== 'one') return;
+
+  // A foreign ID intentionally has the same redirect as an already-inactive ID.
+  const session = async () => query(`
+    SELECT encode(sha256(convert_to(to_jsonb(s)::text,'UTF8')),'hex') AS fingerprint
+    FROM web_sessions s WHERE session_id=$1
+  `, [foreign]);
+  const before = await session();
+  expect(before).toHaveLength(1);
+  const response = await request.fetch(pattern.replace('{id}', foreign), {
+    method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+  });
+  try {
+    expect(response.status()).toBe(method === 'DELETE' ? 303 : 302);
+    expect(response.headers().location).toMatch(/^\/(pl|en)\/account\/sessions$/);
+    expect(await session(), 'the foreign session survives unchanged').toEqual(before);
+    expect(await query('SELECT 1 FROM security_events WHERE session_id=$1 AND kind=$2',
+      [foreign, 'session_revoked'])).toHaveLength(0);
+  } finally {
+    await response.dispose();
+  }
+}
+
+test.describe('session, support and content authorization', () => {
+  for (const definition of actorDefinitions(roles)) {
+    test(`staff commands ${definition.key}`, async ({}, { project }) => {
+      const { locale } = project.metadata;
+      const anonymous = definition.key === 'anonymous';
+      const issuer = definition.restricted
+        ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
+        : undefined;
+      const { request } = await openActor(locale, definition, issuer);
+      const db = database();
+      try {
+        const token = await csrfPage(request, anonymous ? `/${locale}/login` : `/${locale}/`);
+        const hash = await hashSession(request);
+        const snapshot = () => db.snapshot(hash);
+        await exerciseStaffActions(request, token, definition, routes, snapshot,
+          async (before, actions) => assertRefusalState(before, await snapshot(), actions));
+      } finally {
+        await db.close();
+        await request.dispose();
+      }
+    });
+
+    test(definition.key, async ({}, info) => {
+      test.setTimeout(420_000);
+      const { locale } = info.project.metadata;
+      const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
+      const anonymous = definition.key === 'anonymous';
+      const issuer = definition.restricted
+        ? (await query("SELECT id FROM accounts WHERE email='bazaar-escrow@local.test'"))[0].id
+        : undefined;
+      const db = database();
+      try {
+        let foreign;
+        if (!anonymous) {
+          const peer = await openActor(locale, { key: 'player', permissions: [] });
+          try {
+            foreign = await secondSession(await hashSession(peer.request));
+          } finally {
+            await peer.request.dispose();
+          }
+        }
+        for (const prefix of aliases) {
+          const { request, account, accountId, totpSecret } = await openActor(info.project.metadata.locale, definition, issuer);
+          try {
+            const landing = anonymous ? `/${locale}/login` : `/${locale}/`;
+            let token = await csrfPage(request, landing);
+            let sessionHash = await hashSession(request);
+            const snapshot = () => db.snapshot(sessionHash);
+            const verify = async (before, actions) => assertRefusalState(before, await snapshot(), actions);
+            if (!prefix) {
+              await exerciseSupport(request, locale, token, definition, routes, snapshot, verify);
+              await exerciseCalendar(request, token, definition, routes, snapshot, verify);
+              await exerciseConsole(request, locale, token, definition, accountId, totpSecret, routes, snapshot, verify);
+              const steppedUpSession = await hashSession(request);
+              if (!steppedUpSession.equals(sessionHash)) {
+                // Successful control step-up reissues the session and its CSRF token.
+                token = await csrfPage(request, landing);
+                sessionHash = await hashSession(request);
+              }
+              await exerciseProtocol(request, token, routes, snapshot, verify);
+              await exerciseGateway(request, token, routes);
+              await exerciseUnavailableAuthorities(request, locale, anonymous, token, routes);
+              await exercisePublishedContent(request, locale, routes);
+              await exerciseCharacterFamilies(request, accountId, routes);
+              await exerciseResourceReads(request, accountId, locale, token, routes, snapshot, verify);
+              await exerciseCollection(request, locale, token, accountId, routes, snapshot, verify);
+              await exerciseJournal(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseDownloads(request, routes);
+              await exercisePublication(request, locale, token, definition, routes, snapshot, verify);
+              await exerciseCommerce(request, locale, token, definition, routes, snapshot, verify);
+              await exerciseReferrals(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseShop(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseParty(request, locale, token, accountId, definition, routes, snapshot, verify);
+              await exerciseNativeCheckout(request, locale, token, accountId, definition.restricted, routes, snapshot, verify);
+              await exerciseOAuth(request, accountId, token, routes, db, sessionHash);
+              await exerciseFeatureGates(request, locale, token, accountId, routes, snapshot, verify);
+            }
+            await exerciseBadges(request, prefix, accountId, token, snapshot, verify);
+            await exerciseRecovery({ request, token, account, accountId }, prefix, locale, snapshot, verify,
+              () => openActor(locale, definition, issuer));
+            for (const { method, suffix, selection } of variants) {
+              const pattern = `${prefix}/account/sessions${suffix}`;
+              await test.step(`${method} ${pattern}`, async () => {
+                const id = anonymous ? signedOutFixture : await secondSession(sessionHash);
+                const target = pattern.replace('{id}', id);
+                if (!anonymous) {
+                  await assertRevocationRefusals(request, method, pattern, selection, id, foreign, origin, token, snapshot, verify);
+                }
+                const before = anonymous ? await db.snapshot(sessionHash) : null;
+                const response = await request.fetch(target, {
+                  method, headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+                });
+                try {
+                  expect(response.status(), 'session actor gate').toBe(anonymous ? 403 : method === 'DELETE' ? 303 : 302);
+                  if (anonymous) {
+                    assertRefusalState(before, await db.snapshot(sessionHash));
+                  } else {
+                    const destination = selection === 'all' ? 'login' : 'account/sessions';
+                    expect(response.headers().location).toMatch(new RegExp(`^/(pl|en)/${destination}$`));
+                    const [{ targetExists, currentExists }] = await query(`
+                      SELECT EXISTS(SELECT 1 FROM web_sessions WHERE session_id=$1) AS "targetExists",
+                             EXISTS(SELECT 1 FROM web_sessions WHERE id_hash=$2) AS "currentExists"
+                    `, [id, sessionHash]);
+                    expect(targetExists, 'owned target session revoked').toBe(false);
+                    expect(currentExists, 'requesting session state').toBe(selection !== 'all');
+                  }
+                } finally {
+                  await response.dispose();
+                }
+              });
+            }
+          } finally {
+            await request.dispose();
+          }
+
+          const actor = await openActor(info.project.metadata.locale, definition, issuer);
+          try {
+            await test.step(`POST ${prefix}/logout`, async () => {
+              const token = await csrfPage(actor.request, anonymous ? `/${locale}/login` : `/${locale}/`);
+              const sessionHash = await hashSession(actor.request);
+              const before = anonymous ? await db.snapshot(sessionHash) : null;
+              const response = await actor.request.post(`${prefix}/logout`, {
+                headers: { origin, 'x-csrf-token': token }, maxRedirects: 0,
+              });
+              try {
+                expect(response.status(), 'crates/identity/src/login_http.rs:222').toBe(302);
+                expect(response.headers().location).toMatch(anonymous ? /^\/(pl|en)\/login$/ : /^\/(pl|en)\/$/);
+                if (before) assertRefusalState(before, await db.snapshot(sessionHash));
+                else expect((await query('SELECT 1 FROM web_sessions WHERE id_hash=$1', [sessionHash])).length).toBe(0);
+              } finally {
+                await response.dispose();
+              }
+            });
+          } finally {
+            await actor.request.dispose();
+          }
+        }
+      } finally {
+        await db.close();
+      }
+    });
+  }
+});
+
+test('puzzle world fixture leaves the next project atlas and puzzle state intact', async () => {
+  const polish = await openActor('pl', { key: 'player', permissions: [] });
+  try {
+    await withPublishedPuzzle(async ({ id }) => {
+      const image = await polish.request.get(`/pl/puzzles/${id}/image`, { maxRedirects: 0 });
+      try {
+        expect(image.status()).toBe(200);
+        expect(image.headers()['content-type']).toBe('image/webp');
+      } finally {
+        await image.dispose();
+      }
+    });
+    const english = await openActor('en', { key: 'player', permissions: [] });
+    try {
+      for (const [path, status] of [['/atlas/tiles/fixture/0/0/0/0', 503], ['/en/puzzles', 200]]) {
+        const response = await english.request.get(path, { maxRedirects: 0 });
+        try {
+          expect(response.status(), path).toBe(status);
+        } finally {
+          await response.dispose();
+        }
+      }
+    } finally {
+      await english.request.dispose();
+    }
+  } finally {
+    await polish.request.dispose();
+  }
+});
+
+test('puzzle teardown retries after its database connection is terminated', async () => {
+  const db = pool();
+  let interrupt;
+  try {
+    const puzzle = await withPublishedPuzzle(async fixture => {
+      const blocker = await db.connect();
+      try {
+        await blocker.query('BEGIN');
+        await blocker.query('LOCK TABLE puzzles_daily IN SHARE MODE');
+      } catch (error) {
+        blocker.release(true);
+        throw error;
+      }
+      interrupt = (async () => {
+        try {
+          await expect.poll(async () => {
+            const { rows } = await db.query(`
+              SELECT pg_terminate_backend(pid) AS terminated FROM pg_stat_activity
+              WHERE datname=current_database() AND wait_event_type='Lock'
+                AND query='ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_immutable'
+            `);
+            expect(rows.length, 'at most one cleanup transaction is waiting').toBeLessThanOrEqual(1);
+            return rows[0]?.terminated;
+          }, { timeout: 5_000 }).toBe(true);
+        } finally {
+          try {
+            await blocker.query('ROLLBACK');
+          } finally {
+            blocker.release();
+          }
+        }
+      })();
+      // Join the interruption even when teardown itself reports an error.
+      void interrupt.catch(() => {});
+      return fixture;
+    });
+    const [{ remaining }] = await query('SELECT count(*)::int AS remaining FROM puzzles_daily WHERE id=$1', [puzzle.id]);
+    expect(remaining).toBe(0);
+  } finally {
+    try {
+      await interrupt;
+    } finally {
+      await db.end();
+    }
+  }
+});

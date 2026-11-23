@@ -1,0 +1,1117 @@
+[
+  {
+    "method": "GET",
+    "path": "/",
+    "target": "/",
+    "status": 303,
+    "source": "crates/web/src/lib.rs:324"
+  },
+  {
+    "method": "GET",
+    "path": "/announcements/ticker",
+    "target": "/announcements/ticker",
+    "status": 200,
+    "source": "crates/content/src/today.rs:230"
+  },
+  {
+    "method": "GET",
+    "path": "/api/v1/worlds",
+    "target": "/api/v1/worlds",
+    "status": 200,
+    "source": "crates/community/src/worlds.rs:56"
+  },
+  {
+    "method": "GET",
+    "path": "/atlas/delivery.css",
+    "target": "/atlas/delivery.css",
+    "status": 200,
+    "source": "crates/atlas/src/delivery/http.rs:34"
+  },
+  {
+    "method": "GET",
+    "path": "/atlas/spawns-text/{lang}",
+    "target": "/atlas/spawns-text/{lang}",
+    "status": 200,
+    "source": "crates/atlas/src/spawns.rs:39"
+  },
+  {
+    "method": "GET",
+    "path": "/atlas/tiles/{version}/{floor}/{zoom}/{x}/{y}",
+    "target": "/atlas/tiles/fixture/0/0/0/0",
+    "status": 503,
+    "source": "crates/atlas/src/web.rs:48"
+  },
+  {
+    "method": "GET",
+    "path": "/characters",
+    "target": "/characters",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/characters/{name}",
+    "target": "/characters/Fixture",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/characters/{name}/deaths",
+    "target": "/characters/Fixture/deaths",
+    "status": 503,
+    "source": "crates/community/src/deaths/web.rs:78"
+  },
+  {
+    "method": "GET",
+    "path": "/characters/{name}/skills",
+    "target": "/characters/Fixture/skills",
+    "status": 503,
+    "source": "crates/community/src/families/web.rs:73"
+  },
+  {
+    "method": "GET",
+    "path": "/deaths",
+    "target": "/deaths",
+    "status": 503,
+    "source": "crates/community/src/deaths/web.rs:75"
+  },
+  {
+    "method": "GET",
+    "path": "/download",
+    "target": "/download",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/download/{slug}",
+    "target": "/download/fixture",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/email-change/recover/{token}",
+    "target": "/email-change/recover/invalid",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/en",
+    "target": "/en",
+    "status": 200,
+    "source": "crates/web/src/surface.rs:40"
+  },
+  {
+    "method": "GET",
+    "path": "/en/",
+    "target": "/en/",
+    "status": 200,
+    "source": "crates/web/src/surface.rs:42"
+  },
+  {
+    "method": "GET",
+    "path": "/en/characters/{name}/deaths",
+    "target": "/en/characters/Fixture/deaths",
+    "status": 503,
+    "source": "crates/community/src/deaths/web.rs:80"
+  },
+  {
+    "method": "GET",
+    "path": "/en/characters/{name}/skills",
+    "target": "/en/characters/Fixture/skills",
+    "status": 503,
+    "source": "crates/community/src/families/web.rs:73"
+  },
+  {
+    "method": "GET",
+    "path": "/en/deaths",
+    "target": "/en/deaths",
+    "status": 503,
+    "source": "crates/community/src/deaths/web.rs:77"
+  },
+  {
+    "method": "GET",
+    "path": "/en/forgot-password",
+    "target": "/en/forgot-password",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:50"
+  },
+  {
+    "method": "GET",
+    "path": "/en/guilds",
+    "target": "/en/guilds",
+    "status": 503,
+    "source": "crates/community/src/guilds_pages.rs:67"
+  },
+  {
+    "method": "GET",
+    "path": "/en/guilds/{name}",
+    "target": "/en/guilds/Fixture",
+    "status": 503,
+    "source": "crates/community/src/guilds_pages.rs:68"
+  },
+  {
+    "method": "GET",
+    "path": "/en/help",
+    "target": "/en/help",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/houses",
+    "target": "/en/houses",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:114"
+  },
+  {
+    "method": "GET",
+    "path": "/en/legal/cookies",
+    "target": "/en/legal/cookies",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/legal/privacy",
+    "target": "/en/legal/privacy",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/legal/terms",
+    "target": "/en/legal/terms",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/login",
+    "target": "/en/login",
+    "status": 200,
+    "source": "crates/identity/src/mfa_http.rs:268"
+  },
+  {
+    "method": "GET",
+    "path": "/en/mfa/challenge",
+    "target": "/en/mfa/challenge",
+    "status": 302,
+    "source": "crates/identity/src/mfa_http.rs:311",
+    "pendingChallenge": true
+  },
+  {
+    "method": "GET",
+    "path": "/en/mfa/login",
+    "target": "/en/mfa/login",
+    "status": 200,
+    "source": "crates/identity/src/mfa_http.rs:68"
+  },
+  {
+    "method": "GET",
+    "path": "/en/online",
+    "target": "/en/online",
+    "status": 503,
+    "source": "crates/community/src/online.rs:74"
+  },
+  {
+    "method": "GET",
+    "path": "/en/recovery-key",
+    "target": "/en/recovery-key",
+    "status": 200,
+    "source": "crates/identity/src/recovery_key_http.rs:39"
+  },
+  {
+    "method": "GET",
+    "path": "/en/register",
+    "target": "/en/register",
+    "status": 200,
+    "signedInStatus": 303,
+    "signedInLocation": "/account",
+    "source": "crates/web/src/routes/register.rs:54"
+  },
+  {
+    "method": "GET",
+    "path": "/en/register/check-inbox",
+    "target": "/en/register/check-inbox",
+    "status": 200,
+    "source": "crates/web/src/routes/register.rs:27"
+  },
+  {
+    "method": "GET",
+    "path": "/en/reset-password",
+    "target": "/en/reset-password",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:54"
+  },
+  {
+    "method": "GET",
+    "path": "/en/reset-password/{token}",
+    "target": "/en/reset-password/invalid",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:58"
+  },
+  {
+    "method": "GET",
+    "path": "/en/rules",
+    "target": "/en/rules",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/search",
+    "target": "/en/search",
+    "status": 200,
+    "source": "crates/web/src/search.rs:77"
+  },
+  {
+    "method": "GET",
+    "path": "/en/server-information",
+    "target": "/en/server-information",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/stats/guilds",
+    "target": "/en/stats/guilds",
+    "status": 503,
+    "source": "crates/stats/src/guilds/http.rs:27"
+  },
+  {
+    "method": "GET",
+    "path": "/en/stats/world",
+    "target": "/en/stats/world",
+    "status": 200,
+    "source": "crates/stats/src/world/http.rs:39"
+  },
+  {
+    "method": "GET",
+    "path": "/en/support",
+    "target": "/en/support",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/support/report-a-bug",
+    "target": "/en/support/report-a-bug",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/en/verify-email/resend",
+    "target": "/en/verify-email/resend",
+    "status": 200,
+    "source": "crates/web/src/routes/verify.rs:29"
+  },
+  {
+    "method": "GET",
+    "path": "/en/wiki/calculators",
+    "target": "/en/wiki/calculators",
+    "status": 200,
+    "source": "crates/wiki/src/calculators/web.rs:42"
+  },
+  {
+    "method": "GET",
+    "path": "/en/worlds",
+    "target": "/en/worlds",
+    "status": 200,
+    "source": "crates/community/src/worlds.rs:55"
+  },
+  {
+    "method": "GET",
+    "path": "/events",
+    "target": "/events",
+    "status": 303,
+    "source": "crates/content/src/events/web.rs:30"
+  },
+  {
+    "method": "GET",
+    "path": "/events/{slug}",
+    "target": "/events/fixture",
+    "status": 303,
+    "source": "crates/content/src/events/web.rs:31"
+  },
+  {
+    "method": "GET",
+    "path": "/favicon.ico",
+    "target": "/favicon.ico",
+    "status": 200,
+    "source": "crates/web/src/favicon.rs:5"
+  },
+  {
+    "method": "GET",
+    "path": "/forgot-password",
+    "target": "/forgot-password",
+    "status": 301,
+    "source": "crates/identity/src/reset_http.rs:86"
+  },
+  {
+    "method": "GET",
+    "path": "/getting-started",
+    "target": "/getting-started",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/guilds",
+    "target": "/guilds",
+    "status": 503,
+    "source": "crates/community/src/guilds_pages.rs:63"
+  },
+  {
+    "method": "GET",
+    "path": "/guilds/{name}",
+    "target": "/guilds/Fixture",
+    "status": 503,
+    "source": "crates/community/src/guilds_pages.rs:64"
+  },
+  {
+    "method": "GET",
+    "path": "/healthz",
+    "target": "/healthz",
+    "status": 200,
+    "source": "crates/web/src/lib.rs:325"
+  },
+  {
+    "method": "GET",
+    "path": "/highscores",
+    "target": "/highscores",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/houses",
+    "target": "/houses",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:114"
+  },
+  {
+    "method": "GET",
+    "path": "/language/{lang}",
+    "target": "/language/{lang}",
+    "status": 303,
+    "source": "crates/web/src/surface.rs:43"
+  },
+  {
+    "method": "GET",
+    "path": "/legal/cookies",
+    "target": "/legal/cookies",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/legal/privacy",
+    "target": "/legal/privacy",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/legal/terms",
+    "target": "/legal/terms",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/login",
+    "target": "/login",
+    "status": 200,
+    "source": "crates/identity/src/mfa_http.rs:268"
+  },
+  {
+    "method": "GET",
+    "path": "/mfa/challenge",
+    "target": "/mfa/challenge",
+    "status": 302,
+    "source": "crates/identity/src/mfa_http.rs:311",
+    "pendingChallenge": true
+  },
+  {
+    "method": "GET",
+    "path": "/mfa/login",
+    "target": "/mfa/login",
+    "status": 200,
+    "source": "crates/identity/src/mfa_http.rs:68"
+  },
+  {
+    "method": "GET",
+    "path": "/news",
+    "target": "/news",
+    "status": 200,
+    "source": "crates/content/src/news.rs:128"
+  },
+  {
+    "method": "GET",
+    "path": "/online",
+    "target": "/online",
+    "status": 503,
+    "source": "crates/community/src/online.rs:72"
+  },
+  {
+    "method": "GET",
+    "path": "/pages/{slug}",
+    "target": "/pages/fixture",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/pl",
+    "target": "/pl",
+    "status": 200,
+    "source": "crates/web/src/surface.rs:39"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/",
+    "target": "/pl/",
+    "status": 200,
+    "source": "crates/web/src/surface.rs:41"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/characters/{name}/deaths",
+    "target": "/pl/characters/Fixture/deaths",
+    "status": 503,
+    "source": "crates/community/src/deaths/web.rs:79"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/characters/{name}/skills",
+    "target": "/pl/characters/Fixture/skills",
+    "status": 503,
+    "source": "crates/community/src/families/web.rs:73"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/deaths",
+    "target": "/pl/deaths",
+    "status": 503,
+    "source": "crates/community/src/deaths/web.rs:76"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/forgot-password",
+    "target": "/pl/forgot-password",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:50"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/guilds",
+    "target": "/pl/guilds",
+    "status": 503,
+    "source": "crates/community/src/guilds_pages.rs:65"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/guilds/{name}",
+    "target": "/pl/guilds/Fixture",
+    "status": 503,
+    "source": "crates/community/src/guilds_pages.rs:66"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/help",
+    "target": "/pl/help",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/houses",
+    "target": "/pl/houses",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:114"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/legal/cookies",
+    "target": "/pl/legal/cookies",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/legal/privacy",
+    "target": "/pl/legal/privacy",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/legal/terms",
+    "target": "/pl/legal/terms",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/login",
+    "target": "/pl/login",
+    "status": 200,
+    "source": "crates/identity/src/mfa_http.rs:268"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/mfa/challenge",
+    "target": "/pl/mfa/challenge",
+    "status": 302,
+    "source": "crates/identity/src/mfa_http.rs:311",
+    "pendingChallenge": true
+  },
+  {
+    "method": "GET",
+    "path": "/pl/mfa/login",
+    "target": "/pl/mfa/login",
+    "status": 200,
+    "source": "crates/identity/src/mfa_http.rs:68"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/online",
+    "target": "/pl/online",
+    "status": 503,
+    "source": "crates/community/src/online.rs:73"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/recovery-key",
+    "target": "/pl/recovery-key",
+    "status": 200,
+    "source": "crates/identity/src/recovery_key_http.rs:39"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/register",
+    "target": "/pl/register",
+    "status": 200,
+    "signedInStatus": 303,
+    "signedInLocation": "/account",
+    "source": "crates/web/src/routes/register.rs:54"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/register/check-inbox",
+    "target": "/pl/register/check-inbox",
+    "status": 200,
+    "source": "crates/web/src/routes/register.rs:26"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/reset-password",
+    "target": "/pl/reset-password",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:54"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/reset-password/{token}",
+    "target": "/pl/reset-password/invalid",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:58"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/rules",
+    "target": "/pl/rules",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/search",
+    "target": "/pl/search",
+    "status": 200,
+    "source": "crates/web/src/search.rs:76"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/server-information",
+    "target": "/pl/server-information",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/stats/guilds",
+    "target": "/pl/stats/guilds",
+    "status": 503,
+    "source": "crates/stats/src/guilds/http.rs:26"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/stats/world",
+    "target": "/pl/stats/world",
+    "status": 200,
+    "source": "crates/stats/src/world/http.rs:38"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/support",
+    "target": "/pl/support",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/support/report-a-bug",
+    "target": "/pl/support/report-a-bug",
+    "status": 200,
+    "source": "crates/content/src/pages.rs:89"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/verify-email/resend",
+    "target": "/pl/verify-email/resend",
+    "status": 200,
+    "source": "crates/web/src/routes/verify.rs:25"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/wiki/calculators",
+    "target": "/pl/wiki/calculators",
+    "status": 200,
+    "source": "crates/wiki/src/calculators/web.rs:41"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/worlds",
+    "target": "/pl/worlds",
+    "status": 200,
+    "source": "crates/community/src/worlds.rs:54"
+  },
+  {
+    "method": "GET",
+    "path": "/readyz",
+    "target": "/readyz",
+    "status": 200,
+    "source": "crates/web/src/lib.rs:326"
+  },
+  {
+    "method": "GET",
+    "path": "/recovery-key",
+    "target": "/recovery-key",
+    "status": 200,
+    "source": "crates/identity/src/recovery_key_http.rs:39"
+  },
+  {
+    "method": "GET",
+    "path": "/register/abuse.js",
+    "target": "/register/abuse.js",
+    "status": 200,
+    "source": "crates/identity/src/abuse/http.rs:20"
+  },
+  {
+    "method": "GET",
+    "path": "/register",
+    "target": "/register",
+    "status": 200,
+    "signedInStatus": 303,
+    "signedInLocation": "/account",
+    "source": "crates/web/src/routes/register.rs:54"
+  },
+  {
+    "method": "GET",
+    "path": "/register/check-inbox",
+    "target": "/register/check-inbox",
+    "status": 200,
+    "source": "crates/web/src/routes/register.rs:25"
+  },
+  {
+    "method": "GET",
+    "path": "/reset-password",
+    "target": "/reset-password",
+    "status": 200,
+    "source": "crates/identity/src/reset_http.rs:47"
+  },
+  {
+    "method": "GET",
+    "path": "/reset-password/{token}",
+    "target": "/reset-password/invalid",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/robots.txt",
+    "target": "/robots.txt",
+    "status": 200,
+    "source": "crates/web/src/seo.rs:142"
+  },
+  {
+    "method": "GET",
+    "path": "/rules",
+    "target": "/rules",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/search",
+    "target": "/search",
+    "status": 200,
+    "source": "crates/web/src/search.rs:75"
+  },
+  {
+    "method": "GET",
+    "path": "/server-information",
+    "target": "/server-information",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/servers",
+    "target": "/servers",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/sitemap.xml",
+    "target": "/sitemap.xml",
+    "status": 200,
+    "source": "crates/web/src/seo.rs:151"
+  },
+  {
+    "method": "GET",
+    "path": "/static/playerdata/hunts.css",
+    "target": "/static/playerdata/hunts.css",
+    "status": 200,
+    "source": "crates/playerdata/src/hunts_web.rs:58"
+  },
+  {
+    "method": "GET",
+    "path": "/static/{*path}",
+    "target": "/static/css/app.css",
+    "status": 200,
+    "source": "crates/web/src/lib.rs:327"
+  },
+  {
+    "method": "HEAD",
+    "path": "/static/{*path}",
+    "target": "/static/css/app.css",
+    "status": 200,
+    "source": "crates/web/src/lib.rs:327"
+  },
+  {
+    "method": "GET",
+    "path": "/stats/guilds",
+    "target": "/stats/guilds",
+    "status": 503,
+    "source": "crates/stats/src/guilds/http.rs:25"
+  },
+  {
+    "method": "GET",
+    "path": "/stats/world",
+    "target": "/stats/world",
+    "status": 200,
+    "source": "crates/stats/src/world/http.rs:37"
+  },
+  {
+    "method": "GET",
+    "path": "/support",
+    "target": "/support",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/support/report-a-bug",
+    "target": "/support/report-a-bug",
+    "status": 301,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/today",
+    "target": "/today",
+    "status": 200,
+    "source": "crates/content/src/today.rs:228"
+  },
+  {
+    "method": "GET",
+    "path": "/today/data",
+    "target": "/today/data",
+    "status": 503,
+    "source": "crates/community/src/today/http.rs:141"
+  },
+  {
+    "method": "GET",
+    "path": "/today/widget",
+    "target": "/today/widget",
+    "status": 503,
+    "source": "crates/community/src/today/http.rs:143"
+  },
+  {
+    "method": "GET",
+    "path": "/verify-email/resend",
+    "target": "/verify-email/resend",
+    "status": 200,
+    "source": "crates/web/src/routes/verify.rs:24"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki",
+    "target": "/wiki",
+    "status": 503,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/creatures",
+    "target": "/wiki/creatures",
+    "status": 503,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/creatures/{slug}",
+    "target": "/wiki/creatures/fixture",
+    "status": 503,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/items",
+    "target": "/wiki/items",
+    "status": 503,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/items/{slug}",
+    "target": "/wiki/items/fixture",
+    "status": 503,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/search",
+    "target": "/wiki/search",
+    "status": 503,
+    "source": "crates/web/src/redirects.rs:101"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/{kind}",
+    "target": "/wiki/items",
+    "status": 503,
+    "source": "crates/wiki/src/entities.rs:120"
+  },
+  {
+    "method": "GET",
+    "path": "/wiki/{kind}/{key}",
+    "target": "/wiki/items/fixture",
+    "status": 503,
+    "source": "crates/wiki/src/entities.rs:121"
+  },
+  {
+    "method": "GET",
+    "path": "/worlds",
+    "target": "/worlds",
+    "status": 200,
+    "source": "crates/community/src/worlds.rs:53"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/announcements/ticker",
+    "target": "/{lang}/announcements/ticker",
+    "status": 200,
+    "source": "crates/content/src/today.rs:231"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/atlas",
+    "target": "/{lang}/atlas",
+    "status": 503,
+    "source": "crates/atlas/src/web.rs:47"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/atlas/delivery",
+    "target": "/{lang}/atlas/delivery",
+    "status": 503,
+    "source": "crates/atlas/src/delivery/http.rs:32"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/bazaar",
+    "target": "/{lang}/bazaar",
+    "status": 200,
+    "source": "crates/bazaar/src/characters/http.rs:98"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/characters",
+    "target": "/{lang}/characters",
+    "status": 200,
+    "source": "crates/community/src/profiles.rs:70"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/characters/{name}",
+    "target": "/{lang}/characters/Fixture",
+    "status": 503,
+    "source": "crates/community/src/profiles.rs:71"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/league",
+    "target": "/{lang}/league",
+    "status": 503,
+    "source": "crates/minigames/src/league/web.rs:166"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/news",
+    "target": "/{lang}/news",
+    "status": 200,
+    "source": "crates/content/src/news.rs:130"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/party",
+    "target": "/{lang}/party",
+    "status": 200,
+    "source": "crates/community/src/party.rs:288"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/stats/characters/{id}/{tab}",
+    "target": "/{lang}/stats/characters/019a541b-a000-7000-8000-000000000001/experience",
+    "status": 503,
+    "source": "crates/stats/src/character/http.rs:29"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/stats/compare",
+    "target": "/{lang}/stats/compare",
+    "status": 200,
+    "source": "crates/stats/src/character/http.rs:30"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/today",
+    "target": "/{lang}/today",
+    "status": 200,
+    "source": "crates/content/src/today.rs:229"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/today/data",
+    "target": "/{lang}/today/data",
+    "status": 503,
+    "source": "crates/community/src/today/http.rs:142"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/today/widget",
+    "target": "/{lang}/today/widget",
+    "status": 503,
+    "source": "crates/community/src/today/http.rs:144"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/bazaar",
+    "target": "/{locale}/bazaar",
+    "status": 200,
+    "source": "crates/bazaar/src/characters/http.rs:132"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/bazaar/items",
+    "target": "/{locale}/bazaar/items",
+    "status": 200,
+    "source": "crates/bazaar/src/game/runtime/browser.rs:192"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/events",
+    "target": "/{locale}/events",
+    "status": 200,
+    "source": "crates/content/src/events/web.rs:41"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/wiki",
+    "target": "/{locale}/wiki",
+    "status": 503,
+    "source": "crates/wiki/src/web.rs:40"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/wiki/places",
+    "target": "/{locale}/wiki/places",
+    "status": 503,
+    "source": "crates/wiki/src/places/mod.rs:63"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/wiki/search",
+    "target": "/{locale}/wiki/search",
+    "status": 503,
+    "source": "crates/wiki/src/web.rs:41"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/wiki/{kind}",
+    "target": "/{locale}/wiki/items",
+    "status": 503,
+    "source": "crates/wiki/src/entities.rs:122"
+  },
+  {
+    "method": "GET",
+    "path": "/{locale}/wiki/{kind}/{key}",
+    "target": "/{locale}/wiki/items/fixture",
+    "status": 503,
+    "source": "crates/wiki/src/entities.rs:123"
+  },
+  {
+    "method": "GET",
+    "path": "/atlas/spawns",
+    "target": "/atlas/spawns?version=fixture&floor=0&min_x=0&max_x=0&min_y=0&max_y=0",
+    "status": 503,
+    "source": "crates/atlas/src/spawns.rs:117"
+  },
+  {
+    "method": "GET",
+    "path": "/{lang}/rankings/{kind}",
+    "target": "/{lang}/rankings/level",
+    "status": 503,
+    "source": "crates/community/src/rankings.rs:273"
+  },
+  {
+    "method": "GET",
+    "path": "/houses/{key}",
+    "target": "/houses/oteryn:content.house.fixture?world=019a541b-a000-7000-8000-000000000001",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:398"
+  },
+  {
+    "method": "GET",
+    "path": "/pl/houses/{key}",
+    "target": "/pl/houses/oteryn:content.house.fixture?world=019a541b-a000-7000-8000-000000000001",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:398"
+  },
+  {
+    "method": "GET",
+    "path": "/en/houses/{key}",
+    "target": "/en/houses/oteryn:content.house.fixture?world=019a541b-a000-7000-8000-000000000001",
+    "status": 503,
+    "source": "crates/community/src/houses.rs:398"
+  }
+]

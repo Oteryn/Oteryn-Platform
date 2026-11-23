@@ -1,5 +1,6 @@
 import { test, expect } from '../fixtures.mjs';
-import { csrfRejected, login, logout, password, seedPasswordRange, submit } from '../helpers.mjs';
+import { csrfRejected, exportOptions, login, logout, password, seedPasswordRange, submit } from '../helpers.mjs';
+import { csrfPage } from '../authz/actors.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { cookie, expectSession, hash, otherBrowser, postForm, seedAccount } from './auth-fixtures.mjs';
 
@@ -9,6 +10,18 @@ test('login and sudo rotate sessions, and logout removes the active session', as
   const lang = info.project.metadata.locale;
   const account = await seedAccount(lang);
   const exportPath = `/${lang}/account/privacy/export`;
+  const sudoPath = `/${lang}/account/sudo`;
+  const exportRequiresConfirmation = async (screen) => {
+    const confirmation = await screen.request.get(exportPath, { maxRedirects: 0 });
+    expect(confirmation.status()).toBe(303);
+    expect(confirmation.headers().location).toBe(`${sudoPath}?return_to=export`);
+    const csrf = await csrfPage(screen.request, sudoPath);
+    const denied = await screen.request.post(exportPath, {
+      form: { _csrf: csrf }, headers: { origin: new URL(screen.url()).origin }, maxRedirects: 0,
+    });
+    expect(denied.status()).toBe(403);
+    expect(denied.headers()['content-disposition']).toBeUndefined();
+  };
   const second = await otherBrowser(browser, info);
   try {
     await page.goto(`/${lang}/login`);
@@ -20,32 +33,34 @@ test('login and sudo rotate sessions, and logout removes the active session', as
     expect(signedIn !== anonymous, 'login rotated the guest session').toBe(true);
     await expectSession(signedIn, account.id);
     await expectSession(anonymous);
-    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    await exportRequiresConfirmation(page);
 
     const other = await second.newPage();
     await login(other, lang, account);
     await expectSession(await cookie(second), account.id);
 
-    await page.goto(`/${lang}/account/sudo`);
+    await page.goto(sudoPath);
     const refused = await postForm(page, 'main form', { current_password: password() });
     expect(refused.status()).toBe(302);
-    expect(refused.headers().location).toBe(`/${lang}/account/sudo`);
+    expect(refused.headers().location).toBe(sudoPath);
     await expectSession(signedIn, account.id);
-    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    await exportRequiresConfirmation(page);
     await submit(page, 'main form', { current_password: account.password });
     await expect(page).toHaveURL(new RegExp(`/${lang}/password/change$`));
     const elevated = await cookie(context);
     expect(elevated !== signedIn, 'step-up rotated the session').toBe(true);
     await expectSession(elevated, account.id);
     await expectSession(signedIn);
-    expect((await page.request.get(exportPath)).status()).toBe(200);
-    expect((await other.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    const exported = await page.request.post(exportPath, await exportOptions(page, lang));
+    expect(exported.status()).toBe(200);
+    expect((await exported.json()).account.id).toBe(account.id);
+    await exportRequiresConfirmation(other);
     const expired = await query(
       "UPDATE web_sessions SET sudo_until=clock_timestamp()-interval '1 second' WHERE id_hash=$1 AND account_id=$2 RETURNING account_id",
       [hash(elevated), account.id],
     );
     expect(expired).toEqual([{ account_id: account.id }]);
-    expect((await page.request.get(exportPath, { maxRedirects: 0 })).status()).toBe(403);
+    await exportRequiresConfirmation(page);
 
 
     await logout(page, lang);
@@ -110,8 +125,7 @@ test('session list and targeted revoke preserve the current browser, then passwo
     await submit(page, 'main form', { current_password: account.password });
     const beforeChange = await cookie(context);
     await expectSession(beforeChange, account.id);
-    const next = password();
-    await seedPasswordRange(next);
+    const next = await seedPasswordRange();
     await page.goto(`/${lang}/password/change`);
     await submit(page, 'main form', {
       current_password: account.password, password: next, password_confirmation: next,

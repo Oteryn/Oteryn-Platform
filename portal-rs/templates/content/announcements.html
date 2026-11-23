@@ -1,30 +1,43 @@
 <!doctype html>
-<html lang="en">
+<html lang="{{ lang }}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Announcements</title>
+<title>{{ self.text("heading") }}</title>
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/components.css">
 </head>
 <body class="op-theme">
 <main class="op-panel op-stack">
-<h1>Announcements / Ogłoszenia</h1>
-<a href="/admin/announcements">List / Lista</a>
-<a href="/admin/announcements/create">Create / Utwórz</a>
+<h1>{{ self.text("heading") }}</h1>
+<a href="/admin/announcements">{{ self.text("list") }}</a>
+<a href="/admin/announcements/create">{{ self.text("create") }}</a>
 {% for row in rows %}<p>
-<a href="/admin/announcements/{{ row.0 }}/edit">{{ row.1 }}</a> {{ row.2 }}</p>{% endfor %}
+<a href="/admin/announcements/{{ row.0 }}/edit" lang="en">{{ row.1 }}</a> {{ self.text(row.2) }}</p>{% endfor %}
 
 {% if !action.is_empty() %}<form method="post" action="{{ action }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="lock_version" value="{{ version }}">
-<p>Publication: draft = unpublished, published = public. Dates use RFC3339 (UTC). English source and Polish translation are edited together. A new translation publication timestamp approves the current translation.</p>
-{% for field in fields %}<label for="{{ field.0 }}">{{ field.1 }}</label>{% if field.0 == "publication_state" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">
-<option value="draft"{% if field.2 == "draft" %} selected{% endif %}>Draft / Nieopublikowane</option>
-<option value="published"{% if field.2 == "published" %} selected{% endif %}>Published / Opublikowane</option>
-</select>{% else if field.0 == "severity" %}<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{% for severity in ["info", "maintenance", "warning"] %}<option{% if field.2.as_str() == *severity %} selected{% endif %}>{{ severity }}</option>{% endfor %}
-</select>{% else %}<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{{ field.2 }}</textarea>{% endif %}{% endfor %}
-<button class="op-button">Save / Zapisz</button>
-</form>{% endif %}{% if more %}<a href="?page={{ next }}">Next / Następna</a>{% endif %}</main>
+<p>{{ self.text("instructions") }}</p>
+{% for field in fields %}
+<label for="{{ field.0 }}">{{ self.text(field.0) }}</label>
+{% if field.0.as_str() == "publication_state" %}
+<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">
+{% for state in ["draft", "published"] %}
+<option value="{{ state }}"{% if field.1.as_str() == *state %} selected{% endif %}>{{ self.text(state) }}</option>
+{% endfor %}
+</select>
+{% else if field.0.as_str() == "severity" %}
+<select class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">
+{% for severity in ["info", "maintenance", "warning"] %}
+<option value="{{ severity }}"{% if field.1.as_str() == *severity %} selected{% endif %}>{{ self.text(severity) }}</option>
+{% endfor %}
+</select>
+{% else %}
+<textarea class="op-input" id="{{ field.0 }}" name="{{ field.0 }}">{{ field.1 }}</textarea>
+{% endif %}
+{% endfor %}
+<button class="op-button">{{ self.text("save") }}</button>
+</form>{% endif %}{% if more %}<a href="?page={{ next }}">{{ self.text("next") }}</a>{% endif %}</main>
 </body>
 </html>

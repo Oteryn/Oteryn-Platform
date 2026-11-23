@@ -243,6 +243,37 @@ impl RateLimiter {
             ),
         }
     }
+    /// Charge an appeal against the budget started before refreshing its browser session.
+    pub async fn check_appeal(
+        &self,
+        keys: &Keys,
+        deadline: &crate::session::SessionMutationDeadline,
+    ) -> Result<(), Denial> {
+        let policy = NamedPolicy::SupportEnforcementAppeal;
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        let hash = keys.hash(policy)?;
+        let mut tx = deadline
+            .begin(&self.pool)
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        let (count, delay) = charge(&mut *tx, policy, hash, None)
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        if !oteryn_db::transaction::arm_commit(&mut tx, None)
+            .await
+            .map_err(|_| self.unavailable(policy))?
+        {
+            return Err(self.unavailable(policy));
+        }
+        tx.commit().await.map_err(|_| self.unavailable(policy))?;
+        if count > policy.limit() {
+            return Err(Denial::Limited { retry_after: delay });
+        }
+        Ok(())
+    }
+
     pub async fn check(&self, policy: NamedPolicy, keys: &[Keys]) -> Result<(), Denial> {
         if !self.configuration_valid {
             return Err(Denial::Unavailable);

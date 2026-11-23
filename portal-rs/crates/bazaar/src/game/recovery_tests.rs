@@ -169,6 +169,74 @@ async fn state(db: &BrowserFixture) -> crate::State {
         .unwrap()
 }
 
+#[tokio::test]
+async fn settlement_activity_reports_audited_delivery_and_gold_payout_refusals() {
+    use sqlx::Row;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    for (gold, command, expected) in [
+        (false, Command::Deliver, "settlement_refused"),
+        (true, Command::Deliver, "settlement_refused"),
+        (true, Command::Payout, "settlement_payout_refused"),
+    ] {
+        let db = item_sale(gold, false).await;
+        let listing = uid("20");
+        if command == Command::Payout {
+            item_effect(&db, Command::Deliver, false).await;
+            db.runtime.tick().await.unwrap();
+        }
+        let read_activity = |actor| {
+            sqlx::query(include_str!("../activity.sql"))
+                .bind(actor)
+                .bind(listing)
+                .bind(0_i64)
+                .bind(20_i64)
+                .fetch_all(&db.pool)
+        };
+        let buyer = uid("13");
+        let before = read_activity(buyer).await.unwrap();
+        let pending = before
+            .iter()
+            .find(|row| row.get::<i32, _>("section") == 2)
+            .unwrap();
+        assert_eq!(pending.get::<String, _>("state"), "settlement_pending");
+        let pending_at = pending.get::<time::OffsetDateTime, _>("updated_at");
+
+        let command_intent = newest_intent(&db, listing, command).await;
+        if command == Command::Deliver {
+            item_effect(&db, command, true).await;
+        } else {
+            reject_expired(&db, &command_intent).await;
+        }
+        let operation = id(text(&command_intent.value, "operation_id").unwrap()).unwrap();
+        let recorded_at: time::OffsetDateTime = sqlx::query_scalar(
+            "SELECT greatest(r.created_at, d.created_at)
+             FROM bazaar_authority_receipts r JOIN bazaar_authority_decisions d
+                 USING (operation_id, recovery_generation)
+             WHERE r.operation_id=$1",
+        )
+        .bind(operation)
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+        assert!(recorded_at > pending_at);
+        assert_eq!(state(&db).await, crate::State::AwaitingDelivery);
+        for actor in [buyer, uid("11")] {
+            let rows = read_activity(actor).await.unwrap();
+            let settlement = rows
+                .iter()
+                .find(|row| row.get::<i32, _>("section") == 2)
+                .unwrap();
+            assert_eq!(settlement.get::<String, _>("state"), expected);
+            assert_eq!(
+                settlement.get::<time::OffsetDateTime, _>("updated_at"),
+                recorded_at
+            );
+        }
+        db.end().await;
+    }
+}
+
 async fn payout(rebid: bool) {
     let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let mut db = item_sale(true, rebid).await;

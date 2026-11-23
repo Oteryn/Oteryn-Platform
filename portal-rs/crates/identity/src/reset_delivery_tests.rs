@@ -25,6 +25,8 @@ async fn encrypted_delivery_renders_and_refuses_tampering_and_consumed_tokens()
     };
     let message = mailer.prepare(&payload).await?.ok_or("message")?;
     let formatted = String::from_utf8(message.formatted())?.replace("=\r\n", "");
+    assert!(formatted.contains("MIME-Version: 1.0\r\n"));
+    assert!(formatted.contains("Content-Type: text/plain; charset=utf-8\r\n"));
     assert!(formatted.contains(&format!(
         "https://portal.example.test/pl/reset-password/{token}"
     )));

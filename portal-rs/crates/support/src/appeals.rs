@@ -1,9 +1,8 @@
 //! Appeal workflow persistence; behavioural reference:
 //! app/Support/Actions/ManageEnforcementRecord.php.
 //!
-//! T34 is not available. Its adapter must lock and authorize the authoritative
-//! sanction in the same transaction, revoke Platform enforcement on acceptance,
-//! and write staff audit and notification outbox entries before committing.
+//! Browser submissions lock the authoritative sanction in the workflow transaction.
+//! Staff decisions use the Platform enforcement adapter for revocation, audit and notifications.
 //! This module never issues game commands. See the enforcement command contract.
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
@@ -19,20 +18,29 @@ pub enum Error {
     Disabled,
     #[error("not found")]
     NotFound,
+    #[error("session is no longer authorized")]
+    SessionRevoked,
     #[error("invalid input")]
     Invalid,
+    #[error("sanction is no longer active")]
+    SanctionInactive,
     #[error("stale version or invalid transition")]
     Conflict,
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+    #[error("audit unavailable")]
+    AuditUnavailable,
+    #[error("appeal submission deadline exceeded")]
+    Deadline,
 }
 impl Error {
     pub fn status_code(&self) -> u16 {
         match self {
             Self::Disabled | Self::NotFound => 404,
+            Self::SessionRevoked => 403,
             Self::Invalid => 422,
-            Self::Conflict => 409,
-            Self::Database(_) => 503,
+            Self::Conflict | Self::SanctionInactive => 409,
+            Self::Database(_) | Self::AuditUnavailable | Self::Deadline => 503,
         }
     }
 }
@@ -44,6 +52,8 @@ pub enum Status {
     Accepted,
     Rejected,
 }
+const SUBMITTABLE: [Status; 2] = [Status::None, Status::Rejected];
+
 impl Status {
     fn parse(s: &str) -> Result<Self, Error> {
         match s {
@@ -99,7 +109,7 @@ impl History {
             }
             Action::Submit(message) => {
                 let message = text(message, true)?;
-                if !matches!(self.status, Status::None | Status::Rejected) {
+                if !SUBMITTABLE.contains(&self.status) {
                     return Err(Error::Conflict);
                 }
                 self.message = message;
@@ -143,7 +153,7 @@ impl Appeals {
             Err(Error::Disabled)
         }
     }
-    /// Trusted T34 integration seam. Initialize only alongside sanction creation.
+    /// Initialize during sanction creation or while holding the authoritative sanction lock.
     pub async fn register(
         self,
         db: &mut PgConnection,
@@ -367,3 +377,177 @@ impl<A: Sanctions> Workflow<A> {
 
 #[cfg(test)]
 mod tests;
+
+pub mod web;
+
+#[derive(sqlx::FromRow)]
+struct Entry {
+    id: Uuid,
+    public_reason: String,
+    status: String,
+    message: Option<String>,
+    outcome: Option<String>,
+    version: i64,
+    can_submit: bool,
+}
+
+macro_rules! active_sanction {
+    () => {
+        "s.status = 'active' AND s.effective_at <= clock_timestamp()
+            AND (s.expires_at IS NULL OR s.expires_at > clock_timestamp())"
+    };
+}
+
+async fn player_entries(
+    pool: &sqlx::PgPool,
+    actor: Uuid,
+    id: Option<Uuid>,
+    offset: i64,
+) -> Result<Vec<Entry>, Error> {
+    // A completed or pending appeal stays visible when the sanction ends.
+    let query = concat!(
+        "SELECT s.id, s.public_reason, coalesce(a.status, 'none') AS status,
+                a.message, a.outcome, coalesce(a.version, 1) AS version,
+                (",
+        active_sanction!(),
+        " AND coalesce(a.status, 'none') = ANY($4)) AS can_submit
+         FROM sanctions s
+         LEFT JOIN support_appeal_workflows a ON a.sanction_id = s.id AND a.owner_id = s.account_id
+         WHERE s.account_id = $1 AND ($2::uuid IS NULL OR s.id = $2)
+           AND ((",
+        active_sanction!(),
+        ") OR a.status <> 'none')
+         ORDER BY s.created_at DESC, s.id DESC LIMIT 21 OFFSET $3"
+    );
+    Ok(sqlx::query_as(query)
+        .bind(actor)
+        .bind(id)
+        .bind(offset)
+        .bind(SUBMITTABLE.map(Status::wire).as_slice())
+        .fetch_all(pool)
+        .await?)
+}
+
+async fn browser_session_expiry<'e>(
+    db: impl sqlx::PgExecutor<'e>,
+    actor: Uuid,
+    session_hash: &[u8],
+) -> Result<Option<sqlx::types::time::OffsetDateTime>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT least(s.idle_expires_at, s.absolute_expires_at)
+            FROM web_sessions s JOIN accounts a ON a.id = s.account_id
+            WHERE s.id_hash = $1 AND s.account_id = $2
+              AND a.status IN ('active', 'suspended')
+              AND s.authorization_generation = a.native_security_generation
+              AND s.idle_expires_at > clock_timestamp()
+              AND s.absolute_expires_at > clock_timestamp()",
+    )
+    .bind(session_hash)
+    .bind(actor)
+    .fetch_optional(db)
+    .await
+}
+
+async fn submit_player(
+    pool: &sqlx::PgPool,
+    actor: Uuid,
+    session_hash: &[u8],
+    id: Uuid,
+    version: i64,
+    message: &str,
+    deadline: &oteryn_web::session::SessionMutationDeadline,
+) -> Result<(), Error> {
+    use oteryn_admin::audit::{self, AuditContext};
+    use serde_json::json;
+
+    if id.is_nil() || version < 1 {
+        return Err(Error::Invalid);
+    }
+    text(message, true)?;
+    let mut tx = deadline.begin(pool).await?;
+    sqlx::query("SELECT id FROM accounts WHERE id = $1 FOR UPDATE")
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    // Lock the exact session first, then evaluate its eligibility using the live clock.
+    sqlx::query(
+        "SELECT id_hash FROM web_sessions WHERE id_hash = $1 AND account_id = $2 FOR UPDATE",
+    )
+    .bind(session_hash)
+    .bind(actor)
+    .execute(&mut *tx)
+    .await?;
+    if browser_session_expiry(&mut *tx, actor, session_hash)
+        .await?
+        .is_none()
+    {
+        return Err(Error::SessionRevoked);
+    }
+    oteryn_db::mutation_budget(&mut tx).await?;
+    let query = concat!(
+        "WITH locked AS MATERIALIZED (
+            SELECT status, effective_at, expires_at FROM sanctions
+            WHERE id = $1 AND account_id = $2 FOR UPDATE
+         )
+         SELECT (",
+        active_sanction!(),
+        ") FROM locked s"
+    );
+    let active: bool = sqlx::query_scalar(query)
+        .bind(id)
+        .bind(actor)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::NotFound)?;
+    if !active {
+        return Err(Error::SanctionInactive);
+    }
+    oteryn_db::mutation_budget(&mut tx).await?;
+    let state: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM support_appeal_workflows WHERE sanction_id = $1 AND owner_id = $2 FOR UPDATE",
+    )
+    .bind(id)
+    .bind(actor)
+    .fetch_optional(&mut *tx)
+    .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    let appeals = Appeals { enabled: true };
+    let prior = state
+        .as_deref()
+        .map(Status::parse)
+        .transpose()?
+        .unwrap_or(Status::None);
+    if state.is_none() {
+        appeals.register(&mut tx, id, actor).await?;
+    }
+    oteryn_db::mutation_budget(&mut tx).await?;
+    let history = appeals
+        .change(&mut tx, actor, id, version, Action::Submit(message))
+        .await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    audit::append(
+        &mut tx,
+        audit::Entry {
+            context: AuditContext {
+                actor: Some(actor),
+                request_id: Uuid::now_v7(),
+            },
+            action: "support.enforcement_appeal_submitted",
+            target: &id.to_string(),
+            before: json!({"status": prior.wire(), "version": version}),
+            after: json!({"status": history.status.wire(), "version": history.version}),
+        },
+    )
+    .await
+    .map_err(|_| Error::AuditUnavailable)?;
+    oteryn_db::mutation_budget(&mut tx).await?;
+    let expiry = browser_session_expiry(&mut *tx, actor, session_hash)
+        .await?
+        .ok_or(Error::SessionRevoked)?;
+    if !oteryn_db::transaction::arm_commit(&mut tx, Some(expiry)).await? {
+        return Err(Error::Deadline);
+    }
+    tx.commit().await?;
+    Ok(())
+}

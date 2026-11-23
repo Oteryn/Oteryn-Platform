@@ -719,3 +719,7 @@ mod tests;
 mod checkout;
 pub use checkout::Checkout;
 use checkout::{CheckoutStatus, checkout_page, checkout_post};
+
+#[path = "web_orders.rs"]
+mod orders;
+pub use orders::{mount as mount_order_history, register as register_order_history};

@@ -15,9 +15,10 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
     if 'tests' in file.parts or file.name == 'tests.rs' or re.search(r'(?:_tests?|_test_db)\.rs$', file.name):
         continue
     source = re.sub(r'#\[cfg\(test\)\]\s*(?:#\[[^\]\n]*\]\s*)*mod \w+;', '', file.read_text())
-    source = source.split('#[cfg(test)]\nmod tests {')[0]
+    source = re.sub(r'(?ms)^#\[cfg\(test\)\]\nmod \w+ \{.*?^\}',
+                    lambda match: '\n' * match[0].count('\n'), source)
     crate = file.relative_to(ROOT).parts[1]
-    if crate in {'gateway', 'internal-api'} or str(file.relative_to(ROOT)) in {'crates/admin/src/control/http.rs', 'crates/gameauth/src/health.rs', 'crates/store/src/purchase_http.rs', 'crates/store/src/delivery_http.rs', 'crates/gameauth/src/runtime.rs'}:
+    if crate in {'gateway', 'internal-api'} or str(file.relative_to(ROOT)) in {'crates/admin/src/control/http.rs', 'crates/gameauth/src/health.rs', 'crates/store/src/purchase_http.rs', 'crates/store/src/delivery_http.rs', 'crates/gameauth/src/runtime.rs', 'crates/support/src/sanctions/enforcement.rs'}:
         continue
     flag_source = source
     related_files = [file.parent/'config.rs', file.parent/'mod.rs', file.parent.parent/(file.parent.name+'.rs')]
@@ -28,16 +29,20 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
         if related.is_file() and related != file:
             flag_source += related.read_text()
     flags = sorted(set(re.findall(r'"((?:OTERYN|PORTAL|PANEL)_[A-Z_]+(?:ENABLED|READ|MFA|LOGIN|PASSKEYS|TICKETS|CONSOLE|PANEL|CREDENTIALS|SESSIONS|RECOVERY_KEYS|EMAIL_CHANGE|PASSWORD_RESET|PAYMENTS|PRESENT|INGEST))"', flag_source)))
-    matches = list(re.finditer(r'\.route\(\s*(?:&format!\()?"([^"\n]+)"', source))
+    localized_paths = dict(re.findall(
+        r'\bconst\s+([A-Z][A-Z0-9_]*)\s*:\s*&str\s*=\s*"(/\{lang\}/[^"\n]+)"\s*;', source
+    ))
+    matches = list(re.finditer(r'\.route\(\s*(?:(?:&format!\()?"([^"\n]+)"|([A-Z][A-Z0-9_]*)\s*,)', source))
     # Routes whose path variable comes from a literal array in the same router.
     if re.search(r'\.route\(\s*(?:path|&format!\("\{path\}/data")', source):
         for m in re.finditer(r'"(/(?:admin|console)[^"\s]*)"', source):
             if source[max(0,m.start()-250):m.start()].find('href=') < 0:
                 matches.append(m)
     for m in matches:
-        path = m[1]
+        path = m[1] or localized_paths.get(m[2], '')
         if not path.startswith(('/', '{prefix}')) or path.startswith('/internal/'):
             continue
+        declared_path = path
         path = canonical(path)
         if crate == 'gameauth' and path == '/health':
             continue
@@ -66,13 +71,20 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
                         tail = source[m.end():end]
                         break
         methods = sorted(set(x.upper() for x in re.findall(r'\b(get|post|put|delete|patch)\(', tail))) or ['GET']
-        key = (crate, path)
-        row = rows.setdefault(key, dict(route=path, crate=crate, flags=flags, methods=[], sources=[]))
-        row['methods'] = sorted(set(row['methods'] + methods))
-        row['sources'].append(f'{file.relative_to(ROOT)}:{source[:m.start()].count(chr(10))+1}')
-        if '{prefix}' in m[1] and 'for prefix in ["",' in source:
-            alias=canonical(m[1].replace('{prefix}', ''))
-            rows.setdefault((crate,alias),dict(route=alias,crate=crate,flags=flags,methods=methods,sources=[f'{file.relative_to(ROOT)}:prefix alias']))
+        if tail.lstrip().startswith(', badge_routes'):
+            methods = ['GET', 'POST']
+        patterns = [declared_path]
+        if file.name == 'web.rs' and file.parent.name == 'families' and path.endswith('/{}'):
+            patterns = [declared_path.removesuffix('{}') + family
+                        for family in ('achievements', 'equipment', 'outfit')]
+        for pattern in patterns:
+            path = canonical(pattern)
+            row = rows.setdefault((crate, path), dict(route=path, crate=crate, flags=flags, methods=[], sources=[]))
+            row['methods'] = sorted(set(row['methods'] + methods))
+            row['sources'].append(f'{file.relative_to(ROOT)}:{source[:m.start()].count(chr(10))+1}')
+            if '{prefix}' in pattern and 'for prefix in ["",' in source:
+                alias = canonical(pattern.replace('{prefix}', ''))
+                rows.setdefault((crate,alias),dict(route=alias,crate=crate,flags=flags,methods=methods,sources=[f'{file.relative_to(ROOT)}:prefix alias']))
 
 # Literal-array routers and a nested admin control surface.
 extra = {
@@ -109,7 +121,7 @@ result=dict(routes=list(rows.values()),sections=sections)
 (ROOT/'e2e/inventory.json').write_text(json.dumps(result,indent=2)+'\n')
 lines=['# Portal coverage inventory','','Source scan: `python3 e2e/inventory.py`. `{lang}` expands to pl and en in all four projects. Unprefixed aliases are retained separately. Source locations identify the owning router; route methods are retained in inventory.json. This inventory is provisional until the executed matrix is reconciled.','','| Route | Module crate | Enabling flags | Actor | Spec + case | Result |','| --- | --- | --- | --- | --- | --- |']
 for row in result['routes']:
-    actor='staff' if re.search(r'/(admin|console)(/|$)',row['route']) else 'owner' if re.search(r'/(account|panel|support/tickets|support/reports)(/|$)',row['route']) else 'anonymous/player'
+    actor='staff' if re.search(r'/(admin|console)(/|$)',row['route']) else 'owner' if re.search(r'/(account|panel|support/(?:appeals|tickets|reports))(/|$)',row['route']) else 'anonymous/player'
     lines.append(f"| `{row['route']}` | {row['crate']} | {', '.join(row['flags']) or 'always mounted'} | {actor} | pending | NOT_RUN |")
 lines+=['','## Registry sections','','| Section | Route | Group | Module | Footer | Result |','| --- | --- | --- | --- | --- | --- |']
 for row in sections:

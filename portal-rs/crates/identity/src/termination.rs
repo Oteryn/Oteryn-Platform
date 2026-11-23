@@ -219,6 +219,11 @@ impl Terminations {
         Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_terminations WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)")
             .bind(account).fetch_one(&self.pool).await?)
     }
+    /// A pending owner can open the cancellation page when intake is paused.
+    pub async fn deletion_page(&self, account: AccountId) -> Result<Option<bool>> {
+        let pending = self.has_pending(account).await?;
+        Ok((pending || self.accepts_requests()).then_some(pending))
+    }
     fn enabled(&self) -> Result<()> {
         if !self.config.enabled {
             return Err(Error::Disabled);

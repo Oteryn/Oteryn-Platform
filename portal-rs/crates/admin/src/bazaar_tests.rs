@@ -272,6 +272,34 @@ async fn postgres_staff_http_actor_to_result_csrf_and_localization() {
             .await
             .unwrap();
         assert_eq!(bad.status(), StatusCode::FORBIDDEN);
+        let validation = if lang == "pl" {
+            "Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie."
+        } else {
+            "Some information could not be accepted. Check your input and try again."
+        };
+        for malformed in [
+            format!("action=suspend&listing=invalid&reason=Actor+validation&_csrf={token}"),
+            format!("action=suspend&listing={listing}&reason=&_csrf={token}"),
+        ] {
+            let refused = app
+                .clone()
+                .oneshot(
+                    Request::post(format!("/admin/{lang}/bazaar"))
+                        .header("host", "staff.test")
+                        .header("cookie", &cookie)
+                        .header("origin", "https://staff.test")
+                        .header("content-type", "application/x-www-form-urlencoded")
+                        .body(Body::from(malformed))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(
+                to_bytes(refused.into_body(), 256).await.unwrap().as_ref(),
+                validation.as_bytes(),
+            );
+        }
         let result = app
             .clone()
             .oneshot(

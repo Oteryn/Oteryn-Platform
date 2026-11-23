@@ -26,6 +26,14 @@ pub async fn append(
     transaction: &mut Transaction<'_, Postgres>,
     entry: Entry<'_>,
 ) -> Result<Uuid, crate::rbac::Error> {
+    append_with_reason(transaction, entry, None).await
+}
+
+pub(crate) async fn append_with_reason(
+    transaction: &mut Transaction<'_, Postgres>,
+    entry: Entry<'_>,
+    reason: Option<&str>,
+) -> Result<Uuid, crate::rbac::Error> {
     if entry.context.request_id.is_nil()
         || entry.context.actor.is_some_and(|id| id.is_nil())
         || entry.action.trim().is_empty()
@@ -35,18 +43,28 @@ pub async fn append(
     {
         return Err(crate::rbac::Error::InvalidInput);
     }
-    let id = sqlx::query_scalar(
-        "INSERT INTO audit_log (actor, action, target, before, after, request_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
-    )
+    // Reason-free writes also support the original audit schema.
+    let insert = sqlx::query_scalar(match reason {
+        Some(_) => {
+            "INSERT INTO audit_log (actor, action, target, before, after, request_id, staff_reason)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id"
+        }
+        None => {
+            "INSERT INTO audit_log (actor, action, target, before, after, request_id)
+             VALUES ($1, $2, $3, $4, $5, $6) RETURNING id"
+        }
+    })
     .bind(entry.context.actor)
     .bind(entry.action)
     .bind(entry.target)
     .bind(entry.before)
     .bind(entry.after)
-    .bind(entry.context.request_id)
-    .fetch_one(&mut **transaction)
-    .await?;
+    .bind(entry.context.request_id);
+    let insert = match reason {
+        Some(reason) => insert.bind(reason),
+        None => insert,
+    };
+    let id = insert.fetch_one(&mut **transaction).await?;
     Ok(id)
 }
 

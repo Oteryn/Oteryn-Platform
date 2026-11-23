@@ -1,0 +1,829 @@
+[
+  {
+    "path": "/account",
+    "target": "/account",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:456"
+  },
+  {
+    "path": "/account/badges",
+    "target": "/account/badges",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:473"
+  },
+  {
+    "path": "/account/characters/{name}/profile",
+    "target": "/account/characters/Fixture/profile",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:476"
+  },
+  {
+    "path": "/account/game-logins",
+    "target": "/account/game-logins",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/logins/web.rs:48"
+  },
+  {
+    "path": "/account/recovery-key",
+    "target": "/account/recovery-key",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/recovery_key_http.rs:40"
+  },
+  {
+    "path": "/account/recovery-key/confirm",
+    "target": "/account/recovery-key/confirm",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/recovery_key_http.rs:44"
+  },
+  {
+    "path": "/account/security",
+    "target": "/account/security",
+    "status": 303,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/credentials_http.rs:108",
+    "signedInLocationSuffix": "/password/change"
+  },
+  {
+    "path": "/account/security/email",
+    "target": "/account/security/email",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/email_change_http.rs:46"
+  },
+  {
+    "path": "/account/sessions",
+    "target": "/account/sessions",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/sessions_http.rs:39"
+  },
+  {
+    "path": "/account/sudo",
+    "target": "/account/sudo",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/credentials_http.rs:107"
+  },
+  {
+    "path": "/admin/analytics",
+    "target": "/admin/analytics",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:129",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/activity",
+    "target": "/admin/analytics/activity",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:129",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/activity/data",
+    "target": "/admin/analytics/activity/data",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:130",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/creatures",
+    "target": "/admin/analytics/creatures",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:129",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/creatures/data",
+    "target": "/admin/analytics/creatures/data",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:130",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/data",
+    "target": "/admin/analytics/data",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:130",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/economy",
+    "target": "/admin/analytics/economy",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:129",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/economy/data",
+    "target": "/admin/analytics/economy/data",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:130",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/health",
+    "target": "/admin/analytics/health",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:129",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/health/data",
+    "target": "/admin/analytics/health/data",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:130",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/levels",
+    "target": "/admin/analytics/levels",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:129",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/analytics/levels/data",
+    "target": "/admin/analytics/levels/data",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/admin/src/analytics/web.rs:130",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/commerce",
+    "target": "/admin/commerce",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/commerce/http.rs:54",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/console/audit",
+    "target": "/admin/console/audit",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/console/access.rs:445",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/console/players",
+    "target": "/admin/console/players",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/console/access.rs:441",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/control/step-up",
+    "target": "/admin/control/step-up",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/control/controls_http.rs:42",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/pages/{slug}/{locale}",
+    "target": "/admin/pages/rules/{locale}",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/content/src/pages/staff.rs:40",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/world",
+    "target": "/admin/world",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/world/src/admin.rs:77",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/{lang}/bazaar",
+    "target": "/admin/{lang}/bazaar",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/bazaar.rs:169",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/admin/{lang}/party",
+    "target": "/admin/{lang}/party",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/community/src/party.rs:273",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/api/v1/account/summary",
+    "target": "/api/v1/account/summary",
+    "status": 503,
+    "anonymousStatus": 503,
+    "source": "crates/player-api/src/account_feed.rs:154"
+  },
+  {
+    "path": "/api/v1/feed",
+    "target": "/api/v1/feed",
+    "status": 503,
+    "anonymousStatus": 503,
+    "source": "crates/player-api/src/account_feed.rs:154"
+  },
+  {
+    "path": "/api/v1/game-auth/native-characters",
+    "target": "/api/v1/game-auth/native-characters",
+    "status": 401,
+    "anonymousStatus": 401,
+    "source": "crates/player-api/src/lib.rs:50"
+  },
+  {
+    "path": "/api/v1/native-account/coin-purchases/balance",
+    "target": "/api/v1/native-account/coin-purchases/balance",
+    "status": 401,
+    "anonymousStatus": 401,
+    "source": "crates/payments/src/coin_http.rs:33"
+  },
+  {
+    "path": "/api/v1/native-account/coin-purchases/catalogue",
+    "target": "/api/v1/native-account/coin-purchases/catalogue",
+    "status": 401,
+    "anonymousStatus": 401,
+    "source": "crates/payments/src/coin_http.rs:32"
+  },
+  {
+    "path": "/api/v1/stats/watches",
+    "target": "/api/v1/stats/watches",
+    "status": 401,
+    "anonymousStatus": 401,
+    "source": "crates/stats/src/watch/http.rs:17"
+  },
+  {
+    "path": "/atlas/private-markers",
+    "target": "/atlas/private-markers",
+    "status": 200,
+    "anonymousStatus": 401,
+    "source": "crates/atlas/src/spawns.rs:41"
+  },
+  {
+    "path": "/console/dashboard",
+    "target": "/console/dashboard?agent=fixture",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/console/mod.rs:377",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/console/database",
+    "target": "/console/database?agent=fixture",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/console/mod.rs:389",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/console/nodes",
+    "target": "/console/nodes?agent=fixture",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/console/mod.rs:385",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/console/worlds",
+    "target": "/console/worlds?agent=fixture",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/admin/src/console/mod.rs:381",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/email-change/confirm/{token}",
+    "target": "/email-change/confirm/invalid",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/email_change_http.rs:50"
+  },
+  {
+    "path": "/email-change/revert/{token}",
+    "target": "/email-change/revert/invalid",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/email_change_http.rs:54"
+  },
+  {
+    "path": "/en/account/badges",
+    "target": "/en/account/badges",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:474"
+  },
+  {
+    "path": "/en/account/characters/{name}/profile",
+    "target": "/en/account/characters/Fixture/profile",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:481"
+  },
+  {
+    "path": "/en/account/game-logins",
+    "target": "/en/account/game-logins",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/logins/web.rs:48"
+  },
+  {
+    "path": "/en/account/recovery-key",
+    "target": "/en/account/recovery-key",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/recovery_key_http.rs:40"
+  },
+  {
+    "path": "/en/account/recovery-key/confirm",
+    "target": "/en/account/recovery-key/confirm",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/recovery_key_http.rs:44"
+  },
+  {
+    "path": "/en/account/security",
+    "target": "/en/account/security",
+    "status": 303,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/credentials_http.rs:108",
+    "signedInLocationSuffix": "/password/change"
+  },
+  {
+    "path": "/en/account/security/email",
+    "target": "/en/account/security/email",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/email_change_http.rs:46"
+  },
+  {
+    "path": "/en/account/sessions",
+    "target": "/en/account/sessions",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/sessions_http.rs:39"
+  },
+  {
+    "path": "/en/account/sudo",
+    "target": "/en/account/sudo",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/credentials_http.rs:107"
+  },
+  {
+    "path": "/en/email-change/confirm/{token}",
+    "target": "/en/email-change/confirm/invalid",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/email_change_http.rs:50"
+  },
+  {
+    "path": "/en/email-change/revert/{token}",
+    "target": "/en/email-change/revert/invalid",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/email_change_http.rs:54"
+  },
+  {
+    "path": "/en/mfa",
+    "target": "/en/mfa",
+    "status": 200,
+    "anonymousStatus": 302,
+    "source": "crates/identity/src/mfa_http.rs:74"
+  },
+  {
+    "path": "/en/password/change",
+    "target": "/en/password/change",
+    "status": 200,
+    "anonymousStatus": 302,
+    "source": "crates/identity/src/credentials_http.rs:103"
+  },
+  {
+    "path": "/en/verify-email",
+    "target": "/en/verify-email",
+    "status": 422,
+    "anonymousStatus": 422,
+    "source": "crates/web/src/routes/verify.rs:146"
+  },
+  {
+    "path": "/mfa",
+    "target": "/mfa",
+    "status": 200,
+    "anonymousStatus": 302,
+    "source": "crates/identity/src/mfa_http.rs:74"
+  },
+  {
+    "path": "/password/change",
+    "target": "/password/change",
+    "status": 200,
+    "anonymousStatus": 302,
+    "source": "crates/identity/src/credentials_http.rs:103"
+  },
+  {
+    "path": "/pl/account/badges",
+    "target": "/pl/account/badges",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:475"
+  },
+  {
+    "path": "/pl/account/characters/{name}/profile",
+    "target": "/pl/account/characters/Fixture/profile",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:477"
+  },
+  {
+    "path": "/pl/account/game-logins",
+    "target": "/pl/account/game-logins",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/logins/web.rs:48"
+  },
+  {
+    "path": "/pl/account/recovery-key",
+    "target": "/pl/account/recovery-key",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/recovery_key_http.rs:40"
+  },
+  {
+    "path": "/pl/account/recovery-key/confirm",
+    "target": "/pl/account/recovery-key/confirm",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/recovery_key_http.rs:44"
+  },
+  {
+    "path": "/pl/account/security",
+    "target": "/pl/account/security",
+    "status": 303,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/credentials_http.rs:108",
+    "signedInLocationSuffix": "/password/change"
+  },
+  {
+    "path": "/pl/account/security/email",
+    "target": "/pl/account/security/email",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/email_change_http.rs:46"
+  },
+  {
+    "path": "/pl/account/sessions",
+    "target": "/pl/account/sessions",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/sessions_http.rs:39"
+  },
+  {
+    "path": "/pl/account/sudo",
+    "target": "/pl/account/sudo",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/credentials_http.rs:107"
+  },
+  {
+    "path": "/pl/email-change/confirm/{token}",
+    "target": "/pl/email-change/confirm/invalid",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/email_change_http.rs:50"
+  },
+  {
+    "path": "/pl/email-change/revert/{token}",
+    "target": "/pl/email-change/revert/invalid",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/email_change_http.rs:54"
+  },
+  {
+    "path": "/pl/mfa",
+    "target": "/pl/mfa",
+    "status": 200,
+    "anonymousStatus": 302,
+    "source": "crates/identity/src/mfa_http.rs:74"
+  },
+  {
+    "path": "/pl/password/change",
+    "target": "/pl/password/change",
+    "status": 200,
+    "anonymousStatus": 302,
+    "source": "crates/identity/src/credentials_http.rs:103"
+  },
+  {
+    "path": "/pl/verify-email",
+    "target": "/pl/verify-email",
+    "status": 422,
+    "anonymousStatus": 422,
+    "source": "crates/web/src/routes/verify.rs:146"
+  },
+  {
+    "path": "/verify-email",
+    "target": "/verify-email",
+    "status": 422,
+    "anonymousStatus": 422,
+    "source": "crates/web/src/routes/verify.rs:146"
+  },
+  {
+    "path": "/{language}/account/dashboard",
+    "target": "/{language}/account/dashboard",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/dashboard/mod.rs:214"
+  },
+  {
+    "path": "/{lang}/account/bazaar",
+    "target": "/{lang}/account/bazaar",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/bazaar/src/characters/http.rs:99"
+  },
+  {
+    "path": "/{lang}/account/bazaar/sell",
+    "target": "/{lang}/account/bazaar/sell",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/bazaar/src/characters/http.rs:101"
+  },
+  {
+    "path": "/{lang}/account/bazaar/{listing}/report",
+    "target": "/{lang}/account/bazaar/019a541b-a000-7000-8000-000000000001/report",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/bazaar/src/moderation_web.rs:86"
+  },
+  {
+    "path": "/{lang}/account/characters/new",
+    "target": "/{lang}/account/characters/new",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/characters/src/create_web/http.rs:88"
+  },
+  {
+    "path": "/{lang}/account/characters/suggest",
+    "target": "/{lang}/account/characters/suggest",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/characters/src/create_web/http.rs:96"
+  },
+  {
+    "path": "/{lang}/account/consents",
+    "target": "/{lang}/account/consents",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/web/src/lib.rs:331"
+  },
+  {
+    "path": "/{lang}/account/hunts",
+    "target": "/{lang}/account/hunts",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/hunts_web.rs:35"
+  },
+  {
+    "path": "/{lang}/account/hunts/{id}/share",
+    "target": "/{lang}/account/hunts/019a541b-a000-7000-8000-000000000001/share",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/hunts_web.rs:38"
+  },
+  {
+    "path": "/{lang}/account/notifications",
+    "target": "/{lang}/account/notifications",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/account_lifecycle_http.rs:150"
+  },
+  {
+    "path": "/{lang}/account/passkeys",
+    "target": "/{lang}/account/passkeys",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/passkeys.rs:327",
+    "mfaStatus": 403
+  },
+  {
+    "path": "/{lang}/account/privacy",
+    "target": "/{lang}/account/privacy",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/privacy_web.rs:36"
+  },
+  {
+    "path": "/{lang}/account/privacy/delete",
+    "target": "/{lang}/account/privacy/delete",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/account_lifecycle_http.rs:137"
+  },
+  {
+    "path": "/{lang}/account/referrals",
+    "target": "/{lang}/account/referrals",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/community/src/referrals/web.rs:137",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
+  },
+  {
+    "path": "/{lang}/account/security/wizard",
+    "target": "/{lang}/account/security/wizard",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/identity/src/security_wizard.rs:161"
+  },
+  {
+    "path": "/{lang}/admin/support/tickets",
+    "target": "/{lang}/admin/support/tickets",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/support/src/tickets/web.rs:127",
+    "deniedStatus": 403
+  },
+  {
+    "path": "/{lang}/atlas/places",
+    "target": "/{lang}/atlas/places",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/places/http.rs:36"
+  },
+  {
+    "path": "/{lang}/atlas/places/participation",
+    "target": "/{lang}/atlas/places/participation",
+    "status": 200,
+    "anonymousStatus": 403,
+    "source": "crates/playerdata/src/places/http.rs:40"
+  },
+  {
+    "path": "/{lang}/collection",
+    "target": "/{lang}/collection",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/minigames/src/collection/http.rs:83"
+  },
+  {
+    "path": "/{lang}/collection-pvp",
+    "target": "/{lang}/collection-pvp",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/minigames/src/collection_pvp/http.rs:43",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
+  },
+  {
+    "path": "/{lang}/panel/hirelings",
+    "target": "/{lang}/panel/hirelings",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/hirelings/src/web.rs:20"
+  },
+  {
+    "path": "/{lang}/panel/payments",
+    "target": "/{lang}/panel/payments",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/payments/src/account.rs:40"
+  },
+  {
+    "path": "/{lang}/panel/premium",
+    "target": "/{lang}/panel/premium",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/payments/src/account.rs:39"
+  },
+  {
+    "path": "/{lang}/pass",
+    "target": "/{lang}/pass",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/minigames/src/pass/web.rs:115",
+    "restrictedStatus": 403,
+    "restrictedSource": "crates/minigames/src/pass/platform.rs:26"
+  },
+  {
+    "path": "/{lang}/puzzles",
+    "target": "/{lang}/puzzles",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/minigames/src/puzzles/http.rs:34"
+  },
+  {
+    "path": "/{lang}/shop",
+    "target": "/{lang}/shop",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/store/src/web.rs:146",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
+  },
+  {
+    "path": "/{lang}/shop/coins",
+    "target": "/{lang}/shop/coins",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/store/src/web.rs:147",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
+  },
+  {
+    "path": "/{lang}/shop/history",
+    "target": "/{lang}/shop/history",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/store/src/web.rs:148",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
+  },
+  {
+    "path": "/{lang}/shop/transfer",
+    "target": "/{lang}/shop/transfer",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/store/src/web.rs:149",
+    "restrictedStatus": 403,
+    "restrictedSource": "migrations/20261115120017_fix_a2-l6_value_eligibility.sql:20"
+  },
+  {
+    "path": "/{lang}/support/reports",
+    "target": "/{lang}/support/reports",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/support/src/reports/web.rs:27"
+  },
+  {
+    "path": "/{lang}/support/reports/create",
+    "target": "/{lang}/support/reports/create",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/support/src/reports/web.rs:28"
+  },
+  {
+    "path": "/{lang}/support/tickets",
+    "target": "/{lang}/support/tickets",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/support/src/tickets/web.rs:99"
+  },
+  {
+    "path": "/{lang}/support/tickets/create",
+    "target": "/{lang}/support/tickets/create",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/support/src/tickets/web.rs:100"
+  },
+  {
+    "path": "/{lang}/unsubscribe",
+    "target": "/{lang}/unsubscribe",
+    "status": 200,
+    "anonymousStatus": 200,
+    "source": "crates/identity/src/account_lifecycle_http.rs:151"
+  },
+  {
+    "path": "/{locale}/account/bazaar",
+    "target": "/{locale}/account/bazaar",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/bazaar/src/characters/http.rs:132"
+  },
+  {
+    "path": "/{locale}/account/bazaar/sell",
+    "target": "/{locale}/account/bazaar/sell",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/bazaar/src/characters/http.rs:132"
+  },
+  {
+    "path": "/{locale}/account/journal/reports",
+    "target": "/{locale}/account/journal/reports",
+    "status": 503,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/reports/http.rs:230"
+  },
+  {
+    "path": "/{locale}/account/journal/reports/notes/export",
+    "target": "/{locale}/account/journal/reports/notes/export",
+    "status": 200,
+    "anonymousStatus": 303,
+    "source": "crates/playerdata/src/reports/http.rs:235"
+  }
+]

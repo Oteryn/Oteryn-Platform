@@ -1,7 +1,7 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool,csrfRejected} from '../helpers.mjs';
-import path from 'node:path';
-import * as OTPAuth from 'otpauth';
+import {enrollMfa,loginWithRecoveryCode} from '../staff-rbac-helpers.mjs';
+import {staffContext} from '../staff-commerce-helpers.mjs';
 
 test('staff premium grant persists entitlement and audit; player cannot grant',async({page,browser},info)=>{
  test.setTimeout(300_000);
@@ -9,11 +9,7 @@ test('staff premium grant persists entitlement and audit; player cannot grant',a
  const account=await register(page,lang);
  await login(page,lang,account);
  const db=pool();
- const staff=await browser.newContext({
-  baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
-  ignoreHTTPSErrors:true,
-  storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),
- });
+ const staff=await staffContext(browser,info);
  const reviewer=await browser.newContext({
   baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
   ignoreHTTPSErrors:true,
@@ -35,23 +31,28 @@ test('staff premium grant persists entitlement and audit; player cannot grant',a
   const approver=await register(second,lang);
   await db.query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",[approver.email]);
   await login(second,lang,approver);
-  await second.goto(`/${lang}/mfa`);
-  await submit(second,'main form[action$="/mfa/enroll"]',{password:approver.password});
-  const totp=new OTPAuth.TOTP({secret:await second.locator('main .op-prose').innerText(),algorithm:'SHA1',digits:6,period:30});
-  await submit(second,'main form[action$="/mfa/confirm"]',{password:approver.password,code:totp.generate()});
-  const codes=await second.locator('textarea[readonly]').allTextContents();
+  const codes=await enrollMfa(second,lang,approver);
   // MFA confirmation revokes existing sessions; authenticate again with a recovery code.
-  await login(second,lang,approver);
-  await expect(second).toHaveURL(/mfa\/challenge/);
-  await submit(second,'main form[action$="/mfa/challenge"]',{code:codes[0]});
+  await loginWithRecoveryCode(second,lang,approver,codes[0]);
   await admin.goto('/admin/commerce');
   await expect(admin.locator(`form[action="/admin/commerce/approvals/${request}"] button`),'the proposer cannot approve their own grant').toHaveCount(0);
   expect((await second.goto('/admin/commerce')).status(),'second staff commerce page').toBe(200);
-  await submit(second,`form[action="/admin/commerce/approvals/${request}"]`);
+  const approval = `/admin/commerce/approvals/${request}`;
+  const approvalSelector = `form[action="${approval}"]`;
+  const approvalForm = second.locator(approvalSelector);
+  const approvalCsrf = await approvalForm.locator('[name=_csrf]').inputValue();
+  const missingReason = await second.request.post(approval, {
+    form: {_csrf: approvalCsrf}, headers: {origin: new URL(second.url()).origin}, maxRedirects: 0,
+  });
+  expect(missingReason.status()).toBe(422);
+  await approvalForm.locator('select[name=reason]').selectOption('value_verified');
+  await submit(second, approvalSelector);
   await expect(second,'approval returns to commerce').toHaveURL(/\/admin\/commerce$/);
   const rows=await db.query('SELECT event_type,duration_days,delta_seconds,effective_until > now() AS active FROM premium_ledger WHERE request_id=$1 AND account_id=$2',[request,target]);
   expect(rows.rows,'grant must persist seven days of premium').toEqual([{event_type:'GRANT',duration_days:7,delta_seconds:'604800',active:true}]);
   expect((await db.query('SELECT event_name FROM premium_audit WHERE request_id=$1 AND account_id=$2',[request,target])).rows,'grant has an audit event').toEqual([{event_name:'products.premium_granted'}]);
+  expect((await db.query("SELECT staff_reason FROM audit_log WHERE request_id=$1 AND action='commerce.approved'", [request])).rows)
+    .toEqual([{staff_reason: 'value_verified'}]);
   await page.goto(`/${lang}/panel/premium`);
   const end=(await db.query('SELECT effective_until FROM premium_ledger WHERE request_id=$1',[request])).rows[0].effective_until;
   await expect(page.locator('main'),'premium panel shows persisted end date').toContainText(end.toISOString().slice(0,10));

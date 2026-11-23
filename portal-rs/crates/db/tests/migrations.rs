@@ -45,6 +45,102 @@ fn migration_versions_are_fourteen_digit_timestamps() {
 }
 
 #[tokio::test]
+async fn competing_migrators_install_operations_indexes() -> Result<(), Box<dyn std::error::Error>>
+{
+    use oteryn_db::MIGRATOR;
+    use sqlx::{
+        ConnectOptions, PgPool, Postgres,
+        migrate::{MigrateDatabase, MigrateError},
+        pool::PoolConnection,
+        postgres::PgConnectOptions,
+    };
+    use tokio::time::{Duration, timeout};
+
+    async fn wait_until_blocked(
+        pool: &PgPool,
+        waiter: i32,
+        blocker: i32,
+    ) -> Result<(), sqlx::Error> {
+        while !sqlx::query_scalar::<_, bool>("SELECT $1 = ANY(pg_blocking_pids($2))")
+            .bind(blocker)
+            .bind(waiter)
+            .fetch_one(pool)
+            .await?
+        {}
+        Ok(())
+    }
+
+    async fn run_migrator(mut connection: PoolConnection<Postgres>) -> Result<(), MigrateError> {
+        // An unsuccessful migration can leave the session lock held.
+        connection.close_on_drop();
+        let result = MIGRATOR.run(&mut *connection).await;
+        let closed = connection.close().await;
+        result.and(closed.map_err(Into::into))
+    }
+
+    let options: PgConnectOptions = std::env::var("PORTAL_TEST_DATABASE_URL")?.parse()?;
+    let name = format!("migration_race_{}", sqlx::types::Uuid::now_v7().simple());
+    let options = options.database(&name);
+    let url = options.to_url_lossy();
+    Postgres::create_database(url.as_str()).await?;
+    let result = async {
+        let pool = PgPool::connect_with(options).await?;
+        let result = async {
+            MIGRATOR.run_to(20261122160700, &pool).await?;
+            let mut writer = pool.begin().await?;
+            sqlx::query("LOCK TABLE accounts IN SHARE ROW EXCLUSIVE MODE")
+                .execute(&mut *writer)
+                .await?;
+            let writer_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut *writer)
+                .await?;
+            let mut first = pool.acquire().await?;
+            let first_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut *first)
+                .await?;
+            let mut peer = pool.acquire().await?;
+            let peer_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+                .fetch_one(&mut *peer)
+                .await?;
+            // Park the first index build behind the writer until the peer is
+            // waiting for the first migrator's advisory lock.
+            let (first, peer, release) = timeout(Duration::from_secs(30), async {
+                tokio::join!(
+                    run_migrator(first),
+                    async {
+                        wait_until_blocked(&pool, first_pid, writer_pid).await?;
+                        run_migrator(peer).await
+                    },
+                    async {
+                        wait_until_blocked(&pool, peer_pid, first_pid).await?;
+                        writer.rollback().await
+                    },
+                )
+            })
+            .await?;
+            release?;
+            first?;
+            peer?;
+            let indexes: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM pg_index WHERE indisvalid AND indisready
+                   AND indexrelid IN ('accounts_operations_created_at'::regclass,
+                                      'security_events_operations_login_created_at'::regclass)",
+            )
+            .fetch_one(&pool)
+            .await?;
+            assert_eq!(indexes, 2);
+            Ok::<_, Box<dyn std::error::Error>>(())
+        }
+        .await;
+        pool.close().await;
+        result
+    }
+    .await;
+    Postgres::drop_database(url.as_str()).await?;
+    result
+}
+
+#[tokio::test]
 async fn reward_due_index_migration_leaves_reads_available()
 -> Result<(), Box<dyn std::error::Error>> {
     use oteryn_db::MIGRATOR;

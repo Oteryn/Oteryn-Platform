@@ -667,3 +667,117 @@ async fn r10_admin_logout_uses_route_origin() -> TestResult {
     assert_eq!(response.status(), StatusCode::NO_CONTENT);
     Ok(())
 }
+
+#[tokio::test]
+async fn appeal_quota_pool_wait_uses_session_deadline() -> TestResult {
+    use crate::ratelimit::{Denial, Keys, NamedPolicy, RateLimiter};
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let mut held = Vec::new();
+    for _ in 0..4 {
+        held.push(db.pool.acquire().await?);
+    }
+    let database: OffsetDateTime =
+        sqlx::query_scalar("SELECT clock_timestamp() + interval '200 milliseconds'")
+            .fetch_one(&mut *held[0])
+            .await?;
+    let deadline = SessionMutationDeadline {
+        database,
+        request: BrowserMutationDeadline(
+            tokio::time::Instant::now() + std::time::Duration::from_millis(200),
+        ),
+    };
+    let mut keys = Keys::source([127, 0, 0, 1].into());
+    keys.account = Some(Uuid::now_v7().to_string());
+    let limiter = RateLimiter::new(db.pool.clone());
+    let denied = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        limiter.check_appeal(&keys, &deadline),
+    )
+    .await?;
+    assert_eq!(denied, Err(Denial::Unavailable));
+    drop(held);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM web_rate_limits WHERE limiter_name=$1")
+            .bind(NamedPolicy::SupportEnforcementAppeal.name())
+            .fetch_one(&db.pool)
+            .await?,
+        0
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn browser_mutation_transaction_bounds_consecutive_lock_waits() -> TestResult {
+    use std::time::Duration;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new().await?.ok_or("PostgreSQL required")?;
+    let key: i32 = sqlx::query_scalar("SELECT hashtext(current_schema())")
+        .fetch_one(&db.pool)
+        .await?;
+    let mut first_blocker = db.pool.begin().await?;
+    let mut second_blocker = db.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1, 1)")
+        .bind(key)
+        .execute(&mut *first_blocker)
+        .await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1, 2)")
+        .bind(key)
+        .execute(&mut *second_blocker)
+        .await?;
+
+    let request = BrowserMutationDeadline::start();
+    let mut tx = request.read(db.pool.begin()).await?;
+    let deadline = request.calibrate(&mut tx).await?;
+    deadline.configure(&mut tx).await?;
+    let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *tx)
+        .await?;
+    let writer = tokio::spawn(async move {
+        sqlx::query("SELECT pg_advisory_xact_lock($1, 1)")
+            .bind(key)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1, 2)")
+            .bind(key)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await
+    });
+
+    // Release the first wait after it spends more than half of the original budget.
+    tokio::time::timeout_at(request.0, async {
+        loop {
+            let release: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE pid = $1
+                 AND wait_event = 'advisory'
+                 AND clock_timestamp() >= $2::timestamptz - interval '1200 milliseconds')",
+            )
+            .bind(pid)
+            .bind(deadline.database)
+            .fetch_one(&mut *first_blocker)
+            .await?;
+            if release {
+                break Ok::<_, sqlx::Error>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
+    first_blocker.rollback().await?;
+    let error = tokio::time::timeout_at(request.0 + Duration::from_millis(700), writer)
+        .await??
+        .err()
+        .ok_or("writer committed while the second lock was held")?;
+    assert_eq!(
+        error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("25P04"),
+    );
+    second_blocker.rollback().await?;
+    db.close().await
+}

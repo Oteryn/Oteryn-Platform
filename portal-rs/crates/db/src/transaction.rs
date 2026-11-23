@@ -45,14 +45,7 @@ where
 {
     let mut tx = pool.begin().await?;
     crate::mutation_budget(&mut tx).await?;
-    sqlx::query(
-        "SELECT CASE WHEN current_setting('server_version_num')::integer >= 170000 \
-         THEN set_config('transaction_timeout', \
-         (greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint + $1)::text || 'ms', true) END",
-    )
-    .bind(TRANSACTION_GRACE_MS)
-    .execute(&mut *tx)
-    .await?;
+    arm_timeout(&mut tx, TRANSACTION_GRACE_MS).await?;
     let mut budget = BudgetTx { tx };
     match work(&mut budget).await {
         Ok(value) => {
@@ -66,4 +59,56 @@ where
             Err(error)
         }
     }
+}
+
+/// Bound the whole transaction by the existing mutation deadline plus optional grace.
+pub async fn arm_timeout(connection: &mut PgConnection, grace_ms: i64) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "SELECT CASE WHEN current_setting('server_version_num')::integer >= 170000 \
+         THEN set_config('transaction_timeout', \
+         (greatest(1,ceil((current_setting('oteryn.mutation_deadline')::numeric-extract(epoch FROM clock_timestamp()))*1000))::bigint + $1)::text || 'ms', true) END",
+    )
+    .bind(grace_ms)
+    .execute(connection)
+    .await?;
+    Ok(())
+}
+
+/// Arm the timer and queue an absolute deadline check as the transaction's last write.
+/// The deadline guard runs after deferred work. Its database-clock check is the last
+/// application-defined point at which COMMIT can be refused and is the authorization
+/// point for both submissions and staff decisions.
+///
+/// PostgreSQL can finish WAL synchronization or acknowledge COMMIT after that point.
+/// The transaction timeout bounds waits before the check. The authorization decision
+/// stands if the deadline passes during PostgreSQL's subsequent commit processing.
+pub async fn arm_commit(
+    connection: &mut PgConnection,
+    authorization_expiry: Option<sqlx::types::time::OffsetDateTime>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query("SET CONSTRAINTS mutation_commit_deadline DEFERRED")
+        .execute(&mut *connection)
+        .await?;
+    // PostgreSQL does not re-arm an already active transaction timeout.
+    sqlx::query("SET LOCAL transaction_timeout = 0")
+        .execute(&mut *connection)
+        .await?;
+    let armed = sqlx::query(
+        "WITH deadline AS MATERIALIZED (
+            SELECT least($1::timestamptz,
+                to_timestamp(current_setting('oteryn.mutation_deadline')::double precision)) AS expires_at
+         ), remaining AS MATERIALIZED (
+            SELECT expires_at, floor(extract(epoch FROM (expires_at - clock_timestamp()))
+                * 1000)::bigint AS ms FROM deadline
+         ), armed AS MATERIALIZED (
+            SELECT expires_at, set_config('transaction_timeout', ms::text || 'ms', true)
+            FROM remaining WHERE ms > 0
+         )
+         INSERT INTO mutation_commit_deadlines (expires_at)
+         SELECT expires_at FROM armed",
+    )
+    .bind(authorization_expiry)
+    .execute(connection)
+    .await?;
+    Ok(armed.rows_affected() == 1)
 }

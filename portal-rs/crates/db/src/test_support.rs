@@ -4,6 +4,7 @@
 //! through fixture cleanup. Concurrent actors *within* a test remain concurrent.
 
 use sqlx::{Connection, PgConnection};
+use std::time::Duration;
 use tokio::sync::{Mutex, MutexGuard};
 
 static GLOBAL_LOCK_TEST: Mutex<()> = Mutex::const_new(());
@@ -31,9 +32,17 @@ pub async fn global_lock_guard() -> Result<Option<GlobalLockGuard>, sqlx::Error>
     };
     let local = GLOBAL_LOCK_TEST.lock().await;
     let mut connection = PgConnection::connect(&url).await?;
-    sqlx::query("SELECT pg_advisory_lock(684326110016002)")
-        .execute(&mut connection)
-        .await?;
+    // A blocking SELECT can hold a snapshot needed to finish a concurrent index build.
+    let mut retry = tokio::time::interval(Duration::from_millis(25));
+    loop {
+        retry.tick().await;
+        if sqlx::query_scalar("SELECT pg_try_advisory_lock(684326110016002)")
+            .fetch_one(&mut connection)
+            .await?
+        {
+            break;
+        }
+    }
     Ok(Some(GlobalLockGuard {
         _connection: connection,
         _local: local,

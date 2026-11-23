@@ -3,7 +3,7 @@ use crate::{
     reset_http::text,
     worker::{Handler, HandlerFuture, Registry},
 };
-use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor, message::SinglePart};
 use oteryn_identity::{
     reset::{DeliveryKey, audit},
     verify::token_hash,
@@ -124,7 +124,7 @@ impl Mailer {
             .from(self.from.clone())
             .to(email.parse().map_err(|_| "invalid reset recipient")?)
             .subject(text(language, "reset-mail-subject"))
-            .body(body)
+            .singlepart(SinglePart::plain(body))
             .map_err(|_| "invalid reset message")?;
         Ok(Some(message))
     }

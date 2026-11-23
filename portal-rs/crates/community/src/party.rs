@@ -422,16 +422,58 @@ async fn page(
         account(&board, &session).await.is_ok(),
     )
 }
+type FormInput<T> = Result<Form<T>, axum::extract::rejection::FormRejection>;
+
+fn form_error(lang: &str, rejection: axum::extract::rejection::FormRejection) -> Response {
+    if rejection.status() != StatusCode::UNPROCESSABLE_ENTITY {
+        return rejection.into_response();
+    }
+    invalid_input(lang)
+}
+
+fn invalid_input(lang: &str) -> Response {
+    let language = if lang == "pl" {
+        oteryn_web::Language::Pl
+    } else {
+        oteryn_web::Language::En
+    };
+    (
+        StatusCode::UNPROCESSABLE_ENTITY,
+        [(axum::http::header::CONTENT_LANGUAGE, language.code())],
+        language.text("error-422-description"),
+    )
+        .into_response()
+}
+
+fn mutation_response<T>(
+    lang: &str,
+    target: &str,
+    result: Result<T, Error>,
+) -> Result<Response, Error> {
+    match result {
+        Ok(_) => Ok(Redirect::to(target).into_response()),
+        Err(Error::Invalid) => Ok(invalid_input(lang)),
+        Err(error) => Err(error),
+    }
+}
+
 async fn create(
     State(board): State<Board>,
     Path(lang): Path<String>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
-    Form(draft): Form<Draft>,
+    input: FormInput<Draft>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    let Form(draft) = match input {
+        Ok(form) => form,
+        Err(error) => return Ok(form_error(&lang, error)),
+    };
     let owner = account(&board, &session).await?;
-    board.create(owner, draft).await?;
-    Ok(Redirect::to(&format!("/{lang}/party")).into_response())
+    mutation_response(
+        &lang,
+        &format!("/{lang}/party"),
+        board.create(owner, draft).await,
+    )
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -444,13 +486,19 @@ async fn report(
     State(board): State<Board>,
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
-    Form(input): Form<Reason>,
+    input: FormInput<Reason>,
 ) -> Result<Response, Error> {
     language(&lang)?;
-    board
-        .report(account(&board, &session).await?, id, &input.reason)
-        .await?;
-    Ok(Redirect::to(&format!("/{lang}/party")).into_response())
+    let Form(input) = match input {
+        Ok(form) => form,
+        Err(error) => return Ok(form_error(&lang, error)),
+    };
+    let reporter = account(&board, &session).await?;
+    mutation_response(
+        &lang,
+        &format!("/{lang}/party"),
+        board.report(reporter, id, &input.reason).await,
+    )
 }
 async fn remove(
     State(board): State<Board>,
@@ -490,26 +538,35 @@ async fn moderate(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(context): Extension<oteryn_admin::rbac::CheckContext>,
     Extension(authority): Extension<oteryn_admin::rbac::MutationAuthorization>,
-    Form(input): Form<Decision>,
+    input: FormInput<Decision>,
 ) -> Result<Response, Error> {
     language(&lang)?;
-    let report_ids = input
+    let Form(input) = match input {
+        Ok(form) => form,
+        Err(error) => return Ok(form_error(&lang, error)),
+    };
+    let Ok(report_ids) = input
         .report_ids
         .split(',')
         .map(str::parse::<Uuid>)
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| Error::Invalid)?;
-    board
-        .moderate(
-            context,
-            &authority,
-            id,
-            &input.action,
-            &input.reason,
-            &report_ids,
-        )
-        .await?;
-    Ok(Redirect::to(&format!("/admin/{lang}/party")).into_response())
+    else {
+        return Ok(invalid_input(&lang));
+    };
+    mutation_response(
+        &lang,
+        &format!("/admin/{lang}/party"),
+        board
+            .moderate(
+                context,
+                &authority,
+                id,
+                &input.action,
+                &input.reason,
+                &report_ids,
+            )
+            .await,
+    )
 }
 
 #[cfg(test)]

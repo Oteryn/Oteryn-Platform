@@ -361,6 +361,21 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
             .await,
         Err(Error::Conflict)
     ));
+    assert!(matches!(
+        t.change_checked(
+            owner,
+            None,
+            ticket.id,
+            4,
+            Change::Reply {
+                body: "composed before resolution",
+                internal: false
+            }
+        )
+        .await,
+        Err(Error::StateConflict)
+    ));
+    assert_eq!(t.show(owner, false, ticket.id).await?.1.len(), 3);
     let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
         .fetch_one(&db.pool)
         .await?;
@@ -575,7 +590,11 @@ async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResu
                 )))?,
         )
         .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers()[axum::http::header::LOCATION],
+        format!("/en/support/tickets/{}", ticket.id),
+    );
     assert_eq!(t.list(owner, false, 0).await?[0].status, "closed");
     db.finish().await
 }
@@ -724,6 +743,10 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
             format!("_csrf={csrf}&body=answer&lock_version=1"),
             StatusCode::FOUND,
         ),
+        (
+            format!("_csrf={csrf}&body=stale&lock_version=1"),
+            StatusCode::CONFLICT,
+        ),
     ] {
         let response = app
             .clone()
@@ -739,6 +762,18 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
             )
             .await?;
         assert_eq!(response.status(), expected);
+        let conflict = response
+            .extensions()
+            .get::<oteryn_web::chrome::TicketConflict>();
+        if expected == StatusCode::CONFLICT {
+            assert!(matches!(
+                conflict,
+                Some(oteryn_web::chrome::TicketConflict::StaleVersion { recovery_path })
+                    if recovery_path == &path
+            ));
+        } else {
+            assert!(conflict.is_none());
+        }
     }
     assert_eq!(t.list(owner, false, 0).await?[0].status, "waiting_user");
     db.finish().await
@@ -1248,6 +1283,25 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
             .bind(id)
             .fetch_one(&db.pool)
     };
+    assert!(unread().await?);
+    let invalid = acknowledge("not-a-uuid").await?;
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        to_bytes(invalid.into_body(), 65536).await?.as_ref(),
+        b"The request could not be completed. Reload the ticket and try again.",
+    );
+    assert!(unread().await?);
+    let unsupported = router(tickets.clone(), "http://localhost:3000")
+        .oneshot(
+            Request::post(format!("/en/support/tickets/{id}/read"))
+                .header("cookie", &cookie)
+                .header("origin", "http://localhost:3000")
+                .header("x-csrf-token", &csrf)
+                .header("content-type", "application/json")
+                .body(Body::from("{}"))?,
+        )
+        .await?;
+    assert_eq!(unsupported.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
     assert!(unread().await?);
     // Owner mutations establish no viewing boundary.
     tickets

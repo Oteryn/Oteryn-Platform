@@ -1,7 +1,9 @@
 //! Shared portal presentation. No module, database or session dependencies.
+pub mod panels;
+
 use askama::Template;
 use axum::{
-    http::StatusCode,
+    http::{HeaderMap, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
@@ -24,6 +26,63 @@ fn load_catalogue(locale: unic_langid::LanguageIdentifier, source: &str) -> Opti
     let mut bundle = FluentBundle::new_concurrent(vec![locale]);
     bundle.add_resource(resource).ok()?;
     Some(bundle)
+}
+
+/// Resolve a browser locale from its portal preference and Accept-Language.
+pub fn preferred_language(headers: &HeaderMap) -> &'static str {
+    fn supported(value: &str) -> Option<&'static str> {
+        match value {
+            "en" => Some("en"),
+            "pl" => Some("pl"),
+            _ => None,
+        }
+    }
+    for cookie in headers.get_all(header::COOKIE) {
+        if let Ok(cookie) = cookie.to_str() {
+            for part in cookie.split(';') {
+                if let Some(("portal_language", value)) = part.trim().split_once('=')
+                    && let Some(lang) = supported(value)
+                {
+                    return lang;
+                }
+            }
+        }
+    }
+    let mut candidates = Vec::new();
+    if let Some(value) = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|v| v.to_str().ok())
+    {
+        for (index, item) in value.split(',').enumerate() {
+            let mut parts = item.trim().split(';');
+            let tag = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
+            let quality = match parts.next() {
+                None => 1.0,
+                Some(q) => q
+                    .trim()
+                    .strip_prefix("q=")
+                    .and_then(|q| q.parse::<f32>().ok())
+                    .unwrap_or(0.0),
+            };
+            if quality > 0.0
+                && quality <= 1.0
+                && let Some(lang) = supported(tag.split('-').next().unwrap_or_default())
+            {
+                candidates.push((quality, index, lang));
+            }
+        }
+    }
+    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+    candidates.first().map_or("pl", |item| item.2)
+}
+
+/// An explicit locale prefix takes precedence over browser preferences.
+pub fn browser_language(path: &str, headers: &HeaderMap) -> &'static str {
+    match path.split('/').nth(1) {
+        Some("en") => "en",
+        Some("pl") => "pl",
+        _ => preferred_language(headers),
+    }
 }
 
 /// Translate through the portal's existing Fluent catalogues.
@@ -85,6 +144,7 @@ pub struct Entry {
 #[derive(Clone, Debug, Default)]
 pub struct Registry {
     entries: Vec<Entry>,
+    pub panels: panels::Registry,
     pub login: bool,
     pub registration: bool,
     pub account: bool,
@@ -93,6 +153,21 @@ impl Registry {
     /// Register only a mounted/enabled section. Disabled entries are never retained.
     pub fn register(&mut self, enabled: bool, entry: Entry) {
         if enabled && !self.entries.iter().any(|e| e.section == entry.section) {
+            if entry.group == Group::Account && !entry.footer {
+                self.panels.register(
+                    true,
+                    panels::Entry {
+                        panel: panels::Panel::Player,
+                        route: entry.path,
+                        label: entry.label,
+                        permission: if entry.section == "account-passkeys" {
+                            panels::Permission::PasskeyManagement
+                        } else {
+                            panels::Permission::AccountOwner
+                        },
+                    },
+                );
+            }
             self.entries.push(entry);
         }
     }
@@ -131,26 +206,30 @@ impl Registry {
                     clean.trim_start_matches('/')
                 }
             });
+        let signed_in = matches!(account, Account::SignedIn { .. });
+        let passkeys_eligible = matches!(
+            account,
+            Account::SignedIn {
+                passkeys_eligible: true,
+                ..
+            }
+        );
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
-            .filter(|entry| {
-                entry.section != "account-passkeys"
-                    || !matches!(
-                        account,
-                        Account::SignedIn {
-                            passkeys_eligible: false,
-                            ..
-                        }
-                    )
-            })
+            .filter(|entry| entry.section != "account-passkeys" || !signed_in || passkeys_eligible)
             .map(|e| {
-                let url = if e.path.starts_with('/') {
-                    e.path.to_owned()
+                let route = if e.section == "account-passkeys" && !signed_in {
+                    "account/passkeys"
                 } else {
-                    format!("/{lang}/{}", e.path)
+                    e.path
                 };
-                let section_path = e.path.trim_start_matches('/');
+                let url = if route.starts_with('/') {
+                    route.to_owned()
+                } else {
+                    format!("/{lang}/{route}")
+                };
+                let section_path = route.trim_start_matches('/');
                 let current = suffix == section_path
                     || suffix
                         .strip_prefix(section_path)
@@ -214,6 +293,19 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
+            staff_dashboard: None,
+            player_navigation: if (suffix == "account"
+                || suffix.starts_with("account/")
+                || suffix.starts_with("panel/"))
+                && signed_in
+            {
+                self.panels.links(panels::Panel::Player, lang, |p| {
+                    p == panels::Permission::AccountOwner
+                        || (p == panels::Permission::PasskeyManagement && passkeys_eligible)
+                })
+            } else {
+                Vec::new()
+            },
         }
     }
 }
@@ -263,6 +355,8 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
+    pub staff_dashboard: Option<String>,
+    pub player_navigation: Vec<panels::Link>,
 }
 impl Default for Chrome {
     fn default() -> Self {
@@ -375,6 +469,7 @@ struct ErrorPage<'a> {
     title: String,
     description: String,
     status: u16,
+    link: Option<(&'a str, &'a str)>,
 }
 /// Plain, translated refusal detail supplied by a module's existing decision.
 #[derive(Clone, Debug)]
@@ -391,12 +486,58 @@ pub fn error(chrome: &Chrome, status: StatusCode) -> Response {
 /// Render a domain-specific translated message with the shared status title and chrome.
 /// The message remains HTML-escaped, like every other dynamic template value.
 pub fn error_with_message(chrome: &Chrome, status: StatusCode, message: &str) -> Response {
+    render_error(chrome, status, None, message, None)
+}
+
+/// Render a stale form refusal with a link to the current form's GET page.
+pub fn stale_form(chrome: &Chrome, recovery_path: &str) -> Response {
+    render_error(
+        chrome,
+        StatusCode::CONFLICT,
+        None,
+        &chrome.text("error-409-stale-description"),
+        Some((recovery_path, &chrome.text("error-409-open-form"))),
+    )
+}
+
+/// Render a refusal with a link to the current page for recovery from a stale form.
+pub fn error_with_link(
+    chrome: &Chrome,
+    status: StatusCode,
+    title: &str,
+    message: &str,
+    href: &str,
+    label: &str,
+) -> Response {
+    render_error(chrome, status, Some(title), message, Some((href, label)))
+}
+
+fn render_error(
+    chrome: &Chrome,
+    status: StatusCode,
+    title: Option<&str>,
+    message: &str,
+    link: Option<(&str, &str)>,
+) -> Response {
+    let mut title = title.map_or_else(
+        || chrome.text(&format!("error-{}-title", status.as_u16())),
+        str::to_owned,
+    );
+    if title.is_empty() {
+        title = chrome.text("error-generic-title");
+    }
+    let description = if message.is_empty() {
+        chrome.text("error-generic-description")
+    } else {
+        message.to_owned()
+    };
     render(
         &ErrorPage {
             chrome,
             status: status.as_u16(),
-            title: chrome.text(&format!("error-{}-title", status.as_u16())),
-            description: message.to_owned(),
+            title,
+            description,
+            link,
         },
         status,
     )
@@ -408,6 +549,9 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
+
+#[cfg(test)]
+mod catalog_parity_tests;
 
 #[cfg(test)]
 mod tests {
@@ -548,6 +692,35 @@ mod tests {
         assert_eq!(active, ["calculators"]);
     }
     #[test]
+    fn unauthorized_page_has_a_localized_title_and_description() -> Result<(), askama::Error> {
+        for (lang, title, description) in [
+            (
+                "pl",
+                "Wymagane logowanie",
+                "Zaloguj się, aby uzyskać dostęp do tej strony.",
+            ),
+            ("en", "Sign-in required", "Sign in to access this page."),
+        ] {
+            let chrome = registry().chrome(lang, "/atlas/private-markers", Account::Anonymous);
+            let html = ErrorPage {
+                chrome: &chrome,
+                status: 401,
+                title: chrome.text("error-401-title"),
+                description: chrome.text("error-401-description"),
+                link: None,
+            }
+            .render()?;
+            assert!(html.contains(&format!("<title>{title} · Oteryn</title>")));
+            assert!(html.contains(description));
+            assert_eq!(
+                error(&chrome, StatusCode::UNAUTHORIZED).status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
             for enabled in [false, true] {
@@ -574,7 +747,16 @@ mod tests {
                 assert_eq!(html.matches("<script").count(), 1);
                 assert!(html.contains("src=\"/static/thais/home.js\""));
             }
-            let chrome = registry().chrome(
+            let mut registry = registry();
+            registry.section(
+                true,
+                "account-overview",
+                "shell-account-overview",
+                "/account",
+                Group::Account,
+                false,
+            );
+            let chrome = registry.chrome(
                 lang,
                 "/",
                 Account::SignedIn {
@@ -591,6 +773,82 @@ mod tests {
         }
         Ok(())
     }
+    #[test]
+    fn account_menu_respects_overview_registration() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for enabled in [false, true] {
+                let mut registry = registry();
+                registry.section(
+                    enabled,
+                    "account-overview",
+                    "shell-account-overview",
+                    "/account",
+                    Group::Account,
+                    false,
+                );
+                registry.section(
+                    true,
+                    "account-security",
+                    "shell-account-security",
+                    "password/change",
+                    Group::Account,
+                    false,
+                );
+                let chrome = registry.chrome(
+                    lang,
+                    "/account/sessions",
+                    Account::SignedIn {
+                        csrf: "fixture".into(),
+                        passkeys_eligible: false,
+                    },
+                );
+                let header = ShellHeader { chrome: &chrome }.render()?;
+                assert_eq!(header.contains("class=\"account-overview\""), enabled);
+                assert_eq!(header.contains("href=\"/account\""), enabled);
+                if !enabled {
+                    assert!(header.contains("href=\"#podglad-konta\" data-account-link"));
+                }
+                assert!(header.contains(&format!("href=\"/{lang}/password/change\"")));
+                assert!(header.contains("id=\"podglad-konta\""));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn passkey_eligibility_applies_to_both_player_navigation_surfaces() {
+        let mut registry = registry();
+        registry.section(
+            true,
+            "account-passkeys",
+            "shell-account-passkeys",
+            "account/passkeys/manage",
+            Group::Account,
+            false,
+        );
+        for lang in ["pl", "en"] {
+            let url = format!("/{lang}/account/passkeys/manage");
+            for passkeys_eligible in [false, true] {
+                let chrome = registry.chrome(
+                    lang,
+                    &format!("/{lang}/account"),
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible,
+                    },
+                );
+                assert_eq!(
+                    chrome.entries.iter().any(|e| e.url == url),
+                    passkeys_eligible
+                );
+                assert_eq!(
+                    chrome.player_navigation.iter().any(|e| e.url == url),
+                    passkeys_eligible
+                );
+            }
+        }
+    }
+
     #[test]
     fn home_character_creation_requires_a_session_or_a_login_route() -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
@@ -634,6 +892,7 @@ mod tests {
         }
         Ok(())
     }
+
     #[test]
     fn navigation_has_native_keyboard_and_touch_disclosure() -> Result<(), askama::Error> {
         let chrome = registry().chrome("en", "/en/wiki", Account::Anonymous);
@@ -772,6 +1031,7 @@ mod tests {
                     title: title.clone(),
                     description: String::new(),
                     status: status.as_u16(),
+                    link: None,
                 }
                 .render()?;
                 assert!(html.contains("<body class=\"op-theme op-shell\">"));

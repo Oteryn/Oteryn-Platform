@@ -43,10 +43,7 @@ pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
     mfa.satisfied(id, &grant).await.unwrap_or(false)
 }
 pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
-    if !std::env::var("OTERYN_ACCOUNT_MFA").is_ok_and(|v| v == "true") {
-        return Ok(app);
-    }
-    if !std::env::var("OTERYN_ACCOUNT_LOGIN").is_ok_and(|v| v == "true") {
+    if !oteryn_identity::mfa::challenge_enabled(&|key| std::env::var(key).ok()) {
         return Ok(app);
     }
     let mfa = Mfa::configured(pool.clone())?;
