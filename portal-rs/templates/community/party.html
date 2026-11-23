@@ -7,7 +7,6 @@
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/components.css">
 <link rel="stylesheet" href="/static/css/app.css">
-<link rel="stylesheet" href="/static/css/community-party.css">
 </head>
 <body class="op-theme">
 {% macro details(row) %}
@@ -20,7 +19,7 @@
   <dt>{{ t.starts }}</dt><dd>{{ row.starts }}</dd>
   <dt>{{ t.expires }}</dt><dd>{{ row.expires }}</dd>
 </dl>
-<p class="op-party__note">{{ row.note }}</p>
+<div>{% for line in row.note.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</div>
 {% endmacro %}
 <main class="op-party op-stack">
 {% match view %}
@@ -32,7 +31,7 @@
   {% endif %}
   <section class="op-panel op-stack" aria-labelledby="party-discovery">
     <h2 id="party-discovery">{{ t.discoveries }}</h2>
-    <form class="op-stack" method="get" action="/{{ lang }}/party">
+    <form id="party-filter" class="op-stack" method="get" action="/{{ lang }}/party">
       <label class="op-field">{{ t.world }}
         <select class="op-input" name="world">
           <option value="">{{ t.all }}</option>
@@ -80,6 +79,16 @@
       {% endif %}
     </article>
     {% endfor %}
+    {% if public.previous.is_some() || public.next.is_some() %}
+    <div class="op-row">
+      {% if let Some(number) = public.previous %}
+      <button class="op-button" form="party-filter" name="page" value="{{ number }}">{{ t.previous }}</button>
+      {% endif %}
+      {% if let Some(number) = public.next %}
+      <button class="op-button" form="party-filter" name="page" value="{{ number }}">{{ t.next }}</button>
+      {% endif %}
+    </div>
+    {% endif %}
   </section>
   <section class="op-panel op-stack" aria-labelledby="party-create">
     <h2 id="party-create">{{ t.create }}</h2>
@@ -147,7 +156,7 @@
     <article class="op-panel op-stack">
       {% call details(row) %}{% endcall %}
       <p>{{ t.status }} <strong>{{ row.status }}</strong></p>
-      <p class="op-prose">{{ row.reports }}</p>
+      <div class="op-prose">{{ row.reports }}</div>
       {% if row.more_reports > 0 %}<p>{{ row.more_reports }} {{ t.more_reports }}</p>{% endif %}
       <form class="op-stack" method="post" action="/admin/{{ lang }}/party/{{ row.id }}/moderate">
         <input type="hidden" name="report_ids" value="{{ row.report_ids }}">

@@ -40,5 +40,5 @@ exercise publication and discovery.
 
 Contract references
 
-- [Character authority commands](../contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md)
-- [Public Game data projection](../contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md)
+- [Character authority commands](../../../docs/contracts/OTERYN_V2_CHARACTER_AUTHORITY_COMMAND_CONTRACT.md)
+- [Public Game data projection](../../../docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md)

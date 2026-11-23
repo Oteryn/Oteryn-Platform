@@ -1,6 +1,19 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
 import { pool, submit } from '../helpers.mjs';
 import { action, seededAccount, seededLogin, seededStaff } from '../staff-rbac-helpers.mjs';
+
+test('i18n-parity for recruitment labels', () => {
+  const keys = (lang) => {
+    const locale = readFileSync(new URL(`../../templates/community/party_${lang}.ftl`, import.meta.url), 'utf8');
+    return [...locale.matchAll(/^([a-z][a-z-]*) = \S/gm)].map((match) => match[1]).sort();
+  };
+  const english = keys('en');
+  expect(english).toContain('next');
+  expect(english).toContain('previous');
+  expect(new Set(english).size).toBe(english.length);
+  expect(keys('pl')).toEqual(english);
+});
 
 test('players manage recruitment listings and staff resolve recruitment reports', async ({ page, browser }, info) => {
   test.setTimeout(180_000);
@@ -62,6 +75,7 @@ test('players manage recruitment listings and staff resolve recruitment reports'
     await expect(filter.locator('[name=purpose]')).toHaveValue('hunt');
     await expect(filter.locator('[name=level]')).toHaveValue('50');
     expect((await page.request.get(`${board}?level=-1`)).status()).toBe(422);
+    expect((await page.request.get(`${board}?page=101`)).status()).toBe(422);
 
     const unavailable = page.locator('section[aria-labelledby=party-create] [role=status]');
     await expect(unavailable).toHaveText(lang === 'pl'
@@ -101,8 +115,22 @@ test('players manage recruitment listings and staff resolve recruitment reports'
         .toBeLessThanOrEqual(info.project.use.viewport.width);
     }
 
+    const decisionFields = await staff.locator(moderation)
+      .evaluate((form) => Object.fromEntries(new FormData(form)));
+    const submitDecision = (reason) => staff.request.post(decision, {
+      ...options,
+      headers: { ...options.headers, accept: 'text/html' },
+      form: { ...decisionFields, action: 'remove', reason },
+    });
+    const invalid = await submitDecision(' ');
+    expect(invalid.status()).toBe(422);
+    expect(await invalid.text()).toContain(lang === 'pl'
+      ? 'Sprawdź wprowadzone dane'
+      : 'Please check your input');
+
     await action(staff, moderation, { reason: 'Review complete' }, 'remove');
     await expect(staff.locator(moderation)).toHaveCount(0);
+    expect((await submitDecision('Review complete')).status()).toBe(404);
     await page.goto(board);
     await expect(page.locator(`[data-listing="${reported}"] strong`)).toHaveText(lang === 'pl'
       ? 'Usunięte' : 'Removed');

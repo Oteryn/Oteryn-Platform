@@ -1,8 +1,15 @@
 use super::*;
 use oteryn_admin::audit::{self, AuditContext, Entry};
 use serde_json::json;
+use std::collections::HashMap;
 
 pub(super) const REPORT_BATCH_SIZE: usize = 50;
+const DISCOVERY_PAGE_SIZE: usize = 100;
+
+pub(super) struct Discovery {
+    pub rows: Vec<Listing>,
+    pub has_next: bool,
+}
 
 #[derive(Debug)]
 pub(super) struct Listing {
@@ -31,10 +38,11 @@ impl Board {
         Ok(sqlx::query("UPDATE pd_party_posts SET status='expired', updated_at=now() WHERE status='active' AND expires_at<=now()")
             .execute(&self.db).await?.rows_affected())
     }
-    pub(super) async fn list(&self, filter: &Filter) -> Result<Vec<Listing>, Error> {
+    pub(super) async fn list(&self, filter: &Filter) -> Result<Discovery, Error> {
         if !filter.valid() {
             return Err(Error::Invalid);
         }
+        let page = filter.page.unwrap_or(1);
         let rows = sqlx::query(
             "SELECT p.*, w.name AS world_name, p.status AS effective_status,
                     to_char(p.starts_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS starts,
@@ -44,38 +52,47 @@ impl Board {
                AND EXISTS (
                    SELECT 1 FROM account_characters c WHERE c.account_id=p.account_id
                      AND c.character_id=p.character_id AND c.world_id=p.world_id
-                     AND c.availability='AVAILABLE'
+                     AND c.availability='AVAILABLE' AND c.name=p.character_name
                )
                AND ($1::uuid IS NULL OR p.world_id=$1)
                AND ($2::text IS NULL OR p.purpose=$2)
                AND ($3::int IS NULL OR $3 BETWEEN p.min_level AND p.max_level)
                AND ($4::text IS NULL OR $4='any' OR p.profession='any' OR p.profession=$4)
-             ORDER BY p.starts_at,p.id LIMIT 100",
+             ORDER BY p.starts_at,p.id LIMIT $5 OFFSET $6",
         )
         .bind(filter.world)
         .bind(&filter.purpose)
         .bind(filter.level)
         .bind(&filter.profession)
+        .bind((DISCOVERY_PAGE_SIZE + 1) as i64)
+        .bind(i64::from(page - 1) * DISCOVERY_PAGE_SIZE as i64)
         .fetch_all(&self.db)
         .await?;
-        let mut visible = Vec::with_capacity(rows.len());
-        for row in rows {
+        let has_next = page < MAX_DISCOVERY_PAGE && rows.len() > DISCOVERY_PAGE_SIZE;
+        let mut visible = Vec::with_capacity(rows.len().min(DISCOVERY_PAGE_SIZE));
+        let mut proofs = HashMap::new();
+        for row in rows.into_iter().take(DISCOVERY_PAGE_SIZE) {
             let row = listing(row)?;
-            if self
-                .authority
-                .character(row.owner, row.character)
-                .await
-                .is_some_and(|character| {
-                    character.id == row.character
-                        && character.world == row.world_id
-                        && character.name == row.name
-                        && valid_character(&character)
-                })
-            {
+            let key = (row.owner, row.character);
+            let proof = match proofs.entry(key) {
+                std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                std::collections::hash_map::Entry::Vacant(entry) => {
+                    entry.insert(self.authority.character(row.owner, row.character).await)
+                }
+            };
+            if proof.as_ref().is_some_and(|character| {
+                character.id == row.character
+                    && character.world == row.world_id
+                    && character.name == row.name
+                    && valid_character(character)
+            }) {
                 visible.push(row);
             }
         }
-        Ok(visible)
+        Ok(Discovery {
+            rows: visible,
+            has_next,
+        })
     }
 
     pub(super) async fn worlds(&self) -> Result<Vec<(Uuid, String)>, Error> {

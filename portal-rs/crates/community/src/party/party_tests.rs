@@ -41,14 +41,6 @@ impl Authority for Trusted {
         self.character(account, character)
     }
 
-    fn moderator_in<'a>(
-        &'a self,
-        _: &'a mut sqlx::PgConnection,
-        account: Uuid,
-    ) -> CheckFuture<'a, ()> {
-        self.moderator(account)
-    }
-
     fn reporting_allowed(&self, account: Uuid) -> CheckFuture<'_, ()> {
         self.active(account)
     }
@@ -319,7 +311,10 @@ async fn db_listing_filters_ownership_and_expiry() {
         .create(db.trusted.owner, db.draft().await)
         .await
         .unwrap();
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows.len(),
+        1
+    );
     for filter in [
         Filter {
             world: Some(Uuid::now_v7()),
@@ -338,7 +333,7 @@ async fn db_listing_filters_ownership_and_expiry() {
             ..Default::default()
         },
     ] {
-        assert!(db.board.list(&filter).await.unwrap().is_empty());
+        assert!(db.board.list(&filter).await.unwrap().rows.is_empty());
     }
     assert_eq!(
         db.board
@@ -349,6 +344,7 @@ async fn db_listing_filters_ownership_and_expiry() {
             })
             .await
             .unwrap()
+            .rows
             .len(),
         1
     );
@@ -357,7 +353,14 @@ async fn db_listing_filters_ownership_and_expiry() {
         Err(Error::Missing)
     ));
     sqlx::query("UPDATE pd_party_posts SET starts_at=now()-interval '2 hours',expires_at=now()-interval '1 second' WHERE id=$1").bind(id).execute(&db.pool).await.unwrap();
-    assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        db.board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     assert!(matches!(
         db.board.report(db.trusted.reporter, id, "spam").await,
         Err(Error::Missing)
@@ -369,6 +372,69 @@ async fn db_listing_filters_ownership_and_expiry() {
     assert_eq!(db.board.expire().await.unwrap(), 1);
     db.close().await;
 }
+#[tokio::test]
+async fn discovery_can_advance_past_unavailable_results() {
+    let db = Database::open().await.expect("PostgreSQL required");
+    let id = db
+        .board
+        .create(db.trusted.owner, db.draft().await)
+        .await
+        .unwrap();
+    let world = db.trusted.character.world;
+    sqlx::query(
+        "WITH unavailable AS (
+             INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+             VALUES (uuidv7(),uuidv7(),$1,'Unavailable profile','AVAILABLE')
+             RETURNING account_id,character_id,world_id,name
+         )
+         INSERT INTO pd_party_posts
+             (account_id,character_id,world_id,character_name,purpose,min_level,max_level,
+              profession,note,starts_at,expires_at)
+         SELECT account_id,character_id,world_id,name,'hunt',1,100,'any','Fixture',
+                now(),now()+interval '1 hour'
+         FROM unavailable CROSS JOIN generate_series(1,100)",
+    )
+    .bind(world)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+
+    let app = router(db.board.clone(), true);
+    let response = app
+        .oneshot(
+            Request::get(format!("/en/party?world={world}&purpose=hunt"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(r#"form="party-filter" name="page" value="2">Next page"#));
+    assert!(!html.contains("Unavailable profile"));
+
+    let second = db
+        .board
+        .list(&Filter {
+            world: Some(world),
+            purpose: Some("hunt".into()),
+            page: Some(2),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    assert_eq!(second.rows.len(), 1);
+    assert_eq!(second.rows[0].id, id);
+    assert!(!second.has_next);
+    db.close().await;
+}
+
 #[tokio::test]
 async fn db_reports_moderation_audit_and_caps() {
     let Some(db) = Database::open().await else {
@@ -409,7 +475,10 @@ async fn db_reports_moderation_audit_and_caps() {
         .await
         .unwrap();
     assert!(db.board.reports().await.unwrap().is_empty());
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows.len(),
+        1
+    );
     db.moderate(db.trusted.staff, id, "remove", "spam")
         .await
         .unwrap();
@@ -419,7 +488,14 @@ async fn db_reports_moderation_audit_and_caps() {
             .await
             .unwrap();
     assert_eq!(count, 2);
-    assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        db.board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     for _ in 0..5 {
         db.board
             .create(db.trusted.owner, db.draft().await)
@@ -652,7 +728,10 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
             .await
             .is_err()
     );
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap().len(), 1);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows.len(),
+        1
+    );
     assert_eq!(db.board.reports().await.unwrap().len(), 1);
     sqlx::raw_sql("DROP TRIGGER fail_party_audit ON audit_log; DROP FUNCTION fail_party_audit();")
         .execute(&db.pool)
@@ -677,7 +756,14 @@ async fn db_staff_guard_and_audit_failure_roll_back() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(db.board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        db.board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     db.close().await;
 }
 
@@ -785,8 +871,9 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         purpose: Some("hunt".into()),
         level: Some(120),
         profession: Some("any".into()),
+        ..Default::default()
     };
-    assert_eq!(board.list(&filter).await.unwrap()[0].id, id);
+    assert_eq!(board.list(&filter).await.unwrap().rows[0].id, id);
     assert!(board.owned(reporter).await.unwrap().is_empty());
     sqlx::query("DELETE FROM web_sessions")
         .execute(&db.pool)
@@ -851,7 +938,14 @@ async fn audit_w2_c05_production_authority_owner_report_and_staff_flow() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    assert!(board.list(&Filter::default()).await.unwrap().is_empty());
+    assert!(
+        board
+            .list(&Filter::default())
+            .await
+            .unwrap()
+            .rows
+            .is_empty()
+    );
     sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
         .bind(owner)
         .execute(&db.pool)
@@ -1337,14 +1431,17 @@ async fn r7_transferred_character_hidden() {
         .create(db.trusted.owner, db.draft().await)
         .await
         .unwrap();
-    assert_eq!(db.board.list(&Filter::default()).await.unwrap()[0].id, id);
+    assert_eq!(
+        db.board.list(&Filter::default()).await.unwrap().rows[0].id,
+        id
+    );
     sqlx::query("UPDATE account_characters SET account_id=$1 WHERE character_id=$2")
         .bind(db.trusted.reporter)
         .bind(db.trusted.character.id)
         .execute(&db.pool)
         .await
         .unwrap();
-    let visible = db.board.list(&Filter::default()).await.unwrap();
+    let visible = db.board.list(&Filter::default()).await.unwrap().rows;
     db.close().await;
     assert!(visible.is_empty(), "transferred character still advertised");
 }

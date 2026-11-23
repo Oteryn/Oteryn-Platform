@@ -2,7 +2,7 @@ use super::*;
 use askama::Template;
 use axum::{
     extract::Request,
-    http::{HeaderValue, header},
+    http::{HeaderValue, Method, header},
     middleware::Next,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
@@ -15,6 +15,8 @@ struct Labels {
     level: String,
     profession: String,
     filter: String,
+    previous: String,
+    next: String,
     create: String,
     character: String,
     min: String,
@@ -62,6 +64,8 @@ pub(super) struct PublicPage {
     pub filter: Filter,
     pub worlds: Vec<(Uuid, String)>,
     pub actor: Option<Uuid>,
+    pub previous: Option<u16>,
+    pub next: Option<u16>,
     pub can_report: bool,
     pub characters: Vec<Character>,
     pub owned: Vec<party_store::Listing>,
@@ -80,7 +84,7 @@ impl PublicPage {
 }
 
 pub(super) enum View {
-    Public(PublicPage),
+    Public(Box<PublicPage>),
     Staff((bool, bool)),
 }
 
@@ -95,6 +99,20 @@ struct Page<'a> {
     purposes: [(&'static str, String); 3],
     professions: [(&'static str, String); 6],
 }
+
+#[derive(Template)]
+#[template(
+    path = "community/party_input_error.html",
+    config = "src/party.askama.toml"
+)]
+struct InputError {
+    lang: &'static str,
+    board: String,
+    title: String,
+    description: String,
+    back: String,
+}
+
 pub(super) fn page(
     lang: &str,
     token: &str,
@@ -124,6 +142,8 @@ pub(super) fn page(
         level: translate(&bundle, "level")?,
         profession: translate(&bundle, "profession")?,
         filter: translate(&bundle, "filter")?,
+        previous: translate(&bundle, "previous")?,
+        next: translate(&bundle, "next")?,
         create: translate(&bundle, "create")?,
         character: translate(&bundle, "character")?,
         min: translate(&bundle, "min")?,
@@ -184,7 +204,48 @@ pub(super) fn page(
     }))
 }
 pub(super) async fn headers(request: Request, next: Next) -> Response {
+    let input_error = if request.method() == Method::POST
+        && request
+            .headers()
+            .get(header::ACCEPT)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| value.contains("text/html"))
+    {
+        let path = request.uri().path();
+        let (prefix, local) = path
+            .strip_prefix("/admin/")
+            .map_or(("", path.trim_start_matches('/')), |local| {
+                ("/admin", local)
+            });
+        let lang = match local.split('/').next() {
+            Some("pl") => Some("pl"),
+            Some("en") => Some("en"),
+            _ => None,
+        };
+        lang.map(|lang| (lang, prefix))
+    } else {
+        None
+    };
     let mut response = next.run(request).await;
+    if response.status() == StatusCode::UNPROCESSABLE_ENTITY
+        && let Some((lang, prefix)) = input_error
+    {
+        let (parts, body) = oteryn_web::render(&InputError {
+            lang,
+            board: format!("{prefix}/{lang}/party"),
+            title: oteryn_ui::text(lang, "error-422-title"),
+            description: oteryn_ui::text(lang, "error-422-description"),
+            back: oteryn_ui::text(lang, "shell-back"),
+        })
+        .into_parts();
+        if let Some(content_type) = parts.headers.get(header::CONTENT_TYPE) {
+            response
+                .headers_mut()
+                .insert(header::CONTENT_TYPE, content_type.clone());
+            response.headers_mut().remove(header::CONTENT_LENGTH);
+            *response.body_mut() = body;
+        }
+    }
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));

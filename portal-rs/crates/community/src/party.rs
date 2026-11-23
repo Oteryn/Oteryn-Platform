@@ -63,14 +63,6 @@ pub trait Authority: Send + Sync + std::fmt::Debug {
     ) -> CheckFuture<'a, Character> {
         Box::pin(async { None })
     }
-
-    fn moderator_in<'a>(
-        &'a self,
-        _tx: &'a mut sqlx::PgConnection,
-        _account: Uuid,
-    ) -> CheckFuture<'a, ()> {
-        Box::pin(async { None })
-    }
 }
 #[derive(Debug)]
 struct ProductionAuthority {
@@ -294,7 +286,12 @@ pub struct Filter {
     pub level: Option<i32>,
     #[serde(deserialize_with = "optional_filter")]
     pub profession: Option<String>,
+    #[serde(deserialize_with = "optional_filter")]
+    pub page: Option<u16>,
 }
+
+const MAX_DISCOVERY_PAGE: u16 = 100;
+
 fn optional_filter<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -322,6 +319,9 @@ impl Filter {
             && self.purpose.as_deref().is_none_or(purpose)
             && self.level.is_none_or(|n| (1..=100000).contains(&n))
             && self.profession.as_deref().is_none_or(profession)
+            && self
+                .page
+                .is_none_or(|page| (1..=MAX_DISCOVERY_PAGE).contains(&page))
     }
 }
 fn purpose(value: &str) -> bool {
@@ -446,18 +446,21 @@ async fn page(
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
 ) -> Result<Response, Error> {
     language(&lang)?;
-    let rows = board.list(&filter).await?;
+    let discovery = board.list(&filter).await?;
+    let current = filter.page.unwrap_or(1);
     let actor = account(&board, &session).await.ok();
     let mut public = party_view::PublicPage {
         worlds: board.worlds().await?,
         filter,
         actor,
+        previous: (current > 1).then(|| current - 1),
+        next: discovery.has_next.then(|| current + 1),
         ..Default::default()
     };
     if let Some(actor) = actor {
         public.characters = board.characters(actor).await?;
         public.owned = board.owned(actor).await?;
-        public.can_report = rows.iter().any(|row| row.owner != actor)
+        public.can_report = discovery.rows.iter().any(|row| row.owner != actor)
             && board.authority.reporting_allowed(actor).await.is_some();
         if std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true")
             && let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
@@ -470,8 +473,8 @@ async fn page(
     party_view::page(
         &lang,
         &session.csrf_token().await?,
-        rows,
-        party_view::View::Public(public),
+        discovery.rows,
+        party_view::View::Public(Box::new(public)),
     )
 }
 async fn create(
