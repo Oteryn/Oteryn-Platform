@@ -141,6 +141,7 @@ fn localized_responsive_labelled_template() {
             registration_policy_label: Some(text(lang, "registration-title")),
             errors_label: None,
             system_label: None,
+            status_label: Some(crate::status::text(lang, "staff-title")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -161,6 +162,7 @@ fn localized_responsive_labelled_template() {
         } else {
             "Report moderation"
         }));
+        assert!(html.contains(&format!(r#"href="/admin/status?lang={lang}""#)));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));

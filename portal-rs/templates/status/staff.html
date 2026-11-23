@@ -1,0 +1,89 @@
+{% import "status/macros.html" as status %}
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ labels.get("staff-title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/status/status.css">
+</head>
+<body>
+<main id="main" class="status-page" tabindex="-1">
+  <header class="status-heading">
+    <h1>{{ labels.get("staff-title") }}</h1>
+    <a href="/{{ lang }}/status">{{ labels.get("title") }}</a>
+  </header>
+  {% if can_create || can_schedule %}
+  <div class="status-forms">
+    {% if can_create %}
+    <form method="post" action="/admin/status/incidents?lang={{ lang }}" id="create-incident" class="op-panel op-stack status-card">
+      <h2>{{ labels.get("create") }}</h2>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="publication_key" value="{{ self.publication_key() }}">
+      {% call status::world_options("portal") %}{% endcall %}
+      <label class="op-field">{{ labels.get("impact") }}
+        <select class="op-input" name="severity">
+          <option value="minor">{{ labels.get("minor") }}</option>
+          <option value="major">{{ labels.get("major") }}</option>
+        </select>
+      </label>
+      <label class="op-field">{{ labels.get("title-pl") }}<input class="op-input" name="title_pl" maxlength="120" required></label>
+      <label class="op-field">{{ labels.get("title-en") }}<input class="op-input" name="title_en" maxlength="120" required></label>
+      {% call status::messages() %}{% endcall %}
+      <button type="submit" class="op-button">{{ labels.get("create") }}</button>
+    </form>
+    {% endif %}
+    {% if can_schedule %}
+    <form method="post" action="/admin/status/maintenance?lang={{ lang }}" id="schedule-maintenance" class="op-panel op-stack status-card">
+      <h2>{{ labels.get("schedule") }}</h2>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="publication_key" value="{{ self.publication_key() }}">
+      {% call status::world_options("all-worlds") %}{% endcall %}
+      <label class="op-field">{{ labels.get("starts") }}<input class="op-input" type="datetime-local" name="starts_at" required></label>
+      <label class="op-field">{{ labels.get("ends") }}<input class="op-input" type="datetime-local" name="ends_at" required></label>
+      {% call status::messages() %}{% endcall %}
+      <button type="submit" class="op-button">{{ labels.get("schedule") }}</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
+  <section id="active-incidents" aria-labelledby="active-title">
+    <h2 id="active-title">{{ labels.get("active") }}</h2>
+    {% for incident in active %}
+    <article class="op-panel status-card" id="incident-{{ incident.id }}">
+      <h3><a href="/{{ lang }}/status/incidents/{{ incident.id }}">{{ incident.title }}</a></h3>
+      <p class="status-meta">
+        {% call status::scope(incident.world, "portal") %}{% endcall %} · {{ labels.get(incident.severity.as_str()) }}
+      </p>
+      <p class="status-message">{{ incident.message }}</p>
+      {% if can_update || can_resolve %}
+      <div class="status-forms">
+        {% if can_update %}
+        <form class="op-stack" method="post" data-update action="/admin/status/incidents/{{ incident.id }}/update?lang={{ lang }}">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <input type="hidden" name="publication_key" value="{{ self.publication_key() }}">
+          {% call status::messages() %}{% endcall %}
+          <button type="submit" class="op-button op-button--secondary">{{ labels.get("update") }}</button>
+        </form>
+        {% endif %}
+        {% if can_resolve %}
+        <form class="op-stack" method="post" data-resolve action="/admin/status/incidents/{{ incident.id }}/resolve?lang={{ lang }}">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <input type="hidden" name="publication_key" value="{{ self.publication_key() }}">
+          {% call status::messages() %}{% endcall %}
+          <button type="submit" class="op-button op-button--secondary">{{ labels.get("resolve") }}</button>
+        </form>
+        {% endif %}
+      </div>
+      {% endif %}
+    </article>
+    {% else %}<p class="status-meta">{{ labels.get("empty-active") }}</p>{% endfor %}
+  </section>
+  <section id="maintenance" aria-labelledby="maintenance-title">
+    <h2 id="maintenance-title">{{ labels.get("maintenance") }}</h2>
+    {% for window in maintenance %}{% call status::notice(window) %}{% endcall %}
+    {% else %}<p class="status-meta">{{ labels.get("empty-maintenance") }}</p>{% endfor %}
+  </section>
+</main>
+</body>
+</html>

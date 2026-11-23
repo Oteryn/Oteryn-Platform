@@ -41,6 +41,7 @@
                 {% for key in ["places", "wiki", "calculators", "atlas", "houses", "delivery"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
+                <li><a href="/{{ chrome.lang }}/status"{% if chrome.service_status_current %} aria-current="page"{% endif %}>{{ chrome.text("service-status") }}</a></li>
                 {% if interior %}
                   {% for key in ["worlds", "world-stats"] %}
                   {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}

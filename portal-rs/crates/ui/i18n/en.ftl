@@ -360,3 +360,5 @@ onboarding-update-refused = If the launcher refuses a package or reports that it
 onboarding-sign-in-help = Trouble signing in?
 onboarding-recovery-help = If you forgot your password or lost access to your account, open support for the recovery options. Never send your password or recovery codes to support.
 onboarding-support = Account recovery and support
+
+service-status = Service status

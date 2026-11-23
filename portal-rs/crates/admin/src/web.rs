@@ -614,6 +614,7 @@ struct Page {
     registration_policy_label: Option<String>,
     errors_label: Option<String>,
     system_label: Option<String>,
+    status_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -742,6 +743,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .ok()
             .map(|()| text(lang, "errors-title")),
         system_label,
+        status_label: s
+            .auth
+            .check(context, Permission::StatusView)
+            .await
+            .ok()
+            .map(|()| crate::status::text(lang, "staff-title")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

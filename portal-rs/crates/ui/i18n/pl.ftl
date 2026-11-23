@@ -360,3 +360,5 @@ onboarding-update-refused = Jeśli program uruchamiający odrzuci pakiet lub nie
 onboarding-sign-in-help = Problemy z logowaniem?
 onboarding-recovery-help = Jeśli nie pamiętasz hasła lub nie masz dostępu do konta, sprawdź opcje odzyskiwania w sekcji pomocy. Nigdy nie przesyłaj pomocy technicznej hasła ani kodów odzyskiwania.
 onboarding-support = Odzyskiwanie konta i pomoc
+
+service-status = Status usług
