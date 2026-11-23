@@ -84,14 +84,21 @@ pub fn configured_router(pool: PgPool) -> std::result::Result<Router, Box<dyn st
     };
     let staff = oteryn_admin::web::configured_guard(
         staff_routes(tickets.clone()),
-        pool,
+        pool.clone(),
         oteryn_admin::rbac::Permission::ManageSupportTickets,
     )?;
-    let staff = oteryn_admin::web::configured_host_boundary(
-        staff.layer(middleware::from_fn(attachments::form_csrf)),
-    )?;
+    let staff =
+        oteryn_admin::web::configured_host_boundary(upload_forms(staff, SessionLayer::new(pool)))?;
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
-    Ok(router(tickets, &origin).merge(staff))
+    Ok(router(tickets, &origin).merge(staff).route(
+        "/static/css/support-tickets.css",
+        get(|| async {
+            (
+                [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                include_str!("page.css"),
+            )
+        }),
+    ))
 }
 /// Player routes always apply session and CSRF middleware.
 pub fn router(tickets: Tickets, origin: &str) -> Router {
@@ -100,7 +107,7 @@ pub fn router(tickets: Tickets, origin: &str) -> Router {
     }
     let mut session = SessionLayer::new(tickets.pool.clone());
     session.csrf.trusted_origins = vec![origin.to_owned()];
-    Router::new()
+    let routes = Router::new()
         .route("/{lang}/support/tickets", get(index).post(create))
         .route("/{lang}/support/tickets/create", get(new_ticket))
         .route("/{lang}/support/tickets/{id}", get(show))
@@ -125,12 +132,24 @@ pub fn router(tickets: Tickets, origin: &str) -> Router {
             axum::routing::put(status).post(status),
         )
         .route_layer(middleware::from_fn_with_state(
-            session,
+            session.clone(),
             oteryn_web::session::middleware,
-        ))
-        .layer(middleware::from_fn(attachments::form_csrf))
+        ));
+    upload_forms(routes, session)
         .layer(middleware::from_fn(private))
         .with_state(tickets)
+}
+
+fn upload_forms<S: Clone + Send + Sync + 'static>(
+    routes: Router<S>,
+    session: SessionLayer,
+) -> Router<S> {
+    routes
+        .layer(middleware::from_fn(attachments::form_csrf))
+        .layer(middleware::from_fn_with_state(
+            session,
+            attachments::upload_session,
+        ))
 }
 /// The caller must wrap these routes in `oteryn_admin::web::guarded`.
 fn staff_routes(tickets: Tickets) -> Router {
@@ -170,15 +189,15 @@ pub fn staff_router<
     accounts: A,
 ) -> Router {
     let pool = tickets.pool.clone();
-    oteryn_admin::web::guarded(
+    let routes = oteryn_admin::web::guarded(
         staff_routes(tickets),
-        pool,
+        pool.clone(),
         config,
         identity,
         accounts,
         oteryn_admin::rbac::Permission::ManageSupportTickets,
-    )
-    .layer(middleware::from_fn(attachments::form_csrf))
+    );
+    upload_forms(routes, SessionLayer::new(pool))
 }
 pub(crate) fn screenshot_error(status: StatusCode, language: &str, key: &str) -> Response {
     let language = if language == "en" { "en" } else { "pl" };

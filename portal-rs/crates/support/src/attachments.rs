@@ -16,7 +16,7 @@ use oteryn_admin::{
 use oteryn_content::media::{self, ProcessedImage};
 use oteryn_web::{
     ratelimit::{ClientSource, NamedPolicy},
-    session::BrowserSession,
+    session::{self, BrowserSession, SessionLayer, SignedInSession},
 };
 use sqlx::{PgConnection, PgPool};
 use std::time::Duration;
@@ -26,9 +26,17 @@ pub(super) const MAX_PER_TICKET: usize = 5;
 const BODY_LIMIT: usize = media::MAX_BYTES + 16_384;
 static UPLOADS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
 
+fn ticket_authority_error(error: rbac::Error) -> Error {
+    match error {
+        rbac::Error::Storage(error) => Error::Database(error),
+        _ => Error::Denied,
+    }
+}
+
 pub(super) struct Upload {
     name: String,
     bytes: Bytes,
+    request_key: Uuid,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -56,14 +64,13 @@ impl AttachmentError {
     }
 }
 
-async fn parse(
-    request: Request,
-) -> Result<(Option<header::HeaderValue>, Option<Upload>), StatusCode> {
+async fn parse(request: Request) -> Result<(header::HeaderValue, Upload), StatusCode> {
     let mut data = Multipart::from_request(request, &())
         .await
         .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
     let mut image = None;
     let mut csrf = None;
+    let mut request_key = None;
     while let Some(field) = data.next_field().await.map_err(|e| e.status())? {
         match field.name() {
             Some("_csrf") if csrf.is_none() => {
@@ -76,6 +83,15 @@ async fn parse(
                 );
             }
             Some("_csrf") => return Err(StatusCode::FORBIDDEN),
+            Some("request_key") if request_key.is_none() => {
+                let bytes = field.bytes().await.map_err(|e| e.status())?;
+                let key =
+                    Uuid::try_parse_ascii(&bytes).map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+                if key.is_nil() {
+                    return Err(StatusCode::UNPROCESSABLE_ENTITY);
+                }
+                request_key = Some(key);
+            }
             Some("image") if image.is_none() => {
                 let name = field
                     .file_name()
@@ -85,18 +101,43 @@ async fn parse(
                 if bytes.len() > media::MAX_BYTES {
                     return Err(StatusCode::PAYLOAD_TOO_LARGE);
                 }
-                image = Some(Upload { name, bytes });
+                image = Some((name, bytes));
             }
             _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
         }
     }
-    Ok((csrf, image))
+    let csrf = csrf.ok_or(StatusCode::FORBIDDEN)?;
+    let request_key = request_key.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+    let (name, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+    Ok((
+        csrf,
+        Upload {
+            name,
+            bytes,
+            request_key,
+        },
+    ))
+}
+
+fn is_upload(request: &Request) -> bool {
+    request.method() == Method::POST && request.uri().path().ends_with("/attachments")
+}
+
+pub(super) async fn upload_session(
+    state: State<SessionLayer>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if is_upload(&request) {
+        return session::read_only_middleware(state, request, next).await;
+    }
+    next.run(request).await
 }
 
 /// Lift the native form token into the shared synchronizer-token verifier.
 /// No decoding or storage takes place in this request adapter.
 pub(super) async fn form_csrf(request: Request, next: Next) -> Response {
-    if request.method() != Method::POST || !request.uri().path().ends_with("/attachments") {
+    if !is_upload(&request) {
         return next.run(request).await;
     }
     let (mut parts, body) = request.into_parts();
@@ -110,6 +151,11 @@ pub(super) async fn form_csrf(request: Request, next: Next) -> Response {
         };
         super::tickets::web::screenshot_error(status, language, key)
     };
+    if parts.extensions.get::<SignedInSession>().is_none()
+        || parts.headers.contains_key("x-csrf-token")
+    {
+        return error(StatusCode::FORBIDDEN);
+    }
     let Ok(_permit) = UPLOADS.try_acquire() else {
         return error(StatusCode::TOO_MANY_REQUESTS);
     };
@@ -122,14 +168,8 @@ pub(super) async fn form_csrf(request: Request, next: Next) -> Response {
         Ok(Err(status)) => return error(status),
         Err(_) => return error(StatusCode::REQUEST_TIMEOUT),
     };
-    if let Some(token) = csrf
-        && parts.headers.insert("x-csrf-token", token).is_some()
-    {
-        return StatusCode::FORBIDDEN.into_response();
-    }
-    if let Some(image) = image {
-        parts.extensions.insert(std::sync::Arc::new(image));
-    }
+    parts.headers.insert("x-csrf-token", csrf);
+    parts.extensions.insert(std::sync::Arc::new(image));
     next.run(Request::from_parts(parts, axum::body::Body::empty()))
         .await
 }
@@ -183,6 +223,7 @@ pub(super) async fn store(
     actor: Uuid,
     staff: Option<(CheckContext, &MutationAuthorization)>,
     ticket: Uuid,
+    request_key: Uuid,
     image: ProcessedImage,
 ) -> Result<Uuid, AttachmentError> {
     tickets.enabled()?;
@@ -208,15 +249,30 @@ pub(super) async fn store(
             &[Permission::Access, Permission::ManageSupportTickets],
         )
         .await
-        .map_err(|err| match err {
-            rbac::Error::Storage(err) => Error::Database(err),
-            _ => Error::Denied,
-        })?;
+        .map_err(ticket_authority_error)?;
         scope(&mut tx, actor, true, ticket).await?
     } else {
         tickets.lock_account(&mut tx, actor).await?;
         scope(&mut tx, actor, false, ticket).await?
     };
+    let original: Option<(Uuid, bool)> = sqlx::query_as(
+        "SELECT id, mime_type=$4 AND content=$5 FROM ticket_screenshots
+         WHERE ticket_id=$1 AND uploader_id=$2 AND request_key=$3",
+    )
+    .bind(ticket)
+    .bind(actor)
+    .bind(request_key)
+    .bind(image.mime)
+    .bind(&image.content)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if let Some((id, matches)) = original {
+        if !matches {
+            return Err(Error::RequestKeyConflict.into());
+        }
+        tx.commit().await?;
+        return Ok(id);
+    }
     let count: i64 =
         sqlx::query_scalar("SELECT count(*) FROM ticket_screenshots WHERE ticket_id=$1")
             .bind(ticket)
@@ -227,14 +283,17 @@ pub(super) async fn store(
         usize::try_from(count).map_err(|_| AttachmentError::Full)?,
     )?;
     let id: Uuid = sqlx::query_scalar(
-        "INSERT INTO ticket_screenshots(ticket_id,mime_type,content) VALUES($1,$2,$3) RETURNING id",
+        "INSERT INTO ticket_screenshots(ticket_id,uploader_id,request_key,mime_type,content)
+         VALUES($1,$2,$3,$4,$5) RETURNING id",
     )
     .bind(ticket)
+    .bind(actor)
+    .bind(request_key)
     .bind(image.mime)
     .bind(image.content)
     .fetch_one(&mut *tx)
     .await?;
-    if staff.is_some() {
+    if let Some((context, auth)) = staff {
         audit::append(
             &mut tx,
             audit::Entry {
@@ -250,6 +309,9 @@ pub(super) async fn store(
         )
         .await
         .map_err(|_| AttachmentError::Audit)?;
+        auth.check_in(&mut tx, context, Permission::ManageSupportTickets)
+            .await
+            .map_err(ticket_authority_error)?;
     }
     tx.commit().await?;
     Ok(id)
@@ -262,13 +324,16 @@ pub(super) async fn upload(
     staff: Option<Extension<CheckContext>>,
     auth: Option<Extension<MutationAuthorization>>,
     peer: Option<ClientSource>,
-    upload: Option<Extension<std::sync::Arc<Upload>>>,
+    Extension(upload): Extension<std::sync::Arc<Upload>>,
 ) -> Response {
     use super::tickets::web::{
         account, fail, limited, limiter_response, redirect, screenshot_error,
     };
     if let Err(error) = super::tickets::web::lang(&lang) {
         return error.into_response();
+    }
+    if let Err(error) = tickets.enabled() {
+        return fail(error, &lang);
     }
     let (actor, staff) = match account(&tickets, &session, staff).await {
         Ok(value) => value,
@@ -279,48 +344,43 @@ pub(super) async fn upload(
         (Some(_), None) => return StatusCode::FORBIDDEN.into_response(),
         (None, _) => None,
     };
-    // Check ticket visibility and capacity before running the decoder.
-    let status: Result<Option<String>, _> =
-        sqlx::query_scalar("SELECT status FROM tickets WHERE id=$1 AND ($2 OR account_id=$3)")
-            .bind(ticket)
-            .bind(staff.is_some())
-            .bind(actor)
-            .fetch_optional(&tickets.pool)
-            .await;
-    let status = match status {
-        Ok(Some(status)) => status,
-        Ok(None) => return fail(Error::NotFound, &lang),
-        Err(error) => return fail(Error::Database(error), &lang),
-    };
-    let count = match ids(&tickets.pool, actor, staff.is_some(), ticket).await {
-        Ok(ids) => ids.len(),
-        Err(error) => return fail(Error::Database(error), &lang),
-    };
-    if let Err(error) = check_capacity(&status, count) {
-        return error.response(&lang);
-    }
     if let Err(error) = limited(&tickets, NamedPolicy::SupportTicketReply, actor, peer).await {
         return limiter_response(error, &lang);
     }
-    let Some(Extension(upload)) = upload else {
-        return screenshot_error(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            &lang,
-            "screenshot-invalid",
-        );
+    let visible = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM tickets WHERE id=$1 AND ($2 OR account_id=$3))",
+    )
+    .bind(ticket)
+    .bind(staff.is_some())
+    .bind(actor)
+    .fetch_one(&tickets.pool)
+    .await;
+    match visible {
+        Ok(true) => {}
+        Ok(false) => return fail(Error::NotFound, &lang),
+        Err(error) => return fail(Error::Database(error), &lang),
     };
     let image = match media::process_upload(upload.name.clone(), upload.bytes.to_vec()).await {
         Ok(image) => image,
         Err(status) => {
-            let key = if status == StatusCode::TOO_MANY_REQUESTS {
-                "screenshot-busy"
-            } else {
-                "screenshot-invalid"
+            let key = match status {
+                StatusCode::TOO_MANY_REQUESTS => "screenshot-busy",
+                StatusCode::UNPROCESSABLE_ENTITY => "screenshot-invalid",
+                _ => "error",
             };
             return screenshot_error(status, &lang, key);
         }
     };
-    match store(&tickets, actor, staff_auth, ticket, image).await {
+    match store(
+        &tickets,
+        actor,
+        staff_auth,
+        ticket,
+        upload.request_key,
+        image,
+    )
+    .await
+    {
         Ok(_) => redirect(&lang, staff.is_some(), ticket),
         Err(error) => error.response(&lang),
     }
@@ -333,6 +393,7 @@ pub(super) async fn read(
     staff: Option<Extension<CheckContext>>,
 ) -> Result<Response, StatusCode> {
     super::tickets::web::lang(&lang)?;
+    tickets.enabled().map_err(|_| StatusCode::FORBIDDEN)?;
     let (actor, staff) = super::tickets::web::account(&tickets, &session, staff).await?;
     let (mime, content): (String, Vec<u8>) = sqlx::query_as(
         "SELECT s.mime_type,s.content FROM ticket_screenshots s

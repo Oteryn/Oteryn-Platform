@@ -18,6 +18,7 @@
 {% if can_attach %}
 <form class="op-stack" method="post" action="{{ base }}/{{ id }}/attachments" enctype="multipart/form-data">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="request_key" value="{{ request_key }}">
 <label for="screenshot">{{ screenshot_text }}</label>
 <p id="screenshot-rules">{{ screenshot_rules }}</p>
 <input class="op-input" type="file" id="screenshot" name="image" accept="image/png,image/jpeg,image/webp" aria-describedby="screenshot-rules" required>

@@ -10,11 +10,12 @@ test('ticket screenshots are shared by the player and support', async ({ page, b
     : { upload: 'Attach screenshot', screenshots: 'Screenshots', image: 'Ticket screenshot' };
   await seededLogin(page, lang, await seededAccount(lang));
   await page.goto(`/${lang}/support/tickets/create`);
+  const ticketsLink = `a[href="/${lang}/support/tickets"]`;
+  expect(await page.locator(`header ${ticketsLink}, #podglad-konta ${ticketsLink}`).count()).toBeGreaterThan(0);
   const subject = `Screenshot ${unique()}${'w'.repeat(80)}`;
   await submit(page, 'main form', { subject, body: 'Screenshot for the support conversation.' });
   await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/);
   const ticket = new URL(page.url()).pathname;
-  const id = ticket.split('/').at(-1);
   const origin = new URL(page.url()).origin;
 
   const screenshot = async (actor, color) => ({
@@ -38,6 +39,7 @@ test('ticket screenshots are shared by the player and support', async ({ page, b
   };
   const rendered = async (actor, count) => {
     const images = actor.getByRole('img', { name: labels.image });
+    await expect(actor.getByRole('banner')).toBeVisible();
     await expect(images).toHaveCount(count);
     await expect.poll(() => images.evaluateAll(elements => elements.every(
       image => image.complete && image.naturalWidth === 640
@@ -59,18 +61,28 @@ test('ticket screenshots are shared by the player and support', async ({ page, b
   const form = page.locator('form[action$="/attachments"]');
   await expect(form).toBeVisible();
   const csrf = await form.locator('input[name=_csrf]').inputValue();
+  const requestKey = await form.locator('input[name=request_key]').inputValue();
   const post = (actor, multipart) => actor.request.post(`${ticket}/attachments`, {
     multipart, headers: { origin }, maxRedirects: 0,
   });
   expect((await post(page, { image: playerFile })).status()).toBe(403);
+  expect((await post(page, { _csrf: csrf, image: playerFile })).status()).toBe(422);
   expect((await post(page, {
-    _csrf: csrf, image: { ...playerFile, buffer: Buffer.from('invalid image') },
+    _csrf: csrf, request_key: requestKey,
+    image: { ...playerFile, buffer: Buffer.from('invalid image') },
   })).status()).toBe(422);
   expect((await post(page, {
-    _csrf: csrf, image: { ...playerFile, buffer: Buffer.alloc(8 * 1024 * 1024 + 1) },
+    _csrf: csrf, request_key: requestKey,
+    image: { ...playerFile, buffer: Buffer.alloc(8 * 1024 * 1024 + 1) },
   })).status()).toBe(413);
   await upload(page, playerFile);
   const imagePath = await rendered(page, 1);
+  expect((await post(page, { _csrf: csrf, request_key: requestKey, image: playerFile })).status()).toBe(302);
+  expect((await post(page, {
+    _csrf: csrf, request_key: requestKey, image: await screenshot(page, 'green'),
+  })).status()).toBe(409);
+  await page.reload();
+  expect(await rendered(page, 1)).toBe(imagePath);
 
   const team = await browser.newContext({
     baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
@@ -83,7 +95,13 @@ test('ticket screenshots are shared by the player and support', async ({ page, b
     await staffPage.getByRole('link', { name: subject, exact: true }).click();
     await staffPage.getByRole('link', { name: labels.screenshots }).click();
     await rendered(staffPage, 1);
-    await upload(staffPage, await screenshot(staffPage, 'red'));
+    const staffFile = await screenshot(staffPage, 'red');
+    const staffForm = staffPage.locator('form[action$="/attachments"]');
+    const staffAction = await staffForm.getAttribute('action');
+    expect((await staffPage.request.post(staffAction, {
+      multipart: { image: staffFile }, headers: { origin }, maxRedirects: 0,
+    })).status()).toBe(403);
+    await upload(staffPage, staffFile);
     const staffPath = await rendered(staffPage, 2);
 
     await page.reload();
@@ -94,14 +112,14 @@ test('ticket screenshots are shared by the player and support', async ({ page, b
     expect((await other.request.get(staffPath, { maxRedirects: 0 })).status()).toBe(403);
     await other.goto(`/${lang}/support/tickets/create`);
     const otherCsrf = await other.locator('input[name=_csrf]').first().inputValue();
-    expect((await post(other, { _csrf: otherCsrf, image: playerFile })).status()).toBe(404);
+    expect((await post(other, { _csrf: otherCsrf, request_key: requestKey, image: playerFile })).status()).toBe(404);
   } finally {
     await stranger.close();
     await team.close();
   }
 });
 
-test('screenshot i18n parity', () => {
+test('screenshot i18n-parity', () => {
   const keys = (path) => [...readFileSync(new URL(path, import.meta.url), 'utf8')
     .matchAll(/^([\w-]+)\s*=\s*\S/gm)].map((match) => match[1]).sort();
   for (const catalogue of [
