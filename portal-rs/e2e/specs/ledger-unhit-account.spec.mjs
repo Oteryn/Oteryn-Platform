@@ -213,7 +213,7 @@ for (const localized of [false, true]) {
     const prefix = localized ? `/${lang}` : '';
     expect((await page.goto(manage)).status()).toBe(200);
     const csrf = await page.locator('main form [name=_csrf]').inputValue();
-    const headers = {origin: new URL(page.url()).origin};
+    const headers = {origin: new URL(page.url()).origin, 'accept-language': lang};
     const form = {_csrf: csrf, current_password: account.password};
     const generated = await page.request.post(manage, {form, headers});
     expect(generated.status()).toBe(200);
@@ -243,7 +243,7 @@ for (const localized of [false, true]) {
         headers, maxRedirects: 0,
       });
       expect(denied.status()).toBe(302);
-      expect(denied.headers().location).toMatch(/^\/(pl|en)\/recovery-key$/);
+      expect(denied.headers().location).toBe(`/${lang}/recovery-key`);
       await login(page, lang, account);
       expect((await page.request.get(`/${lang}/account/privacy`)).status()).toBe(200);
     }
