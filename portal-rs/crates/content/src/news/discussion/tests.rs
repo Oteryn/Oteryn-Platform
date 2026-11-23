@@ -290,7 +290,9 @@ async fn lifecycle(pool: &PgPool) -> TestResult {
         Err(Error::Limit)
     ));
     sqlx::query(
-        "UPDATE news SET published_at=now()-interval '2 days', expires_at=now()-interval '1 day'
+        "UPDATE news SET published_at=now()-interval '2 days',
+                         translation_published_at=now()-interval '2 days',
+                         expires_at=now()-interval '1 day'
          WHERE slug=$1",
     )
     .bind(slug)
