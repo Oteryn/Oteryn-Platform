@@ -1,0 +1,36 @@
+{% extends "bazaar/layout.html" %}
+{% block title %}{{ self.t("readiness-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.t("readiness-title") }}</h1>
+<section class="op-panel op-stack" aria-labelledby="production-status">
+  <h2 id="production-status">{{ self.t("readiness-pending") }}</h2>
+  <dl>
+    <dt>{{ self.t("readiness-runtime") }}</dt>
+    <dd>{{ self.t(runtime_key) }}</dd>
+    <dt>{{ self.t("readiness-game-state") }}</dt>
+    <dd>{{ self.t("readiness-unavailable") }}</dd>
+  </dl>
+</section>
+<section class="op-panel op-stack" aria-labelledby="listing-status">
+  <h2 id="listing-status">{{ self.t("readiness-listing-status") }}</h2>
+  <p>{{ self.t("readiness-lookup-help") }}</p>
+  <form method="get" action="/admin/{{ lang }}/bazaar/readiness" class="op-stack">
+    <label for="listing">{{ self.t("readiness-listing-id") }}</label>
+    <input class="op-input" id="listing" name="listing" value="{{ self.listing_value() }}" type="text" maxlength="36" autocomplete="off" spellcheck="false" required>
+    <button class="op-button" type="submit">{{ self.t("search") }}</button>
+  </form>
+  {% if let Some(key) = message %}
+  <p role="status">{{ self.t(key) }}</p>
+  {% endif %}
+  {% if let Some(row) = status %}
+  <dl>
+    <dt>{{ self.t("readiness-listing-id") }}</dt><dd>{{ row.id }}</dd>
+    <dt>{{ self.t("readiness-kind") }}</dt><dd>{{ self.t(row.kind_key()) }}</dd>
+    <dt>{{ self.t("readiness-lifecycle") }}</dt><dd data-listing-state>{{ self.t(row.state_key()) }}</dd>
+    <dt>{{ self.t("readiness-moderation") }}</dt><dd>{{ self.t(row.moderation_key()) }}</dd>
+    <dt>{{ self.t("readiness-settlement") }}</dt><dd data-settlement-state>{{ self.t(row.settlement_key()) }}</dd>
+  </dl>
+  {% endif %}
+</section>
+<nav aria-label="{{ self.t("navigation") }}"><a class="op-link" href="/admin">{{ self.t("readiness-admin") }}</a></nav>
+{% endblock %}

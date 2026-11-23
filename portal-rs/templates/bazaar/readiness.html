@@ -1,0 +1,22 @@
+{% extends "bazaar/layout.html" %}
+{% block title %}{{ self.t("readiness-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.t("readiness-title") }}</h1>
+<section class="op-panel op-stack" aria-labelledby="production-status">
+  <h2 id="production-status">{{ self.t("readiness-pending") }}</h2>
+  <p>{{ self.t("readiness-intro") }}</p>
+  <dl class="op-stack">
+    <div><dt><strong>{{ self.t("readiness-character-custody") }}</strong></dt><dd>{{ self.t("authority-unavailable") }}</dd></div>
+    <div><dt><strong>{{ self.t("readiness-item-custody") }}</strong></dt><dd>{{ self.item_unavailable() }}</dd></div>
+    <div><dt><strong>{{ self.t("readiness-gold") }}</strong></dt><dd>{{ self.t("readiness-unavailable") }}</dd></div>
+    <div><dt><strong>{{ self.t("readiness-transfer") }}</strong></dt><dd>{{ self.t("readiness-unavailable") }}</dd></div>
+  </dl>
+</section>
+<nav aria-label="{{ self.t("navigation") }}">
+  <ul>
+    <li><a class="op-link" href="/{{ lang }}/bazaar">{{ self.t("auctions") }}</a></li>
+    <li><a class="op-link" href="/{{ lang }}/bazaar/items">{{ self.t("items") }}</a></li>
+    <li><a class="op-link" href="/{{ lang }}/account/bazaar">{{ self.t("my-listings") }}</a></li>
+  </ul>
+</nav>
+{% endblock %}

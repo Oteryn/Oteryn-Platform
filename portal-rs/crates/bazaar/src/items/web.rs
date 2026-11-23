@@ -13,7 +13,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-fn text(lang: &str, key: &str) -> String {
+pub(crate) fn text(lang: &str, key: &str) -> String {
     let Ok(id) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
     };
@@ -40,6 +40,11 @@ fn text(lang: &str, key: &str) -> String {
 struct Message<'a> {
     lang: &'a str,
     message: String,
+}
+impl Message<'_> {
+    fn readiness_label(&self) -> String {
+        crate::characters::http::text(self.lang, "readiness-title")
+    }
 }
 fn failure(error: Error, lang: &str) -> Response {
     let (status, key) = match error {

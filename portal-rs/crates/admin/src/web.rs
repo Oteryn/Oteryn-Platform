@@ -520,6 +520,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    bazaar_readiness: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -623,6 +624,14 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let bazaar_readiness = match s.auth.check(context, Permission::ManageMarketplace).await {
+        Ok(()) => Some(oteryn_bazaar::characters::http::text(
+            lang,
+            "readiness-title",
+        )),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +639,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        bazaar_readiness,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

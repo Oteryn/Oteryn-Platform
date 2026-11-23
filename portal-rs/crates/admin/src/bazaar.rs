@@ -18,6 +18,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
+mod readiness;
 #[cfg(test)]
 #[path = "bazaar_tests.rs"]
 mod tests;
@@ -135,20 +136,22 @@ async fn snapshot(
     sqlx::query_scalar("SELECT jsonb_build_object('hold',(SELECT to_jsonb(h) FROM bazaar_moderation_holds h WHERE listing_id=$1),'invalidation',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.hold_revision,r.id),'[]'::jsonb) FROM bazaar_invalidation_requests r WHERE id=$1 OR (listing_id=$1 AND hold_revision=(SELECT revision FROM bazaar_moderation_holds WHERE listing_id=$1))),'report',(SELECT jsonb_build_object('state',state,'reviewed_by',reviewed_by) FROM bazaar_reports WHERE id=$1),'fees',(SELECT to_jsonb(f) FROM bazaar_fee_revisions f WHERE id=$1),'restriction',(SELECT to_jsonb(p) FROM bazaar_item_restrictions p WHERE id=$1))")
         .bind(id).fetch_one(&mut **tx).await
 }
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+pub fn configured_router(
+    pool: PgPool,
+    runtime: Option<&oteryn_bazaar::game::runtime::Runtime>,
+) -> Result<Router, Box<dyn std::error::Error>> {
     let enabled = std::env::var("OTERYN_BAZAAR_MODERATION").as_deref() == Ok("true");
-    if !enabled {
-        return Ok(Router::new());
-    }
-    web::configured_guard(
-        routes(
+    let readiness = readiness::routes(pool.clone(), runtime.map(|runtime| runtime.config.clone()));
+    let routes = if enabled {
+        readiness.merge(routes(
             pool.clone(),
             web::PortalIdentity::configured(pool.clone()),
             enabled,
-        ),
-        pool,
-        Permission::ManageMarketplace,
-    )
+        ))
+    } else {
+        readiness
+    };
+    web::configured_guard(routes, pool, Permission::ManageMarketplace)
 }
 pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static>(
     pool: PgPool,
@@ -161,7 +164,8 @@ pub fn router<I: StaffSession, A: AccountStateReader + Clone + 'static>(
         return Router::new();
     }
     web::guarded(
-        routes(pool.clone(), accounts.clone(), enabled),
+        routes(pool.clone(), accounts.clone(), enabled)
+            .merge(readiness::routes(pool.clone(), None)),
         pool,
         config,
         identity,

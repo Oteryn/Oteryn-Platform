@@ -115,13 +115,31 @@ pub fn routes<M: Market, S: BrowserSecurity>(market: M, security: S, enabled: bo
             enabled,
         })
 }
-/// Mount documented refusal pages only when explicitly enabled. Missing accepted
-/// custody/signing authority never enables a listing, bid or transfer command.
+/// Mount qualification and refusal pages while Game authority is unavailable.
 pub fn configured_router() -> Router {
-    unavailable_routes(true)
+    unavailable_routes(true).merge(crate::qualification::public_router())
 }
+
+#[derive(Template)]
+#[template(
+    path = "bazaar/authority_unavailable.html",
+    config = "../web/askama.toml"
+)]
+struct AuthorityUnavailable<'a> {
+    lang: &'a str,
+}
+
+impl AuthorityUnavailable<'_> {
+    fn t(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+}
+
 fn authority_refusal(lang: &str) -> Response {
-    (StatusCode::SERVICE_UNAVAILABLE, Html(format!("<!doctype html><html lang=\"{lang}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{0}</title></head><body><main><h1>{0}</h1><p>{1}</p></main></body></html>",text(lang,"authority-title"),text(lang,"authority-unavailable")))).into_response()
+    match (AuthorityUnavailable { lang }).render() {
+        Ok(html) => (StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 fn unavailable_routes(enabled: bool) -> Router {
     if !enabled {
@@ -504,6 +522,40 @@ pub fn browser_routes<M: Market>(
 mod startup_tests {
     use super::*;
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn qualification_is_visible_when_trading_is_unavailable()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = configured_router();
+        for lang in ["pl", "en"] {
+            let path = format!("/{lang}/bazaar/readiness");
+            let response = app
+                .clone()
+                .oneshot(axum::http::Request::get(&path).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            let body = String::from_utf8(to_bytes(response.into_body(), 10000).await?.to_vec())?;
+            assert!(body.contains(&text(lang, "authority-unavailable")));
+            assert!(body.contains(&format!("href=\"/{lang}/bazaar/items\"")));
+
+            let unavailable = app
+                .clone()
+                .oneshot(
+                    axum::http::Request::get(format!("/{lang}/account/bazaar"))
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+            let body = String::from_utf8(to_bytes(unavailable.into_body(), 10000).await?.to_vec())?;
+            assert!(body.contains(&format!("href=\"{path}\"")));
+        }
+        let invalid = app
+            .oneshot(axum::http::Request::get("/fr/bazaar/readiness").body(Body::empty())?)
+            .await?;
+        assert_eq!(invalid.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn startup_refuses_without_game_authority_and_stays_off_by_default()
     -> Result<(), Box<dyn std::error::Error>> {

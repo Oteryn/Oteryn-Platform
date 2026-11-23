@@ -15,6 +15,7 @@ pub mod characters;
 pub mod items;
 /// Shared portal navigation registration.
 pub mod navigation;
+pub mod qualification;
 mod search;
 pub use search::*;
 mod notify;

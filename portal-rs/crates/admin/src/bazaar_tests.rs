@@ -133,6 +133,70 @@ fn suspend(listing: Uuid) -> StaffCommand {
         reason: "Verified moderation reason".into(),
     }
 }
+
+#[tokio::test]
+async fn staff_readiness_shows_persisted_listing_status() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::new().await else {
+        return;
+    };
+    let listing = db.listing().await;
+    let app = db.app();
+    let read = |uri: String| {
+        app.clone().oneshot(
+            Request::get(uri)
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+    };
+    let path = "/admin/en/bazaar/readiness";
+    let lookup = format!("{path}?listing={listing}");
+    let response = read(lookup.clone()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[axum::http::header::CACHE_CONTROL],
+        "no-store"
+    );
+    let html = to_bytes(response.into_body(), 10_000).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(html.contains("Production qualification pending"));
+    assert!(html.contains("<dd>Inactive</dd>"));
+    assert!(html.contains("<dd data-listing-state>Active auction</dd>"));
+    assert!(html.contains("<dd data-settlement-state>No record</dd>"));
+    let pol = read(format!("/admin/pl/bazaar/readiness?listing={listing}"))
+        .await
+        .unwrap();
+    let html = to_bytes(pol.into_body(), 10_000).await.unwrap();
+    assert!(
+        std::str::from_utf8(&html)
+            .unwrap()
+            .contains("Aktywna licytacja")
+    );
+    assert_eq!(
+        read(format!("{path}?listing=invalid"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        read(format!("{path}?listing={}", Uuid::now_v7()))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+
+    sqlx::query("DELETE FROM account_roles WHERE account_id = $1")
+        .bind(db.actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(read(lookup).await.unwrap().status(), StatusCode::FORBIDDEN);
+    db.end().await;
+}
+
 #[test]
 fn unknown_action_and_bad_numbers_deny() {
     assert!(

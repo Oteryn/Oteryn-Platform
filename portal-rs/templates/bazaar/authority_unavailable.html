@@ -1,0 +1,7 @@
+{% extends "bazaar/layout.html" %}
+{% block title %}{{ self.t("authority-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.t("authority-title") }}</h1>
+<p>{{ self.t("authority-unavailable") }}</p>
+<p><a class="op-link" href="/{{ lang }}/bazaar/readiness">{{ self.t("readiness-title") }}</a></p>
+{% endblock %}

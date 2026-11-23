@@ -7,6 +7,11 @@ use std::{net::SocketAddr, path::PathBuf};
 use uuid::Uuid;
 
 pub const ENABLED: &str = "OTERYN_BAZAAR_ENABLED";
+
+fn qualification_enabled(flag: Option<&str>, environment: Option<&str>) -> bool {
+    flag == Some("true") && matches!(environment, Some("testing" | "preprod"))
+}
+
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Fence {
@@ -103,7 +108,10 @@ impl super::Runtime {
 
 impl Config {
     pub fn from_env() -> Result<Option<Self>, Error> {
-        if std::env::var(ENABLED).as_deref() != Ok("true") {
+        if !qualification_enabled(
+            std::env::var(ENABLED).ok().as_deref(),
+            std::env::var("OTERYN_ENV").ok().as_deref(),
+        ) {
             return Ok(None);
         }
         let fence_file = PathBuf::from(env("OTERYN_BAZAAR_FENCE_FILE")?);
@@ -229,6 +237,20 @@ impl Config {
             return Err(Error::Unavailable);
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn rollout_requires_opt_in_and_qualification_environment() {
+    for environment in ["testing", "preprod"] {
+        assert!(qualification_enabled(Some("true"), Some(environment)));
+        for flag in [None, Some("false"), Some("TRUE")] {
+            assert!(!qualification_enabled(flag, Some(environment)));
+        }
+    }
+    for environment in [None, Some("local"), Some("production"), Some("unknown")] {
+        assert!(!qualification_enabled(Some("true"), environment));
     }
 }
 
