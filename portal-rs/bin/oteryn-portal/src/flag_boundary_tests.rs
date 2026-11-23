@@ -292,6 +292,7 @@ mod flag_boundary {
         "commerce.refund",
         "email.account_exists",
         "email.password-reset",
+        "email.staff_invitation",
         "email.verify",
         "identity.email-change",
         "league.ingest",
@@ -1850,6 +1851,26 @@ mod flag_boundary {
                     }));
                 }
             }
+        }
+        // Staff invitations use the existing admin host guard. Public
+        // confirmation with a missing token also returns 404.
+        for (method, path) in [
+            ('G', "/admin/roles/invitations"),
+            ('P', "/admin/roles/invitations"),
+            ('P', "/admin/roles/invitations/019ad000-0000-7000-8000-000000000001/revoke"),
+            ('G', "/pl/staff-invitation"),
+            ('P', "/pl/staff-invitation"),
+            ('G', "/en/staff-invitation"),
+            ('P', "/en/staff-invitation"),
+        ] {
+            probes.insert(Probe {
+                listener: Listener::Public,
+                method,
+                path: path.into(),
+                status: 404,
+                location: None,
+                fallback: false,
+            });
         }
         Ok(probes)
     }

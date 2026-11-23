@@ -42,7 +42,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 74);
+    assert_eq!(Permission::ALL.len(), 77);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
@@ -51,6 +51,9 @@ fn permission_catalog_is_stable_unique_and_covered() {
             Permission::MailRetry,
             Permission::MailRetryBatch,
             Permission::MailCancel,
+            Permission::ListStaffInvites,
+            Permission::CreateStaffInvite,
+            Permission::RevokeStaffInvite,
         ] {
             assert_eq!(
                 role.permissions().contains(&permission),
@@ -1206,3 +1209,6 @@ async fn r8_grant_invalidates_existing_staff_session() {
     tx.rollback().await.unwrap();
     db.close().await;
 }
+
+#[path = "staff_tests.rs"]
+mod staff_tests;

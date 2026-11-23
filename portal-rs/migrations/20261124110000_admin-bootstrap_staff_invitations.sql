@@ -1,0 +1,103 @@
+-- Extend the existing capability constraint without removing any grant.
+ALTER TABLE role_permissions DROP CONSTRAINT role_permissions_permission_check;
+ALTER TABLE role_permissions ADD CONSTRAINT role_permissions_permission_check
+    CHECK (permission IN (
+        'admin.access',
+        'admin.analytics.view',
+        'admin.analytics.export',
+        'admin.roles.manage',
+        'admin.staff_invites.list',
+        'admin.staff_invites.create',
+        'admin.staff_invites.revoke',
+        'audit.view',
+        'cms.news.manage',
+        'cms.pages.manage',
+        'media.manage',
+        'portal.access',
+        'portal.announcements.manage',
+        'portal.settings.manage',
+        'downloads.manage',
+        'events.manage',
+        'events.publish',
+        'support.content.manage',
+        'support.tickets.manage',
+        'support.reports.manage',
+        'support.enforcement.manage',
+        'marketplace.manage',
+        'products.premium.manage',
+        'payments.reconcile',
+        'game_catalog.access',
+        'game_catalog.snapshots.view',
+        'game_catalog.snapshots.import',
+        'game_catalog.snapshots.activate',
+        'game_catalog.profiles.manage',
+        'game_catalog.translations.manage',
+        'game_catalog.overrides.manage',
+        'wiki.access',
+        'wiki.articles.manage',
+        'wiki.categories.manage',
+        'wiki.publish',
+        'game.ops.read',
+        'game.ops.write',
+        'game.ops.logs.read',
+        'game.world.read',
+        'game.world.ops',
+        'game.world.config',
+        'game.world.events',
+        'game.world.admin',
+        'game.node.read',
+        'game.node.ops',
+        'game.node.admin',
+        'game.node.deploy',
+        'game.db.read',
+        'game.db.backup',
+        'game.db.query',
+        'game.db.admin',
+        'game.player.read',
+        'game.player.moderate',
+        'game.player.manage',
+        'game.player.value.write',
+        'game.economy.read',
+        'game.economy.moderate',
+        'game.sanction.read',
+        'game.sanction.write',
+        'game.sanction.ban',
+        'game.staff.admin',
+        'game.analytics.read',
+        'game.analytics.player',
+        'game.analytics.sql',
+        'game.analytics.relink',
+        'game.analytics.export',
+        'game.audit.read',
+        'account.security.kick',
+        'payments.coin_hold.release',
+        'store.catalog.import',
+        'store.catalog.activate',
+        'store.codes.generate'
+    ));
+INSERT INTO role_permissions (role_id, permission)
+SELECT id, permission FROM roles CROSS JOIN (VALUES
+    ('admin.staff_invites.list'),
+    ('admin.staff_invites.create'),
+    ('admin.staff_invites.revoke')
+) AS new_permissions(permission)
+WHERE key='platform_admin' AND built_in;
+
+ALTER TABLE audit_log ADD COLUMN actor_source text
+    CHECK (actor_source IS NULL OR (actor_source='operator-cli' AND actor IS NULL));
+
+CREATE TABLE staff_invitations (
+    id uuid PRIMARY KEY DEFAULT uuidv7(),
+    inviter uuid NOT NULL REFERENCES accounts(id),
+    email text NOT NULL CHECK (length(email) BETWEEN 3 AND 254 AND email=lower(email)),
+    role_id uuid NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+    locale text NOT NULL CHECK (locale IN ('pl', 'en')),
+    token_hash bytea NOT NULL UNIQUE CHECK (octet_length(token_hash)=32),
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    expires_at timestamptz NOT NULL,
+    accepted_at timestamptz,
+    revoked_at timestamptz,
+    CHECK (expires_at > created_at AND expires_at <= created_at + interval '168 hours'),
+    CHECK (accepted_at IS NULL OR revoked_at IS NULL)
+);
+CREATE INDEX staff_invitations_inviter_created_idx ON staff_invitations (inviter, created_at DESC);

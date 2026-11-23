@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{{ self.label("invite-confirm-title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+  <main class="op-panel op-stack">
+    <h1>{{ self.label("invite-confirm-title") }}</h1>
+    <p>{{ self.label(message) }}</p>
+    {% if message == "invite-sign-in" %}
+    <div class="op-row">
+      <a class="op-button" href="/{{ lang }}/login" target="_blank" rel="noopener noreferrer">{{ self.label("invite-login") }}</a>
+      <a class="op-button op-button--secondary" href="/{{ lang }}/register" target="_blank" rel="noopener noreferrer">{{ self.label("invite-register") }}</a>
+    </div>
+    <p>{{ self.label("invite-return") }}</p>
+    {% else if message == "invite-mfa" %}
+    <a class="op-button" href="/{{ lang }}/mfa" target="_blank" rel="noopener noreferrer">{{ self.label("invite-enroll") }}</a>
+    <p>{{ self.label("invite-return") }}</p>
+    {% else if message == "invite-accepted" %}
+    <a class="op-button" href="{{ staff_login }}">{{ self.label("invite-login") }}</a>
+    {% else if !csrf.is_empty() %}
+    <dl><dt>{{ self.label("role") }}</dt><dd>{{ role }}</dd></dl>
+    <form method="post" action="/{{ lang }}/staff-invitation">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="token" value="{{ token }}">
+      <button class="op-button" type="submit">{{ self.label("invite-accept") }}</button>
+    </form>
+    {% endif %}
+  </main>
+</body>
+</html>

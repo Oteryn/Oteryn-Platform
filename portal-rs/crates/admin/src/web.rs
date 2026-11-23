@@ -10,7 +10,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -21,6 +21,9 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
+
+#[path = "staff_web.rs"]
+mod invitations;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
@@ -177,8 +180,9 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
+        PortalIdentity::configured(pool.clone()),
     );
+    let router = router.merge(invitations::acceptance_router(pool));
     Ok(if reports_enabled {
         router.layer(Extension(ReportsNavigation))
     } else {
@@ -280,6 +284,14 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
         .route(
             "/admin/mail-outbox/cancel",
             post(crate::mail_ops::cancel::<I, A>),
+        )
+        .route(
+            invitations::PATH,
+            get(invitations::list::<I, A>).post(invitations::create::<I, A>),
+        )
+        .route(
+            "/admin/roles/invitations/{id}/revoke",
+            post(invitations::revoke::<I, A>),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -412,15 +424,23 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s.required.unwrap_or_else(|| match request.uri().path() {
-        "/admin/roles" => Permission::ManageRoles,
-        "/admin/mail-outbox" => Permission::MailView,
-        "/admin/mail-outbox/retry" => Permission::MailRetry,
-        "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
-        "/admin/mail-outbox/cancel" => Permission::MailCancel,
-        _ => Permission::Access,
-    });
-    for required in [Permission::Access, permission] {
+    let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
+        ("/admin/roles", _) => &[Permission::ManageRoles],
+        ("/admin/mail-outbox", _) => &[Permission::MailView],
+        ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
+        ("/admin/mail-outbox/retry-kind", _) => &[Permission::MailRetryBatch],
+        ("/admin/mail-outbox/cancel", _) => &[Permission::MailCancel],
+        (invitations::PATH, &Method::POST) => &[Permission::CreateStaffInvite],
+        (path, &Method::POST) if path.starts_with("/admin/roles/invitations/") => &[Permission::RevokeStaffInvite],
+        _ => &[],
+    };
+    let configured_permissions = s.required.as_slice();
+    let permissions = if configured_permissions.is_empty() {
+        panel_permissions
+    } else {
+        configured_permissions
+    };
+    for required in std::iter::once(Permission::Access).chain(permissions.iter().copied()) {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -513,6 +533,7 @@ struct Page {
     csrf: String,
     roles: Vec<(Uuid, String)>,
     manage: bool,
+    invitations_label: Option<String>,
     next: Option<Uuid>,
 }
 impl Page {
@@ -594,6 +615,14 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let invitations_label = match (
+        invitations::allowed(&s, context, Permission::ListStaffInvites).await,
+        invitations::allowed(&s, context, Permission::CreateStaffInvite).await,
+    ) {
+        (Ok(true), _) | (_, Ok(true)) => Some(text(lang, "invite-title")),
+        (Ok(false), Ok(false)) => None,
+        _ => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -611,6 +640,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .flatten(),
         roles,
         manage,
+        invitations_label,
     })
 }
 #[derive(Deserialize)]
