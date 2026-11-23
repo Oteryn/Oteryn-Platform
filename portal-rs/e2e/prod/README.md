@@ -71,3 +71,5 @@ The workflow runs every 15 minutes on the default branch and supports manual dis
 When a secret is missing, the workflow reports `skipped: monitor account not configured` in the job log and summary, then runs the public checks. With all three secrets, it exercises sign-in, TOTP, account reads, and sign-out on `https://oteryn.com` in both projects. Preference writes run only in the seeded loopback suite.
 
 The workflow token has contents-read access. Reconciliation reads public Actions history and writes the last completed probe outcome to the run summary. An empty, completed cancellation is verified by exact run ID and attempt and passed over. The current probe still controls the job's result. GitHub Actions exposes failures through its normal workflow notifications.
+
+Review the workflow when the production origin, account ownership, or probe cadence changes. Retire it and remove its lifecycle registry entry when a replacement provides both public and authenticated production checks.
