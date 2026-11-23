@@ -219,13 +219,7 @@ impl<A: Authority> League<A> {
             .map_err(|_| Error::Unavailable)?
     }
     async fn read_inner(&self) -> Result<Vec<Snapshot>> {
-        if !self.flags.ready() || !self.flags.public {
-            return Err(if self.flags.invalid_policy {
-                Error::InvalidPolicy
-            } else {
-                Error::MissingGameData
-            });
-        }
+        self.check_public_policy()?;
         let mut tx = begin(&self.pool).await?;
         #[cfg(test)]
         if let Some(timeout) = self.read_lock_timeout {
@@ -431,6 +425,16 @@ pub(super) fn transition(old: &Snapshot, new: &Snapshot) -> Result<()> {
 }
 
 impl<A: Authority> League<A> {
+    fn check_public_policy(&self) -> Result<()> {
+        if self.flags.ready() && self.flags.public {
+            Ok(())
+        } else if self.flags.invalid_policy {
+            Err(Error::InvalidPolicy)
+        } else {
+            Err(Error::MissingGameData)
+        }
+    }
+
     pub(super) async fn read_before(&self, deadline: Instant) -> Result<Vec<Snapshot>> {
         self.read_with_clock(deadline, self.read_clock).await
     }
@@ -440,9 +444,7 @@ impl<A: Authority> League<A> {
         deadline: Instant,
         clock: impl FnOnce() -> Result<u64>,
     ) -> Result<Vec<Snapshot>> {
-        if !self.flags.ready() || !self.flags.public {
-            return Err(Error::Unavailable);
-        }
+        self.check_public_policy()?;
         let lock_timeout = Duration::from_millis(400);
         #[cfg(test)]
         let lock_timeout = match self.read_lock_timeout {
