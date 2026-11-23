@@ -20,7 +20,7 @@
   <dl>
     <dt>{{ locale.text("order") }}</dt><dd><small>{{ purchase.order }}</small></dd>
     <dt>{{ locale.text("date") }}</dt><dd><time datetime="{{ purchase.date }}">{{ purchase.date }}</time></dd>
-    <dt>{{ locale.text("amount") }}</dt><dd>{{ purchase.coins }} {{ locale.text("coins") }}</dd>
+    <dt>{{ locale.text("coins-charged") }}</dt><dd>{{ purchase.coins }}</dd>
     <dt>{{ locale.text("status") }}</dt><dd>{{ locale.text("settled") }}</dd>
   </dl>
   {% else %}

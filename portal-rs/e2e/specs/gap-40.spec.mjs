@@ -106,7 +106,9 @@ test('Premium expiry and receipts after a settled Store purchase', async ({ page
     await expect(receiptLink).toHaveAttribute('href', receiptPath);
     await receiptLink.click();
     await expect(page.locator('main > dl')).toContainText(result.order_id);
-    await expect(page.locator('main > dl')).toContainText(`${offer.unit_price} ${polish ? 'monet' : 'coins'}`);
+    const coinReceipt = page.locator('main > dl');
+    await expect(coinReceipt.getByText(polish ? 'Pobrane monety' : 'Coins charged', { exact: true })).toBeVisible();
+    await expect(coinReceipt.getByText(offer.unit_price, { exact: true })).toBeVisible();
     await expect(page.locator('article time').last()).toHaveAttribute('datetime', expiry);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 

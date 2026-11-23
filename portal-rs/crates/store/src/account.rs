@@ -80,6 +80,7 @@ pub async fn premium_history(
              JOIN store_orders o USING (order_id)
              JOIN store_purchase_requests r USING (purchase_request_id)
              JOIN wallet_operations w ON w.id=o.wallet_operation_id
+               AND w.id=r.purchase_request_id
              JOIN wallet_entries e ON e.operation_id=w.id AND e.account_id=p.account_id
              WHERE u.entitlement_id=p.request_id AND u.account_id=p.account_id
                AND o.account_id=p.account_id AND r.account_id=p.account_id
