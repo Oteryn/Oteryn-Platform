@@ -1728,7 +1728,14 @@ mod flag_boundary {
     }
 
     fn route_probes() -> TestResult<BTreeSet<Probe>> {
-        let mut probes = BTreeSet::new();
+        let mut probes = BTreeSet::from(["/admin/system", "/admin/system/data"].map(|path| Probe {
+            listener: Listener::Public,
+            method: 'G',
+            path: path.to_owned(),
+            status: 404,
+            location: None,
+            fallback: false,
+        }));
         let inventory = inventory()?;
         for row in inventory_rows(&inventory) {
             let routes = row
@@ -1878,6 +1885,7 @@ mod flag_boundary {
                 "/admin/commerce",
                 "/admin/world",
                 "/admin/players",
+                "/admin/system",
                 "/console",
                 "/admin/console",
                 "/admin/control",
