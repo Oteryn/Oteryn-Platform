@@ -49,18 +49,21 @@ class StagingDeploy(unittest.TestCase):
             idle.assert_not_called()
             self.assertEqual(list(self.root.iterdir()), [])
 
-    def test_source_must_be_current_allowed_head_across_pages(self):
+    def test_source_must_be_current_allowed_codex_or_staging_head(self):
         staging = self.staging
-        page = [{'name': 'feature/ref', 'commit': {'sha': SHA}}] * 100
-        with patch.object(staging, 'branches', side_effect=[
-            page, [{'name': 'staging/portal', 'commit': {'sha': SHA}}]
-        ]) as branches:
+        listing = f'{"b" * 40}\trefs/heads/codex/other\n{SHA}\trefs/heads/staging/portal\n'
+        with patch.object(staging, 'run', return_value=listing) as run:
             staging.qualify(SHA)
-            self.assertEqual(branches.call_args_list, [call(1), call(2)])
+        command = run.call_args.args[0]
+        self.assertEqual(command[-5:], ['ls-remote', '--heads', staging.REPO,
+                                        'refs/heads/codex/*', 'refs/heads/staging/*'])
         for name in ('main', 'feature/codex/portal', 'codex-old/portal'):
-            with patch.object(staging, 'branches', return_value=[{'name': name, 'commit': {'sha': SHA}}]):
+            with patch.object(staging, 'run', return_value=f'{SHA}\trefs/heads/{name}\n'):
                 with self.assertRaisesRegex(ValueError, 'current head'):
                     staging.qualify(SHA)
+        with patch.object(staging, 'run', return_value=f'{SHA}\tHEAD\n'):
+            with self.assertRaisesRegex(ValueError, 'unexpected'):
+                staging.qualify(SHA)
 
     def test_source_checks_identity_and_dirty_state(self):
         staging = self.staging

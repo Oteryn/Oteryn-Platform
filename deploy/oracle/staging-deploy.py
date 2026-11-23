@@ -24,7 +24,6 @@ ROOT = Path('/opt/oteryn-staging')
 PRODUCTION_STATE = Path('/opt/oteryn-oracle/state/actions')
 PROJECT = 'oteryn-staging'
 REPO = 'https://github.com/Oteryn/Oteryn-Platform.git'
-BRANCHES = 'https://api.github.com/repos/Oteryn/Oteryn-Platform/branches'
 REVISION = 'org.opencontainers.image.revision'
 PLAYWRIGHT_VERSION = '1.58.2'
 SHA_RE = re.compile(r'[0-9a-f]{40}')
@@ -220,32 +219,25 @@ def deploy_lock():
     return lock
 
 
-def branches(page):
-    request = urllib.request.Request(
-        f'{BRANCHES}?per_page=100&page={page}',
-        headers={'Accept': 'application/vnd.github+json', 'User-Agent': PROJECT,
-                 'Cache-Control': 'no-cache'},
-    )
-    # Ignore operator proxy settings and authenticate the API with system TLS.
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
-    with opener.open(request, timeout=15) as response:
-        if response.geturl() != request.full_url:
-            raise Refusal('unexpected GitHub branches endpoint')
-        return json.load(response)
+def remote_heads():
+    # One git request instead of paging the REST API: unauthenticated API calls
+    # share a 60/hour budget per address and two checks per deploy exhausted it.
+    listing = run(['git', '-c', 'core.hooksPath=/dev/null', '-c', 'http.followRedirects=false',
+                   'ls-remote', '--heads', REPO, 'refs/heads/codex/*', 'refs/heads/staging/*'],
+                  output=True, timeout=60)
+    heads = []
+    for line in listing.splitlines():
+        sha, _, ref = line.partition('\t')
+        if not ref.startswith('refs/heads/'):
+            raise Refusal('unexpected git ls-remote response')
+        heads.append((ref.removeprefix('refs/heads/'), sha))
+    return heads
 
 
 def qualify(sha):
-    page = 1
-    while True:
-        batch = branches(page)
-        if not isinstance(batch, list):
-            raise Refusal('unexpected GitHub branch response')
-        if any(branch['name'].startswith(('codex/', 'staging/')) and branch['commit']['sha'] == sha
-               for branch in batch):
-            return
-        if len(batch) < 100:
-            raise Refusal('source must be the current head of a codex/ or staging/ branch')
-        page += 1
+    if not any(name.startswith(('codex/', 'staging/')) and head == sha
+               for name, head in remote_heads()):
+        raise Refusal('source must be the current head of a codex/ or staging/ branch')
 
 
 def git(directory, *args):
