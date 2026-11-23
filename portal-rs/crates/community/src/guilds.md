@@ -15,8 +15,9 @@ adapter must enforce identity separation across other internal purposes.
 `PORTAL_GUILDS_ENABLED=true` enables presentation only in testing/preproduction.
 Both flags default off. Missing or stale same-epoch v2 guild completeness evidence
 suppresses presentation; no stale-serving interval is allowed. Suppression replaces
-the current roster. Internal subject/world IDs never appear in rendered markup.
-The list uses name order, literal search (80 characters), and pages of 50. Roster
+the current roster. Guild and character IDs stay internal. The world filter
+uses the public registry ID. The list uses name order, literal search
+(80 characters), and pages of 50. Roster
 pages preserve `(rank_level, character_id)` ordering and contain visible members
 only. Counts describe that visible cohort. No private guild fields or inferred
 progression aggregates are exposed.

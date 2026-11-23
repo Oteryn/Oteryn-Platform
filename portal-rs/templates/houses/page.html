@@ -1,9 +1,26 @@
 <!doctype html>
 <html lang="{{ lang }}" data-theme="dark">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme"><main class="op-stack"><h1>{{ labels[0] }}</h1>
+<body class="op-theme"><main class="op-panel op-stack" id="main"><h1>{{ labels[0] }}</h1>
+{% if detail %}
+  <a href="{{ back }}">{{ labels[13] }}</a>
+  {% if !picker.selected_name().is_empty() %}<p>{{ picker.selected_name() }}</p>{% endif %}
+{% else %}
+  <form method="get" action="{{ base }}" class="op-stack">
+    <div class="op-field">
+      <label for="house-world">{{ labels[10] }}</label>
+      <select class="op-input" id="house-world" name="world">
+        <option value="">{{ labels[11] }}</option>
+        {% for (id, name) in picker.options() %}
+          <option value="{{ id }}"{% if picker.is_selected(id) %} selected{% endif %}>{{ name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div><button class="op-button" type="submit">{{ labels[12] }}</button></div>
+  </form>
+{% endif %}
 {% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
 {% if houses.is_empty() %}<p>{{ labels[2] }}</p>{% endif %}
-{% for h in houses %}<article class="op-card op-stack"><h2>{{ h.name }}</h2>
+{% for h in houses %}<article class="op-card op-stack"><h2>{{ h.name }}</h2>{% if !detail && !h.world_name.is_empty() %}<p>{{ h.world_name }}</p>{% endif %}
 <dl><dt>{{ labels[3] }}</dt><dd>{{ h.kind }}</dd><dt>{{ labels[4] }}</dt><dd><code>{{ h.town }}</code></dd><dt>{{ labels[5] }}</dt><dd>{{ h.size }} m²</dd><dt>{{ labels[6] }}</dt><dd>{{ h.beds }}</dd><dt>{{ labels[7] }}</dt><dd>{{ h.rent }}</dd><dt>{{ labels[8] }}</dt><dd>{{ h.status }}</dd>{% for (key,value) in h.extras %}<dt>{{ key }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
-<a class="op-button" href="/{{ lang }}/houses/{{ h.key }}?world={{ h.world }}">{{ labels[9] }}: {{ h.name }}</a></article>{% endfor %}{% endif %}</main></body></html>
+{% if !detail %}<a class="op-button" href="/{{ lang }}/houses/{{ h.key }}?world={{ h.world }}">{{ labels[9] }}: {{ h.name }}</a>{% endif %}</article>{% endfor %}{% endif %}</main></body></html>

@@ -107,6 +107,16 @@ async fn page_body(app: Router, path: &str) -> (StatusCode, String) {
         String::from_utf8(to_bytes(r.into_body(), 100000).await.unwrap().to_vec()).unwrap(),
     )
 }
+
+async fn register_world(db: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO world_status(id,name) VALUES ('01934f10-7c02-7001-805b-3b1122334401','First World')",
+    )
+    .execute(db)
+    .await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
     let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
@@ -177,6 +187,52 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
             },
         )
     };
+    sqlx::raw_sql(
+        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
+         INSERT INTO world_status VALUES
+          ('01934f10-7c02-7001-805b-3b1122334401','First World'),
+          ('01934f10-7c02-7001-805b-3b1122334402','Second World');",
+    )
+    .execute(&db)
+    .await?;
+    let world = "01934f10-7c02-7001-805b-3b1122334401";
+    let foreign = "01934f10-7c02-7001-805b-3b1122334402";
+    let (status, scoped) = page_body(pages(), &format!("/en/guilds?world={world}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(scoped.contains("First World"));
+    assert!(scoped.contains(&format!("/en/guilds/Red%20Rose?world={world}")));
+    let (status, roster) =
+        page_body(pages(), &format!("/en/guilds/Red%20Rose?world={world}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(roster.contains("Aldric"));
+    assert!(!roster.contains("Hidden Member"));
+    for name in ["Red%20Rose", "Missing"] {
+        assert_eq!(
+            page_body(pages(), &format!("/en/guilds/{name}?world={foreign}"))
+                .await
+                .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        page_body(pages(), "/en/guilds?world=invalid").await.0,
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        page_body(pages(), "/en/guilds?q=Red%20Rose%0A").await.0,
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("DELETE FROM world_status WHERE id=$1::uuid")
+        .bind(world)
+        .execute(&db)
+        .await?;
+    let (status, without_unregistered_world) = page_body(pages(), "/en/guilds").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!without_unregistered_world.contains("Red Rose"));
+    sqlx::query("INSERT INTO world_status(id,name) VALUES ($1::uuid,'First World')")
+        .bind(world)
+        .execute(&db)
+        .await?;
     let (status, body) = page_body(pages(), "/en/guilds").await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Visible members: 1"));
@@ -201,7 +257,9 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
         std::fs::write(std::path::Path::new(&dir).join("guilds.html"), &body)?;
     }
     assert!(!body.contains("Hidden Member"));
-    assert!(!body.contains("01934f10"));
+    assert!(!body.contains("01934f10-7c06-7001-805b-3b1122334401"));
+    assert!(!body.contains("01934f10-7c04-7001-805b-3b1122334401"));
+    assert!(!body.contains("01934f10-7c04-7001-805b-3b1122334402"));
     assert!(
         page_body(pages(), "/pl/guilds")
             .await
@@ -318,6 +376,7 @@ async fn audit06_guild_scenario(oversized: bool) -> TestResult {
         }
     }
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     apply(&d.db, &publication(GOLDEN, false))
         .await
         .map_err(|_| "guild publication failed")?;
@@ -508,6 +567,7 @@ async fn w3_c06_002_guild_profile_conflict_during_privacy() -> TestResult {
     }
     let started = std::time::Instant::now();
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     apply(&d.db, &publication(GOLDEN, false))
         .await
         .map_err(|_| "guild publication failed")?;
@@ -564,6 +624,7 @@ async fn w3_c06_010_guild_privacy_unavailability_returns_503() -> TestResult {
     }
     let started = std::time::Instant::now();
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     apply(&d.db, &publication(GOLDEN, false))
         .await
         .map_err(|_| "publish")?;
@@ -675,6 +736,13 @@ async fn guild_migration_preserves_history_and_serves_both_versions() -> TestRes
     let saved_legacy = crate::ingest::latest(&db, "guild_v1", &displaced.subject).await?;
     let restored = crate::ingest::latest(&db, "guild", &displaced.subject).await?;
     let saved_current = crate::ingest::latest(&db, "guild", current_id).await?;
+    sqlx::raw_sql(
+        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
+         INSERT INTO world_status VALUES
+          ('01934f10-7c02-7001-805b-3b1122334401','First World');",
+    )
+    .execute(&db)
+    .await?;
     let pages = router(
         db.clone(),
         Arc::new(Visible),

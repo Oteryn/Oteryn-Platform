@@ -223,12 +223,20 @@ fn configured_guard_with_permissions(
     permissions: &[Permission],
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded_with_permissions(
+    let identity = PortalIdentity::configured_from(pool.clone(), lookup);
+    let auth = Authorizer::new(pool.clone(), identity.clone()).with_game_flags(
+        crate::rbac::GamePermissionFlags {
+            enabled: permissions == [Permission::GameWorldRead]
+                && lookup("OTERYN_ADMIN_CONSOLE").as_deref() == Some("true"),
+            deploy: false,
+        },
+    );
+    Ok(guarded_with_authorizer(
         routes,
-        pool.clone(),
+        pool,
         config_from(lookup)?,
-        PortalIdentity::configured_from(pool.clone(), lookup),
-        PortalIdentity::configured_from(pool, lookup),
+        identity,
+        auth,
         permissions,
     ))
 }
@@ -265,6 +273,18 @@ fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permissions: &[Permission],
 ) -> Router {
+    let auth = Authorizer::new(pool.clone(), accounts);
+    guarded_with_authorizer(routes, pool, config, identity, auth, permissions)
+}
+
+fn guarded_with_authorizer<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    auth: Authorizer<A>,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
@@ -273,7 +293,7 @@ fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
         required: permissions.to_vec(),
         players_enabled: false,
         identity,
-        auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
+        auth: Arc::new(auth),
         pool,
     });
     routes

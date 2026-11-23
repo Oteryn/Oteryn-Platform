@@ -1,5 +1,6 @@
 dashboard = Dashboard
 worlds = Worlds
+world-directories = World directory status
 world = World details
 nodes = Nodes and hosts
 node = Node details

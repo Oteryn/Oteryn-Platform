@@ -11,6 +11,15 @@ use oteryn_internal_api::{
 use tower::ServiceExt;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 const WORLD: &str = "01934f10-7c02-7001-805b-3b1122334401";
+
+async fn register_world(db: &PgPool) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO world_status(id,name) VALUES ($1::uuid,'First World')")
+        .bind(WORLD)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 // SOURCE: G-4 proposal house record, synthetic fixture adapted to task house-key rule.
 fn snapshot(epoch: u64, revision: u64, house: &str) -> String {
     format!(
@@ -212,6 +221,14 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     ))
     .execute(&db)
     .await?;
+    sqlx::raw_sql(
+        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
+         INSERT INTO world_status VALUES
+          ('01934f10-7c02-7001-805b-3b1122334401','First World'),
+          ('01934f10-7c02-7001-805b-3b1122334402','Second World');",
+    )
+    .execute(&db)
+    .await?;
     assert_eq!(
         get(app(db.clone(), true), "/en/houses").await.status(),
         StatusCode::SERVICE_UNAVAILABLE
@@ -267,6 +284,17 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
         .status(),
         StatusCode::OK
     );
+    let foreign = "01934f10-7c02-7001-805b-3b1122334402";
+    let response = get(app(db.clone(), true), &format!("/en/houses?world={WORLD}")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let scoped = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(scoped.contains("First World"));
+    assert!(scoped.contains("Vacant"));
+    let foreign_detail = format!("/en/houses/oteryn:content.house.example_shop?world={foreign}");
+    assert_eq!(
+        get(app(db.clone(), true), &foreign_detail).await.status(),
+        StatusCode::NOT_FOUND
+    );
     let response = get(app(db.clone(), true), "/en/houses").await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["cache-control"], "private, no-store");
@@ -274,6 +302,15 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
     assert!(html.contains("Example Shop"));
     assert!(html.contains("Vacant"));
     assert!(html.contains("viewport"));
+    sqlx::query("DELETE FROM world_status WHERE id=$1::uuid")
+        .bind(WORLD)
+        .execute(&db)
+        .await?;
+    let response = get(app(db.clone(), true), "/en/houses").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(!html.contains("Example Shop"));
+    register_world(&db).await?;
     let detail = format!("/en/houses/oteryn:content.house.example_shop?world={WORLD}");
     assert_eq!(
         get(app(db.clone(), true), &detail).await.status(),
@@ -384,6 +421,21 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
         get(app(db.clone(), true), &detail).await.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    assert_eq!(
+        send(
+            app(db.clone(), true),
+            "watermark",
+            watermark(3, now()),
+            true
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let response = get(app(db.clone(), true), "/en/houses").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(html.contains(&label(true, "empty")));
     db.close().await;
     sqlx::query("DROP SCHEMA houses_t24f_test CASCADE")
         .execute(&root)
@@ -395,6 +447,7 @@ async fn postgres_ingest_presentation_privacy_freshness_and_fences() -> TestResu
 #[tokio::test]
 async fn audit06_house_replay_observation_and_bounded_detail() -> TestResult {
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     let a = app(d.db.clone(), true);
     let raw = snapshot(1, 1, VACANT);
     assert_eq!(
@@ -483,6 +536,7 @@ async fn audit06_house_same_epoch_suppression_during_privacy() -> TestResult {
         }
     }
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     let owned=VACANT.replace("\"status\":\"VACANT\"","\"status\":\"OWNED\",\"owner_kind\":\"CHARACTER\",\"owner_name\":\"Private Owner\",\"paid_until\":\"1799999999\"");
     let raw = snapshot(1, 1, &owned);
     let a = app(d.db.clone(), true);
@@ -539,6 +593,7 @@ async fn w3_c06_002_house_conflict_during_privacy() -> TestResult {
     }
     let started = std::time::Instant::now();
     let d = crate::audit06_test_db::Database::new().await?;
+    register_world(&d.db).await?;
     let owned=VACANT.replace("\"status\":\"VACANT\"","\"status\":\"OWNED\",\"owner_kind\":\"CHARACTER\",\"owner_name\":\"Private Owner\",\"paid_until\":\"1799999999\"");
     let raw = snapshot(1, 1, &owned);
     let a = app(d.db.clone(), true);

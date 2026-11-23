@@ -1,5 +1,6 @@
 dashboard = Pulpit
 worlds = Światy
+world-directories = Stan katalogów światów
 world = Szczegóły świata
 nodes = Węzły i hosty
 node = Szczegóły węzła

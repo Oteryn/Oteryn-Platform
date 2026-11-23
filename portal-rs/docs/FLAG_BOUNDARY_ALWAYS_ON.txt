@@ -224,3 +224,4 @@ native P /admin/console/sanctions/{id}
 public G /admin/console/sanctions
 public P /admin/console/sanctions
 public P /admin/console/sanctions/{id}
+public G /admin/{lang}/world-directories

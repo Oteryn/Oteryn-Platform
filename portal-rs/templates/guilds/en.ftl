@@ -12,3 +12,6 @@ next = Next page
 forming = Forming
 active = Active
 disbanding = Disbanding
+world = World
+all-worlds = All worlds
+back = Back to guilds
