@@ -1,5 +1,7 @@
 //! Owner-only character services. Game remains the lifecycle and name authority.
 mod browser;
+pub(crate) use browser::browser_enabled;
+pub(crate) mod operator;
 mod projection;
 #[cfg(test)]
 mod tests;
@@ -7,6 +9,7 @@ mod transport;
 pub use crate::commands::services::{Action, Intent};
 use crate::commands::{self, Error, services as wire};
 pub use browser::{SudoProof, show, submit};
+pub use operator::operator_status;
 use oteryn_wallet::{AccountStateReader, AuditHook, Ledger, TransferBlockCheck, WalletFlags};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
@@ -106,6 +109,17 @@ impl Services {
     pub fn new(pool: PgPool, settings: Settings) -> Self {
         Self { pool, settings }
     }
+    async fn latest_game_time(&self, tx: &mut Transaction<'_, Postgres>) -> Result<u64, Error> {
+        let bound = self
+            .settings
+            .clock_uncertainty_seconds
+            .ok_or(Error::Unavailable)?;
+        now(tx)
+            .await?
+            .checked_add(u64::from(bound))
+            .ok_or(Error::Unavailable)
+    }
+
     fn wallet(&self) -> Wallet {
         Ledger::new(
             self.pool.clone(),
@@ -180,14 +194,11 @@ impl Services {
         if rapid {
             return Err(Error::BacklogFull);
         }
-        state.permits(&request.action, now(&mut tx).await?)?;
-        // A committed receipt ahead of the companion snapshot cannot become a fresh precondition.
-        let unseen:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_service_orders o JOIN character_commands c ON c.id=o.operation_id WHERE o.character_id=$1 AND c.receipt_json::jsonb->>'outcome'='COMMITTED' AND (c.receipt_json::jsonb->>'character_revision')::numeric>$2::numeric)").bind(request.character_id).bind(state.character_revision.to_string()).fetch_one(&mut *tx).await?;
-        if unseen {
+        state.permits(&request.action, self.latest_game_time(&mut tx).await?)?;
+        if awaiting_projection(&mut tx, request.character_id, state.character_revision).await? {
             return Err(Error::Unavailable);
         }
-        let pending:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM character_commands c WHERE (state='PENDING' OR EXISTS(SELECT 1 FROM character_restore_queue q WHERE q.operation_id=c.id AND q.reason='character_authority.operation_conflict' AND q.resolved_at IS NULL)) AND binding_json::jsonb->>'character_id'=$1)").bind(request.character_id.to_string()).fetch_one(&mut *tx).await?;
-        if pending {
+        if has_conflicting_operation(&mut tx, request.character_id).await? {
             return Err(Error::Conflict);
         }
         let mut credit = None;
@@ -375,6 +386,39 @@ impl Services {
         Ok(())
     }
 }
+// A committed receipt ahead of the companion snapshot cannot become a fresh precondition.
+async fn awaiting_projection(
+    tx: &mut Transaction<'_, Postgres>,
+    character: Uuid,
+    revision: u64,
+) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM character_service_orders o JOIN character_commands c ON c.id=o.operation_id
+         WHERE o.character_id=$1 AND c.receipt_json::jsonb->>'outcome'='COMMITTED'
+           AND (c.receipt_json::jsonb->>'character_revision')::numeric>$2::text::numeric)",
+    )
+    .bind(character)
+    .bind(revision.to_string())
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
+async fn has_conflicting_operation(
+    tx: &mut Transaction<'_, Postgres>,
+    character: Uuid,
+) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM character_commands c
+         WHERE binding_json::jsonb->>'character_id'=$1
+           AND (state='PENDING' OR EXISTS(SELECT 1 FROM character_restore_queue q
+                WHERE q.operation_id=c.id AND q.reason='character_authority.operation_conflict'
+                  AND q.resolved_at IS NULL)))",
+    )
+    .bind(character.to_string())
+    .fetch_one(&mut **tx)
+    .await?)
+}
+
 fn wallet_error(e: oteryn_wallet::Error) -> Error {
     match e {
         oteryn_wallet::Error::Refused(

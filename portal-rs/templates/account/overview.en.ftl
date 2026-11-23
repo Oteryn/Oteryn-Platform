@@ -29,3 +29,5 @@ main-character = Main character
 profile-preferences = Profile preferences
 termination-none = No closure scheduled
 termination-pending = Pending closure
+character-services = Character services
+character-service-operations = Character service operations

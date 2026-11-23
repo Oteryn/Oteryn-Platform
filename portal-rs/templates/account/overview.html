@@ -27,15 +27,16 @@
 <ul class="op-stack">
 {% for character in characters %}
 <li class="op-panel op-stack">
-<a class="op-button op-button--secondary" href="/characters/{{ character.0 }}">{{ character.1 }}</a>
-{% if character.4 %}<span data-main-character>{{ main_label }}</span>{% endif %}
-<a href="/{{ lang }}/account/characters/{{ character.0 }}/profile">{{ preferences_label }}</a>
+<a class="op-button op-button--secondary" href="/characters/{{ character.name_segment }}">{{ character.name }}</a>
+{% if character.main %}<span data-main-character>{{ main_label }}</span>{% endif %}
+<a href="/{{ lang }}/account/characters/{{ character.name_segment }}/profile">{{ preferences_label }}</a>
 <dl>
-<dt>{{ availability }}</dt><dd>{{ character.3 }}</dd>
-<dt>{{ world }}</dt><dd>{{ character.2 }}</dd>
+<dt>{{ availability }}</dt><dd>{{ character.availability }}</dd>
+<dt>{{ world }}</dt><dd>{{ character.world }}</dd>
 <dt>{{ level }}</dt><dd>{{ unavailable }}</dd>
 <dt>{{ profession }}</dt><dd>{{ unavailable }}</dd>
 </dl>
+{% if let Some(url) = character.services_url %}<a href="{{ url }}">{{ services_label }}</a>{% endif %}
 </li>
 {% endfor %}
 </ul>
@@ -46,6 +47,7 @@
 {% endif %}
 <li><a class="op-button op-button--secondary" href="/{{ lang }}/panel/premium">{{ premium }}</a></li>
 <li><a class="op-button op-button--secondary" href="/{{ lang }}/shop/history">{{ balance }}</a></li>
+{% if operator_status %}<li><a class="op-button op-button--secondary" href="/{{ lang }}/admin/character-services">{{ operator_label }}</a></li>{% endif %}
 </ul></nav>
 </main>
 </body>

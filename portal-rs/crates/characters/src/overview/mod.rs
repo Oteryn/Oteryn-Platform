@@ -36,6 +36,15 @@ impl AccountStateLookup for Accounts {
     }
 }
 
+struct Character {
+    name_segment: String,
+    name: String,
+    world: String,
+    availability: String,
+    main: bool,
+    services_url: Option<String>,
+}
+
 #[derive(Template)]
 #[template(path = "account/overview.html", config = "src/overview/askama.toml")]
 struct Page {
@@ -46,7 +55,10 @@ struct Page {
     main_label: String,
     preferences_label: String,
     state: String,
-    characters: Vec<(String, String, String, String, bool)>,
+    characters: Vec<Character>,
+    services_label: String,
+    operator_status: bool,
+    operator_label: String,
     world: String,
     availability: String,
     level: String,
@@ -193,6 +205,13 @@ async fn load(
         Some(now) => profiles.main_character(account, now).await,
         None => None,
     };
+    let services = crate::services::browser_enabled();
+    let operator_status = match pool.acquire().await {
+        Ok(mut db) => crate::services::operator::allowed(&mut db, account)
+            .await
+            .unwrap_or(false),
+        Err(_) => false,
+    };
     let characters = view
         .filter(|v| v.state == ReadState::Ready)
         .map(|v| {
@@ -205,13 +224,16 @@ async fn load(
                         } else {
                             "unavailable"
                         });
-                    (
-                        segment(&c.name),
-                        c.name,
-                        c.world_id.to_string(),
+                    Character {
+                        name_segment: segment(&c.name),
+                        name: c.name,
+                        world: c.world_id.to_string(),
                         availability,
-                        main == Some(c.character_id.as_uuid()),
-                    )
+                        main: main == Some(c.character_id.as_uuid()),
+                        services_url: services.then(|| {
+                            format!("/{lang}/account/characters/{}/services", c.character_id)
+                        }),
+                    }
                 })
                 .collect()
         })
@@ -231,6 +253,9 @@ async fn load(
             _ => "unavailable",
         }),
         characters,
+        services_label: t("character-services"),
+        operator_status,
+        operator_label: t("character-service-operations"),
         world: t("world"),
         availability: t("availability"),
         level: t("level"),
