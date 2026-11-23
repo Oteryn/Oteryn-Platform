@@ -30,7 +30,7 @@ pub async fn with_chrome(
     mut request: Request,
     next: Next,
     language: Option<crate::surface::Language>,
-    customize: impl FnOnce(&mut oteryn_ui::Chrome),
+    customize: impl Fn(&mut oteryn_ui::Chrome),
 ) -> Response {
     let lang = language
         .or_else(|| crate::surface::path_language(request.uri().path()))
@@ -114,7 +114,7 @@ pub async fn with_chrome(
             response = replacement;
         }
     }
-    let mut response = wrap_document(response, &shell.registry, &path, &chrome).await;
+    let mut response = wrap_document(response, &shell.registry, &path, &chrome, customize).await;
     if response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -170,6 +170,7 @@ async fn wrap_document(
     registry: &Registry,
     path: &str,
     chrome: &oteryn_ui::Chrome,
+    customize: impl Fn(&mut oteryn_ui::Chrome),
 ) -> Response {
     let html = response
         .headers()
@@ -188,7 +189,11 @@ async fn wrap_document(
         let lang = document_locale(page);
         let localized = lang
             .filter(|lang| *lang != chrome.lang)
-            .map(|lang| registry.chrome(lang, path, chrome.account.clone()));
+            .map(|lang| {
+                let mut localized = registry.chrome(lang, path, chrome.account.clone());
+                customize(&mut localized);
+                localized
+            });
         let (top, bottom) = oteryn_ui::shell_parts(localized.as_ref().unwrap_or(chrome))?;
         Some((inject(page, &top, &bottom)?, lang))
     });
@@ -540,7 +545,12 @@ mod response_tests {
                     registry: Registry::default(),
                     sessions: SessionLayer::new(pool),
                 },
-                middleware,
+                |State(shell): State<Shell>, request: Request, next: Next| async move {
+                    with_chrome(shell, request, next, None, |chrome| {
+                        chrome.alternate_url = format!("/feature?lang={}", chrome.alternate_lang);
+                    })
+                    .await
+                },
             ));
         let response = app
             .oneshot(
@@ -551,7 +561,9 @@ mod response_tests {
             .await?;
         assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
         let bytes = axum::body::to_bytes(response.into_body(), 100_000).await?;
-        assert!(std::str::from_utf8(&bytes)?.contains(r#"href="/en/""#));
+        let html = std::str::from_utf8(&bytes)?;
+        assert!(html.contains(r#"href="/en/""#));
+        assert!(html.contains(r#"href="/feature?lang=pl""#));
         Ok(())
     }
 

@@ -46,18 +46,18 @@ async fn menu(pool: &PgPool) -> Result<Vec<MenuRow>, sqlx::Error> {
     .fetch_all(pool)
     .await
 }
-fn localized_menu(rows: Vec<MenuRow>, lang: &str, current: &str) -> EditorialMenu {
+fn localized_menu(rows: &[MenuRow], lang: &str, current: &str) -> EditorialMenu {
     let mut menu = EditorialMenu::default();
     for row in rows {
         let (url, label) = if lang == "pl" {
-            (row.pl, row.menu_label_pl)
+            (&row.pl, &row.menu_label_pl)
         } else {
-            (row.en, row.menu_label_en)
+            (&row.en, &row.menu_label_en)
         };
         let link = EditorialLink {
             current: url == current,
-            url,
-            label,
+            url: url.clone(),
+            label: label.clone(),
         };
         if row.placement == "world" {
             menu.world.push(link);
@@ -400,8 +400,8 @@ pub async fn shell(State(shell): State<Shell>, mut request: Request, next: Next)
         _ => None,
     };
     let response = with_chrome(shell, request, next, language, |chrome| {
-        chrome.editorial_menu = localized_menu(rows, &chrome.lang, &current);
-        if let Some(path) = editor_path {
+        chrome.editorial_menu = localized_menu(&rows, &chrome.lang, &current);
+        if let Some(path) = &editor_path {
             chrome.alternate_url = format!("{path}?lang={}", chrome.alternate_lang);
         }
         if let Some(m) = &metadata {
