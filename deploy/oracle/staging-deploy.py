@@ -53,6 +53,20 @@ OFF = (
     'PORTAL_PLAYERDATA_G9_INGEST_ENABLED', 'PORTAL_PLAYERDATA_G10_INGEST_ENABLED',
     'PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED', 'PORTAL_ACCOUNT_CLOSURE_ENABLED',
 )
+# Read-only features production enables (/opt/oteryn-portal/portal.env), so the
+# tunnel-facing portal-public shows the same navigation. Only portal-public gets
+# them; the in-stack E2E keeps the default profile. Flags that need a running
+# Game or money (OFF) stay off.
+PUBLIC_FLAGS = (
+    'OTERYN_ACCOUNT_BADGES_ENABLED', 'OTERYN_ACCOUNT_EXPORT_ENABLED',
+    'OTERYN_ATLAS_ENABLED', 'OTERYN_ATLAS_BESTIARY_ENABLED', 'OTERYN_ATLAS_DELIVERY_ENABLED',
+    'OTERYN_ATLAS_SPAWNS_ENABLED', 'OTERYN_CHARACTER_PROFILES_ENABLED',
+    'OTERYN_CHARACTER_SERVICES_ENABLED', 'OTERYN_COLLECTION_ENABLED',
+    'OTERYN_COLLECTION_PVP_ENABLED', 'OTERYN_COLLECTION_SETS_ENABLED',
+    'OTERYN_DAILY_PUZZLES_ENABLED', 'OTERYN_DOWNLOADS_ENABLED', 'OTERYN_JOURNAL_REPORTS_ENABLED',
+    'OTERYN_LEAGUE_ENABLED', 'OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED', 'OTERYN_REPORTS_ENABLED',
+    'OTERYN_SECURITY_WIZARD_ENABLED', 'OTERYN_WORLD_ENABLED',
+)
 ACCOUNT_FLAGS = (
     'LOGIN', 'MFA', 'PASSKEYS', 'PASSWORD_RESET', 'SESSIONS', 'CREDENTIALS',
     'EMAIL_CHANGE', 'RECOVERY_KEYS', 'OVERVIEW_ENABLED', 'PRIVACY_ENABLED',
@@ -305,6 +319,7 @@ def configure(directory, sha):
     env_file(directory, 'portal.env', portal)
     origin = public_origin()
     env_file(directory, 'public.env', {
+        **{flag: 'true' for flag in PUBLIC_FLAGS},
         'OTERYN_PUBLIC_ORIGIN': origin,
         'OTERYN_WEBAUTHN_RP_ID': origin.split('://', 1)[1].split(':', 1)[0],
         'OTERYN_NOTIFY_UNSUBSCRIBE_URL': f'{origin}/en/unsubscribe',

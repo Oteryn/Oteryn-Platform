@@ -224,6 +224,10 @@ class StagingDeploy(unittest.TestCase):
         public = (self.root / 'public.env').read_text()
         self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n', public)
         self.assertIn('OTERYN_WEBAUTHN_RP_ID=localhost\n', public)
+        for flag in staging.PUBLIC_FLAGS:
+            self.assertIn(flag + '=true\n', public)
+            self.assertNotIn(flag + '=true\n', (self.root / 'portal.env').read_text())
+        self.assertFalse(set(staging.PUBLIC_FLAGS) & set(staging.OFF))
         (self.root / 'public-origin').write_text('https://staging.example.com\n')
         staging.configure(self.root, SHA)
         public = (self.root / 'public.env').read_text()
