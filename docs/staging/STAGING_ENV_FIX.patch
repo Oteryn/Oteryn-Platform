@@ -25,6 +25,11 @@ changes and recovery can exercise the normal verifier. Oracle retains
 deployed-stack readiness and keeps its tunnel-facing flags and data
 independent of qualification.
 
+Periodic sandbox admin reads keep the shared staff fixture active during
+long runs under the normal session lifetime rules.
+The browser also gets a private executable tmpfs for the generated launcher
+used by the character creation harness.
+
 The runner keeps the existing literal spec filter and a two-hour CI browser
 budget. It reports pass, fail and skip counts and test identities. It leaves
 raw assertion messages and browser artifacts inside the temporary container.
@@ -32,7 +37,7 @@ The infrastructure tests check loopback isolation, credential separation,
 full spec collection, the time budget and cleanup.
 
 diff --git a/deploy/oracle/README.md b/deploy/oracle/README.md
-index 59440cf..3b2fc83 100644
+index 59440cf..a8c27b2 100644
 --- a/deploy/oracle/README.md
 +++ b/deploy/oracle/README.md
 @@ -554,13 +554,15 @@ install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.y
@@ -53,7 +58,7 @@ index 59440cf..3b2fc83 100644
  python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs
  python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs --pg-tests oteryn-db,oteryn-web
  python3 /opt/oteryn-staging/staging-deploy.py status
-@@ -576,34 +578,38 @@ Keep the generated environment files and captured mail private.
+@@ -576,34 +578,41 @@ Keep the generated environment files and captured mail private.
 
  Each replacement recreates PostgreSQL, migrates it, installs the testing legal
  pages and seeds a disposable account through the portal CLI. The staging portal
@@ -92,8 +97,11 @@ index 59440cf..3b2fc83 100644
 +payment fixture run there with throwaway keys. The launcher owns the flags,
 +legal pages, test CA, mail sink and seed data. The browser database also gets
 +the staging password-range fixture for password changes and recovery on the
-+offline network. A default deploy builds and
-+starts the runtime without a test job. On the host CLI an explicit empty spec
++offline network. A read of the sandbox admin page once a minute keeps the
++shared staff fixture active during the full project. The character creation
++harness runs generated scripts from the browser's private executable tmpfs.
++A default deploy builds
++and starts the runtime without a test job. On the host CLI an explicit empty spec
 +argument requests the full `pl-1440` project, and a spec path requests that file.
 +The separate Portal RS E2E workflow covers all four projects. The staging
 +report retains counts, test names and failure types.
@@ -108,7 +116,7 @@ index 59440cf..3b2fc83 100644
  runner group `staging-runners` with labels `oteryn-staging` and
  `oteryn-oracle-staging`. That runner volume holds one key,
 diff --git a/deploy/oracle/staging-deploy.py b/deploy/oracle/staging-deploy.py
-index f961892..a1c8e16 100644
+index f961892..a2159ca 100644
 --- a/deploy/oracle/staging-deploy.py
 +++ b/deploy/oracle/staging-deploy.py
 @@ -53,9 +53,8 @@ OFF = (
@@ -274,7 +282,7 @@ index f961892..a1c8e16 100644
          files.append(('mail/auth', f'portal:{smtp_password}\n'.encode(), 0o444))
          payload = io.BytesIO()
          with tarfile.open(fileobj=payload, mode='w') as archive:
-@@ -507,87 +480,121 @@ def replace_stack(directory, sha, smtp_password, seed_password):
+@@ -507,87 +480,143 @@ def replace_stack(directory, sha, smtp_password, seed_password):
      wait_ready()
 
 
@@ -294,21 +302,21 @@ index f961892..a1c8e16 100644
 +
 +const scratch = process.env.PORTAL_E2E_SCRATCH;
 +const envFile = scratch + '/env.json';
++const authDirectory = scratch + '/auth';
 +const reportFile = process.env.PLAYWRIGHT_JSON_OUTPUT_FILE;
 +const configFile = '/tmp/staging.config.mjs';
 +
-+function ready() {
-+  if (!fs.existsSync(envFile)) return false;
++function portalGet(path, headers = {}) {
 +  return new Promise(resolve => {
 +    const request = https.get({
-+      hostname: 'localhost', family: 4, port: 18443, path: '/en',
++      hostname: 'localhost', family: 4, port: 18443, path, headers,
 +      ca: fs.readFileSync(scratch + '/ca.pem'), timeout: 2000,
 +    }, response => {
 +      response.resume();
-+      resolve(response.statusCode === 200);
++      resolve(response.statusCode);
 +    });
 +    request.on('timeout', () => request.destroy());
-+    request.on('error', () => resolve(false));
++    request.on('error', () => resolve(0));
 +  });
 +}
 
@@ -326,25 +334,80 @@ index f961892..a1c8e16 100644
 -    } catch {
 -      res.writeHead(502).end();
 -    }
--    return;
-+async function seedPasswordRanges() {
-+  const { PORTAL_E2E_DATABASE_URL } = JSON.parse(fs.readFileSync(envFile, 'utf8'));
-+  const client = new Client({
-+    connectionString: PORTAL_E2E_DATABASE_URL,
-+    connectionTimeoutMillis: 2000,
-+    statement_timeout: 600_000,
-+  });
++async function keepStaffFixtureActive() {
 +  try {
-+    await client.connect();
-+    await client.query(process.argv[2]);
-+  } finally {
-+    await client.end();
++    const {cookies} = JSON.parse(fs.readFileSync(authDirectory + '/staff-pl-1440.json', 'utf8'));
++    const session = cookies.find(cookie => cookie.name === '__Host-oteryn_session' &&
++      cookie.domain === 'localhost' && /^[a-f0-9]{64}$/.test(cookie.value));
++    if (session) await portalGet('/admin', {cookie: session.name + '=' + session.value});
++  } catch {
++    // The staff bootstrap test writes the private fixture after signing in.
+     return;
    }
 -  const upstream = http.request({
 -    hostname: 'portal', port: 8080, path: req.url, method: req.method, headers: req.headers,
 -  }, result => { res.writeHead(result.statusCode, result.headers); result.pipe(res); });
 -  upstream.on('error', () => res.writeHead(502).end());
 -  req.pipe(upstream);
+ }
+
+-async function start() {
+-  const nss = '/tmp/.pki/nssdb';
+-  fs.mkdirSync(nss, {recursive: true});
+-  execFileSync('certutil', ['-N', '--empty-password', '-d', 'sql:' + nss]);
+-  execFileSync('certutil', ['-A', '-n', 'Oracle staging', '-t', 'C,,',
+-                           '-i', '/trust/ca.pem', '-d', 'sql:' + nss]);
+-  const web = https.createServer({
+-    cert: fs.readFileSync('/tls/leaf.pem'), key: fs.readFileSync('/tls/key.pem'),
+-  }, proxy);
+-  const pg = net.createServer(local => {
+-    const remote = net.connect(5432, 'postgres');
+-    local.on('error', () => remote.destroy());
+-    remote.on('error', () => local.destroy());
+-    local.pipe(remote).pipe(local);
+-  });
+-  const listen = (server, port) => new Promise((resolve, reject) => {
+-    server.once('error', reject);
+-    server.listen(port, '127.0.0.1', resolve);
++async function seedPasswordRanges() {
++  const { PORTAL_E2E_DATABASE_URL } = JSON.parse(fs.readFileSync(envFile, 'utf8'));
++  const client = new Client({
++    connectionString: PORTAL_E2E_DATABASE_URL,
++    connectionTimeoutMillis: 2000,
++    statement_timeout: 600_000,
+   });
+-  await Promise.all([listen(web, 18443), listen(pg, 5432)]);
+-  fs.writeFileSync('/tmp/staging.config.mjs', `
+-    import base from '/workspace/e2e/playwright.config.mjs';
+-    import { chromium } from '/workspace/e2e/node_modules/playwright/index.mjs';
+-    const ignored = process.argv.includes('--') ? [] :
+-      JSON.parse(process.env.STAGING_IGNORED || '[]').map(spec => '/workspace/e2e/' + spec);
+-    export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts', testIgnore: ignored,
+-      // Only the JSON report leaves the container: traces and screenshots of
+-      // failures filled the 512 MB /tmp and crashed every later page.
+-      use: {...base.use, ignoreHTTPSErrors: false, trace: 'off', screenshot: 'off', video: 'off',
+-        launchOptions: {...base.use.launchOptions, executablePath: chromium.executablePath()}}};
+-  `);
+-  // One project: all four run serially for over two hours, past the one-hour cap.
+-  // Portal RS E2E runs every project on each change; staging proves the deployed stack.
+-  const args = ['node_modules/@playwright/test/cli.js', 'test', '--config=/tmp/staging.config.mjs',
+-                '--project=pl-1440', '--reporter=json'];
+-  if (process.argv[1]) args.push('--', process.argv[1]);
+-  const child = spawn(process.execPath, args, {stdio: 'ignore'});
+-  child.on('exit', code => {
+-    pg.close();
+-    web.close();
+-    const report = '/tmp/report.json';
+-    if (fs.existsSync(report) && fs.statSync(report).size <= 16 * 1024 * 1024) {
+-      process.stdout.write(fs.readFileSync(report), () => process.exit(code ?? 1));
+-    } else {
+-      process.exit(1);
++  try {
++    await client.connect();
++    await client.query(process.argv[2]);
++  } finally {
++    await client.end();
++  }
 +}
 +
 +function startupFailure(message) {
@@ -378,58 +441,14 @@ index f961892..a1c8e16 100644
 +    stats: report.stats, suites: suites(report.suites),
 +    errors: report.errors.map(() => ({message: 'Playwright runner error'})),
 +  }));
- }
-
- async function start() {
--  const nss = '/tmp/.pki/nssdb';
--  fs.mkdirSync(nss, {recursive: true});
--  execFileSync('certutil', ['-N', '--empty-password', '-d', 'sql:' + nss]);
--  execFileSync('certutil', ['-A', '-n', 'Oracle staging', '-t', 'C,,',
--                           '-i', '/trust/ca.pem', '-d', 'sql:' + nss]);
--  const web = https.createServer({
--    cert: fs.readFileSync('/tls/leaf.pem'), key: fs.readFileSync('/tls/key.pem'),
--  }, proxy);
--  const pg = net.createServer(local => {
--    const remote = net.connect(5432, 'postgres');
--    local.on('error', () => remote.destroy());
--    remote.on('error', () => local.destroy());
--    local.pipe(remote).pipe(local);
--  });
--  const listen = (server, port) => new Promise((resolve, reject) => {
--    server.once('error', reject);
--    server.listen(port, '127.0.0.1', resolve);
--  });
--  await Promise.all([listen(web, 18443), listen(pg, 5432)]);
--  fs.writeFileSync('/tmp/staging.config.mjs', `
--    import base from '/workspace/e2e/playwright.config.mjs';
--    import { chromium } from '/workspace/e2e/node_modules/playwright/index.mjs';
--    const ignored = process.argv.includes('--') ? [] :
--      JSON.parse(process.env.STAGING_IGNORED || '[]').map(spec => '/workspace/e2e/' + spec);
--    export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts', testIgnore: ignored,
--      // Only the JSON report leaves the container: traces and screenshots of
--      // failures filled the 512 MB /tmp and crashed every later page.
--      use: {...base.use, ignoreHTTPSErrors: false, trace: 'off', screenshot: 'off', video: 'off',
--        launchOptions: {...base.use.launchOptions, executablePath: chromium.executablePath()}}};
--  `);
--  // One project: all four run serially for over two hours, past the one-hour cap.
--  // Portal RS E2E runs every project on each change; staging proves the deployed stack.
--  const args = ['node_modules/@playwright/test/cli.js', 'test', '--config=/tmp/staging.config.mjs',
--                '--project=pl-1440', '--reporter=json'];
--  if (process.argv[1]) args.push('--', process.argv[1]);
--  const child = spawn(process.execPath, args, {stdio: 'ignore'});
--  child.on('exit', code => {
--    pg.close();
--    web.close();
--    const report = '/tmp/report.json';
--    if (fs.existsSync(report) && fs.statSync(report).size <= 16 * 1024 * 1024) {
--      process.stdout.write(fs.readFileSync(report), () => process.exit(code ?? 1));
--    } else {
--      process.exit(1);
++}
++
++async function start() {
 +  const launcher = spawn(process.execPath, ['local.mjs'], {stdio: 'ignore'});
 +  const stopped = new Promise(resolve => launcher.once('close', resolve));
 +  try {
 +    const deadline = Date.now() + 180_000;
-+    while (!await ready()) {
++    while (!fs.existsSync(envFile) || await portalGet('/en') !== 200) {
 +      if (launcher.exitCode !== null || launcher.signalCode !== null || Date.now() >= deadline) {
 +        return startupFailure('CI fixture stack did not become ready');
 +      }
@@ -451,8 +470,18 @@ index f961892..a1c8e16 100644
 +    const args = ['run.mjs', envFile, 'test', '--config=' + configFile,
 +                  '--project=pl-1440', '--reporter=json'];
 +    if (process.argv[1]) args.push('--', process.argv[1]);
-+    const child = spawn(process.execPath, args, {stdio: 'ignore'});
-+    const code = await new Promise(resolve => child.once('close', resolve));
++    fs.mkdirSync(authDirectory, {mode: 0o700});
++    const child = spawn(process.execPath, args, {
++      env: {...process.env, PORTAL_E2E_AUTH_DIRECTORY: authDirectory},
++      stdio: 'ignore',
++    });
++    const heartbeat = setInterval(keepStaffFixtureActive, 60_000);
++    let code;
++    try {
++      code = await new Promise(resolve => child.once('close', resolve));
++    } finally {
++      clearInterval(heartbeat);
++    }
 +    if (fs.existsSync(reportFile) && fs.statSync(reportFile).size <= 16 * 1024 * 1024) {
 +      publish(JSON.parse(fs.readFileSync(reportFile, 'utf8')));
 +    }
@@ -467,7 +496,7 @@ index f961892..a1c8e16 100644
  """
 
 
-@@ -636,17 +643,24 @@ def playwright_summary(result, sensitive):
+@@ -636,17 +665,24 @@ def playwright_summary(result, sensitive):
 
  def playwright(directory, spec, sensitive):
      # Playwright takes positional file filters as regexes. Match the literal spec.
@@ -495,7 +524,7 @@ index f961892..a1c8e16 100644
      except subprocess.TimeoutExpired:
          run(['docker', 'container', 'rm', '--force', name], check=False)
          return None
-@@ -727,10 +741,17 @@ def deploy(directory, sha, spec, crates):
+@@ -727,10 +763,17 @@ def deploy(directory, sha, spec, crates):
          progress(directory, sha, 'qualifying source')
          qualify(sha)
          checkout = source(sha)
@@ -515,7 +544,7 @@ index f961892..a1c8e16 100644
              progress(directory, sha, f'building {target}')
              build(checkout, sha, target)
          progress(directory, sha, 'starting fresh staging stack')
-@@ -746,7 +767,7 @@ def deploy(directory, sha, spec, crates):
+@@ -746,7 +789,7 @@ def deploy(directory, sha, spec, crates):
              progress(directory, sha, 'running Playwright')
              browser_ok, lines = playwright(directory, spec, sensitive)
              summary.extend(lines)
@@ -548,7 +577,7 @@ index 6d44a28..8e0d312 100644
  USER 10001:10001
  ENTRYPOINT ["node"]
 diff --git a/deploy/oracle/staging.compose.yml b/deploy/oracle/staging.compose.yml
-index 2dceef9..c65f194 100644
+index 2dceef9..2a12010 100644
 --- a/deploy/oracle/staging.compose.yml
 +++ b/deploy/oracle/staging.compose.yml
 @@ -59,8 +59,7 @@ services:
@@ -561,7 +590,7 @@ index 2dceef9..c65f194 100644
    portal-public:
      <<: *app
      env_file: [portal.env, public.env]
-@@ -141,24 +140,51 @@ services:
+@@ -141,26 +140,55 @@ services:
      volumes:
        - trust:/trust
        - mail_tls:/mail
@@ -612,6 +641,7 @@ index 2dceef9..c65f194 100644
      environment:
        HOME: /tmp
 -      NODE_EXTRA_CA_CERTS: /trust/ca.pem
++      TMPDIR: /run/portal-e2e
        PLAYWRIGHT_JSON_OUTPUT_FILE: /tmp/report.json
        FORCE_COLOR: '0'
 -    volumes:
@@ -619,8 +649,11 @@ index 2dceef9..c65f194 100644
 -      - browser_tls:/tls:ro
      tmpfs:
        - /tmp:size=512m,uid=10001,gid=10001
++      - /run/portal-e2e:size=256m,uid=10001,gid=10001,mode=0700,exec,nosuid,nodev
    pg-tests:
-@@ -184,9 +210,13 @@ networks:
+     <<: *confined
+     profiles: [operations]
+@@ -184,9 +212,13 @@ networks:
        com.docker.network.bridge.gateway_mode_ipv4: isolated
    ingress:
      driver: bridge
@@ -636,7 +669,7 @@ index 2dceef9..c65f194 100644
 -  browser_tls:
    pg_target:
 diff --git a/deploy/oracle/test_staging_deploy.py b/deploy/oracle/test_staging_deploy.py
-index 0c18b64..d8139a2 100644
+index 0c18b64..bed8fea 100644
 --- a/deploy/oracle/test_staging_deploy.py
 +++ b/deploy/oracle/test_staging_deploy.py
 @@ -37,6 +37,8 @@ class StagingDeploy(unittest.TestCase):
@@ -648,7 +681,7 @@ index 0c18b64..d8139a2 100644
          self.assertEqual(staging.parse(['status'])[0], 'status')
          self.assertEqual(staging.parse(['logs'])[0], 'logs')
          with patch.object(staging, 'production_idle') as idle, patch('sys.stderr', new=io.StringIO()):
-@@ -188,11 +190,25 @@ class StagingDeploy(unittest.TestCase):
+@@ -188,11 +190,28 @@ class StagingDeploy(unittest.TestCase):
                  self.assertGreater(int(service['mem_limit']), 0)
                  for volume in service.get('volumes', []):
                      self.assertEqual(volume['type'], 'volume')
@@ -671,6 +704,9 @@ index 0c18b64..d8139a2 100644
 +        self.assertEqual(database_volume['target'], '/var/lib/postgresql')
 +        self.assertNotIn('source', database_volume)
 +        self.assertNotIn('volumes', services['browser'])
++        self.assertEqual(services['browser']['environment']['TMPDIR'], '/run/portal-e2e')
++        self.assertIn('/run/portal-e2e:size=256m,uid=10001,gid=10001,mode=0700,exec,nosuid,nodev',
++                      services['browser']['tmpfs'])
 +        for jobs, cpu, memory in ((('browser', 'browser-postgres'), 2.4, 6), (('pg-tests',), 2, 5)):
 +            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in (*core, *jobs)), cpu)
 +            self.assertLess(sum(int(services[name]['mem_limit']) for name in (*core, *jobs)),
@@ -678,7 +714,7 @@ index 0c18b64..d8139a2 100644
          self.assertIn('postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42',
                        services['postgres']['image'])
          self.assertEqual(services['mail']['environment']['MP_SMTP_REQUIRE_STARTTLS'], 'true')
-@@ -353,19 +369,23 @@ class StagingDeploy(unittest.TestCase):
+@@ -353,19 +372,26 @@ class StagingDeploy(unittest.TestCase):
          for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
              self.assertIn(option, self.staging.BROWSER)
 
@@ -706,12 +742,15 @@ index 0c18b64..d8139a2 100644
 +        self.assertIn("['local.mjs']", staging.BROWSER)
 +        self.assertIn('await seedPasswordRanges()', staging.BROWSER)
 +        self.assertIn('await client.query(process.argv[2])', staging.BROWSER)
++        self.assertIn('PORTAL_E2E_AUTH_DIRECTORY: authDirectory', staging.BROWSER)
++        self.assertIn("portalGet('/admin', {cookie:", staging.BROWSER)
++        self.assertIn('clearInterval(heartbeat)', staging.BROWSER)
 +        self.assertIn("'run.mjs', envFile, 'test'", staging.BROWSER)
 +        self.assertNotIn('testIgnore', staging.BROWSER)
 
      def test_playwright_runs_one_project_within_the_cap(self):
          self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
-@@ -387,8 +407,15 @@ class StagingDeploy(unittest.TestCase):
+@@ -387,8 +413,15 @@ class StagingDeploy(unittest.TestCase):
          self.assertEqual(summary, ['Playwright passed 3, failed 1, skipped 2',
                                     'specs/a.spec.mjs: can register [en-390] — Expected [redacted]',
                                     'skipped 2 in specs/a.spec.mjs'])
@@ -729,7 +768,7 @@ index 0c18b64..d8139a2 100644
          report.update(suites=[], stats={'expected': 1, 'unexpected': 0, 'flaky': 0, 'skipped': 0})
          self.assertTrue(staging.playwright_summary(
              subprocess.CompletedProcess([], 0, stdout=json.dumps(report).encode()), [])[0])
-@@ -424,11 +451,13 @@ class StagingDeploy(unittest.TestCase):
+@@ -424,11 +457,13 @@ class StagingDeploy(unittest.TestCase):
      def test_timeout_removes_only_the_named_test_container(self):
          staging = self.staging
          timeout = subprocess.TimeoutExpired(['docker'], 3600)
@@ -745,7 +784,7 @@ index 0c18b64..d8139a2 100644
          self.assert_isolated([item.args[0] for item in command.call_args_list])
 
      def test_deploy_rechecks_boundaries_before_replacement_and_saves_both_results(self):
-@@ -469,9 +498,11 @@ class StagingDeploy(unittest.TestCase):
+@@ -469,9 +504,11 @@ class StagingDeploy(unittest.TestCase):
                  sequence.attach_mock(method, name)
              methods['source'].return_value = checkout
              self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db']))
