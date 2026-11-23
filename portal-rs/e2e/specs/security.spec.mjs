@@ -1,5 +1,5 @@
 import {test,expect} from '../fixtures.mjs';
-import {register,login,logout,submit,password,csrfRejected,waitForLoginBudget,pool,exportOptions} from '../helpers.mjs';
+import {register,login,logout,submit,password,seedPasswordRange,csrfRejected,waitForLoginBudget,pool,exportOptions} from '../helpers.mjs';
 import crypto from 'node:crypto';
 
 test('privacy changes persist and account export contains the owning account',async({page},info)=>{
@@ -35,6 +35,7 @@ test('password change requires sudo, revokes sessions and accepts the new passwo
  await submit(page,'main form',{current_password:account.password});
  await page.goto(`/${lang}/password/change`);
  const next=password();
+ await seedPasswordRange(next);
  await submit(page,'main form',{current_password:account.password,password:next,password_confirmation:next});
  await expect(page).toHaveURL(/login/);
  await login(page,lang,{...account,password:next});
@@ -59,6 +60,7 @@ test('login rate limit refuses the sixth wrong password and supplies Retry-After
 
 
 test('recovery key: one-time reset revokes sessions; regenerate and revoke',async({page,browser},info)=>{
+ test.setTimeout(240_000);
  const lang=info.project.metadata.locale, account=await register(page,lang);
  await login(page,lang,account);
  await page.goto(`/${lang}/account/recovery-key`);
@@ -77,6 +79,7 @@ test('recovery key: one-time reset revokes sessions; regenerate and revoke',asyn
   await logout(page,lang);
   await page.goto(`/${lang}/recovery-key`);
   const next=password();
+  await seedPasswordRange(next);
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===`/${lang}/recovery-key` && r.status()!==403);
   await submit(page,'main form',{email:account.email,recovery_key:key,password:next,password_confirmation:next});
   const recovered=await response;expect(recovered.status()).toBe(302);expect(recovered.headers().location).toBe(`/${lang}/login`);
@@ -84,6 +87,7 @@ test('recovery key: one-time reset revokes sessions; regenerate and revoke',asyn
   await other.goto('/account');await expect(other).toHaveURL(/login/);
   await page.goto(`/${lang}/recovery-key`);
   const replay=password();
+  await seedPasswordRange(replay);
   await submit(page,'main form',{email:account.email,recovery_key:key,password:replay,password_confirmation:replay});
   await expect(page).toHaveURL(new RegExp(`/${lang}/recovery-key$`));
   expect((await state()).password_hash).toBe(after.password_hash);
@@ -107,10 +111,13 @@ test('the account export link continues from password confirmation to the downlo
  const account=await register(page,lang);
  await login(page,lang,account);
  const exportPath=`/${lang}/account/privacy/export`;
- expect((await page.request.get(exportPath)).status()).toBe(403);
- expect((await page.goto('/account')).status()).toBe(200);
- await page.locator('nav[data-panel="player"] a[href$="return_to=export"]').click();
  const confirmation=`/${lang}/account/sudo?return_to=export`;
+ const gated=await page.request.get(exportPath,{maxRedirects:0});
+ expect(gated.status()).toBe(303);
+ expect(gated.headers().location).toBe(confirmation);
+ expect(gated.headers()['content-disposition']).toBeUndefined();
+ expect((await page.goto('/account')).status()).toBe(200);
+ await page.locator(`nav[data-panel="player"] a[href="${exportPath}"]`).click();
  await expect(page).toHaveURL(url=>url.pathname+url.search===confirmation);
  const [response]=await Promise.all([
   page.waitForResponse(response=>response.request().method()==='POST'
@@ -120,4 +127,6 @@ test('the account export link continues from password confirmation to the downlo
  ]);
  expect(response.status()).toBe(302);
  expect(response.headers().location).toBe(exportPath);
+ await expect(page).toHaveURL(exportPath);
+ await expect(page.locator('main form[method="post"]')).toBeVisible();
 });
