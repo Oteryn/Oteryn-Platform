@@ -125,6 +125,7 @@ async function assertMenu(page, label, bound, auditDisclosed) {
     const panel = header.locator(`[id="${panelId}"]`);
     await page.keyboard.press('ArrowDown');
     await soft(button).toHaveAttribute('aria-expanded', 'true');
+    await auditDisclosed(`#${panelId}`);
     const links = await panel.locator('a[href]:visible').all();
     soft(links.length, `${label}: expanded ${panelId} links`).toBeGreaterThan(0);
     for (const link of links) {
@@ -179,9 +180,9 @@ async function assertNativeMenu(page, label, bound, auditDisclosed) {
     await page.keyboard.press('Enter');
     const disclosure = control.locator('..');
     await soft(disclosure).toHaveAttribute('open', '');
-    if (await disclosure.locator('form').count()) {
-      await auditDisclosed('#portal-navigation details[open]:has(form)');
-    }
+    const section = await disclosure.evaluate(element => element.classList.contains('om-section'));
+    await auditDisclosed(section ? '#portal-navigation .om-section[open]' :
+      '#portal-navigation .om-fallback-account[open]');
     expected = (await tabStops(page)).filter(candidate => candidate.inHeader && candidate.index > stop.index);
     index = -1;
   }
