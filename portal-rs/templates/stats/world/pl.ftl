@@ -14,3 +14,5 @@ world-select = Wybierz zarejestrowany świat i zakres dat UTC. Statystyki wymaga
 world-start = Od (UTC)
 world-end = Do (UTC)
 world-show = Pokaż obserwacje
+world-monsters = Potwory
+world-bosses = Bossowie

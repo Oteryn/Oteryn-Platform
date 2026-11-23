@@ -14,3 +14,5 @@ world-select = Select a registered world and a UTC date range. Statistics requir
 world-start = From (UTC)
 world-end = To (UTC)
 world-show = Show observations
+world-monsters = Monsters
+world-bosses = Bosses

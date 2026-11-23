@@ -18,10 +18,15 @@ impl PublicCatalog for Unavailable {
 }
 /// A current privacy/catalog adapter is required before enabling public statistics.
 pub fn configured_router(db: PgPool) -> Router {
+    let catalog: Arc<dyn PublicCatalog> = if crate::staging::enabled() {
+        Arc::new(crate::staging::Samples::new(db.clone()))
+    } else {
+        Arc::new(Unavailable)
+    };
     router(Rankings {
         db,
         enabled: std::env::var("PORTAL_GROWTH_RANKINGS_ENABLED").as_deref() == Ok("true"),
-        catalog: Arc::new(Unavailable),
+        catalog,
     })
 }
 pub fn router(state: Rankings) -> Router {

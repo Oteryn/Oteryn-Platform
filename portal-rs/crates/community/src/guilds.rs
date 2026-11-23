@@ -246,7 +246,7 @@ fn configured_with(db: PgPool, part: Part, get: impl Fn(&str) -> Option<String>)
             source_authority,
             enabled: environment && get("PORTAL_GUILDS_ENABLED").as_deref() == Some("true"),
         },
-        false, // G-4 rev 1 is CANDIDATE, without a Game producer.
+        crate::sample_public_feed(&get),
     )
     .merge(ingest)
 }

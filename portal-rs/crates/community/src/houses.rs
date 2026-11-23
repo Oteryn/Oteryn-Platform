@@ -154,7 +154,7 @@ fn configured<S: Clone + Send + Sync + 'static>(db: PgPool, part: Part) -> Route
                 && std::env::var("PORTAL_HOUSES_SERVING_ENABLED").as_deref() == Ok("true"),
         },
         part,
-        false, // G-4 house rev 1 is CANDIDATE, without a Game producer.
+        crate::sample_public_feed(|key| std::env::var(key).ok()),
     )
 }
 #[derive(serde::Deserialize, Default)]

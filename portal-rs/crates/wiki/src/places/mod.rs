@@ -47,6 +47,55 @@ impl PublicPlaces for Unavailable {
         Box::pin(async { Err(StatusCode::SERVICE_UNAVAILABLE) })
     }
 }
+#[derive(Debug)]
+struct SamplePlaces(oteryn_world::WorldStore);
+
+impl PublicPlaces for SamplePlaces {
+    fn cards<'a>(&'a self, locale: &'a str) -> CardsFuture<'a> {
+        Box::pin(async move {
+            let entities = self
+                .0
+                .list_by_kind("HuntPlace", None, 100)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            entities
+                .into_iter()
+                .map(|entity| {
+                    let data = entity.data;
+                    let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+                    let purpose = match data["purpose"].as_str() {
+                        Some("hunt") => Purpose::Hunt,
+                        Some("boss") => Purpose::Boss,
+                        Some("bestiary") => Purpose::Bestiary,
+                        _ => return Err(unavailable),
+                    };
+                    Ok(Card {
+                        key: entity.key,
+                        title: data["title"][locale].as_str().ok_or(unavailable)?.into(),
+                        purpose,
+                        level: data["level"]
+                            .as_u64()
+                            .and_then(|n| n.try_into().ok())
+                            .ok_or(unavailable)?,
+                        party_size: data["party_size"]
+                            .as_u64()
+                            .and_then(|n| n.try_into().ok())
+                            .ok_or(unavailable)?,
+                        experience_per_hour: None,
+                        profit_per_hour: None,
+                        points: None,
+                        completion_seconds: None,
+                        editorial_summary: data["summary"][locale]
+                            .as_str()
+                            .ok_or(unavailable)?
+                            .into(),
+                    })
+                })
+                .collect()
+        })
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct PlacesState {
     pub enabled: bool,
@@ -56,6 +105,22 @@ pub fn configured_router() -> Router {
     router(PlacesState {
         enabled: std::env::var("PORTAL_WIKI_PLACES_ENABLED").as_deref() == Ok("true"),
         source: Arc::new(Unavailable),
+    })
+}
+pub fn configured_with_catalog(db: sqlx::PgPool) -> Router {
+    if std::env::var("OTERYN_ENV").as_deref() != Ok("testing")
+        || std::env::var("PORTAL_STAGING_SAMPLE_DATA").as_deref() != Ok("true")
+    {
+        return configured_router();
+    }
+    router(PlacesState {
+        enabled: std::env::var("PORTAL_WIKI_PLACES_ENABLED").as_deref() == Ok("true"),
+        source: Arc::new(SamplePlaces(oteryn_world::WorldStore::new(
+            db,
+            oteryn_world::WorldOptions {
+                enabled: oteryn_world::configured_world_enabled(),
+            },
+        ))),
     })
 }
 pub fn router(state: PlacesState) -> Router {

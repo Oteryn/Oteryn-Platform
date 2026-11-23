@@ -577,8 +577,10 @@ first deploy. The detailed state is under `/opt/oteryn-staging/run/<sha>/`.
 Keep the generated environment files and captured mail private.
 
 Each replacement recreates PostgreSQL, migrates it, installs the testing legal
-pages and seeds a disposable account through the portal CLI. The staging portal
-is reachable on `127.0.0.1:18080` on the host, including `/readyz`. Port 18080
+pages, seeds test accounts through the portal CLI and loads the sample data
+from the deployed SHA. This uses the updated host deploy script, Compose file
+and staging Dockerfile together. Candidate branches need the staging seed CLI,
+the sample SQL and the atlas files. The staging portal is reachable on `127.0.0.1:18080` on the host, including `/readyz`. Port 18080
 is served by `portal-public`, a second `serve` on the
 same database whose origin comes from `/opt/oteryn-staging/public-origin`
 (one `https://<hostname>` line; without the file it is the loopback origin).
@@ -590,7 +592,49 @@ line, different from `public-origin`, routed by the same tunnel to port 18080).
 Cookies are host-only, so staff sign in there separately from the player
 portal; without the file the staff panel stays off. Passkeys are bound to the
 public host, so staff use TOTP on the staff host. Mail goes to the stack's authenticated
-STARTTLS catcher. Game, store and payment features are disabled on this deployment.
+STARTTLS catcher. No Game server or payment provider is connected.
+
+### Staging test accounts
+
+Use `<name>@staging.invalid` on the player portal or, for staff, on the
+configured staff host (`staging-admin.oteryn.com`). The deploy creates
+`/opt/oteryn-staging/test-accounts.json` once as `root:root` with mode `0600`.
+It contains the passwords and, where applicable, the Base32 TOTP secrets
+(SHA-1, six digits, 30 seconds). The next deploy reuses the file and restores
+the original login setup in the fresh database.
+
+| Account | What it tests |
+| --- | --- |
+| `player-basic` | Verified password login, two characters and a party post |
+| `player-mfa` | Verified player with TOTP and a boss party post |
+| `player-premium` | Active 30-day premium grant, without a purchase |
+| `player-guild-leader` | Two characters, including Galen Ashbrook, leader of Lantern Watch |
+| `player-new` | Account with unverified email |
+| `player-restricted` | Active restriction, including blocked party creation |
+| `founder`, `staff-platform-admin` | Platform administrator with TOTP |
+| `staff-security-admin` | Account roles and audit access with TOTP |
+| `staff-content-editor` | Content editing and publishing with TOTP |
+| `staff-moderator` | Moderation with TOTP |
+| `staff-support` | Tickets and reports with TOTP |
+| `staff-operations` | Portal settings and game catalogue administration with TOTP |
+| `staff-game-admin` | Game administration role with TOTP |
+| `staff-game-analyst` | Game analytics role with TOTP |
+| `staff-game-dba` | Game database operations role with TOTP |
+| `staff-game-master-senior` | Senior game master role with TOTP |
+| `staff-game-operator` | Game operations role with TOTP |
+| `staff-game-release` | Game release role with TOTP |
+| `staff-game-security` | Game security role with TOTP |
+| `staff-game-support` | Game support role with TOTP |
+| `staff-game-viewer` | Read-only game staff role with TOTP |
+
+Sample data covers Ashen Coast, Silverfen and Cinderpeak, with 50 named
+characters, highscores, growth and daily statistics, guilds, deaths, houses,
+party listings, wiki entries, daily boosts, an atlas tile and league standings.
+Collection shows two sample cards to signed-in, verified players. To try the
+compare form, paste the character IDs
+`019a0000-0000-7002-8000-000000000001,019a0000-0000-7002-8000-000000000002`.
+The sample feed refreshes short-lived read-model watermarks while staging is up.
+World registry status remains unknown without a Game server.
 
 Default deploys build the serving image and finish once staging is ready. An
 explicit qualification releases the deployment lock after readiness and uses

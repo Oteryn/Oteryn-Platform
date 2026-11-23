@@ -15,5 +15,9 @@
 {% if day.levels.is_empty() %}<p>{{ labels[1] }}</p>{% else %}<ul>{% for (level, count) in day.levels %}<li>{{ labels[6] }} {{ level }}: {{ labels[8] }} {{ count }}</li>{% endfor %}</ul>{% endif %}
 <h3>{{ labels[3] }}</h3><p>{% match day.deaths %}{% when Some with (count) %}{{ count }}{% when None %}{{ labels[1] }}{% endmatch %}</p></section>{% endfor %}{% endif %}
 {% endif %}
-<h2>{{ labels[9] }}</h2><p role="status">{{ labels[1] }}</p>
+<h2>{{ labels[9] }}</h2>
+{% if kill_totals.is_empty() %}<p role="status">{{ labels[1] }}</p>{% else %}
+<table><thead><tr><th>{{ labels[7] }}</th><th>{{ labels[15] }}</th><th>{{ labels[16] }}</th></tr></thead>
+<tbody>{% for (day, monsters, bosses) in kill_totals %}<tr><td>{{ day }}</td><td>{{ monsters }}</td><td>{{ bosses }}</td></tr>{% endfor %}</tbody></table>
+{% endif %}
 </main></body></html>

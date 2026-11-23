@@ -22,9 +22,9 @@
 <p>{{ self.label("bestiary-update") }} {{ self.updated(sources.bestiary_feed_updated_ms) }}</p>
 </section>
 {% when None %}
-{% if characters.is_empty() %}
+{% if characters.is_empty() && sample_cards.is_empty() %}
 <p>{{ self.label("unavailable") }}</p>
-{% else %}
+{% else if !characters.is_empty() %}
 <h2>{{ self.label("characters") }}</h2>
 <ul>
 {% for (id, name) in characters %}
@@ -33,6 +33,12 @@
 </ul>
 {% endif %}
 {% endmatch %}
+{% if !sample_cards.is_empty() %}
+  <section>
+    <h2>{{ self.label("cards") }}</h2>
+    <ul>{% for card in sample_cards %}<li>{{ card }}</li>{% endfor %}</ul>
+  </section>
+{% endif %}
 </main>
 </body>
 </html>

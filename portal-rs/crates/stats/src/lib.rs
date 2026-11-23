@@ -17,3 +17,5 @@ pub mod online;
 pub mod navigation;
 
 pub mod privacy;
+
+mod staging;

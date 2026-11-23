@@ -230,6 +230,22 @@ impl Collection {
         }
         Ok(cards)
     }
+    pub(super) async fn sample_cards(&self, account: Uuid) -> Result<Vec<Card>> {
+        self.eligible(account).await?;
+        let definitions: Vec<sqlx::types::Json<Card>> = sqlx::query_scalar(
+            "SELECT definition FROM collection_cards WHERE id IN (
+                '019a0000-0000-7010-8000-000000000001', '019a0000-0000-7010-8000-000000000002'
+             ) ORDER BY id",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut cards = Vec::new();
+        for sqlx::types::Json(card) in definitions {
+            self.visible(&card).await?;
+            cards.push(card);
+        }
+        Ok(cards)
+    }
     pub async fn decks(&self, account: Uuid) -> Result<Vec<Deck>> {
         self.eligible(account).await?;
         let rows = sqlx::query("SELECT id,character_id,name,cards FROM collection_decks WHERE account_id=$1 ORDER BY created_at,id").bind(account).fetch_all(&self.pool).await?;

@@ -31,3 +31,10 @@ mod begin_guard_tests;
 
 #[cfg(test)]
 mod restricted_environment_tests;
+
+// Only the disposable source may use public readers that lack a live Game producer.
+fn sample_public_feed(get: impl Fn(&str) -> Option<String>) -> bool {
+    get("OTERYN_ENV").as_deref() == Some("testing")
+        && get("PORTAL_STAGING_SAMPLE_DATA").as_deref() == Some("true")
+        && get("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").as_deref() == Some("staging-sample")
+}

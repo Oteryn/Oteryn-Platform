@@ -255,6 +255,7 @@ struct EvidencePage<'a> {
     lang: &'a str,
     characters: Vec<(Uuid, String)>,
     evidence: Option<CollectionEvidence>,
+    sample_cards: Vec<String>,
 }
 
 impl EvidencePage<'_> {
@@ -308,10 +309,28 @@ async fn index(
     } else {
         Vec::new()
     };
+    let sample_cards = if crate::staging_samples() {
+        s.service
+            .sample_cards(account(&session).await?)
+            .await
+            .map_err(status)?
+            .into_iter()
+            .map(|card| {
+                if lang == "pl" {
+                    card.name.pl
+                } else {
+                    card.name.en
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
     EvidencePage {
         lang: &lang,
         characters,
         evidence: None,
+        sample_cards,
     }
     .html()
 }
@@ -371,6 +390,7 @@ async fn page(
             lang: &lang,
             characters: Vec::new(),
             evidence: Some(evidence),
+            sample_cards: Vec::new(),
         }
         .html();
     }

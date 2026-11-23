@@ -255,7 +255,9 @@ class StagingDeploy(unittest.TestCase):
         staging = self.staging
         _, _, _, first = staging.configure(self.root, SHA)
         _, _, _, second = staging.configure(self.root, SHA)
-        self.assertFalse(set(first) & set(second))
+        accounts = staging.test_accounts()
+        persisted = {value for entry in accounts.values() for value in entry.values()}
+        self.assertEqual(set(first) & set(second), persisted)
         for path in self.root.glob('*.env'):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         portal = (self.root / 'portal.env').read_text()
@@ -267,6 +269,25 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('/' + staging.PORTAL_DB, portal)
         self.assertIn('/' + staging.TEST_DB + '\n', (self.root / 'pg-tests.env').read_text())
         self.assertNotIn('/' + staging.PORTAL_DB, (self.root / 'pg-tests.env').read_text())
+
+    def test_credentials_are_created_once_and_reused(self):
+        staging = self.staging
+        first = staging.test_accounts()
+        path = self.root / 'test-accounts.json'
+        original = path.stat()
+        self.assertEqual(original.st_mode & 0o777, 0o600)
+        self.assertEqual(original.st_uid, os.geteuid())
+        self.assertEqual(original.st_gid, 0 if os.geteuid() == 0 else os.getegid())
+        with patch.object(staging.secrets, 'token_urlsafe', side_effect=AssertionError):
+            self.assertEqual(staging.test_accounts(), first)
+        self.assertEqual(path.stat().st_ino, original.st_ino)
+        self.assertEqual(set(first), {*staging.PLAYERS, *staging.STAFF})
+        self.assertEqual({email for email, entry in first.items() if 'totpSecret' in entry},
+                         staging.TOTP_ACCOUNTS)
+        self.assertEqual(len({entry['password'] for entry in first.values()}), len(first))
+        path.chmod(0o644)
+        with self.assertRaises(staging.Refusal):
+            staging.test_accounts()
 
     def test_public_origin_defaults_to_loopback_and_rejects_bad_values(self):
         staging = self.staging
@@ -319,22 +340,39 @@ class StagingDeploy(unittest.TestCase):
         staging = self.staging
         directory = self.root / 'run'
         directory.mkdir()
-        with patch.object(staging, 'run', return_value=subprocess.CompletedProcess([], 0)) as command, \
+        accounts = staging.test_accounts()
+        fake_id = '019a0000-0000-7000-8000-000000000001'
+
+        def run(args, **kwargs):
+            if args[-3:] == ['seed', 'account', '-']:
+                return json.dumps({'accountId': fake_id})
+            return subprocess.CompletedProcess([], 0)
+
+        with patch.object(staging, 'run', side_effect=run) as command, \
                 patch.object(staging, 'install_tls'), patch.object(staging, 'wait_ready') as ready:
-            staging.replace_stack(directory, SHA, 'smtp', 'password')
+            staging.replace_stack(directory, SHA, 'smtp', accounts, b'sample SQL')
         commands = [entry.args[0] for entry in command.call_args_list]
         compose = [item[10:] for item in commands if item[:2] == ['docker', 'compose']]
         self.assertEqual(compose[0][0], 'down')
         self.assertEqual([item[-1] for item in compose[2:4]], ['migrate', 'install-legal-pages'])
         self.assertEqual(compose[4][5:7], ['seed', 'account'])
-        seeds = [json.loads(item[7]) for item in compose if item[5:7] == ['seed', 'account']]
-        self.assertEqual([seed['email'] for seed in seeds[1:]], list(staging.STAFF))
-        self.assertEqual(len({seed['password'] for seed in seeds}), len(seeds))
+        seeds = [json.loads(entry.kwargs['data']) for entry in command.call_args_list
+                 if entry.args[0][-3:] == ['seed', 'account', '-']]
+        self.assertEqual([seed['email'] for seed in seeds], [*staging.PLAYERS, *staging.STAFF])
+        for seed in seeds:
+            email = seed['email']
+            self.assertEqual(seed['password'], accounts[email]['password'])
+            self.assertEqual(seed.get('role'), staging.STAFF.get(email))
+            self.assertEqual(seed['verified'], email != 'player-new@staging.invalid')
+        mfa = [json.loads(entry.kwargs['data']) for entry in command.call_args_list
+               if entry.args[0][-3:] == ['seed', 'account-mfa', '-']]
+        self.assertCountEqual(mfa, [{'accountId': fake_id, **accounts[email]}
+                                    for email in staging.TOTP_ACCOUNTS])
+        self.assertFalse(any(value in arg for item in commands for arg in item
+                             for entry in accounts.values() for value in entry.values()))
         self.assertEqual(set(staging.STAFF.values()), set(staging.STAFF_ROLES))
         grant = [entry for entry in command.call_args_list if entry.args[0][10:13] == ['exec', '-T', 'postgres']]
-        self.assertEqual(grant[0].kwargs['data'], staging.GRANT_STAFF)
-        # subprocess input must be bytes (a str raised TypeError on the host).
-        self.assertIsInstance(staging.GRANT_STAFF, bytes)
+        self.assertEqual(grant[-1].kwargs['data'], b'sample SQL')
         # Registration is enabled and every range prefix is cached as complete
         # before the public portal starts, because the stack has no egress.
         policy = [entry for entry in grant if entry.kwargs['data'] == staging.REGISTRATION_POLICY]
@@ -354,8 +392,7 @@ class StagingDeploy(unittest.TestCase):
         self.assertLess(command.call_args_list.index(policy[0]),
                         [i for i, entry in enumerate(command.call_args_list)
                          if entry.args[0][10:12] == ['up', '-d'] and 'portal-public' in entry.args[0]][0])
-        self.assertEqual(staging.GRANT_STAFF.count(b'INSERT INTO account_roles'), len(staging.STAFF))
-        self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress'])
+        self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress', 'sample-feed'])
         removals = [item for item in commands if item[:3] == ['docker', 'volume', 'rm']]
         self.assertEqual([item[-1] for item in removals], [
             'oteryn-staging_data', 'oteryn-staging_trust', 'oteryn-staging_mail_tls',
@@ -499,7 +536,8 @@ class StagingDeploy(unittest.TestCase):
         checkout = self.root / 'src' / SHA
         with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
                             build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT,
-                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods:
+                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods, \
+                patch.object(staging, 'git', return_value='sample SQL'):
             sequence = Mock()
             for name, method in methods.items():
                 sequence.attach_mock(method, name)
@@ -533,7 +571,8 @@ class StagingDeploy(unittest.TestCase):
         checkout = self.root / 'src' / SHA
         with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
                             build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT,
-                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods:
+                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods, \
+                patch.object(staging, 'git', return_value='sample SQL'):
             sequence = Mock()
             for name, method in methods.items():
                 sequence.attach_mock(method, name)
@@ -548,6 +587,22 @@ class StagingDeploy(unittest.TestCase):
         ])
         self.assertEqual((directory / 'summary.txt').read_text(), 'Deployed without test runs\n')
         self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'passed')
+
+    def test_deploy_summary_redacts_all_test_credentials(self):
+        staging = self.staging
+        directory = self.root / 'run' / SHA
+        directory.mkdir(parents=True)
+        credentials = [value for entry in staging.test_accounts().values() for value in entry.values()]
+        with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
+                            build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT), \
+                patch.object(staging, 'git', return_value='sample SQL'), \
+                patch.object(staging, 'replace_stack',
+                             side_effect=staging.Refusal(' '.join(credentials))), \
+                staging.deploy_lock() as lock:
+            self.assertFalse(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, [], lock))
+        summary = (directory / 'summary.txt').read_text()
+        self.assertFalse(any(value in summary for value in credentials))
+        self.assertTrue(summary.startswith('[redacted] [redacted]'))
 
     def test_owner_install_documents_the_direct_host_cli(self):
         staging_section = (HERE / 'README.md').read_text().split('## Staging\n', 1)[1]

@@ -19,7 +19,7 @@ pub trait Policy: Visibility + Send + Sync {
 }
 impl Policy for crate::privacy::Authority {
     fn available(&self) -> bool {
-        self.enabled() && crate::privacy::GAME_STATISTICS_ACCEPTED
+        self.enabled() && (crate::privacy::GAME_STATISTICS_ACCEPTED || crate::staging::enabled())
     }
 }
 #[derive(Clone)]
@@ -65,6 +65,7 @@ struct Page {
     picker: bool,
     worlds: Vec<(Uuid, String)>,
     today: String,
+    kill_totals: Vec<(String, u64, u64)>,
 }
 fn labels(en: bool) -> Vec<String> {
     let source = if en {
@@ -96,6 +97,8 @@ fn labels(en: bool) -> Vec<String> {
         "start",
         "end",
         "show",
+        "monsters",
+        "bosses",
     ]
     .iter()
     .map(|key| {
@@ -126,6 +129,10 @@ fn date(value: &str) -> Result<Date, Error> {
     let day = parts[2].parse().map_err(|_| Error::BadInput)?;
     Date::from_calendar_date(year, month, day).map_err(|_| Error::BadInput)
 }
+fn sample_totals_enabled() -> bool {
+    crate::staging::enabled()
+        && std::env::var("PORTAL_STATS_WORLD_TOTALS_ENABLED").as_deref() == Ok("true")
+}
 async fn page(
     State(state): State<World>,
     OriginalUri(uri): OriginalUri,
@@ -147,6 +154,12 @@ async fn page(
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
             }
             let unavailable = worlds.is_empty();
+            let today = time::OffsetDateTime::now_utc().date();
+            let default_day = if sample_totals_enabled() {
+                today.previous_day().unwrap_or(today)
+            } else {
+                today
+            };
             let page = Page {
                 lang: if en { "en" } else { "pl" },
                 labels: labels(en),
@@ -154,7 +167,8 @@ async fn page(
                 days: vec![],
                 picker: true,
                 worlds,
-                today: time::OffsetDateTime::now_utc().date().to_string(),
+                today: default_day.to_string(),
+                kill_totals: vec![],
             };
             return match page.render() {
                 Ok(body) => (
@@ -192,6 +206,15 @@ async fn page(
         } else {
             Err(Error::Unavailable)
         };
+        let (result, kill_totals) = match result {
+            Ok(report) if sample_totals_enabled() => {
+                match super::kills::sample_totals(&state.db, query.world, start, end).await {
+                    Ok(totals) => (Ok(report), totals),
+                    Err(_) => (Err(Error::Unavailable), vec![]),
+                }
+            }
+            result => (result, vec![]),
+        };
         let unavailable = result.is_err();
         let en = uri.path().starts_with("/en/");
         let page = Page {
@@ -202,6 +225,7 @@ async fn page(
             picker: false,
             worlds: vec![],
             today: String::new(),
+            kill_totals,
         };
         match page.render() {
             Ok(body) => (

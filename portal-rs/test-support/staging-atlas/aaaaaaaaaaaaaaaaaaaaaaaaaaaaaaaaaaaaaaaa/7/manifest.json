@@ -1,0 +1,27 @@
+{
+  "format_version": 1,
+  "world_version": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "floor": 7,
+  "tile_size": 256,
+  "bounds": {
+    "min_x": 0,
+    "min_y": 0,
+    "max_x": 256,
+    "max_y": 256
+  },
+  "levels": [
+    {
+      "z": 0,
+      "width": 256,
+      "height": 256,
+      "columns": 1,
+      "rows": 1
+    }
+  ],
+  "tiles": [
+    {
+      "path": "0/0/0.webp",
+      "sha256": "1333712e7f4e0ac4d5c62463bf3f69c12990a2a14663dbbdbfdc3c2ad071126a"
+    }
+  ]
+}

@@ -18,10 +18,15 @@ impl Current for Deny {
 }
 /// T24b must provide a current, fenced public-profile/privacy adapter before activation.
 pub fn configured_router(db: PgPool) -> Router {
+    let current: Arc<dyn Current> = if crate::staging::enabled() {
+        Arc::new(crate::staging::Samples::new(db.clone()))
+    } else {
+        Arc::new(Deny)
+    };
     router(Characters {
         db,
         enabled: std::env::var("PORTAL_CHARACTER_STATS_ENABLED").as_deref() == Ok("true"),
-        current: Arc::new(Deny),
+        current,
     })
 }
 pub fn router(state: Characters) -> Router {

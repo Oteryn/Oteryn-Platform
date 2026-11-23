@@ -267,7 +267,7 @@ fn configured(db: PgPool, part: Part) -> Router {
             enabled: base && std::env::var("PORTAL_DEATHS_ENABLED").as_deref() == Ok("true"),
             source_authority: authority,
         },
-        false, // G-4 rev 1 is CANDIDATE, without a Game producer.
+        crate::sample_public_feed(|key| std::env::var(key).ok()),
     ))
 }
 #[cfg(test)]
