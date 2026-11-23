@@ -23,6 +23,7 @@ pub mod analytics;
 pub mod system;
 
 mod charts;
+mod newsletter;
 
 #[cfg(test)]
 mod begin_guard_tests;

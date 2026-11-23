@@ -186,7 +186,8 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         PortalIdentity::configured(pool.clone()),
     );
     let router = router.merge(invitations::acceptance_router(pool.clone()));
-    let router = router.merge(crate::errors::configured_router(pool)?);
+    let router = router.merge(crate::errors::configured_router(pool.clone())?);
+    let router = router.merge(crate::newsletter::configured_router(pool)?);
     Ok(if reports_enabled {
         router.layer(Extension(ReportsNavigation))
     } else {
@@ -634,6 +635,7 @@ struct Page {
     status_label: Option<String>,
     charts_label: String,
     can_view_charts: bool,
+    newsletter_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -774,6 +776,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .check(context, Permission::AdminAnalyticsView)
             .await
             .is_ok(),
+        newsletter_label: s
+            .auth
+            .check(context, Permission::NewsletterView)
+            .await
+            .is_ok()
+            .then(|| crate::newsletter::label(lang, "title")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

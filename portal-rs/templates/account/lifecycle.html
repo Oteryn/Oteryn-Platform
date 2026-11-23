@@ -1,4 +1,4 @@
-<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>
+<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">{% if unsubscribe %}<meta name="referrer" content="origin">{% endif %}<title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>
 <form method="post" action="{{ action }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}">
 {% if delete %}
 <p role="status">{% if restoration_pending %}{{ self.text("restoration-pending") }}{% else if pending %}{{ self.text("pending") }}{% else %}{{ self.text("explanation") }}{% endif %}</p>
@@ -9,7 +9,13 @@
 <p>{{ self.text("unsubscribe-info") }}</p><input type="hidden" name="token" value="{{ token }}"><button class="op-button" type="submit">{{ self.text("unsubscribe") }}</button>
 {% else %}
 <p>{{ self.text("security") }}</p>
-<fieldset><legend>{{ self.text("news") }}</legend><label><input type="checkbox" name="news_email" value="true"{% if news_email %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="news_portal" value="true"{% if news_portal %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
-<fieldset><legend>{{ self.text("support") }}</legend><label><input type="checkbox" name="support_email" value="true"{% if support_email %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="support_portal" value="true"{% if support_portal %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
+<label>{{ self.text("mail-language") }}<select class="op-input" name="mail_locale" required>
+<option value="pl" lang="pl"{% if mail_locale == "pl" %} selected{% endif %}>{{ self.text("polish-autonym") }}</option>
+<option value="en" lang="en"{% if mail_locale == "en" %} selected{% endif %}>{{ self.text("english-autonym") }}</option>
+</select></label>
+<fieldset><legend>{{ self.text("news") }}</legend><label><input type="checkbox" name="news_email" value="true"{% if choices.news.0 %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="news_portal" value="true"{% if choices.news.1 %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
+<fieldset><legend>{{ self.text("support") }}</legend><label><input type="checkbox" name="support_email" value="true"{% if choices.support.0 %} checked{% endif %}>{{ self.text("email") }}</label><label><input type="checkbox" name="support_portal" value="true"{% if choices.support.1 %} checked{% endif %}>{{ self.text("portal") }}</label></fieldset>
+<fieldset><legend>{{ self.text("events") }}</legend><label><input type="checkbox" name="events_email" value="true"{% if choices.events %} checked{% endif %}>{{ self.text("email") }}</label></fieldset>
+<fieldset><legend>{{ self.text("forum-digest") }}</legend><label><input type="checkbox" name="forum_digest_email" value="true"{% if choices.forum_digest %} checked{% endif %}>{{ self.text("email") }}</label></fieldset>
 <button class="op-button" type="submit">{{ self.text("save") }}</button>
 {% endif %}</form></main></body></html>

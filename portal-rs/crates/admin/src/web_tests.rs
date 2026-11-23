@@ -144,6 +144,7 @@ fn localized_responsive_labelled_template() {
             status_label: Some(crate::status::text(lang, "staff-title")),
             charts_label: crate::charts::nav_label(lang),
             can_view_charts: true,
+            newsletter_label: None,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),

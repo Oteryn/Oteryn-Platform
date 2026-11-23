@@ -59,7 +59,7 @@ pub fn register(registry: &mut Registry) {
         false,
     );
     registry.section(
-        std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY").is_ok_and(|k| !k.is_empty()),
+        true,
         "account-notifications",
         "shell-account-notifications",
         "account/notifications",
