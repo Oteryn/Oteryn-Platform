@@ -1,7 +1,7 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
-import {confirmStaffPassword,isolatedAdmin,role} from '../staff-rbac-helpers.mjs';
+import {confirmStaffPassword,isolatedAdmin,isolatedSeededAdmin,role} from '../staff-rbac-helpers.mjs';
 import * as OTPAuth from 'otpauth';
 
 test('staff bootstrap and mandatory MFA',async({page},info)=>{
@@ -94,7 +94,7 @@ for(const part of [0,1]) {
  test(`staff navigation sweep ${part+1}`,async({browser},info)=>{
   test.setTimeout(240_000);
   const lang=info.project.metadata.locale;
-  const {context,page}=await isolatedAdmin(browser,info);
+  const {context,page}=await isolatedSeededAdmin(browser,info);
   try {
    expect((await page.goto(`/admin?lang=${lang}`)).status()).toBe(200);
    await sweep(page,info,lang,part);
@@ -106,7 +106,7 @@ for(const part of [0,1]) {
 
 test('GM console refuses platform-only staff',async({browser},info)=>{
  const lang=info.project.metadata.locale;
- const {context:staffContext,page}=await isolatedAdmin(browser,info);
+ const {context:staffContext,page}=await isolatedSeededAdmin(browser,info);
  expect((await page.request.get('/admin/console/players?q=Local')).status()).toBe(403);
  expect((await page.request.get('/console/dashboard?agent=unavailable')).status()).toBe(403);
  await test.step('Game dashboard refuses platform-only staff with a localized shell',async()=>{

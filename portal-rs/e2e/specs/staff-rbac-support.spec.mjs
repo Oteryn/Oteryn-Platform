@@ -1,9 +1,9 @@
 import {test,expect} from '../fixtures.mjs';
 import {submit} from '../helpers.mjs';
-import {isolatedAdmin,player,action,audit,unique,query} from '../staff-rbac-helpers.mjs';
+import {isolatedSeededAdmin,player,action,audit,unique,query} from '../staff-rbac-helpers.mjs';
 // SSR controls: support_web.rs::show/forms; player forms: tickets/templates and reports/templates.
 test('support staff replies and resolves a ticket visible to its player',async({page,browser},info)=>{
- test.setTimeout(180000);const lang=info.project.metadata.locale;await player(page,lang);const s=await isolatedAdmin(browser,info);const subject=unique(),reply=unique();
+ test.setTimeout(180000);const lang=info.project.metadata.locale;await player(page,lang);const s=await isolatedSeededAdmin(browser,info);const subject=unique(),reply=unique();
  try{
   await s.page.setViewportSize(info.project.use.viewport);
   await page.goto(`/${lang}/support/tickets/create`);await submit(page,'main form',{subject,body:`Question ${subject}`});await expect(page).toHaveURL(/support\/tickets\/[a-f0-9-]+$/);
@@ -22,7 +22,7 @@ test('support staff replies and resolves a ticket visible to its player',async({
 });
 
 test('report moderation issues and lifts a persisted sanction and publishes the outcome to the player',async({page,browser},info)=>{
- test.setTimeout(300000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await isolatedAdmin(browser,info);const reason=unique(),outcome=unique(),lift=unique();
+ test.setTimeout(300000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await isolatedSeededAdmin(browser,info);const reason=unique(),outcome=unique(),lift=unique();
  try{
   await s.page.setViewportSize(info.project.use.viewport);
   // Optional support email defaults off; opt in through the real preference form.

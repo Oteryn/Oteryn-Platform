@@ -69,6 +69,11 @@ export async function isolatedAdmin(browser,info){
  return isolatedStaff(browser,info,'platform_admin');
 }
 
+export async function isolatedSeededAdmin(browser, info) {
+ const account = await seededAccount(info.project.metadata.locale);
+ return isolatedStaff(browser, info, 'platform_admin', account);
+}
+
 export async function isolatedStaff(browser,info,roleKey,seededAccount){
  const lang=info.project.metadata.locale;
  const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang});

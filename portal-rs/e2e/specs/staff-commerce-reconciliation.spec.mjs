@@ -1,12 +1,12 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool} from '../helpers.mjs';
 import {paidTopup} from '../staff-commerce-helpers.mjs';
-import {isolatedAdmin} from '../staff-rbac-helpers.mjs';
+import {isolatedSeededAdmin} from '../staff-rbac-helpers.mjs';
 
 test('staff reconciles a paid test intent and records the audit; bad intent refused',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);await login(page,lang,account);
- const {context:staff,page:admin}=await isolatedAdmin(browser,info);
+ const {context:staff,page:admin}=await isolatedSeededAdmin(browser,info);
  const db=pool();
  try {
   const paid=await paidTopup(page,lang,db);

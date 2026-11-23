@@ -1,8 +1,8 @@
 import {test,expect} from '../fixtures.mjs';
 import {login} from '../helpers.mjs';
-import {isolatedAdmin,player,action,audit,unique} from '../staff-rbac-helpers.mjs';
+import {isolatedSeededAdmin,player,action,audit,unique} from '../staff-rbac-helpers.mjs';
 test('player search and force logout revoke the player session and allow fresh login',async({page,browser},info)=>{
- test.setTimeout(180000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await isolatedAdmin(browser,info);
+ test.setTimeout(180000);const lang=info.project.metadata.locale;const account=await player(page,lang);const s=await isolatedSeededAdmin(browser,info);
  try{
   expect((await s.page.goto('/admin/players')).status()).toBe(200);
   await s.page.locator('[name=q]').fill(account.email);await s.page.locator('form[method=get] button').click();

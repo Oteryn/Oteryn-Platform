@@ -1,14 +1,14 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool,csrfRejected} from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
-import {isolatedAdmin} from '../staff-rbac-helpers.mjs';
+import {isolatedSeededAdmin} from '../staff-rbac-helpers.mjs';
 
 test('staff premium grant persists entitlement and audit; player cannot grant',async({page,browser},info)=>{
  test.setTimeout(300_000);
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);
  await login(page,lang,account);
- const {context:staff,page:admin}=await isolatedAdmin(browser,info);
+ const {context:staff,page:admin}=await isolatedSeededAdmin(browser,info);
  const reviewer=await browser.newContext({
   baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',
   ignoreHTTPSErrors:true,

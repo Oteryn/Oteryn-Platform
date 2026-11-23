@@ -2,12 +2,12 @@ import {test,expect} from '../fixtures.mjs';
 import crypto from 'node:crypto';
 import {register,login,pool,csrfRejected} from '../helpers.mjs';
 import {token,uuid7} from '../staff-commerce-helpers.mjs';
-import {isolatedAdmin} from '../staff-rbac-helpers.mjs';
+import {isolatedSeededAdmin} from '../staff-rbac-helpers.mjs';
 
 test('single-use gift code credits once and refuses both repeat and foreign redemption',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);await login(page,lang,account);
- const {context:staff,page:admin}=await isolatedAdmin(browser,info);
+ const {context:staff,page:admin}=await isolatedSeededAdmin(browser,info);
  const db=pool();
  const otherContext=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true});
  try {
