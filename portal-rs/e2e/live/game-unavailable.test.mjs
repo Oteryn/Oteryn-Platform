@@ -62,6 +62,8 @@ test('a marker inside non-content markup exposed by cleanup remains a hard failu
     `<scr<!-- gap -->ipt>${marker}</script>`,
     `<!<!-- gap -->-- ${marker} -->`,
     `<tem<!-- gap -->plate>${marker}</template>`,
+    `<!--${marker}`,
+    `<script>${marker}`,
   ]) {
     assert.equal(isGameUnavailable(online, response('en', 'Online characters', wrapper)), false);
   }

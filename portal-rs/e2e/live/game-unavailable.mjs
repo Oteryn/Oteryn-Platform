@@ -49,7 +49,7 @@ export function isGameUnavailable(url, { status, headers, body }) {
 
   const contentLanguage = headers.get('content-language');
   if (contentLanguage && contentLanguage !== lang) return false;
-  const nonContent = /<!--[\s\S]*?-->|<(script|style|template)\b[^>]*>[\s\S]*?<\/\1>/gi;
+  const nonContent = /<!--[\s\S]*?(?:-->|$)|<(script|style|template)\b[^<>]*>[\s\S]*?(?:<\/\1\s*>|$)/gi;
   let html = body.toString('utf8');
   let previous;
   // Removing one span can join fragments into another non-content span.
@@ -57,9 +57,14 @@ export function isGameUnavailable(url, { status, headers, body }) {
     previous = html;
     html = previous.replace(nonContent, '');
   } while (html !== previous);
-  const language = html.match(/<html\b[^>]*\slang="([^"]+)"[^>]*>/i)?.[1];
-  const main = html.match(/<main\b[^>]*\sid="main"[^>]*>([\s\S]*?)<\/main>/i)?.[1];
-  if (language !== lang || !main) return false;
+  const documentTag = html.match(/<html\b[^<>]*>/i)?.[0];
+  const language = documentTag?.match(/\slang="([^"]+)"/i)?.[1];
+  const mainTag = /<main\b[^<>]*>/i.exec(html);
+  if (language !== lang || !mainTag || !/\sid="main"/i.test(mainTag[0])) return false;
+  const content = html.slice(mainTag.index + mainTag[0].length);
+  const close = content.search(/<\/main>/i);
+  if (close === -1) return false;
+  const main = content.slice(0, close);
 
   const [heading, ...markers] = view[lang === 'pl' ? 0 : 1];
   return main.includes(`<h1>${heading}</h1>`) && markers.every(marker => main.includes(marker));
