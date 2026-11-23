@@ -22,12 +22,20 @@ test('players can start from home and find rules, answers and support', async ({
   ]) {
     await page.locator(`main a[href="/${lang}/${route}"]`).click();
     await expect(page.locator('main h1')).toHaveText(heading);
-    if (route === 'faq') {
+    if (route === 'server-information') {
+      await page.locator(`main a[href="/${lang}/worlds"]`).click();
+      await expect(page).toHaveURL(new RegExp(`/${lang}/worlds$`));
+      await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    } else if (route === 'faq') {
+      await expect(page.locator(`footer a[href="/${lang}/faq"]`)).toHaveAttribute('aria-current', 'page');
+      await assertShell(page);
       await page.locator(`main a[href="/${lang}/faq/account-access"]`).click();
       await expect(page.locator('main h1')).toHaveText(
         pl ? 'Jak odzyskać dostęp do konta?' : 'How do I recover access to my account?',
       );
       await expect(page.locator(`main a[href="/${lang}/forgot-password"]`)).toBeVisible();
+      await page.locator(`main a[href="/${lang}/faq"]`).click();
+      await expect(page.locator('main h1')).toHaveText(heading);
     } else if (route === 'support') {
       await expect(page.locator('main')).toContainText(pl ? 'komunikat o błędzie' : 'error message');
       await expect(page.locator(`main a[href="/${lang}/support/tickets/create"]`)).toBeVisible();
@@ -116,7 +124,7 @@ test('i18n-parity for editorial and navigation messages', () => {
       expect(Object.keys(pl).sort()).toEqual(Object.keys(en).sort());
     }
     for (const key of directory === 'templates/pages'
-      ? ['faq-title', 'faq-empty', 'faq-previous', 'faq-next', 'faq-back', 'faq-editor-help']
+      ? ['faq-title', 'faq-empty', 'faq-previous', 'faq-next', 'faq-back', 'faq-editor-help', 'next-page']
       : ['thais-nav-start', 'shell-faq']) {
       expect(en[key], `English ${key}`).toBeTruthy();
       expect(pl[key], `Polish ${key}`).toBeTruthy();

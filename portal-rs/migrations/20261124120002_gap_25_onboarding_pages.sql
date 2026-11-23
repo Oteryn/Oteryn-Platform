@@ -40,11 +40,11 @@ Nie używaj botów ani automatyzacji grającej za Ciebie, nie wykorzystuj błęd
 Zachowaj dane logowania i kody odzyskiwania dla siebie. Pomoc nigdy nie poprosi Cię o przesłanie hasła ani kodu odzyskiwania. Podejrzenie nadużycia lub pytanie o decyzję moderacji skieruj do [pomocy dla graczy](/pl/support). Zobacz też [Regulamin Oteryn](/pl/legal/terms).
 $pl$),
     ('server-information', 'Server information', $en$
-Use the [world list](/worlds) to check which worlds are listed and whether current status information is available. If the status is unknown, check again later. For planned maintenance and service announcements, see [News](/en/news).
+Use the [world list](/en/worlds) to check which worlds are listed and whether current status information is available. If the status is unknown, check again later. For planned maintenance and service announcements, see [News](/en/news).
 
 If you are setting up for the first time, follow [Getting started](/en/start). If a connection problem persists, include the world, approximate time and exact error message in your [support ticket](/en/support).
 $en$, 'Informacje o serwerach', $pl$
-Na [liście światów](/worlds) sprawdzisz dostępne światy i dowiesz się, czy jest znany ich bieżący status. Jeśli status jest nieznany, sprawdź ponownie później. Informacje o planowanych przerwach i ogłoszenia znajdziesz w [Aktualnościach](/pl/news).
+Na [liście światów](/pl/worlds) sprawdzisz dostępne światy i dowiesz się, czy jest znany ich bieżący status. Jeśli status jest nieznany, sprawdź ponownie później. Informacje o planowanych przerwach i ogłoszenia znajdziesz w [Aktualnościach](/pl/news).
 
 Jeśli konfigurujesz grę po raz pierwszy, zajrzyj do [Pierwszych kroków](/pl/start). Jeśli problem z połączeniem się utrzymuje, podaj w [zgłoszeniu do pomocy](/pl/support) świat, przybliżony czas i dokładny komunikat błędu.
 $pl$),

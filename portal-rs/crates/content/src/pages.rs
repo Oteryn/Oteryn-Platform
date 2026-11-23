@@ -146,6 +146,10 @@ struct FaqIndex<'a> {
 
 async fn faq_index(pool: &PgPool, lang: &str, query: FaqQuery) -> Response {
     const PAGE_SIZE: u32 = 25;
+    const MAX_PAGE: u32 = 1_000;
+    if query.page > MAX_PAGE {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
     let result = sqlx::query_as::<_, (String, String)>(
         "SELECT substring(p.slug FROM 5), e.title
            FROM pages p
@@ -164,7 +168,10 @@ async fn faq_index(pool: &PgPool, lang: &str, query: FaqQuery) -> Response {
     let Ok(mut entries) = result else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let more = entries.len() > PAGE_SIZE as usize;
+    if query.page != 0 && entries.is_empty() {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let more = entries.len() > PAGE_SIZE as usize && query.page < MAX_PAGE;
     entries.truncate(PAGE_SIZE as usize);
     oteryn_web::render(&FaqIndex {
         lang,
@@ -173,7 +180,7 @@ async fn faq_index(pool: &PgPool, lang: &str, query: FaqQuery) -> Response {
         previous_label: text(lang, "faq-previous"),
         next_label: text(lang, "faq-next"),
         previous: query.page.checked_sub(1),
-        next: query.page.checked_add(1).filter(|_| more),
+        next: more.then_some(query.page + 1),
         entries,
     })
 }
@@ -215,7 +222,11 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
                 StatusCode::OK,
                 title,
                 ammonia::clean(&html),
-                format!("{} {}", version, row.get::<String, _>("effective")),
+                if version.is_empty() {
+                    String::new()
+                } else {
+                    format!("{} {}", version, row.get::<String, _>("effective"))
+                },
                 draft_notice,
             )
         }
@@ -256,7 +267,9 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
             String::new()
         },
     });
-    *response.status_mut() = status;
+    if response.status() == StatusCode::OK {
+        *response.status_mut() = status;
+    }
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         axum::http::HeaderValue::from_static("no-store"),

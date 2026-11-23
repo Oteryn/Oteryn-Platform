@@ -77,12 +77,15 @@ async fn faq_lists_only_current_published_editions() -> Result<(), Box<dyn std::
         }
         let detail = visit(format!("/{lang}/faq/account-access"), StatusCode::OK).await?;
         assert!(detail.contains(&format!("href=\"/{lang}/forgot-password\"")));
+        assert!(!detail.contains("<p> </p>"));
         let start = visit(format!("/{lang}/start"), StatusCode::OK).await?;
         assert!(start.contains(&format!("href=\"/{lang}/faq\"")));
         for invalid in ["Bad--Slug".to_owned(), "a".repeat(157)] {
             visit(format!("/{lang}/faq/{invalid}"), StatusCode::NOT_FOUND).await?;
         }
         visit(format!("/{lang}/faq?page=-1"), StatusCode::BAD_REQUEST).await?;
+        visit(format!("/{lang}/faq?page=1001"), StatusCode::BAD_REQUEST).await?;
+        visit(format!("/{lang}/faq?page=1"), StatusCode::NOT_FOUND).await?;
     }
 
     let id: Uuid = sqlx::query_scalar("SELECT id FROM pages WHERE slug = 'faq-account-access'")
@@ -110,6 +113,31 @@ async fn faq_lists_only_current_published_editions() -> Result<(), Box<dyn std::
                 .contains("/en/faq/account-access")
         );
     }
+
+    sqlx::query(
+        "WITH added AS (
+            INSERT INTO pages(id,slug)
+            SELECT uuidv7(), 'faq-test-' || lpad(n::text, 2, '0')
+            FROM generate_series(1, 25) n
+            RETURNING id, slug
+        )
+        INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
+        SELECT id,'en',slug,'Test answer',now() FROM added",
+    )
+    .execute(&pool)
+    .await?;
+    let first = visit("/en/faq".into(), StatusCode::OK).await?;
+    assert!(first.contains("href=\"?page=1\" rel=\"next\""));
+    assert!(first.contains("href=\"/en/faq/test-24\""));
+    assert!(!first.contains("href=\"/en/faq/test-25\""));
+    let second = visit("/en/faq?page=1".into(), StatusCode::OK).await?;
+    assert!(second.contains("href=\"?page=0\" rel=\"prev\""));
+    assert!(second.contains("href=\"/en/faq/test-25\""));
+    assert!(second.contains("href=\"/en/faq/ticket-replies\""));
+    assert!(!second.contains("href=\"/en/faq/test-24\""));
+    assert!(!second.contains("rel=\"next\""));
+    visit("/en/faq?page=2".into(), StatusCode::NOT_FOUND).await?;
+
     drop_pages_schema(root, pool, &schema).await?;
     Ok(())
 }
