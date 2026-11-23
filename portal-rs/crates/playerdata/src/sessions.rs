@@ -54,6 +54,7 @@ impl Settings {
 struct Surface {
     db: PgPool,
     config: Settings,
+    party_accepted: bool,
     budget: Arc<Mutex<(Instant, u32)>>,
 }
 fn response(status: StatusCode, bytes: Vec<u8>) -> Response {
@@ -138,7 +139,20 @@ async fn headers(request: axum::extract::Request, next: Next) -> Response {
     );
     r
 }
+pub(crate) fn party_privacy_accepted() -> bool {
+    std::env::var("PORTAL_PLAYERDATA_G9_PARTY_PRIVACY").as_deref() == Ok("accepted")
+}
+
 pub fn router(db: PgPool, config: Settings, identities: Arc<IdentityMap>) -> Router {
+    router_with_party(db, config, identities, party_privacy_accepted())
+}
+
+pub(crate) fn router_with_party(
+    db: PgPool,
+    config: Settings,
+    identities: Arc<IdentityMap>,
+    party_accepted: bool,
+) -> Router {
     let valid = !config.source.is_empty()
         && config.source.len() <= 128
         && config
@@ -148,6 +162,7 @@ pub fn router(db: PgPool, config: Settings, identities: Arc<IdentityMap>) -> Rou
     let state = Surface {
         db,
         config: config.clone(),
+        party_accepted,
         budget: Arc::new(Mutex::new((Instant::now(), 0))),
     };
     let mut app = Router::new();
@@ -191,7 +206,7 @@ async fn handle(
             return Err(StatusCode::UNAUTHORIZED);
         }
         if uri.path() == RECORDS {
-            let r = codec::record(&bytes).map_err(invalid)?;
+            let r = codec::record_with_party(&bytes, s.party_accepted).map_err(invalid)?;
             ingest(&s.db, &r).await?;
             Ok(accepted())
         } else {
@@ -231,6 +246,24 @@ fn keys(v: &Value, out: &mut Vec<String>) {
         _ => {}
     }
 }
+pub(crate) async fn erased(
+    db: &mut sqlx::PgConnection,
+    account: Uuid,
+    character: Uuid,
+    revision: u64,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1 OR (scope_digest=$2 AND (closed_revision IS NULL OR closed_revision >= $5::numeric))) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$3 AND (character_id IS NULL OR character_id=$4))",
+    )
+    .bind(crate::store::scope_digest(&account.to_string(), None))
+    .bind(crate::store::scope_digest(&account.to_string(), Some(&character.to_string())))
+    .bind(account.to_string())
+    .bind(character.to_string())
+    .bind(revision.to_string())
+    .fetch_one(db)
+    .await
+}
+
 async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
     let mut tx = db.begin().await.map_err(unavailable)?;
     sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,73))")
@@ -240,18 +273,10 @@ async fn ingest(db: &PgPool, r: &SessionRecord) -> Result<(), StatusCode> {
         .map_err(unavailable)?;
     let account = id(&r.account)?;
     let generation = id(&r.generation)?;
-    let erased: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM pd_deleted_scopes WHERE scope_digest=$1 OR (scope_digest=$2 AND (closed_revision IS NULL OR closed_revision >= $5::numeric))) OR EXISTS(SELECT 1 FROM pd_erasure_jobs WHERE account_id=$3 AND (character_id IS NULL OR character_id=$4))",
-    )
-    .bind(crate::store::scope_digest(&r.account, None))
-    .bind(crate::store::scope_digest(&r.account, Some(&r.character)))
-    .bind(&r.account)
-    .bind(&r.character)
-    .bind(r.character_revision.to_string())
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(unavailable)?;
-    if erased {
+    if erased(&mut tx, account, id(&r.character)?, r.character_revision)
+        .await
+        .map_err(unavailable)?
+    {
         return Err(StatusCode::CONFLICT);
     }
 

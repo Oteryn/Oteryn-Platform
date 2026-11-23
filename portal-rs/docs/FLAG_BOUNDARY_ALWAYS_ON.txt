@@ -194,3 +194,6 @@ public G /pl/account/security/native-devices
 public P /account/security/native-devices
 public P /en/account/security/native-devices
 public P /pl/account/security/native-devices
+public G /admin/hunt-journal
+internal G /admin/hunt-journal
+native G /admin/hunt-journal
