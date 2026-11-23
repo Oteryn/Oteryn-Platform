@@ -1,0 +1,52 @@
+{% extends "content/discussion_base.html" %}
+{% block title %}{{ self.text("discussion-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("discussion-title") }}</h1>
+<p><a href="/{{ lang }}/news/{{ slug }}">{{ article }}</a></p>
+{% if let Some(token) = csrf %}
+<form method="post" action="/{{ lang }}/news/{{ slug }}/discussion" class="op-stack">
+  <input type="hidden" name="_csrf" value="{{ token }}">
+  <label for="discussion-body">{{ self.text("discussion-new") }}</label>
+  <p id="discussion-guidance">{{ self.text("discussion-guidance") }}</p>
+  <textarea id="discussion-body" name="body" class="op-input" rows="4" maxlength="2000" required aria-describedby="discussion-guidance"></textarea>
+  <div><button type="submit" class="op-button">{{ self.text("discussion-submit") }}</button></div>
+</form>
+{% else if signed_in %}
+<p>{{ self.text("discussion-error-forbidden") }}</p>
+{% else %}
+<p><a href="/{{ lang }}/login">{{ self.text("discussion-sign-in") }}</a></p>
+{% endif %}
+<h2 id="replies">{{ self.text("discussion-replies") }}</h2>
+{% for reply in replies %}
+<article id="reply-{{ reply.id }}" class="op-panel op-stack" aria-labelledby="time-{{ reply.id }}">
+  <p id="time-{{ reply.id }}">{{ reply.time }} UTC</p>
+  <p class="discussion-text">{{ reply.body }}</p>
+  {% if reply.mine %}
+  <p>{{ self.text("discussion-your-reply") }} · {{ self.status(reply.status) }}</p>
+  {% if let Some(token) = csrf %}
+  {% if reply.status != "hidden" %}
+  <details>
+    <summary>{{ self.text("discussion-edit") }}</summary>
+    <form method="post" action="/{{ lang }}/news/{{ slug }}/discussion/{{ reply.id }}/edit?page={{ page }}" class="op-stack">
+      <input type="hidden" name="_csrf" value="{{ token }}">
+      <input type="hidden" name="revision" value="{{ reply.revision }}">
+      <label for="body-{{ reply.id }}">{{ self.text("discussion-edit") }}</label>
+      <p id="edit-guidance-{{ reply.id }}">{{ self.text("discussion-edit-guidance") }}</p>
+      <textarea id="body-{{ reply.id }}" name="body" class="op-input" rows="4" maxlength="2000" required aria-describedby="edit-guidance-{{ reply.id }}">{{ reply.body }}</textarea>
+      <div><button type="submit" class="op-button">{{ self.text("discussion-submit") }}</button></div>
+    </form>
+  </details>
+  {% endif %}
+  {% endif %}
+  {% endif %}
+</article>
+{% else %}
+<p>{{ self.text("discussion-empty") }}</p>
+{% endfor %}
+{% if pages.previous.is_some() || pages.next.is_some() %}
+<nav aria-label="{{ self.text("pagination") }}" class="op-row">
+  {% if let Some(previous) = pages.previous %}<a rel="prev" href="?page={{ previous }}#replies">{{ self.text("previous") }}</a>{% endif %}
+  {% if let Some(next) = pages.next %}<a rel="next" href="?page={{ next }}#replies">{{ self.text("next") }}</a>{% endif %}
+</nav>
+{% endif %}
+{% endblock %}

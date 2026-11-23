@@ -11,6 +11,7 @@
 <main class="op-panel op-stack">
   <h1>{{ title }}</h1>
   <a href="/admin/news/create?lang={{ lang }}">{{ create }}</a>
+  <a href="/admin/news/discussions?lang={{ lang }}">{{ discussion_queue }}</a>
   {% if let Some(library) = media_library %}<a href="/admin/media?lang={{ lang }}">{{ library }}</a>{% endif %}
   <ul class="op-stack">
   {% for row in rows %}

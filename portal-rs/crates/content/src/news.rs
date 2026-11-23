@@ -21,6 +21,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+mod discussion;
 mod public;
 
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
@@ -86,6 +87,7 @@ const MAX_PAGE: i64 = 100000;
 struct Options {
     lang: Option<String>,
     page: Option<i64>,
+    status: Option<String>,
     #[serde(default)]
     year: String,
     #[serde(default)]
@@ -216,6 +218,7 @@ fn public_router_at(pool: PgPool, origin: &str) -> Router {
             RateLimiter::new(pool.clone()),
             ratelimit::supply,
         ));
+    let discussion = discussion::public_routes(pool.clone(), origin);
     archive
         .route("/news/{slug}", get(show))
         .route("/news/media/{id}", get(crate::media::published_content))
@@ -224,10 +227,12 @@ fn public_router_at(pool: PgPool, origin: &str) -> Router {
         .layer(Extension(public::FeedOrigin(
             origin.trim_end_matches('/').to_owned(),
         )))
+        .merge(discussion)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
 pub fn admin_router(pool: PgPool) -> Router {
+    let discussions = discussion::staff_routes(pool.clone());
     Router::new()
         .route("/admin/news", get(admin_index).post(create))
         .route("/admin/news/create", get(new))
@@ -238,6 +243,7 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news/{id}", post(update).put(update).delete(delete))
         .route("/admin/news/{id}/delete", post(delete))
         .with_state(pool)
+        .merge(discussions)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
@@ -343,6 +349,14 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
     } else {
         "news"
     };
+    let discussion_link = if section == "news" {
+        format!(
+            "<p><a href=\"/{lang}/news/{slug}/discussion\">{}</a></p>",
+            label(lang, "discussion-title")
+        )
+    } else {
+        String::new()
+    };
     let image = row
         .get::<Option<Uuid>, _>("media_id")
         .map(|id| ArticleImage {
@@ -358,7 +372,7 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
         lang,
         row.get("title"),
         format!(
-            "<p><a href=\"/{lang}/{section}\">{}</a>{}",
+            "<p><a href=\"/{lang}/{section}\">{}</a>{}{discussion_link}",
             label(lang, section),
             article.render().map_err(unavailable)?
         ),
@@ -384,6 +398,7 @@ struct NewsQueue<'a> {
     lang: &'a str,
     title: String,
     create: String,
+    discussion_queue: String,
     next: Option<i64>,
     next_label: String,
     end_label: String,
@@ -527,6 +542,7 @@ async fn admin_listing(
         lang,
         title: label(lang, "news"),
         create: label(lang, "new"),
+        discussion_queue: label(lang, "discussion-queue"),
         next,
         next_label: label(lang, "next"),
         end_label: crate::pages::text(lang, "publication-end-label"),

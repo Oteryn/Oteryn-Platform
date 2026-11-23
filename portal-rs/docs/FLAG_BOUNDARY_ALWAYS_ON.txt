@@ -221,3 +221,9 @@ public P /{locale}/account/journal/reports/weekly-note
 public G /admin/character-cases
 public P /admin/character-cases
 public P /admin/character-cases/review
+public G /admin/news/discussions
+public G /admin/news/discussions/{id}
+public G /{lang}/news/{slug}/discussion
+public P /admin/news/discussions/{id}
+public P /{lang}/news/{slug}/discussion
+public P /{lang}/news/{slug}/discussion/{id}/edit
