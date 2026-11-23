@@ -90,7 +90,7 @@ fn action_sections(registry: &mut Registry, pending_closure: bool) {
         registry.section(
             true,
             "account-export",
-            "shell-account-export",
+            "shell-account-export-start",
             path,
             Group::Account,
             false,

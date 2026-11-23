@@ -202,7 +202,7 @@ pub fn public_router(pool: PgPool) -> Router {
 }
 
 fn public_router_at(pool: PgPool, origin: &str) -> Router {
-    let archive = Router::new()
+    Router::new()
         .route("/news", get(public::index))
         .route("/{lang}/news", get(public::local_index))
         .route("/{lang}/news/rss.xml", get(public::rss))
@@ -212,14 +212,13 @@ fn public_router_at(pool: PgPool, origin: &str) -> Router {
                 next.run(request).await
             },
         ))
-        .route_layer(axum::middleware::from_fn_with_state(
-            RateLimiter::new(pool.clone()),
-            ratelimit::supply,
-        ));
-    archive
         .route("/news/{slug}", get(show))
         .route("/news/media/{id}", get(crate::media::published_content))
         .route("/{lang}/news/{slug}", get(local_show))
+        .route_layer(axum::middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            ratelimit::supply,
+        ))
         .with_state(pool)
         .layer(Extension(public::FeedOrigin(
             origin.trim_end_matches('/').to_owned(),
@@ -574,8 +573,7 @@ async fn edit(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
-    headers: HeaderMap,
-    chrome: Option<Extension<oteryn_ui::Chrome>>,
+    (headers, chrome): (HeaderMap, Option<Extension<oteryn_ui::Chrome>>),
 ) -> Result<Html<String>, StatusCode> {
     let can_manage_media =
         crate::media::can_manage(&pool, &auth, context, Permission::ManageMedia).await?;

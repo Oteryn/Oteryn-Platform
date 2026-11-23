@@ -58,11 +58,9 @@ async fn editorial_discovery_lifecycle() -> crate::last_wait_tests::TestResult {
         title_en: "Editorial calendar".into(),
         ..Settings::default()
     };
-    let start_page: Uuid = sqlx::query_scalar(
-        "INSERT INTO pages (id, slug) VALUES (uuidv7(), 'getting-started') RETURNING id",
-    )
-    .fetch_one(&db.pool)
-    .await?;
+    let start_page: Uuid = sqlx::query_scalar("SELECT id FROM pages WHERE slug='getting-started'")
+        .fetch_one(&db.pool)
+        .await?;
     assert!(matches!(
         save(
             &db.pool,
@@ -177,6 +175,25 @@ async fn editorial_discovery_lifecycle() -> crate::last_wait_tests::TestResult {
             .fetch_all(&db.pool)
             .await?;
     assert_eq!(paths, ["/en/news/calendar"]);
+    sqlx::query("UPDATE news SET published_at=now()-interval '2 days', expires_at=now()-interval '1 day' WHERE id=$1")
+        .bind(published)
+        .execute(&db.pool)
+        .await?;
+    let visible: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM editorial_publication WHERE document_id=$1)",
+    )
+    .bind(published)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(!visible);
+    let faq_paths: Vec<String> =
+        sqlx::query_scalar("SELECT path FROM editorial_publication WHERE kind='pages' AND slug='faq-account-access' ORDER BY path")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(
+        faq_paths,
+        ["/en/faq/account-access", "/pl/faq/account-access"]
+    );
     sqlx::query("DELETE FROM news WHERE id=$1")
         .bind(published)
         .execute(&db.pool)

@@ -344,6 +344,7 @@ shell-account-mfa = Uwierzytelnianie dwuskładnikowe
 shell-account-remembered-devices = Zapamiętane urządzenia
 shell-account-email-change = Zmień adres e-mail
 shell-account-export = Pobierz dane konta
+shell-account-export-start = Przygotuj eksport danych konta
 shell-account-closure = Zamknij konto
 shell-account-closure-pending = Oczekujące zamknięcie konta
 shell-account-overview-back = Wróć do przeglądu konta

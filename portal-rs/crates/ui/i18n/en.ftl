@@ -344,6 +344,7 @@ shell-account-mfa = Two-factor authentication
 shell-account-remembered-devices = Remembered devices
 shell-account-email-change = Change email address
 shell-account-export = Download account data
+shell-account-export-start = Prepare an account data export
 shell-account-closure = Close account
 shell-account-closure-pending = Pending account closure
 shell-account-overview-back = Back to account overview
