@@ -355,7 +355,7 @@ test('staff publish content and handle a player’s support, safety and account 
         await open(admin, '/admin/commerce');
         const refundForm = 'main form[action="/admin/commerce/refund"]';
         expect((await responseForForm(admin, refundForm, {
-          target: paid.payment_intent_id, reason: 'Review an already credited wallet top-up',
+          target: paid.payment_intent_id, reason: 'refund_requested',
         })).status()).toBe(409);
         const refundable = uuid7();
         // Match the uncredited test intent in commerce/tests.rs and attach a
@@ -367,33 +367,47 @@ test('staff publish content and handle a player’s support, safety and account 
         INSERT INTO store_web_topups(operation_id,account_id,package_key,coins,minor_units,currency,payment_intent_id)
         SELECT $4,account_id,'e2e-refund',100,100,'PLN',id FROM payment`,
         [refundable, playerId, `test:${refundable}`, uuid7()]);
-        for (const [operation, target, values] of [
-          ['grant', playerId, { days: '7' }],
-          ['refund', refundable, {}],
+        for (const [operation, target, values, reason, approvalReason] of [
+          ['grant', playerId, { days: '7' }, 'Process the player account request with independent review', 'value_verified'],
+          ['refund', refundable, {}, 'refund_requested', 'refund_verified'],
         ]) {
           await open(admin, '/admin/commerce');
           const selector = `main form[action="/admin/commerce/${operation}"]`;
           const requestId = await admin.locator(`${selector} [name=request_id]`).inputValue();
-          const fields = { ...values, target, reason: 'Process the player account request with independent review' };
+          const fields = { ...values, target, reason };
           await denied(admin, selector, fields, page, visitor);
           expect((await responseForForm(admin, selector, { ...fields, reason: 'short' })).status()).toBe(422);
-          await submit(admin, selector, fields);
+          if (operation === 'refund') {
+            await admin.locator(selector).locator('select[name=reason]').selectOption(reason);
+            await submit(admin, selector, { target });
+          } else {
+            await submit(admin, selector, fields);
+          }
           const approval = `main form[action="/admin/commerce/approvals/${requestId}"]`;
           await expect(admin.locator(approval)).toContainText(pl ? 'Oczekuje na drugą osobę z zespołu' : 'Awaiting a second staff member');
           await expect(admin.locator(`${approval} button`)).toHaveCount(0);
-          expect((await responseForForm(admin, approval, {})).status()).toBe(403);
+          expect((await responseForForm(admin, approval, { reason: approvalReason })).status()).toBe(403);
           await open(reviewer, '/admin/commerce');
+          await reviewer.locator(approval).locator('select[name=reason]').selectOption(approvalReason);
           await submit(reviewer, approval);
           await expect(reviewer.locator(approval)).toHaveCount(0);
           const [result] = await query('SELECT approved_by, result FROM commerce_operations WHERE id=$1', [requestId]);
           expect(result.approved_by).toBe(actors.game_support.id);
           expect(result.result).toBeTruthy();
+          expect(await query(
+            "SELECT staff_reason FROM audit_log WHERE action='commerce.approved' AND request_id=$1",
+            [requestId],
+          )).toEqual([{ staff_reason: approvalReason }]);
           evidenceLog.push(['commerce.requested', target], ['commerce.approved', target]);
           if (operation === 'grant') {
             const [premium] = await query('SELECT effective_until FROM premium_ledger WHERE request_id=$1', [requestId]);
             await followAccountLink(page, `/${lang}/panel/premium`);
             await expect(main).toContainText(premium.effective_until.toISOString().slice(0, 10));
           } else {
+            expect(await query(
+              "SELECT staff_reason FROM audit_log WHERE action='commerce.requested' AND request_id=$1",
+              [requestId],
+            )).toEqual([{ staff_reason: reason }]);
             await expect.poll(async () => (await query(
               'SELECT state FROM commerce_refunds WHERE operation_id=$1', [requestId],
             ))[0]?.state, { timeout: 90_000 }).toBe('done');
