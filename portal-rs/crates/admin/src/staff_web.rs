@@ -6,13 +6,17 @@ use crate::rbac::{
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    extract::{Path, Query, State, rejection::FormRejection},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware,
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::{
+    Language,
+    ratelimit::{ClientSource, Denial, Keys, NamedPolicy, RateLimiter},
+    session::{BrowserSession, SessionLayer},
+};
 use serde::Deserialize;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -125,9 +129,19 @@ pub(super) async fn create<I: StaffSession, A: AccountStateReader>(
     Extension(actor): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     headers: HeaderMap,
-    Form(form): Form<CreateForm>,
+    form: Result<Form<CreateForm>, FormRejection>,
 ) -> Response {
     let lang = language(&headers);
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(error) => {
+            let status = match error.status() {
+                StatusCode::UNPROCESSABLE_ENTITY => StatusCode::BAD_REQUEST,
+                status => status,
+            };
+            return admin_notice(lang, status, "invite-invalid-input");
+        }
+    };
     let mail_configured = [
         "OTERYN_SMTP_HOST",
         "OTERYN_SMTP_USERNAME",
@@ -161,9 +175,12 @@ pub(super) async fn revoke<I: StaffSession, A: AccountStateReader>(
     Extension(actor): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     headers: HeaderMap,
-    Path(id): Path<Uuid>,
+    Path(id): Path<String>,
 ) -> Response {
     let lang = language(&headers);
+    let Ok(id) = id.parse::<Uuid>() else {
+        return admin_notice(lang, StatusCode::BAD_REQUEST, "invite-invalid-input");
+    };
     match staff::revoke(&panel.pool, &auth, actor, id).await {
         Ok(()) => Redirect::to("/admin/roles/invitations?result=revoked").into_response(),
         Err(error) => admin_error(lang, error),
@@ -217,19 +234,37 @@ impl Notice {
 
 pub(super) fn acceptance_router(pool: PgPool) -> Router {
     let mut layer = SessionLayer::new(pool.clone());
-    layer.csrf.trusted_origins = vec![
-        std::env::var("OTERYN_PUBLIC_ORIGIN")
-            .unwrap_or_else(|_| "http://localhost:3000".into())
-            .trim_end_matches('/')
-            .to_owned(),
-    ];
+    layer.csrf.trusted_origins = std::env::var("OTERYN_PUBLIC_ORIGIN")
+        .ok()
+        .map(|origin| origin.trim_end_matches('/').to_owned())
+        .into_iter()
+        .collect();
+    let csrf = layer.csrf.clone();
     Router::new()
         .route("/{lang}/staff-invitation", get(confirm).post(accept))
         .route_layer(middleware::from_fn_with_state(
             layer,
             oteryn_web::session::middleware,
         ))
+        .route_layer(Extension(csrf))
+        .route_layer(middleware::map_response(invitation_headers))
         .with_state(pool)
+}
+
+async fn invitation_headers(mut response: Response) -> Response {
+    for (name, value) in [
+        (header::CACHE_CONTROL, "no-store, private"),
+        (header::REFERRER_POLICY, "strict-origin"),
+        (
+            header::CONTENT_SECURITY_POLICY,
+            oteryn_web::chrome::PORTAL_CONTENT_SECURITY_POLICY,
+        ),
+    ] {
+        response
+            .headers_mut()
+            .insert(name, HeaderValue::from_static(value));
+    }
+    response
 }
 
 #[derive(Template)]
@@ -247,15 +282,7 @@ impl Confirmation {
         text(self.lang, key)
     }
     fn response(&self, status: StatusCode) -> Response {
-        (
-            status,
-            [
-                (header::CACHE_CONTROL, "no-store, private"),
-                (header::REFERRER_POLICY, "strict-origin"),
-            ],
-            oteryn_web::render(self),
-        )
-            .into_response()
+        (status, oteryn_web::render(self)).into_response()
     }
 }
 
@@ -263,6 +290,27 @@ impl Confirmation {
 struct Link {
     #[serde(default)]
     token: String,
+}
+
+async fn check_link(
+    limiter: &RateLimiter,
+    source: ClientSource,
+    token: &str,
+) -> Result<(), Denial> {
+    let mut keys = Keys::source(source.0);
+    keys.token = Some(token.to_owned());
+    limiter
+        .check(NamedPolicy::IdentityEmailToken, &[keys])
+        .await
+}
+
+fn limit_response(page: &Confirmation, denial: Denial) -> Response {
+    let language = if page.lang == "en" {
+        Language::En
+    } else {
+        Language::Pl
+    };
+    denial.response(language, false)
 }
 
 fn confirmation(lang: &str) -> Result<Confirmation, StatusCode> {
@@ -284,6 +332,8 @@ fn confirmation(lang: &str) -> Result<Confirmation, StatusCode> {
 async fn confirm(
     State(pool): State<PgPool>,
     Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: ClientSource,
     Path(lang): Path<String>,
     Query(link): Query<Link>,
 ) -> Result<Response, StatusCode> {
@@ -295,6 +345,9 @@ async fn confirm(
         page.message = "invite-sign-in";
         return Ok(page.response(StatusCode::OK));
     };
+    if let Err(denial) = check_link(&limiter, source, &link.token).await {
+        return Ok(limit_response(&page, denial));
+    }
     let (role, enrolled) = match staff::preview(&pool, account, &link.token).await {
         Ok(preview) => preview,
         Err(error) => return Ok(accept_error(page, error)),
@@ -315,6 +368,8 @@ async fn confirm(
 async fn accept(
     State(pool): State<PgPool>,
     Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: ClientSource,
     Path(lang): Path<String>,
     Form(link): Form<Link>,
 ) -> Result<Response, StatusCode> {
@@ -325,6 +380,12 @@ async fn accept(
         page.message = "invite-sign-in";
         return Ok(page.response(StatusCode::UNAUTHORIZED));
     };
+    if !staff::valid_token(&link.token) {
+        return Ok(page.response(StatusCode::NOT_FOUND));
+    }
+    if let Err(denial) = check_link(&limiter, source, &link.token).await {
+        return Ok(limit_response(&page, denial));
+    }
     match staff::accept(&pool, account, &session_hash, &link.token).await {
         Ok(()) => {
             page.message = "invite-accepted";

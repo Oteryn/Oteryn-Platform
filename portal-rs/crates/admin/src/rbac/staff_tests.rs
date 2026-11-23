@@ -7,7 +7,7 @@ use crate::{
     web::PortalIdentity,
 };
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use uuid::Uuid;
 
 async fn account(pool: &PgPool, email: &str, status: &str, verified: bool) -> Uuid {
@@ -199,10 +199,21 @@ async fn invites_validate_scope_lifetime_and_recipient() {
     assert!(message.body.ends_with(&token));
 
     let foreign_proof = crate::test_staff::proof(pool, foreign).await.unwrap();
+    let mut writer = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
+        .bind(admin)
+        .execute(&mut *writer)
+        .await
+        .unwrap();
     assert!(matches!(
-        staff::accept(pool, foreign, &foreign_proof.session_hash, &token).await,
-        Err(InviteError::Unavailable)
+        tokio::time::timeout(
+            Duration::from_secs(1),
+            staff::accept(pool, foreign, &foreign_proof.session_hash, &token),
+        )
+        .await,
+        Ok(Err(InviteError::Unavailable))
     ));
+    writer.rollback().await.unwrap();
     let recipient = account(pool, "recipient@example.invalid", "active", true).await;
     let session_hash = oteryn_identity::verify::token_hash(&Uuid::now_v7().to_string());
     sqlx::query(
@@ -221,6 +232,45 @@ async fn invites_validate_scope_lifetime_and_recipient() {
         staff::accept(pool, recipient, &session_hash, &token).await,
         Err(InviteError::Mfa)
     ));
+    let expiring_proof = crate::test_staff::proof(pool, recipient).await.unwrap();
+
+    sqlx::raw_sql(
+        "CREATE SEQUENCE staff_acceptance_fixture;
+         CREATE FUNCTION staff_acceptance_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+             PERFORM nextval('staff_acceptance_fixture');
+             PERFORM pg_sleep(2);
+             RETURN NEW;
+         END $$;
+         CREATE TRIGGER staff_acceptance_fixture BEFORE INSERT ON audit_log
+         FOR EACH ROW WHEN (NEW.action='rbac.invitation.accepted')
+         EXECUTE FUNCTION staff_acceptance_fixture();",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE web_sessions SET idle_expires_at=clock_timestamp()+interval '1.5 seconds'
+         WHERE id_hash=$1",
+    )
+    .bind(expiring_proof.session_hash.as_slice())
+    .execute(pool)
+    .await
+    .unwrap();
+    let result = staff::accept(pool, recipient, &expiring_proof.session_hash, &token).await;
+    let reached_audit: bool = sqlx::query_scalar("SELECT is_called FROM staff_acceptance_fixture")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert!(reached_audit, "{result:?}");
+    assert!(
+        matches!(result, Err(InviteError::Unavailable)),
+        "{result:?}"
+    );
+    sqlx::query("DROP TRIGGER staff_acceptance_fixture ON audit_log")
+        .execute(pool)
+        .await
+        .unwrap();
     let proof = crate::test_staff::proof(pool, recipient).await.unwrap();
 
     let revoked = staff::create(

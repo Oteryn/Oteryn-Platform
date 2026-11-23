@@ -330,28 +330,27 @@ pub(crate) async fn accept(
     let hash = token_hash(token);
     let mut tx = pool.begin().await?;
     super::mutation_budget(&mut tx).await?;
-    let inviter: Uuid =
-        sqlx::query_scalar("SELECT inviter FROM staff_invitations WHERE token_hash=$1")
-            .bind(&hash)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(InviteError::Unavailable)?;
-    if inviter == account {
-        return Err(InviteError::Unavailable);
-    }
+    let inviter: Uuid = sqlx::query_scalar(
+        "SELECT i.inviter FROM staff_invitations i JOIN accounts a ON a.id=$2 AND lower(a.email)=i.email
+         WHERE i.token_hash=$1 AND i.inviter<>a.id AND a.status='active' AND a.email_verified_at IS NOT NULL
+           AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>clock_timestamp()",
+    )
+    .bind(&hash)
+    .bind(account)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(InviteError::Unavailable)?;
     lock_accounts_and_mutation(&mut tx, &[inviter, account]).await?;
 
     // The session and verified primary email both belong to the same account.
     // Lock the session so sign-out and acceptance have an unambiguous order.
-    let current: Option<Uuid> = sqlx::query_scalar("SELECT s.session_id FROM web_sessions s JOIN accounts a ON a.id=s.account_id
+    let session_expires: OffsetDateTime = sqlx::query_scalar("SELECT least(s.idle_expires_at,s.absolute_expires_at)
+        FROM web_sessions s JOIN accounts a ON a.id=s.account_id
         WHERE s.account_id=$1 AND s.id_hash=$2 AND a.status='active' AND a.email_verified_at IS NOT NULL
           AND s.authorization_generation=a.native_security_generation AND s.idle_expires_at>clock_timestamp()
           AND s.absolute_expires_at>clock_timestamp() FOR UPDATE OF s")
-        .bind(account).bind(session_hash).fetch_optional(&mut *tx).await?;
-    if current.is_none() {
-        return Err(InviteError::Unavailable);
-    }
-    let (id, role): (Uuid, Uuid) = sqlx::query_as("SELECT i.id,i.role_id FROM staff_invitations i
+        .bind(account).bind(session_hash).fetch_optional(&mut *tx).await?.ok_or(InviteError::Unavailable)?;
+    let (id, role, expires): (Uuid, Uuid, OffsetDateTime) = sqlx::query_as("SELECT i.id,i.role_id,i.expires_at FROM staff_invitations i
         JOIN accounts a ON a.id=$2 AND lower(a.email)=i.email
         WHERE i.token_hash=$1 AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>clock_timestamp()")
         .bind(&hash).bind(account).fetch_optional(&mut *tx).await?.ok_or(InviteError::Unavailable)?;
@@ -412,6 +411,13 @@ pub(crate) async fn accept(
     .await?;
     if granted {
         revoke_credentials(&mut tx, account, role).await?;
+    }
+    let current: bool = sqlx::query_scalar("SELECT clock_timestamp() < $1")
+        .bind(expires.min(session_expires))
+        .fetch_one(&mut *tx)
+        .await?;
+    if !current {
+        return Err(InviteError::Unavailable);
     }
     tx.commit().await?;
     Ok(())
