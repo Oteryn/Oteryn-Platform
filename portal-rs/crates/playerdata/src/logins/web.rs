@@ -2,8 +2,8 @@
 use super::{Error, Flags, Logins, UnavailableAuthority};
 use askama::Template;
 use axum::{
-    Extension, Router,
-    extract::{Request, State},
+    Extension, Json, Router,
+    extract::{RawQuery, Request, State},
     http::{StatusCode, header},
     middleware::Next,
     response::{Html, IntoResponse, Response},
@@ -113,6 +113,7 @@ async fn show(
     State(service): State<Logins>,
     Extension(language): Extension<Language>,
     session: Option<Extension<BrowserSession>>,
+    RawQuery(query): RawQuery,
 ) -> Response {
     let Some(Extension(session)) = session else {
         return private(StatusCode::FORBIDDEN);
@@ -120,11 +121,17 @@ async fn show(
     let Some(actor) = session.account_id().await else {
         return private(StatusCode::FORBIDDEN);
     };
-    let result = async {
-        let entries = service.history(actor).await.map_err(|e| match e {
-            Error::Denied => StatusCode::FORBIDDEN,
-            _ => StatusCode::SERVICE_UNAVAILABLE,
-        })?;
+    let entries = match service.history(actor).await {
+        Ok(entries) => entries,
+        Err(Error::Denied) => return private(StatusCode::FORBIDDEN),
+        Err(_) => return private(StatusCode::SERVICE_UNAVAILABLE),
+    };
+    if query.as_deref() == Some("view=latest") {
+        return private(Json(
+            serde_json::json!({"entered_at": latest_fresh(&entries)}),
+        ));
+    }
+    let result = (|| {
         let mut lines = Vec::new();
         let mut stale = false;
         for entry in entries {
@@ -174,10 +181,40 @@ async fn show(
         page.render()
             .map(Html)
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
-    }
-    .await;
+    })();
     match result {
         Ok(html) => private(html),
         Err(status) => private(status),
+    }
+}
+
+// History is ordered newest first. If that event is stale, the latest login is unknown.
+fn latest_fresh(entries: &[super::Entry]) -> Option<i64> {
+    entries
+        .first()
+        .filter(|entry| !entry.stale)
+        .map(|entry| entry.entered_at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latest_summary_requires_a_current_newest_entry() {
+        let entry = |entered_at, stale| crate::logins::Entry {
+            login_event_id: uuid::Uuid::now_v7(),
+            character: None,
+            entered_at,
+            left_at: None,
+            end_reason: None,
+            stale,
+        };
+        assert_eq!(
+            latest_fresh(&[entry(20, false), entry(10, false)]),
+            Some(20)
+        );
+        assert_eq!(latest_fresh(&[entry(20, true), entry(10, false)]), None);
+        assert_eq!(latest_fresh(&[]), None);
     }
 }
