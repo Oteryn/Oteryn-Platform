@@ -1,11 +1,7 @@
 import {createHash, randomBytes} from 'node:crypto';
-import {spawnSync} from 'node:child_process';
-import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
 import {expect, test} from '../../fixtures.mjs';
 import {csrfRejected, pool} from '../../helpers.mjs';
-import {uuid7} from '../../staff-commerce-helpers.mjs';
+import {catalogCommand, importGameCatalog, uuid7} from '../../staff-commerce-helpers.mjs';
 import {query, unique} from '../../staff-rbac-helpers.mjs';
 
 const origin = process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443';
@@ -110,31 +106,6 @@ test('store orders and delivery are scoped to the signed-in buyer', async ({page
     await sellerContext.close();
   }
 });
-
-function catalogCommand(args, account) {
-  const result = spawnSync(process.env.PORTAL_E2E_BINARY, ['catalog', ...args, '--actor', account], {
-    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-  });
-  expect(result.status, 'catalog CLI succeeded').toBe(0);
-  return result.stdout.trim();
-}
-
-function importGameCatalog(account, offer, price) {
-  const directory = mkdtempSync(join(tmpdir(), 'portal-commerce-catalog-'));
-  try {
-    const path = join(directory, 'catalog.json');
-    writeFileSync(path, JSON.stringify({
-      schema: 'OTERYN_STORE_RUNTIME_CATALOGUE/v1',
-      source: {fixture: offer},
-      offers: [{key: offer, category: 'items', title: 'Exercise sword', price,
-        currency: 'TIBIA_COIN', item: {key: 'oteryn:item.tibia.i28552', revision: 'definition-r1', charges: 1},
-        source_line: 1}],
-    }));
-    return catalogCommand(['import', path], account);
-  } finally {
-    rmSync(directory, {recursive: true});
-  }
-}
 
 test('staff stage proposals and activate verified Game revisions with replay fencing', async ({page, browser}, info) => {
   const lang = info.project.metadata.locale;

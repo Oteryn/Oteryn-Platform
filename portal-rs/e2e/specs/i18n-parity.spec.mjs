@@ -4,7 +4,8 @@ import path from 'node:path';
 import * as OTPAuth from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
 import { login, password, pool, register, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
-import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
+import { catalogCommand, importGameCatalog, uuid7 } from '../staff-commerce-helpers.mjs';
+import { action, isolatedAdmin, loginWithRecoveryCode, player, query, unique } from '../staff-rbac-helpers.mjs';
 
 const read = (path) => fs.readFileSync(new URL(path, import.meta.url), 'utf8');
 const inventory = JSON.parse(read('../inventory.json'));
@@ -700,11 +701,15 @@ async function refusedForm(page, locale, form, fields, status, message) {
     headers: { origin: new URL(url).origin, accept: 'text/html', 'accept-language': locale },
     maxRedirects: 0,
   });
-  expect(response.status(), new URL(response.url()).pathname).toBe(status);
-  expect(response.headers()['content-type']).toContain('text/html');
-  const html = await response.text();
-  expect(html).toContain(`<html lang="${locale}"`);
-  expect(html).toContain(message ?? catalogText(`crates/ui/i18n/${locale}.ftl`, `error-${status}-description`));
+  try {
+    expect(response.status(), new URL(response.url()).pathname).toBe(status);
+    expect(response.headers()['content-type']).toContain('text/html');
+    const html = await response.text();
+    expect(html).toContain(`<html lang="${locale}"`);
+    expect(html).toContain(message ?? catalogText(`crates/ui/i18n/${locale}.ftl`, `error-${status}-description`));
+  } finally {
+    await response.dispose();
+  }
 }
 
 async function assertPasswordRefusal(page, locale, actor) {
@@ -1057,6 +1062,80 @@ async function signInStaff(page, locale) {
   await expect(page).toHaveURL(new RegExp(`/${locale}/$`, 'u'));
   expect((await page.goto(`/admin?lang=${locale}`)).status()).toBe(200);
 }
+
+test('panel detail forms return localized server validation', async ({ page, browser }, info) => {
+  test.setTimeout(300_000);
+  const locale = info.project.metadata.locale;
+  const owner = await player(page, locale);
+  const staff = await isolatedAdmin(browser, info);
+  try {
+    const [{ id: staffId }] = await query('SELECT id FROM accounts WHERE email=$1', [staff.account.email]);
+    await test.step('catalog price staging and activation', async () => {
+      const offer = `parity.${unique()}`;
+      const current = importGameCatalog(staffId, offer, 21);
+      const candidate = importGameCatalog(staffId, offer, 41);
+      const [previous] = await query('SELECT catalog_revision, activated_by, updated_at::text FROM store_active_catalog WHERE id=1');
+      catalogCommand(['activate', current], staffId);
+      try {
+        const staged = `/admin/store-catalog?lang=${locale}`;
+        await assertRouteResponse(await staff.page.goto(staged), '/admin/store-catalog');
+        const stageForm = staff.page.locator('main article').filter({ hasText: offer }).locator('form');
+        await refusedForm(staff.page, locale, stageForm, { price: '0', reason: 'price_correction' }, 422);
+
+        const activation = `/admin/store-activation?lang=${locale}`;
+        await assertRouteResponse(await staff.page.goto(activation), '/admin/store-activation');
+        const activationForm = staff.page.locator('main article').filter({ hasText: candidate }).locator('form');
+        await refusedForm(staff.page, locale, activationForm, { revision: 'invalid-revision', reason: 'game_catalog_verified' }, 422);
+        expect(await query('SELECT catalog_revision FROM store_active_catalog WHERE id=1')).toEqual([{ catalog_revision: current }]);
+        expect(await query('SELECT 1 FROM store_price_proposals WHERE base_revision=$1 AND offer_key=$2', [current, offer])).toEqual([]);
+      } finally {
+        const restored = await query(`
+          UPDATE store_active_catalog SET catalog_revision=$1, activated_by=$2, updated_at=$3
+          WHERE id=1 AND catalog_revision=$4 RETURNING id
+        `, [previous.catalog_revision, previous.activated_by, previous.updated_at, current]);
+        expect(restored).toHaveLength(1);
+      }
+    });
+
+    await test.step('payment review and reconciliation alias', async () => {
+      const intent = uuid7();
+      await query(`
+        INSERT INTO payment_intents(id,account_id,provider,provider_reference,amount,currency,state)
+        VALUES($1,$2,'test',$3,250,'PLN','succeeded')
+      `, [intent, owner.id, `test-${intent}`]);
+      for (const path of ['/admin/payment-review', '/admin/commerce/reconcile']) {
+        await assertRouteResponse(await staff.page.goto(`${path}?lang=${locale}&id=${intent}`), path);
+        await refusedForm(staff.page, locale, staff.page.locator('main form[method=post]'), {
+          version: 'invalid-review-version', reason: 'evidence_reviewed',
+        }, 422);
+      }
+      expect(await query('SELECT 1 FROM commerce_operations WHERE target_id=$1', [intent])).toEqual([]);
+    });
+
+    await test.step('owner sanction appeal', async () => {
+      await assertRouteResponse(await staff.page.goto('/admin/moderation/enforcement/create'), '/admin/moderation/enforcement/create');
+      const now = Math.floor(Date.now() / 1000);
+      await action(staff.page, 'form:has(input[value=sanction])', {
+        target: owner.id, category: 'restriction', status: 'active', public_reason: unique(),
+        effective_at: String(now - 1), expires_at: String(now + 3600),
+      });
+      await expect(staff.page).toHaveURL(/enforcement\/[a-f0-9-]+$/u);
+      const sanction = new URL(staff.page.url()).pathname.split('/').at(-1);
+      const path = `/${locale}/support/appeals/${sanction}`;
+      await assertRouteResponse(await page.goto(path), path);
+      const form = page.locator('main form');
+      const workflow = () => query(`
+        SELECT status, message, outcome, version FROM support_appeal_workflows WHERE sanction_id=$1
+      `, [sanction]);
+      const before = await workflow();
+      expect(before).toEqual([{ status: 'none', message: null, outcome: null, version: '1' }]);
+      await refusedForm(page, locale, form, { message: '   ' }, 422);
+      expect(await workflow()).toEqual(before);
+    });
+  } finally {
+    await staff.context.close();
+  }
+});
 
 const playerGroups = {
   account: ['account', 'password', 'support'],

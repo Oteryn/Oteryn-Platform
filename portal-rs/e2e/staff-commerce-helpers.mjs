@@ -1,4 +1,8 @@
 import crypto from "node:crypto";
+import {spawnSync} from 'node:child_process';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {expect} from '@playwright/test';
 import {submit} from './helpers.mjs';
 import {staffState} from './staff-rbac-helpers.mjs';
@@ -23,4 +27,29 @@ export async function paidTopup(page,lang,db) {
 export function uuid7() {
  const hex=Date.now().toString(16).padStart(12,'0');
  return `${hex.slice(0,8)}-${hex.slice(8)}-7000-8000-${crypto.randomUUID().replaceAll('-','').slice(-12)}`;
+}
+
+export function catalogCommand(args, account) {
+  const result = spawnSync(process.env.PORTAL_E2E_BINARY, ['catalog', ...args, '--actor', account], {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  expect(result.status, 'catalog CLI succeeded').toBe(0);
+  return result.stdout.trim();
+}
+
+export function importGameCatalog(account, offer, price) {
+  const directory = mkdtempSync(join(tmpdir(), 'portal-commerce-catalog-'));
+  try {
+    const path = join(directory, 'catalog.json');
+    writeFileSync(path, JSON.stringify({
+      schema: 'OTERYN_STORE_RUNTIME_CATALOGUE/v1',
+      source: {fixture: offer},
+      offers: [{key: offer, category: 'items', title: 'Exercise sword', price,
+        currency: 'TIBIA_COIN', item: {key: 'oteryn:item.tibia.i28552', revision: 'definition-r1', charges: 1},
+        source_line: 1}],
+    }));
+    return catalogCommand(['import', path], account);
+  } finally {
+    rmSync(directory, {recursive: true});
+  }
 }
