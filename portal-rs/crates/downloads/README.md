@@ -3,8 +3,8 @@
 `Downloads::publish` accepts an actor UUID, a `PublishAccess` adapter and an
 `Upload` containing exact public metadata/policy bytes. The caller supplies
 channel-specific pinned public Root metadata through `Downloads::new`.
-No private keys, package upload, network fetch, signing or staff HTTP mutation
-exists in this crate. The operator adapter reads account status and RBAC.
+The publication service accepts public release documents and verifies them locally.
+The operator adapter reads account status and RBAC.
 An account must be positively active and its channel publication permission must be `Some(true)`.
 
 All operations require `FeatureFlags { downloads: true }`. The binary mounts
@@ -14,6 +14,15 @@ The `downloads-publish` operator command supplies channel public Roots from
 an active actor with `downloads.manage`, and calls the same Rust API. Setting
 the HTTP flag does not configure publication trust anchors. See the accepted
 [origin contract](../../../../docs/contracts/OTERYN_V2_CLIENT_UPDATE_ORIGIN_CONTRACT.md).
+
+## Staff publication
+
+Open **Client downloads** from the staff panel with MFA and `downloads.manage`.
+Pick a configured channel, select the policy and the complete signed metadata
+set, and publish. The page reports bundle validation and verification failures
+and shows up to 20 immutable publications per channel with the operator,
+previous publication, active status and metadata expiry. The browser uses the
+same channel trust roots and publication service as the CLI.
 
 ## Bounded TUF upload profile
 
@@ -77,7 +86,7 @@ The policy fixture therefore checks Platform's documented schema v1 (ADR 0035),
 not an asserted launcher contract. See `tests/fixtures/SOURCE.md`.
 The origin contract fixes the distribution profile and paths. Actual launcher
 policy parser compatibility still requires client evidence before activation.
-No production activation or client compatibility is claimed. No player/staff pages are included.
+The staff page manages signed publications; launcher compatibility still requires client-side qualification.
 
 ## Tests
 

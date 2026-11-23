@@ -370,7 +370,28 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
     )
     .unwrap();
     candidate.persist_inactive(&pool).await.unwrap();
+    let inactive = get(app(pool.clone(), identity.clone()), "/admin/world").await;
+    assert_eq!(inactive.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(inactive.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(candidate.snapshot_id()));
+    assert!(html.contains(&text("pl", "verified")));
+    assert!(html.contains(&text("pl", "inactive")));
     candidate.publish(&pool).await.unwrap();
+    let selected = get(app(pool.clone(), identity.clone()), "/admin/world").await;
+    let html = String::from_utf8(
+        to_bytes(selected.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(&text("pl", "selected_for_publication")));
     let native: Uuid =
         sqlx::query_scalar("SELECT version_id FROM world_catalog_versions WHERE snapshot_id=$1")
             .bind(candidate.snapshot_id())

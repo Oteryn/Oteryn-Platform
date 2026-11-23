@@ -1,7 +1,10 @@
 # Explicit always-on route registrations. S denotes a service.
+internal G /admin/downloads
+internal P /admin/downloads
 internal P /internal/v1/game-public/house
 internal P /internal/v1/game-public/world-online
 public G /
+public G /admin/downloads
 public G /announcements/ticker
 public G /api/v1/account/summary
 public G /api/v1/feed
@@ -67,6 +70,7 @@ public G /{locale}/events/{slug}
 public G /{locale}/wiki
 public G /{locale}/wiki/articles/{slug}
 public G /{locale}/wiki/search
+public P /admin/downloads
 public P /api/v1/game-auth/device-sessions/{*rest}
 public P /en/register
 public P /en/register/abuse/challenge
@@ -107,3 +111,5 @@ public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}
 admission G /health
+native G /admin/downloads
+native P /admin/downloads

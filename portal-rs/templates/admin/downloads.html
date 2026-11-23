@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("downloads-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <script defer src="/static/js/admin-downloads.js"></script>
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.text("downloads-title") }}</h1>
+  <nav class="op-tabs" aria-label="{{ self.text("downloads-title") }}"><a href="/admin">{{ self.text("title") }}</a></nav>
+  <section class="op-stack">
+    <h2>{{ self.text("downloads-publish") }}</h2>
+    {% if ready.is_empty() %}
+    <p role="status">{{ self.text("downloads-unavailable") }}</p>
+    {% else %}
+    <p id="bundle-help">{{ self.text("downloads-help") }}</p>
+    <form class="op-stack" action="/admin/downloads" method="post" enctype="multipart/form-data" id="signed-release" aria-describedby="bundle-help"
+          data-invalid="{{ self.text("downloads-invalid") }}"
+          data-verification="{{ self.text("downloads-verification-failed") }}"
+          data-conflict="{{ self.text("downloads-conflict") }}"
+          data-denied="{{ self.text("downloads-denied") }}"
+          data-unavailable="{{ self.text("downloads-unavailable") }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label class="op-stack" for="release-channel">{{ self.text("downloads-channel") }}</label>
+      <select class="op-input" id="release-channel" name="channel" required>
+        {% for channel in ready %}<option value="{{ channel }}">{{ channel }}</option>{% endfor %}
+      </select>
+      <label class="op-stack" for="release-policy">{{ self.text("downloads-policy") }}</label>
+      <input class="op-input" type="file" id="release-policy" name="policy" accept=".json" required>
+      <label class="op-stack" for="release-metadata">{{ self.text("downloads-metadata") }}</label>
+      <input class="op-input" type="file" id="release-metadata" name="metadata" accept=".json" required multiple>
+      <div><button class="op-button" disabled>{{ self.text("downloads-publish") }}</button></div>
+      <p role="alert"></p>
+    </form>
+    <noscript><p>{{ self.text("downloads-script") }}</p></noscript>
+    {% endif %}
+  </section>
+  <section class="op-stack">
+    <h2>{{ self.text("downloads-history") }}</h2>
+    <p>{{ self.text("downloads-history-limit") }}</p>
+    {% for channel in history %}
+    <section class="op-stack">
+      <h3>{{ channel.name }}</h3>
+      {% if !ready.contains(channel.name) %}<p>{{ self.text("downloads-unavailable") }}</p>{% endif %}
+      {% if channel.publications.is_empty() %}
+      <p>{{ self.text("downloads-empty") }}</p>
+      {% endif %}
+      {% for release in channel.publications %}
+      <article class="op-card op-stack" id="publication-{{ release.id }}">
+        <h4>{{ release.version_display }} · {{ release.release_id }}</h4>
+        <dl>
+          <dt>{{ self.text("downloads-publication") }}</dt><dd>{{ release.id }}</dd>
+          <dt>{{ self.text("downloads-revision") }}</dt><dd>{{ release.policy_revision }}</dd>
+          <dt>{{ self.text("downloads-verification") }}</dt><dd>{{ self.text("downloads-verified") }}</dd>
+          <dt>{{ self.text("downloads-state") }}</dt>
+          <dd>{% if release.expired %}{{ self.text("downloads-expired") }}{% else if release.active %}{{ self.text("downloads-active") }}{% else %}{{ self.text("downloads-superseded") }}{% endif %}</dd>
+          <dt>{{ self.text("downloads-actor") }}</dt><dd>{{ release.actor }}</dd>
+          <dt>{{ self.text("downloads-published") }}</dt><dd>{{ release.published }}</dd>
+          <dt>{{ self.text("downloads-expires") }}</dt><dd>{{ release.expires }}</dd>
+          {% if let Some(previous) = release.previous %}
+          <dt>{{ self.text("downloads-previous") }}</dt><dd>{{ previous }}</dd>
+          {% endif %}
+        </dl>
+      </article>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>

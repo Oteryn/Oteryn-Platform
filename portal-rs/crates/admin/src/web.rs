@@ -506,6 +506,8 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    downloads_link: Option<String>,
+    world_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -594,6 +596,31 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let auth = &s.auth;
+    let link = |permission, label| async move {
+        match auth.check(context, permission).await {
+            Ok(()) => Ok(Some(text(lang, label))),
+            Err(Error::Denied) => Ok(None),
+            Err(_) => Err(StatusCode::SERVICE_UNAVAILABLE),
+        }
+    };
+    let Ok(downloads_link) = link(Permission::ManageDownloads, "downloads-title").await else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let world_link = if std::env::var("OTERYN_WORLD_ADMIN").as_deref() == Ok("true") {
+        match link(Permission::GameCatalogAccess, "downloads-catalog").await {
+            Ok(Some(_)) => {
+                match link(Permission::ViewGameCatalogSnapshots, "downloads-catalog").await {
+                    Ok(label) => label,
+                    Err(status) => return status.into_response(),
+                }
+            }
+            Ok(None) => None,
+            Err(status) => return status.into_response(),
+        }
+    } else {
+        None
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -601,6 +628,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        downloads_link,
+        world_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

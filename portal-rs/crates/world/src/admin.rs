@@ -100,6 +100,15 @@ struct Version {
     status: String,
 }
 #[derive(sqlx::FromRow)]
+struct Candidate {
+    snapshot_id: String,
+    source_revision: String,
+    received: String,
+    version_id: Option<Uuid>,
+    selected: bool,
+}
+
+#[derive(sqlx::FromRow)]
 struct Row {
     kind: String,
     key: String,
@@ -122,6 +131,8 @@ struct Page {
     labels: Labels,
     csrf: String,
     versions: Vec<Version>,
+    candidates: Vec<Candidate>,
+    import_ready: bool,
     selected: String,
     comparison: String,
     number: u32,
@@ -152,6 +163,24 @@ struct Labels {
     polish: String,
     english: String,
     page: String,
+    imports: String,
+    candidates: String,
+    snapshot: String,
+    source: String,
+    received: String,
+    verified: String,
+    selected_for_publication: String,
+    prepared: String,
+    inactive: String,
+    unavailable: String,
+    back: String,
+    activation: String,
+}
+
+impl Page {
+    fn import_status(&self, status: &str) -> String {
+        text(self.lang, status)
+    }
 }
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
@@ -212,7 +241,29 @@ async fn load_page<A>(
     let catalog_active: Option<Uuid> = sqlx::query_scalar("SELECT v.version_id FROM world_catalog_publication p JOIN world_catalog_versions v USING(snapshot_id) WHERE p.singleton")
         .fetch_optional(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let active = catalog_active.or(legacy_active);
-    let selected = q.version.or(active);
+    let versions: Vec<Version> = sqlx::query_as(
+        "SELECT id,source_commit,status FROM world_versions ORDER BY created_at DESC,id DESC LIMIT 100",
+    )
+    .fetch_all(&s.pool)
+    .await
+    .map_err(unavailable)?;
+    let candidates = sqlx::query_as(
+        "SELECT c.snapshot_id, c.source_revision,
+                to_char(c.received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') AS received,
+                v.version_id, COALESCE(p.snapshot_id = c.snapshot_id, false) AS selected
+         FROM world_catalog_candidates c
+         LEFT JOIN world_catalog_versions v USING(snapshot_id)
+         CROSS JOIN world_catalog_publication p
+         ORDER BY (p.snapshot_id = c.snapshot_id) DESC NULLS LAST, c.received_at DESC, c.snapshot_id
+         LIMIT 20",
+    )
+    .fetch_all(&s.pool)
+    .await
+    .map_err(unavailable)?;
+    let selected = q
+        .version
+        .or(active)
+        .or_else(|| versions.first().map(|v| v.id));
     let catalog: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM world_catalog_versions WHERE version_id=$1)",
     )
@@ -220,9 +271,9 @@ async fn load_page<A>(
     .fetch_one(&s.pool)
     .await
     .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    let versions = sqlx::query_as("SELECT id,source_commit,status FROM world_versions ORDER BY created_at DESC,id DESC LIMIT 100").fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
     let mut rows = Vec::new();
     let mut report = String::new();
+    let mut import_ready = false;
     let mut differences = Vec::new();
     if let Some(id) = selected {
         let diagnostic = store
@@ -230,6 +281,7 @@ async fn load_page<A>(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .ok_or(StatusCode::NOT_FOUND)?;
+        import_ready = diagnostic.status == crate::VersionStatus::Ready;
         report = serde_json::to_string_pretty(&diagnostic)
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         rows = sqlx::query_as("SELECT e.kind,e.key,COALESCE(v.allowed,false) AS allowed,e.publishable,COALESCE(n.pl,'') AS pl,COALESCE(n.en,'') AS en FROM world_entities e LEFT JOIN world_visibility v USING(kind,key) LEFT JOIN world_admin_names n USING(kind,key) WHERE e.version_id=$1 AND e.kind=world_canonical_kind(e.kind) ORDER BY e.kind,e.key LIMIT 200 OFFSET $2").bind(id).bind(offset).fetch_all(&s.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
@@ -261,14 +313,46 @@ async fn load_page<A>(
         catalog,
         lang,
         labels: labels!(
-            title, version, compare, inspect, active, publish, entities, allowed, names, save,
-            validation, diff, before, after, limit, yes, no, polish, english, page
+            title,
+            version,
+            compare,
+            inspect,
+            active,
+            publish,
+            entities,
+            allowed,
+            names,
+            save,
+            validation,
+            diff,
+            before,
+            after,
+            limit,
+            yes,
+            no,
+            polish,
+            english,
+            page,
+            imports,
+            candidates,
+            snapshot,
+            source,
+            received,
+            verified,
+            selected_for_publication,
+            prepared,
+            inactive,
+            unavailable,
+            back,
+            activation
         ),
         csrf: session
             .csrf_token()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         versions,
+        candidates,
+        import_ready,
         selected: selected.map(|v| v.to_string()).unwrap_or_default(),
         comparison: q.compare.map(|v| v.to_string()).unwrap_or_default(),
         number,

@@ -1,13 +1,32 @@
 <!doctype html>
 <html lang="{{ lang }}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels.title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme"><main class="op-panel op-stack"><h1>{{ labels.title }}</h1><p>{{ labels.active }}: <code>{{ active }}</code></p><p>{{ labels.limit }}</p>
-<form class="op-stack" method="get" action="/admin/world">
-<label class="op-stack">{{ labels.version }} <select class="op-input" name="version" required>{% for v in versions %}<option value="{{ v.id }}"{% if v.id.to_string() == selected %} selected{% endif %}>{{ v.id }} · {{ v.status }}</option>{% endfor %}</select></label>
-<label class="op-stack">{{ labels.compare }} <input class="op-input" name="compare" value="{{ comparison }}" type="text" size="20" maxlength="36"></label><label class="op-stack">{{ labels.page }} <input class="op-input" type="number" name="page" min="1" max="10000" value="{{ number }}"></label><button class="op-button">{{ labels.inspect }}</button></form>
+<body class="op-theme"><main class="op-panel op-stack"><h1>{{ labels.title }}</h1><nav class="op-tabs" aria-label="{{ labels.title }}"><a href="/admin">{{ labels.back }}</a></nav>
+<section class="op-stack" id="catalog-status">
+<h2>{{ labels.candidates }}</h2>
+{% if candidates.is_empty() %}<p>{{ labels.unavailable }}</p>{% endif %}
+{% for candidate in candidates %}
+<article class="op-card op-stack">
+<dl>
+<dt>{{ labels.snapshot }}</dt><dd><code>{{ candidate.snapshot_id }}</code></dd>
+<dt>{{ labels.source }}</dt><dd><code>{{ candidate.source_revision }}</code></dd>
+<dt>{{ labels.received }}</dt><dd>{{ candidate.received }}</dd>
+<dt>{{ labels.imports }}</dt><dd>{{ labels.verified }}</dd>
+<dt>{{ labels.activation }}</dt>
+<dd>{% if candidate.selected %}{{ labels.selected_for_publication }}{% else if candidate.version_id.is_some() %}{{ labels.prepared }}{% else %}{{ labels.inactive }}{% endif %}</dd>
+</dl>
+{% if let Some(version) = candidate.version_id %}<a href="/admin/world?version={{ version }}">{{ labels.inspect }}</a>{% endif %}
+</article>
+{% endfor %}
+</section>
+<h2>{{ labels.imports }}</h2>
+<p>{{ labels.active }}: {% if active.is_empty() %}{{ labels.unavailable }}{% else %}<code>{{ active }}</code>{% endif %}</p><p>{{ labels.limit }}</p>
+{% if !versions.is_empty() %}<form class="op-stack" method="get" action="/admin/world">
+<label class="op-stack">{{ labels.version }} <select class="op-input" name="version" required>{% for v in versions %}<option value="{{ v.id }}"{% if v.id.to_string() == selected %} selected{% endif %}>{{ v.id }} · {{ self.import_status(v.status) }}</option>{% endfor %}</select></label>
+<label class="op-stack">{{ labels.compare }} <input class="op-input" name="compare" value="{{ comparison }}" type="text" size="20" maxlength="36"></label><label class="op-stack">{{ labels.page }} <input class="op-input" type="number" name="page" min="1" max="10000" value="{{ number }}"></label><button class="op-button">{{ labels.inspect }}</button></form>{% endif %}
 {% if !selected.is_empty() %}
 <h2>{{ labels.version }}</h2><p><code>{{ selected }}</code></p>{% for v in versions %}{% if v.id.to_string() == selected %}<p><code>{{ v.source_commit }}</code></p>{% endif %}{% endfor %}
-{% if !catalog %}<form class="op-stack" method="post" action="/admin/world"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="publish"><input type="hidden" name="version" value="{{ selected }}"><button class="op-button">{{ labels.publish }}</button></form>{% endif %}
+{% if !catalog && import_ready %}<form class="op-stack" method="post" action="/admin/world"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="publish"><input type="hidden" name="version" value="{{ selected }}"><button class="op-button">{{ labels.publish }}</button></form>{% endif %}
 <h2>{{ labels.validation }}</h2><div class="op-table-wrap" role="region" aria-label="{{ labels.validation }}" tabindex="0"><pre>{{ report }}</pre></div><h2>{{ labels.entities }}</h2>
 {% for row in rows %}<article class="op-stack"><h3>{{ row.kind }} / {{ row.key }}</h3>
 <form class="op-stack" method="post" action="/admin/world"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="action" value="visibility"><input type="hidden" name="version" value="{{ selected }}"><input type="hidden" name="kind" value="{{ row.kind }}"><input type="hidden" name="key" value="{{ row.key }}">
