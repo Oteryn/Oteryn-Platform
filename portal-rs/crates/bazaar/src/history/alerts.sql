@@ -3,6 +3,7 @@ SELECT m.id, m.kind, m.form, m.currency, m.amount, m.day,
 FROM bazaar_history_preferences p
 JOIN bazaar_history_market m ON m.published_at > p.alerts_since
 WHERE p.account = $1
+  AND ($2::uuid IS NULL OR m.id = $2)
   AND NOT EXISTS (SELECT 1 FROM bazaar_history_dismissals d WHERE d.account = $1 AND d.sale = m.id)
   AND EXISTS (
       SELECT 1 FROM bazaar_history_searches s

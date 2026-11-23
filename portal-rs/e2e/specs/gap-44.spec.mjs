@@ -62,6 +62,13 @@ test('completed sales, saved searches and Bazaar account controls', async ({ pag
       maxRedirects: 0,
     });
     expect(denied.status()).toBe(404);
+    const invalid = await page.request.post(own, {
+      headers: { origin: new URL(page.url()).origin },
+      form: { action: 'unknown', _csrf: csrf },
+      maxRedirects: 0,
+    });
+    expect(invalid.status()).toBe(422);
+    expect(await invalid.text()).toContain(messages('crates/bazaar/src/history', lang).invalid);
     expect((await page.request.get(`${market}?min_price=-1`)).status()).toBe(422);
     expect((await page.request.get(`${market}?from=2026-02-30`)).status()).toBe(422);
     const sellerPage = await sellerContext.newPage();
@@ -83,9 +90,8 @@ test('completed sales, saved searches and Bazaar account controls', async ({ pag
     await expect(published).toHaveCount(1);
     await expect(published).toContainText(String(price));
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
-    for (const privateValue of [id, seller.id, buyer.id]) {
-      await expect(page.locator('main')).not.toContainText(privateValue);
-    }
+    const marketContent = await page.locator('main').innerHTML();
+    for (const privateValue of [id, seller.id, buyer.id]) expect(marketContent).not.toContain(privateValue);
     await submit(page, 'form[data-action="watch"]');
     await expect(page.locator('[data-watched]')).toHaveCount(1);
     await expect(page.locator('[data-alert]')).toHaveCount(1);
@@ -97,6 +103,24 @@ test('completed sales, saved searches and Bazaar account controls', async ({ pag
     await submit(sellerPage, 'form[data-action="unshare"]');
     await page.reload();
     await expect(page.locator('[data-watched]')).toHaveCount(0);
+    expect((await query('SELECT count(*)::int AS n FROM bazaar_history_watches WHERE account=$1', [shopper.id]))[0].n).toBe(0);
+
+    const throttle = {
+      headers: { origin: new URL(page.url()).origin },
+      form: { action: 'enable-alerts', _csrf: csrf },
+      maxRedirects: 0,
+    };
+    let throttled = false;
+    for (let attempt = 0; attempt < 61; attempt++) {
+      const response = await page.request.post(own, throttle);
+      if (response.status() === 429) {
+        expect(response.headers()['retry-after']).toMatch(/^[1-9]\d*$/);
+        throttled = true;
+        break;
+      }
+      expect(response.status()).toBe(303);
+    }
+    expect(throttled).toBe(true);
   } finally {
     await Promise.all([sellerContext.close(), buyerContext.close()]);
   }

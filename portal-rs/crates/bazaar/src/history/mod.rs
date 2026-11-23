@@ -9,7 +9,11 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::{
+    Language,
+    ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter},
+    session::{BrowserSession, SessionLayer},
+};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -26,6 +30,10 @@ pub fn router(pool: PgPool, origin: &str) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             sessions,
             oteryn_web::session::middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            ratelimit::supply,
         ))
         .with_state(pool)
 }
@@ -160,8 +168,12 @@ pub(crate) fn text(lang: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 
-fn valid_lang(lang: &str) -> bool {
-    matches!(lang, "pl" | "en")
+fn language(lang: &str) -> Option<Language> {
+    match lang {
+        "pl" => Some(Language::Pl),
+        "en" => Some(Language::En),
+        _ => None,
+    }
 }
 
 fn failure(lang: &str, own: bool, error: Error) -> Response {
@@ -180,8 +192,19 @@ async fn market(
     State(pool): State<PgPool>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    ClientSource(source): ClientSource,
     query: Result<Query<Search>, QueryRejection>,
 ) -> Response {
+    let Some(language) = language(&lang) else {
+        return failure("en", false, Error::NotFound);
+    };
+    if let Err(denial) = limiter
+        .check(NamedPolicy::PublicGameData, &[Keys::source(source)])
+        .await
+    {
+        return denial.response(language, false);
+    }
     show(pool, &lang, session, query, false).await
 }
 
@@ -201,7 +224,7 @@ async fn show(
     query: Result<Query<Search>, QueryRejection>,
     own: bool,
 ) -> Response {
-    if !valid_lang(lang) {
+    if language(lang).is_none() {
         return failure("en", own, Error::NotFound);
     }
     let actor = session.account_id().await;
@@ -331,13 +354,28 @@ async fn mutate(
     State(pool): State<PgPool>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
-    Form(fields): Form<Fields>,
+    Extension(limiter): Extension<RateLimiter>,
+    ClientSource(source): ClientSource,
+    fields: Result<Form<Fields>, axum::extract::rejection::FormRejection>,
 ) -> Response {
-    if !valid_lang(&lang) {
+    let Some(language) = language(&lang) else {
         return failure("en", true, Error::NotFound);
-    }
+    };
     let Some(actor) = session.account_id().await else {
         return failure(&lang, true, Error::Denied);
+    };
+    let mut keys = Keys::source(source);
+    keys.account = Some(actor.to_string());
+    if let Err(denial) = limiter.check(NamedPolicy::MarketplaceWatch, &[keys]).await {
+        return denial.response(language, false);
+    }
+    let Form(fields) = match fields {
+        Ok(fields) => fields,
+        Err(rejection) => {
+            let mut page = History::new(&lang, true);
+            page.message = "invalid";
+            return page.render_response(rejection.status());
+        }
     };
     let destination = match &fields.action {
         Action::Share | Action::Unshare => fields.sale.map(|id| format!("?sale={id}")),

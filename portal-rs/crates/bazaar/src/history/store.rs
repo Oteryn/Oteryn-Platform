@@ -1,7 +1,7 @@
 use crate::{Error, SearchQuery};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgConnection, PgPool};
-use time::{Date, Month};
+use time::{Date, Month, OffsetDateTime};
 use uuid::Uuid;
 
 pub(super) const PAGE_SIZE: usize = 24;
@@ -175,6 +175,7 @@ pub(super) async fn account(db: &mut PgConnection, actor: Uuid) -> Result<Accoun
     let watched = watched(db, actor).await?;
     let alerts = sqlx::query_as(include_str!("alerts.sql"))
         .bind(actor)
+        .bind(None::<Uuid>)
         .fetch_all(db)
         .await?;
     Ok(Account {
@@ -229,6 +230,18 @@ fn validate_name(name: &str) -> Result<(), Error> {
         return Err(Error::InvalidInput);
     }
     Ok(())
+}
+
+async fn lock_publication(db: &mut PgConnection, sale: Uuid) -> Result<bool, Error> {
+    Ok(sqlx::query_scalar::<_, Uuid>(
+        "SELECT h.public_id FROM bazaar_history_shares h
+         JOIN bazaar_history_market m ON m.id=h.public_id
+         WHERE h.public_id=$1 FOR KEY SHARE OF h",
+    )
+    .bind(sale)
+    .fetch_optional(db)
+    .await?
+    .is_some())
 }
 
 pub(super) async fn change(pool: &PgPool, actor: Uuid, input: Change) -> Result<(), Error> {
@@ -292,12 +305,7 @@ pub(super) async fn change(pool: &PgPool, actor: Uuid, input: Change) -> Result<
             if count >= 100 {
                 return Err(Error::Denied);
             }
-            let visible =
-                sqlx::query_scalar::<_, Uuid>("SELECT id FROM bazaar_history_market WHERE id=$1")
-                    .bind(sale)
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            if visible.is_none() {
+            if !lock_publication(&mut tx, sale).await? {
                 return Err(Error::NotFound);
             }
             sqlx::query("INSERT INTO bazaar_history_watches(account,sale) VALUES($1,$2) ON CONFLICT DO NOTHING")
@@ -311,11 +319,15 @@ pub(super) async fn change(pool: &PgPool, actor: Uuid, input: Change) -> Result<
                 .await?;
         }
         Change::Dismiss { sale } => {
-            let alerts: Vec<Sale> = sqlx::query_as(include_str!("alerts.sql"))
+            if !lock_publication(&mut tx, sale).await? {
+                return Ok(());
+            }
+            let alert = sqlx::query_as::<_, Sale>(include_str!("alerts.sql"))
                 .bind(actor)
-                .fetch_all(&mut *tx)
+                .bind(sale)
+                .fetch_optional(&mut *tx)
                 .await?;
-            if alerts.iter().any(|row| row.id == sale) {
+            if alert.is_some() {
                 sqlx::query("INSERT INTO bazaar_history_dismissals(account,sale) VALUES($1,$2) ON CONFLICT DO NOTHING")
                     .bind(actor).bind(sale).execute(&mut *tx).await?;
             }
@@ -350,23 +362,26 @@ async fn share(db: &mut PgConnection, actor: Uuid, sale: Uuid, enabled: bool) ->
                 buyer_at=coalesce(bazaar_history_shares.buyer_at,excluded.buyer_at)",
         ).bind(sale).bind(seller).execute(&mut *db).await?;
     } else {
-        sqlx::query(
-            "DELETE FROM bazaar_history_shares
-             WHERE listing=$1 AND CASE WHEN $2 THEN buyer_at IS NULL ELSE seller_at IS NULL END",
+        let remaining_consent = sqlx::query_scalar::<_, Option<OffsetDateTime>>(
+            "DELETE FROM bazaar_history_shares WHERE listing=$1
+               AND CASE WHEN $2 THEN seller_at IS NOT NULL ELSE buyer_at IS NOT NULL END
+             RETURNING CASE WHEN $2 THEN buyer_at ELSE seller_at END",
         )
         .bind(sale)
         .bind(seller)
-        .execute(&mut *db)
+        .fetch_optional(&mut *db)
         .await?;
-        sqlx::query(
-            "UPDATE bazaar_history_shares SET
-                seller_at=CASE WHEN $2 THEN NULL ELSE seller_at END,
-                buyer_at=CASE WHEN $2 THEN buyer_at ELSE NULL END WHERE listing=$1",
-        )
-        .bind(sale)
-        .bind(seller)
-        .execute(db)
-        .await?;
+        if let Some(Some(consented_at)) = remaining_consent {
+            sqlx::query(
+                "INSERT INTO bazaar_history_shares(listing,seller_at,buyer_at)
+                 VALUES($1,CASE WHEN NOT $2 THEN $3 END,CASE WHEN $2 THEN $3 END)",
+            )
+            .bind(sale)
+            .bind(seller)
+            .bind(consented_at)
+            .execute(db)
+            .await?;
+        }
     }
     Ok(())
 }

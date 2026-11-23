@@ -159,10 +159,28 @@ async fn participant_history_and_market_lifecycle() -> Result<(), Box<dyn std::e
             .is_empty()
     );
     assert!(store::account(&mut conn, shopper).await?.watched.is_empty());
+    let remaining: (bool, bool) = sqlx::query_as(
+        "SELECT seller_at IS NOT NULL, buyer_at IS NOT NULL
+         FROM bazaar_history_shares WHERE listing=$1",
+    )
+    .bind(listing)
+    .fetch_one(&mut *conn)
+    .await?;
+    assert_eq!(remaining, (false, true));
+    for table in ["bazaar_history_watches", "bazaar_history_dismissals"] {
+        let count: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT count(*) FROM {table} WHERE sale=$1"
+        )))
+        .bind(notice.id)
+        .fetch_one(&mut *conn)
+        .await?;
+        assert_eq!(count, 0);
+    }
 
     sqlx::query(
         "INSERT INTO bazaar_history_searches(account,name,criteria)
-         SELECT $1,sequence::text,'{}' FROM generate_series(1,48) sequence",
+         SELECT $1,sequence::text,jsonb_build_object('currency','gold')
+         FROM generate_series(1,48) sequence",
     )
     .bind(shopper)
     .execute(&pool)
@@ -216,6 +234,35 @@ async fn participant_history_and_market_lifecycle() -> Result<(), Box<dyn std::e
         prices
             .iter()
             .any(|point| point.month.is_some() && point.median == 300)
+    );
+
+    store::change(&pool, seller, Change::Share { sale: listing }).await?;
+    let account = store::account(&mut conn, shopper).await?;
+    let [relisted] = account.alerts.as_slice() else {
+        return Err("expected a match for the new publication".into());
+    };
+    assert_ne!(relisted.id, notice.id);
+    for _ in 0..24 {
+        let id = seed_sale(&pool, seller, buyer, amount, true).await?;
+        store::change(&pool, seller, Change::Share { sale: id }).await?;
+        store::change(&pool, buyer, Change::Share { sale: id }).await?;
+    }
+    assert!(
+        store::account(&mut conn, shopper)
+            .await?
+            .alerts
+            .iter()
+            .all(|alert| alert.id != relisted.id)
+    );
+    store::change(&pool, shopper, Change::Dismiss { sale: relisted.id }).await?;
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(SELECT 1 FROM bazaar_history_dismissals WHERE account=$1 AND sale=$2)"
+        )
+        .bind(shopper)
+        .bind(relisted.id)
+        .fetch_one(&mut *conn)
+        .await?
     );
 
     drop(conn);
