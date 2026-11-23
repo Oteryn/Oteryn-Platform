@@ -10,6 +10,7 @@ delete = Delete
 slug = Page slug
 locale = Language
 create = Create or edit
+next-page = Next page
 
 not-published = This page has not been published yet.
 operator-draft = Draft — operator data will be replaced.
@@ -37,3 +38,9 @@ publication-state = Save both current editions and reopen the editor to schedule
 publication-back = Back to the editor
 publication-news-invalid = Complete both editions, provide a publication time with a time zone offset and optionally set a later expiry.
 publication-page-list = Page list
+faq-title = Frequently asked questions
+faq-empty = No questions have been published yet.
+faq-previous = Previous questions
+faq-next = More questions
+faq-back = All frequently asked questions
+faq-editor-help = To add an FAQ entry, use a page slug beginning with faq-, such as faq-account-access. Save the English edition first, then the Polish translation.

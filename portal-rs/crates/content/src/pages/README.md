@@ -1,13 +1,22 @@
 # Pages
 
 Public routes are available in Polish and English under `/pl` and `/en`:
-`/pages/{slug}`, `/rules`, `/legal/terms`, `/legal/privacy`, `/legal/cookies`,
-`/server-information` and `/support/report-a-bug`.
+`/pages/{slug}`, `/start`, `/rules`, `/faq`, `/faq/{slug}`, `/legal/terms`,
+`/legal/privacy`, `/legal/cookies`, `/server-information`, `/help`, `/support`
+and `/support/report-a-bug`.
 The bug-report page contains editorial instructions; it does not submit tickets.
 Editorial slugs cannot be served through the generic page route.
 
-Content starts empty until an operator installs the legal defaults, a host
-operator publishes a legal edition, or staff publish a page. Missing, draft,
+The onboarding migration publishes bilingual starting editions of the setup,
+rules, server information, support and bug reporting pages, plus three FAQ
+entries. It preserves existing page slugs, including drafts. Staff can update
+these editions from `/admin/pages`. To add a question at `/faq/{slug}`, use
+`faq-{slug}` as its CMS page slug, the question as its title, and the answer
+as its Markdown body. The FAQ index lists only published current editions.
+The support pages link to the existing account-only ticket flow.
+
+Legal content starts empty until an operator installs the legal defaults,
+a host operator publishes a legal edition, or staff publish a page. Missing, draft,
 future-dated, or stale translated content returns 404 on generic routes.
 Reserved routes show an unpublished notice or,
 for Help, Support and Report a Bug, localized support links. Database failures

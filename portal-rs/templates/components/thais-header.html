@@ -109,7 +109,7 @@
         {% if let Some(link) = chrome.link("start") %}
         <a class="om-top-link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="om-label">{{ link.label }}</span></a>
         {% else %}
-        <a class="om-top-link" href="{{ chrome.home_url() }}#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
+        <a class="om-top-link" href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
         {% endif %}
       </div>
       <div class="om-tools">

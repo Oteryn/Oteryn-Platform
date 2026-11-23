@@ -53,6 +53,96 @@ async fn drop_pages_schema(root: PgPool, pool: PgPool, schema: &str) -> Result<(
 }
 
 #[tokio::test]
+async fn faq_lists_only_current_published_editions() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for the FAQ test")?;
+    let app = router(pool.clone());
+    let visit = async |path: String, expected| {
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), expected);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        Ok::<_, Box<dyn std::error::Error>>(String::from_utf8(
+            to_bytes(response.into_body(), 100_000).await?.to_vec(),
+        )?)
+    };
+    for lang in ["en", "pl"] {
+        let index = visit(format!("/{lang}/faq"), StatusCode::OK).await?;
+        for slug in ["account-access", "client-download", "ticket-replies"] {
+            assert!(index.contains(&format!("href=\"/{lang}/faq/{slug}\"")));
+        }
+        let detail = visit(format!("/{lang}/faq/account-access"), StatusCode::OK).await?;
+        assert!(detail.contains(&format!("href=\"/{lang}/forgot-password\"")));
+        assert!(!detail.contains("<p> </p>"));
+        let start = visit(format!("/{lang}/start"), StatusCode::OK).await?;
+        assert!(start.contains(&format!("href=\"/{lang}/faq\"")));
+        for invalid in ["Bad--Slug".to_owned(), "a".repeat(157)] {
+            visit(format!("/{lang}/faq/{invalid}"), StatusCode::NOT_FOUND).await?;
+        }
+        visit(format!("/{lang}/faq?page=-1"), StatusCode::BAD_REQUEST).await?;
+        visit(format!("/{lang}/faq?page=1001"), StatusCode::BAD_REQUEST).await?;
+        visit(format!("/{lang}/faq?page=1"), StatusCode::NOT_FOUND).await?;
+    }
+
+    let id: Uuid = sqlx::query_scalar("SELECT id FROM pages WHERE slug = 'faq-account-access'")
+        .fetch_one(&pool)
+        .await?;
+    // A new English revision requires review of the previously published translation.
+    sqlx::query("UPDATE editorial_pages SET revision = nextval('editorial_page_revision_seq') WHERE page_id = $1 AND locale = 'en'")
+        .bind(id)
+        .execute(&pool)
+        .await?;
+    visit("/en/faq/account-access".into(), StatusCode::OK).await?;
+    visit("/pl/faq/account-access".into(), StatusCode::NOT_FOUND).await?;
+    let polish = visit("/pl/faq".into(), StatusCode::OK).await?;
+    assert!(!polish.contains("/pl/faq/account-access"));
+    for scheduled in [Some("2099-01-01T00:00:00Z"), None] {
+        sqlx::query("UPDATE editorial_pages SET published_at = $2::text::timestamptz WHERE page_id = $1 AND locale = 'en'")
+            .bind(id)
+            .bind(scheduled)
+            .execute(&pool)
+            .await?;
+        visit("/en/faq/account-access".into(), StatusCode::NOT_FOUND).await?;
+        assert!(
+            !visit("/en/faq".into(), StatusCode::OK)
+                .await?
+                .contains("/en/faq/account-access")
+        );
+    }
+
+    sqlx::query(
+        "WITH added AS (
+            INSERT INTO pages(id,slug)
+            SELECT uuidv7(), 'faq-test-' || lpad(n::text, 2, '0')
+            FROM generate_series(1, 25) n
+            RETURNING id, slug
+        )
+        INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
+        SELECT id,'en',slug,'Test answer',now() FROM added",
+    )
+    .execute(&pool)
+    .await?;
+    let first = visit("/en/faq".into(), StatusCode::OK).await?;
+    assert!(first.contains("href=\"?page=1\" rel=\"next\""));
+    assert!(first.contains("href=\"/en/faq/test-24\""));
+    assert!(!first.contains("href=\"/en/faq/test-25\""));
+    let second = visit("/en/faq?page=1".into(), StatusCode::OK).await?;
+    assert!(second.contains("href=\"?page=0\" rel=\"prev\""));
+    assert!(second.contains("href=\"/en/faq/test-25\""));
+    assert!(second.contains("href=\"/en/faq/ticket-replies\""));
+    assert!(!second.contains("href=\"/en/faq/test-24\""));
+    assert!(!second.contains("rel=\"next\""));
+    visit("/en/faq?page=2".into(), StatusCode::NOT_FOUND).await?;
+
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn relabeled_placeholder_pages_show_localized_draft_notice()
 -> Result<(), Box<dyn std::error::Error>> {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
@@ -66,7 +156,9 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
         ));
     }
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pages")
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM pages WHERE slug IN ('terms-of-service','privacy-policy','cookie-policy')",
+        )
             .fetch_one(&pool)
             .await?,
         0
@@ -297,6 +389,12 @@ Updated English source",
     assert_eq!(translated, 0);
     persist_current(&pool, &auth, ctx, &slug, "en", &form).await?;
     let app = router(pool.clone());
+    sqlx::query(
+        "UPDATE editorial_pages SET published_at = NULL
+         WHERE page_id IN (SELECT id FROM pages WHERE slug IN ('rules','support','report-a-bug','server-information'))",
+    )
+    .execute(&pool)
+    .await?;
     for (lang, message) in [
         ("en", "This page has not been published yet."),
         ("pl", "Ta strona nie została jeszcze opublikowana."),
@@ -932,7 +1030,9 @@ async fn operator_refuses_polish_before_english() -> Result<(), Box<dyn std::err
         Err(SaveError::MissingSource)
     ));
     assert_eq!(
-        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pages")
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM pages WHERE slug IN ('terms-of-service','privacy-policy','cookie-policy')",
+        )
             .fetch_one(&pool)
             .await?,
         0

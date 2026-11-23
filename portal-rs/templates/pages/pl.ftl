@@ -10,6 +10,7 @@ delete = Usuń
 slug = Adres strony
 locale = Język
 create = Utwórz lub edytuj
+next-page = Następna strona
 
 not-published = Ta strona nie została jeszcze opublikowana.
 operator-draft = Wersja robocza — dane operatora zostaną zastąpione.
@@ -37,3 +38,9 @@ publication-state = Zapisz obie aktualne wersje i otwórz ponownie edytor, aby z
 publication-back = Wróć do edytora
 publication-news-invalid = Uzupełnij obie wersje językowe, podaj czas publikacji z przesunięciem strefy czasowej i opcjonalny późniejszy czas wygaśnięcia.
 publication-page-list = Lista stron
+faq-title = Najczęstsze pytania
+faq-empty = Nie opublikowano jeszcze żadnych pytań.
+faq-previous = Poprzednie pytania
+faq-next = Więcej pytań
+faq-back = Wszystkie najczęstsze pytania
+faq-editor-help = Aby dodać wpis do FAQ, użyj adresu strony zaczynającego się od faq-, na przykład faq-account-access. Zapisz najpierw wersję angielską, a następnie polskie tłumaczenie.
