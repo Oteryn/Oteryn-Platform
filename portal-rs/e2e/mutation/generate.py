@@ -184,6 +184,16 @@ def form_blocks(source):
             start = None
 
 
+def conditional_targets(target):
+    before, opening, condition = target.partition("{% if ")
+    _, condition_end, branches = condition.partition(" %}")
+    choices, closing, after = branches.partition("{% endif %}")
+    if not (opening and condition_end and closing):
+        return []
+    positive, _, negative = choices.partition("{% else %}")
+    return [before + branch + after for branch in (positive, negative)]
+
+
 def forms(path, source, all_sources):
     # Normalize escaped HTML attribute delimiters in Rust string literals.
     source = source.replace(r'\"', '"')
@@ -225,14 +235,7 @@ def forms(path, source, all_sources):
                     fields.append(choice["name"])
                     if choice not in submits:
                         submits.append(choice)
-        action_variants = []
-        if "{% if" in target:
-            conditional = re.search(r"{% if .*? %}(.*?)(?:{% else %}(.*?))?{% endif %}", target)
-            if conditional:
-                action_variants = [
-                    target[:conditional.start()] + (branch or "") + target[conditional.end():]
-                    for branch in conditional.groups()
-                ]
+        action_variants = conditional_targets(target)
         if "{{ action }}" in target:
             # Literal action loops in Askama templates emit one form per action.
             loop = re.search(r'{% for action in (\[[^\]]+\]) %}(?:(?!{% endfor %}).)*$', source[:start], re.S)

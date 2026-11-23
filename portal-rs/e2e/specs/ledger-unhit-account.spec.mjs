@@ -216,7 +216,8 @@ for (const localized of [false, true]) {
     const form = {_csrf: csrf, current_password: account.password};
     const generated = await page.request.post(manage, {form, headers});
     expect(generated.status()).toBe(200);
-    const key = /<[a-z][^<>]*\bclass="op-code"[^<>]*>([^<]+)<\//i.exec(await generated.text())?.[1].trim();
+    const key = await page.evaluate(html => new DOMParser().parseFromString(html, 'text/html')
+      .querySelector('.op-code')?.textContent.trim(), await generated.text());
     expect(Boolean(key)).toBe(true);
     const confirmed = await page.request.post(`${manage}/confirm`, {
       form: {...form, recovery_key: key}, headers,
