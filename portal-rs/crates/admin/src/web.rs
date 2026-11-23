@@ -457,15 +457,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     Ok(())
 }
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
-    }
+    oteryn_web::Language::negotiate(headers).code()
 }
 pub(crate) fn messages(
     lang: &str,
@@ -506,6 +498,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    audit_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -594,6 +587,13 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let audit_link = if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true")
+        && s.auth.check(context, Permission::ViewAudit).await.is_ok()
+    {
+        Some(text(lang, "audit-link"))
+    } else {
+        None
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -601,6 +601,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        audit_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

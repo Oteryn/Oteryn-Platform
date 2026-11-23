@@ -32,8 +32,11 @@ async fn metrics(pool: &PgPool, lang: &str) -> Result<Vec<DisplayRecord>, sqlx::
     let revenue:Vec<(String,String)>=sqlx::query_as("SELECT i.currency, sum(i.amount)::text FROM payment_intents i JOIN (SELECT intent_id,min(created_at) AS paid_at FROM payment_events WHERE state='succeeded' GROUP BY intent_id) e ON e.intent_id=i.id WHERE i.state='succeeded' AND e.paid_at >= date_trunc('day',now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' AND e.paid_at <= now() GROUP BY i.currency ORDER BY i.currency").fetch_all(&mut *tx).await?;
     tx.commit().await?;
     let mut fields = vec![
-        (text(lang, "registrations"), registrations.to_string()),
-        (text(lang, "logins"), logins.to_string()),
+        (
+            text(lang, "registrations"),
+            super::locale::number(lang, registrations),
+        ),
+        (text(lang, "logins"), super::locale::number(lang, logins)),
     ];
     if revenue.is_empty() {
         fields.push((text(lang, "revenue"), text(lang, "no-revenue")));

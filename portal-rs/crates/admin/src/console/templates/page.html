@@ -9,6 +9,6 @@
 <a class="op-button op-button--secondary" href="{{ poll }}">{{ poll_label }}</a>
 {% for section in sections %}<section class="op-card op-stack"><h2>{{ section.title }}</h2><p class="op-badge">R0 · {{ section.state }}</p><dl><dt>{{ source_label }}</dt><dd>{{ section.source }}</dd><dt>{{ freshness_label }}</dt><dd>{{ section.freshness }}</dd>{% if !section.revision.is_empty() %}<dt>{{ revision_label }}</dt><dd>{{ section.revision }}</dd>{% endif %}</dl>
 {% for record in section.records %}<article class="op-stack"><h3>{{ record.name }}</h3><dl>{% for (label,value) in record.fields %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl></article>{% endfor %}
-{% if section.can_query %}<form method="post" action="{{ path }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ section.operation }}"><input type="hidden" name="agent" value="{{ agent }}"><input type="hidden" name="target" value="{{ target }}"><input type="hidden" name="lang" value="{{ lang }}"><button class="op-button">{{ query_label }}</button></form>{% endif %}
+{% if section.can_query %}<form method="post" action="{{ path }}?lang={{ lang }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ section.operation }}"><input type="hidden" name="agent" value="{{ agent }}"><input type="hidden" name="target" value="{{ target }}"><input type="hidden" name="lang" value="{{ lang }}"><button class="op-button">{{ query_label }}</button></form>{% endif %}
 </section>{% endfor %}
 </main></body></html>

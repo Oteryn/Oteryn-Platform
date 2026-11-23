@@ -71,3 +71,11 @@ failed = Zapytanie nie powiodło się
 rejected = Zapytanie odrzucone
 expired = Zapytanie wygasło
 cancelled = Zapytanie anulowane
+invalid-form = Sprawdź wartości w formularzu.
+access-denied = Brak dostępu
+seconds-ago = { $count ->
+    [one] Sekundę temu
+    [few] { $number } sekundy temu
+    [many] { $number } sekund temu
+   *[other] { $number } sekundy temu
+    }

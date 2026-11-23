@@ -25,3 +25,15 @@ no-results = No published entries match.
 rss = RSS feed
 feed-title = Oteryn News
 feed-description = The latest published news from Oteryn.
+archive-count = { $count ->
+    [0] { no-results }
+    [one] One entry on this page
+   *[other] { $count } entries on this page
+    }
+invalid-year = Enter a year from 1 to 9999.
+invalid-month = Enter a month from 1 to 12.
+invalid-tag = Enter a tag of up to 48 lowercase letters, digits or single hyphens.
+invalid-search = Enter up to 120 characters without control characters.
+invalid-page = Choose a valid result page.
+invalid-archive-query = Check the values in the form.
+archive-unavailable = The archive is currently unavailable.

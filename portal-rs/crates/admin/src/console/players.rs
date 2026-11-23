@@ -297,6 +297,9 @@ pub(crate) async fn page<B: Backend>(
     if (input.q.is_some() || input.character.is_some()) && !super::trusted_navigation(&headers) {
         return Err(Error::Denied);
     }
+    let mut input = input;
+    let lang = super::locale::select(input.lang.as_deref(), &headers).ok_or(Error::BadInput)?;
+    input.lang = Some(lang.to_owned());
     let backend = if input.character.is_some() {
         state.backend.for_navigation(session.clone(), &headers)
     } else {
@@ -326,11 +329,16 @@ pub(super) async fn search<B: Backend>(
     State(state): State<Arc<Console<B>>>,
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    headers: axum::http::HeaderMap,
     axum::Form(form): axum::Form<SearchForm>,
 ) -> Result<axum::response::Redirect, Error> {
     let input = Input {
         q: Some(form.q),
-        lang: form.lang,
+        lang: Some(
+            super::locale::select(form.lang.as_deref(), &headers)
+                .ok_or(Error::BadInput)?
+                .to_owned(),
+        ),
         character: None,
     };
     let query = serde_urlencoded::to_string(&input).map_err(|_| Error::BadInput)?;

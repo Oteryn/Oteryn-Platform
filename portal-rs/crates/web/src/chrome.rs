@@ -25,7 +25,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         .unwrap_or_else(|| crate::surface::negotiate(request.headers()))
         .code();
     let account = crate::session::chrome_account(&shell.sessions, &mut request).await;
-    let path = request.uri().path();
+    let path = request.uri().path().to_owned();
     let local = path
         .strip_prefix("/pl/")
         .or_else(|| path.strip_prefix("/en/"))
@@ -44,7 +44,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
         use axum::response::IntoResponse;
         return axum::response::Redirect::to(&format!("/{lang}/login")).into_response();
     }
-    let chrome = shell.registry.chrome(lang, request.uri().path(), account);
+    let chrome = shell.registry.chrome(lang, &path, account);
     request.extensions_mut().insert(chrome.clone());
     let browser = request.method() == axum::http::Method::GET
         && !request.uri().path().starts_with("/api/")
@@ -108,7 +108,7 @@ pub async fn middleware(State(shell): State<Shell>, mut request: Request, next: 
             response = replacement;
         }
     }
-    let mut response = wrap_document(response, &chrome).await;
+    let mut response = wrap_document(response, &shell.registry, &path, &chrome).await;
     if response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -147,7 +147,12 @@ const WRAP_LIMIT: usize = 4 * 1024 * 1024;
 
 /// Give a module page that renders its own HTML document the shared header, footer and theme.
 /// Pages already built on the shared layout, non-HTML, encoded and oversized bodies pass through.
-async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Response {
+async fn wrap_document(
+    response: Response,
+    registry: &Registry,
+    path: &str,
+    chrome: &oteryn_ui::Chrome,
+) -> Response {
     let html = response
         .headers()
         .get(header::CONTENT_TYPE)
@@ -162,16 +167,41 @@ async fn wrap_document(response: Response, chrome: &oteryn_ui::Chrome) -> Respon
         Err(body) => return Response::from_parts(parts, body),
     };
     let wrapped = std::str::from_utf8(&bytes).ok().and_then(|page| {
-        let (top, bottom) = oteryn_ui::shell_parts(chrome)?;
-        inject(page, &top, &bottom)
+        let lang = document_locale(page);
+        let localized = lang
+            .filter(|lang| *lang != chrome.lang)
+            .map(|lang| registry.chrome(lang, path, chrome.account.clone()));
+        let (top, bottom) = oteryn_ui::shell_parts(localized.as_ref().unwrap_or(chrome))?;
+        Some((inject(page, &top, &bottom)?, lang))
     });
     match wrapped {
-        Some(page) => {
+        Some((page, lang)) => {
             parts.headers.remove(header::CONTENT_LENGTH);
+            if let Some(lang) = lang {
+                parts.headers.insert(
+                    header::CONTENT_LANGUAGE,
+                    axum::http::HeaderValue::from_static(lang),
+                );
+            }
             Response::from_parts(parts, Body::from(page))
         }
         None => Response::from_parts(parts, Body::from(bytes)),
     }
+}
+
+// Standalone portal templates declare their effective locale on the opening HTML tag.
+fn document_locale(page: &str) -> Option<&'static str> {
+    let (before, rest) = page.split_once("<html")?;
+    if before.contains("<body") {
+        return None;
+    }
+    let (tag, _) = rest.split_once('>')?;
+    tag.split_ascii_whitespace()
+        .find_map(|attribute| match attribute {
+            "lang=\"pl\"" | "lang='pl'" => Some("pl"),
+            "lang=\"en\"" | "lang='en'" => Some("en"),
+            _ => None,
+        })
 }
 
 /// Insert the shell into a complete HTML document. Returns None when the page already has
@@ -438,6 +468,39 @@ mod response_tests {
         routing::get,
     };
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn composed_shell_uses_the_document_locale() -> Result<(), Box<dyn std::error::Error>> {
+        let pool =
+            sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+        let app = Router::new()
+            .route(
+                "/feature",
+                get(|| async {
+                    axum::response::Html(
+                        "<html lang=\"en\"><body><main>Feature</main></body></html>",
+                    )
+                }),
+            )
+            .layer(axum::middleware::from_fn_with_state(
+                Shell {
+                    registry: Registry::default(),
+                    sessions: SessionLayer::new(pool),
+                },
+                middleware,
+            ));
+        let response = app
+            .oneshot(
+                Request::get("/feature")
+                    .header(header::ACCEPT_LANGUAGE, "pl")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+        let bytes = axum::body::to_bytes(response.into_body(), 100_000).await?;
+        assert!(std::str::from_utf8(&bytes)?.contains(r#"href="/en/""#));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn article_phrase_keeps_shared_navigation_and_footer()
     -> Result<(), Box<dyn std::error::Error>> {

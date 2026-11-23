@@ -31,27 +31,28 @@ fn escape(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 fn label(lang: &str, key: &str) -> String {
+    translation(lang, key, None).unwrap_or_default()
+}
+
+fn translation(
+    lang: &str,
+    key: &str,
+    args: Option<&fluent_bundle::FluentArgs<'_>>,
+) -> Option<String> {
     use fluent_bundle::{FluentBundle, FluentResource};
     let source = if lang == "pl" {
         include_str!("../../../templates/content/pl.ftl")
     } else {
         include_str!("../../../templates/content/en.ftl")
     };
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
-    let mut bundle = FluentBundle::new(vec![locale]);
-    let Ok(resource) = FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
-    bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
-        .unwrap_or_default()
+    let mut bundle = FluentBundle::new(vec![lang.parse().ok()?]);
+    let resource = FluentResource::try_new(source.to_owned()).ok()?;
+    bundle.add_resource(resource).ok()?;
+    bundle.set_use_isolating(false);
+    let pattern = bundle.get_message(key)?.value()?;
+    let mut errors = Vec::new();
+    let value = bundle.format_pattern(pattern, args, &mut errors);
+    (errors.is_empty() && !value.trim().is_empty()).then(|| value.into_owned())
 }
 #[derive(askama::Template)]
 #[template(

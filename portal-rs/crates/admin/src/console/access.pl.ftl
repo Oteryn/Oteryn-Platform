@@ -38,3 +38,11 @@ house = Dom
 bank = Saldo banku
 logins = Czasy ostatnich logowań
 empty = Brak pasujących wpisów.
+language = Język
+skip = Przejdź do treści
+audit-count = { $count ->
+    [1] 1 wpis audytu
+    [few] { $count } wpisy audytu
+    [many] { $count } wpisów audytu
+   *[other] { $count } wpisu audytu
+    }

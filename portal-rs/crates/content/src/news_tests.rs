@@ -861,13 +861,13 @@ async fn postgres_pagination_language_and_caps() {
             page: Some(number),
             ..Options::default()
         };
-        assert!(
-            !public::listing(&pool, "en", &q)
-                .await
-                .unwrap()
-                .0
-                .contains(r#"rel="next""#)
-        );
+        let peer = ([127, 0, 0, 2], 12345).into();
+        let archive = public_router(pool.clone()).layer(Extension(axum::extract::ConnectInfo::<
+            std::net::SocketAddr,
+        >(peer)));
+        let (status, html) = get_public(&archive, &format!("/en/news?page={number}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!html.contains(r#"rel="next""#));
         assert!(
             !admin_index(State(pool.clone()), Extension(context), Query(q))
                 .await

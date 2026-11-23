@@ -81,6 +81,11 @@ impl Language {
         message(self, id)
     }
 
+    /// Select the browser locale from the saved preference and Accept-Language.
+    pub fn negotiate(headers: &HeaderMap) -> Self {
+        negotiate(headers)
+    }
+
     fn parse(value: &str) -> Option<Self> {
         match value {
             "pl" => Some(Self::Pl),

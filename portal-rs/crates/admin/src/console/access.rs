@@ -456,7 +456,7 @@ where
             permission,
         ));
     }
-    routes
+    routes.route_layer(axum::middleware::from_fn(super::locale::response_language))
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     // Channel operations remain unavailable until a verified agent is connected.
@@ -504,34 +504,17 @@ pub(crate) fn language(value: Option<&str>) -> Result<&'static str, Error> {
     }
 }
 pub(crate) fn tr(lang: &str, key: &str) -> String {
-    let locale = if lang == "en" { "en" } else { "pl" };
-    let Ok(id) = locale.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
-    let mut bundle = fluent_bundle::FluentBundle::new(vec![id]);
-    let source = if lang == "en" {
-        include_str!("access.en.ftl")
-    } else {
-        include_str!("access.pl.ftl")
-    };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
-    let Some(pattern) = bundle.get_message(key).and_then(|m| m.value()) else {
-        return String::new();
-    };
-    bundle
-        .format_pattern(pattern, None, &mut vec![])
-        .into_owned()
+    super::locale::message(lang, key, None, true).unwrap_or_default()
 }
 #[derive(Template)]
 #[template(path = "read.html", config = "src/console/templates/askama.toml")]
 pub(crate) struct Page {
     pub lang: &'static str,
     pub title: String,
+    pub path: String,
+    pub language_label: String,
+    pub skip: String,
+    pub audit_rows: Option<super::audit::Rows>,
     pub source: String,
     pub sections: Vec<Section>,
     pub players: String,
@@ -559,6 +542,10 @@ impl Page {
         Self {
             lang,
             title: tr(lang, title),
+            path: format!("/admin/console/{title}"),
+            language_label: tr(lang, "language"),
+            skip: tr(lang, "skip"),
+            audit_rows: None,
             source: tr(lang, "source"),
             sections: vec![],
             players: tr(lang, "players"),
@@ -608,7 +595,7 @@ pub(crate) async fn page<B: Backend>(
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
-    let lang = language(input.lang.as_deref())?;
+    let lang = super::locale::select(input.lang.as_deref(), &headers).ok_or(Error::BadInput)?;
     let roles: Vec<(String,String)> = sqlx::query_as("SELECT r.key, COALESCE(rp.permission,'') FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id ORDER BY r.key, rp.permission LIMIT 1000").fetch_all(&state.pool).await?;
     let metadata = state.backend.access().await?;
     let mut page = Page::new(lang, "access");

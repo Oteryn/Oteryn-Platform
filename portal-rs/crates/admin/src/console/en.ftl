@@ -71,3 +71,9 @@ failed = Query failed
 rejected = Query rejected
 expired = Query expired
 cancelled = Query cancelled
+invalid-form = Check the values in the form.
+access-denied = Access denied
+seconds-ago = { $count ->
+    [one] One second ago
+   *[other] { $number } seconds ago
+    }

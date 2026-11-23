@@ -38,3 +38,9 @@ house = House
 bank = Bank balance
 logins = Last login times
 empty = No matching records.
+language = Language
+skip = Skip to content
+audit-count = { $count ->
+    [1] 1 audit entry
+   *[other] { $count } audit entries
+    }
