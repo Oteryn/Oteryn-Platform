@@ -162,6 +162,21 @@ async function discover(probe, entry, target, covered) {
   }
 }
 
+async function assertAccessibility(page, label, scope) {
+  const scanner = new AxeBuilder({ page }).withRules(auditRules);
+  // A single document can use axe.run directly. Keep the frame-aware
+  // aggregation path for pages that embed other documents.
+  if (page.frames().length === 1) scanner.setLegacyMode();
+  if (scope) scanner.include(scope);
+  const axe = await scanner.analyze();
+  const serious = format(axe.violations.filter(({ id, impact }) =>
+    wcagRules.has(id) && ['serious', 'critical'].includes(impact)));
+  const details = format(axe.violations.filter(({ id }) => requiredRules.includes(id)));
+  expect.soft(serious, `${label}: WCAG 2 A/AA serious or critical`).toEqual([]);
+  expect.soft(details, `${label}: contrast, labels, landmarks and bypass`).toEqual([]);
+  return { serious, details };
+}
+
 async function assessPage(browser, info, state, entry, target, covered, inventory, probeOptions) {
   const origin = process.env.PORTAL_E2E_ORIGIN;
   const probe = await playwrightRequest.newContext(probeOptions);
@@ -202,16 +217,7 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
       .toBe(documentLanguage(url, entry.pattern, info.project.metadata.locale, status));
     await expect.soft(page.getByRole('main'), `${label}: main landmark`).toHaveCount(1);
 
-    const scanner = new AxeBuilder({ page }).withRules(auditRules);
-    // A single document can use axe.run directly. Keep the frame-aware
-    // aggregation path for pages that embed other documents.
-    if (page.frames().length === 1) scanner.setLegacyMode();
-    const axe = await scanner.analyze();
-    const serious = format(axe.violations.filter(({ id, impact }) =>
-      wcagRules.has(id) && ['serious', 'critical'].includes(impact)));
-    const details = format(axe.violations.filter(({ id }) => requiredRules.includes(id)));
-    expect.soft(serious, `${label}: WCAG 2 A/AA serious or critical`).toEqual([]);
-    expect.soft(details, `${label}: contrast, labels, landmarks and bypass`).toEqual([]);
+    const { serious, details } = await assertAccessibility(page, label);
     const links = await page.evaluate(() => [
       ...[...document.querySelectorAll('a[href]:not([hreflang],[download])')].map(anchor => anchor.href),
       ...[...document.forms].filter(form => form.method === 'get').map(form => form.action),
@@ -225,7 +231,11 @@ async function assessPage(browser, info, state, entry, target, covered, inventor
       const labelText = selectedLanguage === 'en' ? 'Skip to content' : 'Przejdź do treści';
       await expect.soft(page.locator('a[href="#main"]').first(), `${label}: skip link language`).toHaveText(labelText);
     }
-    await assertKeyboard(page, label);
+    await assertKeyboard(page, label, async scope => {
+      const disclosed = await assertAccessibility(page, label, scope);
+      serious.push(...disclosed.serious);
+      details.push(...disclosed.details);
+    });
     const resources = await transfers();
     const totals = assertBudgets(measurement, resources, label);
     covered.set(key, label);
@@ -272,8 +282,10 @@ for (const actor of actors) {
             const target = entry.paths[index];
             tested.set(entry, index + 1);
             addedSamples = true;
+            const before = info.errors.length;
             try {
-              evidence.push(await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probeOptions));
+              const result = await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probeOptions);
+              evidence.push({ ...result, failedChecks: info.errors.length - before });
             } catch (error) {
               // Browser exceptions can include full URLs. Preserve the category and route without query data.
               const requestedPath = new URL(target, origin).pathname;

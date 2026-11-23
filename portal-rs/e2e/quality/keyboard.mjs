@@ -75,7 +75,7 @@ async function tabPastControl(page, stop, label) {
   }
 }
 
-async function assertAccountDialog(page, header, toggle, label, bound, mobile) {
+async function assertAccountDialog(page, header, toggle, label, bound, mobile, auditDisclosed) {
   const account = header.locator('[data-account-link]');
   if (await account.isVisible()) {
     const reached = await tabUntil(page, account, bound + (await tabStops(page)).length);
@@ -84,6 +84,7 @@ async function assertAccountDialog(page, header, toggle, label, bound, mobile) {
     await page.keyboard.press('Enter');
     const dialog = page.locator('#podglad-konta');
     await soft(dialog).toHaveAttribute('open', '');
+    if (await dialog.locator('form').count()) await auditDisclosed('#podglad-konta');
     const dialogStops = (await tabStops(page)).filter(stop => stop.inDialog);
     for (const stop of dialogStops) {
       const focus = await focusState(page);
@@ -98,7 +99,7 @@ async function assertAccountDialog(page, header, toggle, label, bound, mobile) {
   return true;
 }
 
-async function assertMenu(page, label, bound) {
+async function assertMenu(page, label, bound, auditDisclosed) {
   const header = page.locator('#portal-header');
   const toggle = header.locator('#portal-menu-toggle');
   const mobile = await toggle.isVisible();
@@ -109,7 +110,7 @@ async function assertMenu(page, label, bound) {
     soft((await focusState(page)).visible, `${label}: mobile menu toggle focus`).toBe(true);
     await page.keyboard.press('Enter');
     await soft(toggle).toHaveAttribute('aria-expanded', 'true');
-    if (!await assertAccountDialog(page, header, toggle, label, bound, true)) return;
+    if (!await assertAccountDialog(page, header, toggle, label, bound, true, auditDisclosed)) return;
     if (await toggle.getAttribute('aria-expanded') === 'false') {
       await page.keyboard.press('Enter');
       await soft(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -135,7 +136,7 @@ async function assertMenu(page, label, bound) {
     await soft(button).toBeFocused();
     await soft(button).toHaveAttribute('aria-expanded', 'false');
   }
-  if (!mobile) await assertAccountDialog(page, header, toggle, label, bound, false);
+  if (!mobile) await assertAccountDialog(page, header, toggle, label, bound, false, auditDisclosed);
   if (mobile && await toggle.getAttribute('aria-expanded') === 'true') {
     await page.keyboard.press('Escape');
     await soft(toggle).toBeFocused();
@@ -143,46 +144,61 @@ async function assertMenu(page, label, bound) {
   }
 }
 
-async function assertNativeMenu(page, label, bound) {
-  const menu = page.locator('details.om-fallback-menu');
+async function assertNativeMenu(page, label, bound, auditDisclosed) {
+  const header = page.locator('#portal-header');
+  const menu = header.locator('details.om-fallback-menu');
   if (!await menu.count()) return;
   const summary = menu.locator(':scope > summary');
-  const reached = await tabUntil(page, summary, bound);
-  soft(reached, `${label}: main menu disclosure is keyboard reachable`).toBe(true);
+  const mobile = await summary.isVisible();
+  const entry = mobile ? summary : header.locator('.om-brand');
+  const reached = await tabUntil(page, entry, bound);
+  soft(reached, `${label}: native menu is keyboard reachable`).toBe(true);
   if (!reached) return;
-  await page.keyboard.press('Enter');
-  await soft(menu).toHaveAttribute('open', '');
-  const account = menu.locator('details.om-fallback-account');
-  const accountSummary = account.locator(':scope > summary');
-  const hasAccount = await accountSummary.count() === 1;
-  const accountIndex = hasAccount ? await accountSummary.evaluate(summary =>
-    [...document.querySelectorAll('*')].indexOf(summary)) : -1;
-  const menuIndex = (await focusState(page)).index;
-  let expected = (await tabStops(page)).filter(stop => stop.inHeader && stop.index > menuIndex);
-  let openedAccount = false;
+  if (mobile) {
+    await page.keyboard.press('Enter');
+    await soft(menu).toHaveAttribute('open', '');
+    if (await header.locator('form:visible').count()) await auditDisclosed('#portal-navigation');
+  }
+
+  const disclosures = new Map();
+  for (const control of await header.locator('details.om-section > summary, details.om-fallback-account > summary').all()) {
+    if (!await control.isVisible()) continue;
+    const index = await control.evaluate(element => [...document.querySelectorAll('*')].indexOf(element));
+    disclosures.set(index, control);
+  }
+  const entryIndex = (await focusState(page)).index;
+  let expected = (await tabStops(page)).filter(stop => stop.inHeader && stop.index > entryIndex);
   for (let index = 0; index < expected.length; index++) {
+    const stop = expected[index];
     await page.keyboard.press('Tab');
     const focus = await focusState(page);
-    const stop = expected[index];
     soft(focus.index, `${label}: open menu follows source order`).toBe(stop.index);
     soft(focus.visible, `${label}: open menu focus indicator for ${focus.target}`).toBe(true);
-    if (stop.index === accountIndex && focus.index === accountIndex) {
-      await page.keyboard.press('Enter');
-      await soft(account).toHaveAttribute('open', '');
-      openedAccount = true;
-      expected = (await tabStops(page)).filter(candidate => candidate.inHeader && candidate.index > accountIndex);
-      index = -1;
+    const control = disclosures.get(stop.index);
+    if (!control || focus.index !== stop.index) continue;
+    await page.keyboard.press('Enter');
+    const disclosure = control.locator('..');
+    await soft(disclosure).toHaveAttribute('open', '');
+    if (await disclosure.locator('form').count()) {
+      await auditDisclosed('#portal-navigation details[open]:has(form)');
     }
+    expected = (await tabStops(page)).filter(candidate => candidate.inHeader && candidate.index > stop.index);
+    index = -1;
   }
-  if (hasAccount) soft(openedAccount, `${label}: can open the account disclosure from the keyboard`).toBe(true);
   await page.keyboard.press('Tab');
   soft((await focusState(page)).inHeader, `${label}: Tab leaves the open menu`).toBe(false);
-  await resetTabStart(page);
-  const returned = await tabUntil(page, summary, bound);
-  soft(returned, `${label}: keyboard can return to the main disclosure`).toBe(true);
-  if (!returned) return;
-  await page.keyboard.press('Space');
-  await soft(menu).not.toHaveAttribute('open', '');
+
+  const open = mobile ? [summary] : [...disclosures.values()];
+  for (const control of open) {
+    const disclosure = control.locator('..');
+    if (await disclosure.getAttribute('open') === null) continue;
+    await resetTabStart(page);
+    const returned = await tabUntil(page, control, bound + (await tabStops(page)).length);
+    soft(returned, `${label}: keyboard can return to the open disclosure`).toBe(true);
+    if (!returned) continue;
+    await page.keyboard.press('Space');
+    await soft(disclosure).not.toHaveAttribute('open', '');
+  }
 }
 
 async function resetTabStart(page) {
@@ -193,7 +209,7 @@ async function resetTabStart(page) {
   });
 }
 
-async function assertDisclosedForms(page, label, bound) {
+async function assertDisclosedForms(page, label, bound, auditDisclosed) {
   for (const summary of await page.locator('main details:not([open]):has(form) > summary:visible').all()) {
     await resetTabStart(page);
     const reached = await tabUntil(page, summary, bound);
@@ -202,6 +218,7 @@ async function assertDisclosedForms(page, label, bound) {
     await page.keyboard.press('Enter');
     const details = summary.locator('..');
     await soft(details).toHaveAttribute('open', '');
+    await auditDisclosed('main details[open]:has(form)');
     const descendants = await details.evaluate(container => [...document.querySelectorAll('*')]
       .flatMap((element, index) => element !== container && container.contains(element) ? [index] : []));
     const summaryIndex = (await focusState(page)).index;
@@ -221,7 +238,7 @@ async function assertDisclosedForms(page, label, bound) {
   }
 }
 
-export async function assertKeyboard(page, label) {
+export async function assertKeyboard(page, label, auditDisclosed) {
   const stops = await tabStops(page);
   const scoped = stops.filter(stop => stop.inScope);
   soft(scoped.filter(stop => stop.tabIndex > 0), `${label}: positive tabindex`).toEqual([]);
@@ -271,9 +288,9 @@ export async function assertKeyboard(page, label) {
 
   await resetTabStart(page);
   if (await page.locator('#portal-header.is-enhanced').count()) {
-    await assertMenu(page, label, bound);
+    await assertMenu(page, label, bound, auditDisclosed);
   } else {
-    await assertNativeMenu(page, label, bound);
+    await assertNativeMenu(page, label, bound, auditDisclosed);
   }
-  await assertDisclosedForms(page, label, bound);
+  await assertDisclosedForms(page, label, bound, auditDisclosed);
 }
