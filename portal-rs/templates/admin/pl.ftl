@@ -68,3 +68,16 @@ mail-error-audit = Nie udało się zapisać wyniku wysyłki.
 mail-error-lease = Blokada zadania wygasła podczas ostatniej próby.
 mail-error-recorded = Zarejestrowano błąd wysyłki.
 mail-limited = Zbyt wiele żądań do kolejki. Spróbuj ponownie za chwilę.
+
+public-projections-title = Publiczne projekcje świata
+public-projections-environment = Środowisko kwalifikacyjne
+public-projections-master = Przełącznik publicznych projekcji
+public-projections-deaths = G-4 · Zgony postaci i zabójcy
+public-projections-deaths-hold = Zaakceptowano protokół w wersji 4. Dane publiczne są niedostępne do zakończenia kwalifikacji wdrożenia Q7.
+public-projections-kills = G-8 · Dzienne zgony potworów i bossów
+public-projections-kills-hold = Zaproponowano protokół w wersji 2. Dzienne dane są niedostępne do akceptacji kontraktu i potwierdzenia kompletności zakresu.
+public-projections-ingest = Żądany odbiór danych
+public-projections-view = Żądana lista zgonów
+public-projections-stats = Żądana strona statystyk świata
+public-projections-on = Wł.
+public-projections-off = Wył.

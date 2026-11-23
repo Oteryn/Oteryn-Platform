@@ -9,6 +9,7 @@ use axum::{
 };
 use sqlx::{PgPool, Row};
 use std::{future::Future, pin::Pin, sync::Arc};
+use time::{Date, Duration, OffsetDateTime, macros::format_description};
 #[derive(Debug)]
 pub struct Unavailable;
 pub type PrivacyFuture<'a> = Pin<Box<dyn Future<Output = Result<bool, Unavailable>> + Send + 'a>>;
@@ -56,20 +57,20 @@ pub struct Config {
 }
 #[derive(Clone)]
 struct StateData {
-    contract_accepted: bool,
+    activation_qualified: bool,
     db: PgPool,
     fences: PgPool,
     privacy: Arc<dyn Privacy>,
     config: Config,
 }
 pub fn router(db: PgPool, privacy: Arc<dyn Privacy>, config: Config) -> Router {
-    router_with_contract(db, privacy, config, true)
+    router_with_qualification(db, privacy, config, true)
 }
-pub(crate) fn router_with_contract(
+pub(crate) fn router_with_qualification(
     db: PgPool,
     privacy: Arc<dyn Privacy>,
     config: Config,
-    contract_accepted: bool,
+    activation_qualified: bool,
 ) -> Router {
     Router::new()
         .route("/deaths", get(world))
@@ -79,7 +80,7 @@ pub(crate) fn router_with_contract(
         .route("/pl/characters/{name}/deaths", get(character))
         .route("/en/characters/{name}/deaths", get(character))
         .with_state(StateData {
-            contract_accepted,
+            activation_qualified,
             // Fence transactions have separate bounded capacity. Privacy adapters
             // can use every ordinary pool connection without deadlocking readers.
             fences: sqlx::postgres::PgPoolOptions::new()
@@ -97,6 +98,32 @@ pub(crate) fn router_with_contract(
 #[serde(deny_unknown_fields)]
 struct Query {
     world: Option<String>,
+    start: Option<String>,
+    end: Option<String>,
+}
+impl Query {
+    fn window(&self, today: Date) -> Result<Option<(i64, i64)>, ()> {
+        match (&self.start, &self.end) {
+            (None, None) => Ok(None),
+            (Some(start), Some(end)) if start.is_empty() && end.is_empty() => Ok(None),
+            (Some(start), Some(end)) => {
+                let format = format_description!("[year]-[month]-[day]");
+                let (start, end) = (
+                    Date::parse(start, format).map_err(|_| ())?,
+                    Date::parse(end, format).map_err(|_| ())?,
+                );
+                if start > end || end > today || start < today - Duration::days(30) {
+                    return Err(());
+                }
+                let end = end.next_day().ok_or(())?;
+                Ok(Some((
+                    start.midnight().assume_utc().unix_timestamp(),
+                    end.midnight().assume_utc().unix_timestamp(),
+                )))
+            }
+            _ => Err(()),
+        }
+    }
 }
 struct Entry {
     name: String,
@@ -118,6 +145,11 @@ struct Page {
     entries: Vec<Entry>,
     filter: String,
     character: String,
+    start: String,
+    end: String,
+    first_date: String,
+    today: String,
+    world_stats_enabled: bool,
 }
 fn labels(en: bool) -> Vec<String> {
     let mut bundle = fluent_bundle::FluentBundle::new(vec![if en {
@@ -144,6 +176,10 @@ fn labels(en: bool) -> Vec<String> {
         "killers",
         "unrecorded",
         "pvp",
+        "start",
+        "end",
+        "all-deaths",
+        "world-stats",
     ]
     .iter()
     .map(|key| {
@@ -188,11 +224,11 @@ async fn evidence(s: &StateData) -> Result<String, Unavailable> {
 }
 async fn load_inner(
     s: &StateData,
-    query: &Query,
+    filter: &Filter,
     name: Option<&str>,
     en: bool,
 ) -> Result<Option<Vec<Entry>>, Unavailable> {
-    if !s.contract_accepted {
+    if !s.activation_qualified {
         return Err(Unavailable);
     }
     if !wire::authority(&s.config.source_authority) {
@@ -215,16 +251,6 @@ async fn load_inner(
         return Err(Unavailable);
     }
 
-    if let Some(world) = query.world.as_deref().filter(|w| !w.is_empty()) {
-        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM world_status WHERE name=$1")
-            .bind(world)
-            .fetch_one(&s.db)
-            .await
-            .map_err(|_| Unavailable)?;
-        if count != 1 {
-            return Err(Unavailable);
-        }
-    }
     let epoch = evidence(s).await?;
     if locked_epoch.as_deref() != Some(epoch.as_str()) {
         return Err(Unavailable);
@@ -268,6 +294,13 @@ async fn load_inner(
             }
         }
         let world_id = p["world_id"].as_str().ok_or(Unavailable)?;
+        if filter
+            .world_id
+            .as_deref()
+            .is_some_and(|selected| selected != world_id)
+        {
+            continue;
+        }
         let world: Option<String> =
             sqlx::query_scalar("SELECT name FROM world_status WHERE id::text=$1")
                 .bind(world_id)
@@ -275,13 +308,6 @@ async fn load_inner(
                 .await
                 .map_err(|_| Unavailable)?;
         let world = world.ok_or(Unavailable)?;
-        if query
-            .world
-            .as_deref()
-            .is_some_and(|w| !w.is_empty() && w != world)
-        {
-            continue;
-        }
         if !s.privacy.allows_deaths(&subject, &epoch).await? {
             continue;
         }
@@ -290,7 +316,11 @@ async fn load_inner(
         let deaths: Vec<StoredDeath> = serde_json::from_value(payload).map_err(|_| Unavailable)?;
         for d in deaths {
             let timestamp = wire::time(&d.occurred_at, 1, now()).map_err(|_| Unavailable)?;
-            if timestamp < now().saturating_sub(30 * 86400) {
+            if timestamp < now().saturating_sub(30 * 86400)
+                || filter.window.is_some_and(|(start, end)| {
+                    i64::try_from(timestamp).map_or(true, |at| !(start..end).contains(&at))
+                })
+            {
                 continue;
             }
             let occurred = time::OffsetDateTime::from_unix_timestamp(
@@ -319,7 +349,7 @@ async fn load_inner(
                         }
                     }
                     // A revision 3 label has no identity; never map it to a holder.
-                    StoredKiller::NameOnly(_label) => {}
+                    StoredKiller::NameOnly(_label) => continue,
                 }
             }
             entries.push(Entry {
@@ -331,14 +361,7 @@ async fn load_inner(
                 // CharacterId and creature key stay internal.
                 killers: labels.join(", "),
                 pvp: d.pvp,
-                href: format!(
-                    "/{}/characters/{}/deaths",
-                    if en { "en" } else { "pl" },
-                    percent_encoding::utf8_percent_encode(
-                        display,
-                        percent_encoding::NON_ALPHANUMERIC
-                    )
-                ),
+                href: super::web_link(en, display),
                 id: d.death_occurrence_id,
                 timestamp,
             });
@@ -366,6 +389,27 @@ async fn load_inner(
     entries.truncate(if name.is_some() { 20 } else { 50 });
     Ok(Some(entries))
 }
+struct Filter {
+    world_id: Option<String>,
+    window: Option<(i64, i64)>,
+}
+
+async fn registered_world(db: &PgPool, name: &str) -> Result<Option<String>, Unavailable> {
+    let rows: Vec<String> = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        sqlx::query_scalar("SELECT id::text FROM world_status WHERE name=$1 LIMIT 2")
+            .bind(name)
+            .fetch_all(db),
+    )
+    .await
+    .map_err(|_| Unavailable)?
+    .map_err(|_| Unavailable)?;
+    Ok(if rows.len() == 1 {
+        rows.into_iter().next()
+    } else {
+        None
+    })
+}
 async fn page(
     s: StateData,
     path: &str,
@@ -381,12 +425,29 @@ async fn page(
     if query
         .world
         .as_deref()
-        .is_some_and(|w| w.len() > 96 || w.chars().any(char::is_control))
+        .is_some_and(|w| w.chars().count() > 96 || w.chars().any(char::is_control))
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
+    let today = OffsetDateTime::now_utc().date();
+    let Ok(window) = query.window(today) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let world = query.world.unwrap_or_default();
     let en = path.starts_with("/en/");
-    let result = load(&s, &query, character.as_deref(), en).await;
+    let world_id = if world.is_empty() {
+        Ok(None)
+    } else {
+        match registered_world(&s.db, &world).await {
+            Ok(Some(id)) => Ok(Some(id)),
+            Ok(None) => return StatusCode::BAD_REQUEST.into_response(),
+            Err(error) => Err(error),
+        }
+    };
+    let result = match world_id {
+        Ok(world_id) => load(&s, &Filter { world_id, window }, character.as_deref(), en).await,
+        Err(error) => Err(error),
+    };
     if matches!(result, Ok(None)) {
         return StatusCode::NOT_FOUND.into_response();
     }
@@ -396,8 +457,13 @@ async fn page(
         labels: labels(en),
         unavailable,
         entries: result.ok().flatten().unwrap_or_default(),
-        filter: query.world.unwrap_or_default(),
+        filter: world,
         character: character.unwrap_or_default(),
+        start: query.start.unwrap_or_default(),
+        end: query.end.unwrap_or_default(),
+        first_date: (today - Duration::days(30)).to_string(),
+        today: today.to_string(),
+        world_stats_enabled: std::env::var("PORTAL_WORLD_STATS_ENABLED").as_deref() == Ok("true"),
     };
     match page.render() {
         Ok(body) => (
@@ -441,13 +507,13 @@ async fn policy(request: axum::extract::Request, next: axum::middleware::Next) -
 
 async fn load(
     s: &StateData,
-    query: &Query,
+    filter: &Filter,
     name: Option<&str>,
     en: bool,
 ) -> Result<Option<Vec<Entry>>, Unavailable> {
     tokio::time::timeout(
         std::time::Duration::from_secs(3),
-        load_inner(s, query, name, en),
+        load_inner(s, filter, name, en),
     )
     .await
     .map_err(|_| Unavailable)?

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ self.tr("public-projections-title") }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><main class="op-stack"><h1>{{ self.tr("public-projections-title") }}</h1>
+<a href="/admin">{{ self.tr("title") }}</a>
+<dl><dt>{{ self.tr("public-projections-environment") }}</dt><dd>{{ self.switch(restricted) }}</dd><dt>{{ self.tr("public-projections-master") }}</dt><dd>{{ self.switch(projections) }}</dd></dl>
+<section class="op-card op-stack"><h2>{{ self.tr("public-projections-deaths") }}</h2>
+<p>{{ self.tr("public-projections-deaths-hold") }}</p>
+<dl><dt>{{ self.tr("public-projections-ingest") }}</dt><dd>{{ self.switch(deaths_ingest) }}</dd><dt>{{ self.tr("public-projections-view") }}</dt><dd>{{ self.switch(deaths_view) }}</dd></dl></section>
+<section class="op-card op-stack"><h2>{{ self.tr("public-projections-kills") }}</h2>
+<p>{{ self.tr("public-projections-kills-hold") }}</p>
+<dl><dt>{{ self.tr("public-projections-ingest") }}</dt><dd>{{ self.switch(world_kills_ingest) }}</dd><dt>{{ self.tr("public-projections-stats") }}</dt><dd>{{ self.switch(world_stats_view) }}</dd></dl></section>
+</main></body></html>

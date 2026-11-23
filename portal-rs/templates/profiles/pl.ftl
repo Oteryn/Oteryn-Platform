@@ -18,3 +18,5 @@ distance = Walka dystansowa
 shielding = Obrona tarczą
 fishing = Wędkarstwo
 death = Zgon (czas i poziom)
+
+recent-deaths = Ostatnie zgony

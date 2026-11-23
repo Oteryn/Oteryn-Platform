@@ -120,9 +120,16 @@ struct Page {
     unavailable: String,
     sections: Vec<(String, String)>,
     comment: String,
+    death_link: Option<(String, String)>,
 }
 fn page(en: bool, status: StatusCode, message: &str, character: Option<Character>) -> Response {
     let c = character.unwrap_or_default();
+    let death_link = (!c.name.is_empty() && crate::deaths::serving_requested()).then(|| {
+        (
+            crate::deaths::web_link(en, &c.name),
+            text(en, "recent-deaths"),
+        )
+    });
     let page = Page {
         lang: if en { "en" } else { "pl" },
         title: text(en, "title"),
@@ -141,6 +148,7 @@ fn page(en: bool, status: StatusCode, message: &str, character: Option<Character
             .into_iter()
             .map(|(key, value)| (text(en, &key), value))
             .collect(),
+        death_link,
         comment: c.comment,
     };
     match page.render() {

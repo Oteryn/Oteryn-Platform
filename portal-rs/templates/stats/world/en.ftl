@@ -10,7 +10,11 @@ world-count = Characters
 world-kills = Monster and boss deaths (UTC day)
 
 world-picker = World
-world-select = Select a registered world and a UTC date range. Statistics require available privacy and observation evidence.
+world-select = Select a registered world and a UTC date range. Character observations require current privacy and source evidence.
 world-start = From (UTC)
 world-end = To (UTC)
-world-show = Show observations
+world-show = Show statistics
+world-monsters = Monsters killed
+world-bosses = Bosses killed
+world-complete = Complete
+world-provisional = Provisional

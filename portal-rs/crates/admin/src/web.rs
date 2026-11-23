@@ -22,6 +22,8 @@ use sqlx::PgPool;
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
 
+mod public_projections;
+
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
     pub account: Uuid,
@@ -295,6 +297,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             "/admin/mail-outbox/cancel",
             post(crate::mail_ops::cancel::<I, A>),
         )
+        .route("/admin/public-projections", get(public_projections::page))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -432,6 +435,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         "/admin/mail-outbox/retry" => Permission::MailRetry,
         "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
         "/admin/mail-outbox/cancel" => Permission::MailCancel,
+        "/admin/public-projections" => Permission::GameCatalogAccess,
         _ => Permission::Access,
     });
     for required in [Permission::Access, permission] {
@@ -520,6 +524,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    projections_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -623,6 +628,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let projections_link = match s.auth.check(context, Permission::GameCatalogAccess).await {
+        Ok(()) => Some(text(lang, "public-projections-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +640,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        projections_link,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

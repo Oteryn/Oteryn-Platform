@@ -52,6 +52,15 @@ async fn world_postgres_observations_privacy_and_gaps() -> Result {
     let date = Date::from_calendar_date(2026, time::Month::November, 1)?;
     let end = date.next_day().ok_or("date")?;
     let world = Uuid::now_v7();
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105190000_t25_world_registry.sql"
+    ))
+    .execute(&db)
+    .await?;
+    sqlx::query("INSERT INTO world_status(id,name) VALUES($1,'Observation World')")
+        .bind(world)
+        .execute(&db)
+        .await?;
     let id = Uuid::now_v7();
     let mut tx = db.begin().await?;
     partitions(&mut tx, date).await?;
@@ -160,6 +169,21 @@ async fn routes_disabled_bad_input_and_privacy_unavailable() -> Result {
             .status(),
         StatusCode::BAD_REQUEST
     );
+    let future = format!(
+        "/en/stats/world?world={}&start=2099-01-01&end=2099-01-01",
+        Uuid::now_v7()
+    );
+    assert_eq!(
+        http::router::<()>(
+            db.clone(),
+            Config { enabled: true },
+            std::sync::Arc::new(Unavailable)
+        )
+        .oneshot(request(&future)?)
+        .await?
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
     assert_eq!(
         read(
             &db,
@@ -194,7 +218,9 @@ async fn missing_privacy_is_localized_unavailable() -> Result {
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
-    let db = PgPool::connect_lazy("postgres://unused@localhost:1/unused")?;
+    let db = PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(100))
+        .connect_lazy("postgres://unused@localhost:1/unused")?;
     let app = http::router::<()>(
         db,
         Config { enabled: true },
@@ -287,6 +313,149 @@ async fn registered_world_picker_works_without_privacy_metrics() -> Result {
             .await?;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&db)
+        .await?;
+    Ok(())
+}
+
+struct KillCoverage {
+    epoch: &'static str,
+    start: i64,
+    through: i64,
+}
+
+impl crate::online::CoveragePolicy for KillCoverage {
+    fn coverage(
+        &self,
+        family: crate::online::Family,
+    ) -> std::result::Result<crate::online::Coverage, crate::online::Error> {
+        assert_eq!(family, crate::online::Family::WorldDailyKills);
+        Ok(crate::online::Coverage {
+            epoch: self.epoch.into(),
+            start: self.start,
+            through: self.through,
+        })
+    }
+}
+
+#[tokio::test]
+async fn qualified_daily_kills_render_with_utc_coverage_and_freshness() -> Result {
+    use crate::online::{self, Family, Receipt};
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode},
+    };
+    use std::sync::Arc;
+    use time::{Duration, OffsetDateTime};
+    use tower::ServiceExt;
+
+    let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+        return Ok(());
+    };
+    let db = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await?;
+    let schema = format!("world_kills_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&db)
+        .await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
+        .execute(&db)
+        .await?;
+    oteryn_db::migrate(&db).await?;
+    let world = Uuid::now_v7();
+    sqlx::query("INSERT INTO world_status(id,name) VALUES($1,'Qualification World')")
+        .bind(world)
+        .execute(&db)
+        .await?;
+
+    let now = OffsetDateTime::now_utc();
+    let start = now.date() - Duration::days(2);
+    let day = start.midnight().assume_utc().unix_timestamp();
+    let today = now.date().midnight().assume_utc().unix_timestamp();
+    let at = now.unix_timestamp();
+    let authority = "oteryn:game:qualification";
+    let feed = online::Config {
+        enabled: true,
+        world_totals_enabled: true,
+        source_authority: authority.into(),
+        ..online::Config::default()
+    };
+    let publication = |day: i64, monsters: u64, bosses: u64, complete: bool| {
+        let end = day + 86400;
+        format!(
+            r#"{{"contract_version":2,"operation":"PublishWorldDailyKillsV2","source_authority":"{authority}","world_id":"{world}","day_start":"{day}","projection_epoch":"1","projection_revision":"1","source_observed_at":"{at}","days":[{{"day_end":"{end}","monsters_killed":"{monsters}","bosses_killed":"{bosses}","complete":{complete}}}]}}"#
+        )
+    };
+    for data in [
+        publication(day, 12345, 0, true),
+        publication(today, 34, 2, false),
+    ] {
+        assert!(matches!(
+            online::ingest(
+                &db,
+                &feed,
+                Some(Family::WorldDailyKills),
+                data.as_bytes(),
+                at
+            )
+            .await,
+            Ok(Receipt::Accepted)
+        ));
+    }
+    let watermark = format!(
+        r#"{{"contract_version":2,"operation":"PublishPublicProjectionWatermarkV2","source_authority":"{authority}","family":"world_daily_kills","projection_epoch":"1","complete_through":"{at}","observed_at":"{at}"}}"#
+    );
+    assert!(matches!(
+        online::ingest(&db, &feed, None, watermark.as_bytes(), at).await,
+        Ok(Receipt::Accepted)
+    ));
+
+    let app = http::router_with_kills::<()>(
+        db.clone(),
+        Config { enabled: true },
+        Arc::new(Unavailable),
+        Some(http::KillFeed {
+            config: feed,
+            coverage: Arc::new(KillCoverage {
+                epoch: "1",
+                start: day,
+                through: at,
+            }),
+        }),
+    );
+    let path = format!(
+        "/en/stats/world?world={world}&start={start}&end={}",
+        now.date()
+    );
+    let request = |path: &str| Request::get(path).body(Body::empty());
+    let response = app.clone().oneshot(request(&path)?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    let body = String::from_utf8(to_bytes(response.into_body(), 60_000).await?.to_vec())?;
+    assert!(body.contains("<dd>12345</dd>"));
+    assert!(body.contains("<dd>0</dd>"));
+    assert!(body.contains("<dd>34</dd>"));
+    assert!(body.contains("<p>Complete</p>"));
+    assert!(body.contains("<p>Provisional</p>"));
+    assert_eq!(body.matches("<dd>").count(), 4);
+
+    let unknown = path.replace(&world.to_string(), &Uuid::now_v7().to_string());
+    assert_eq!(
+        app.clone().oneshot(request(&unknown)?).await?.status(),
+        StatusCode::BAD_REQUEST
+    );
+    sqlx::query("UPDATE stats_v2_watermarks SET complete_through=$1")
+        .bind(at - 31)
+        .execute(&db)
+        .await?;
+    let response = app.oneshot(request(&path)?).await?;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = String::from_utf8(to_bytes(response.into_body(), 60_000).await?.to_vec())?;
+    assert!(body.contains("Unavailable"));
+    assert!(!body.contains("<dd>"));
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&db)
         .await?;

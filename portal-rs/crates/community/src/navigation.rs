@@ -56,7 +56,7 @@ pub fn register(registry: &mut Registry) {
         false,
     );
     registry.section(
-        on("PORTAL_DEATHS_ENABLED") && on("PORTAL_PUBLIC_PROJECTIONS_ENABLED") && staging,
+        crate::deaths::serving_requested(),
         "deaths",
         "shell-deaths",
         "deaths",

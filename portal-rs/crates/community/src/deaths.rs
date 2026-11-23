@@ -220,7 +220,22 @@ fn result(result: Result<&'static str, storage::Error>) -> Response {
         Err(storage::Error::Database) => guard::failure(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
-/// Binary wiring deliberately denies presentation until a privacy authority is provided.
+/// Is the localized deaths page exposed in this process?
+pub(crate) fn serving_requested() -> bool {
+    oteryn_core::restricted_environment(|key| std::env::var(key).ok())
+        && std::env::var("PORTAL_PUBLIC_PROJECTIONS_ENABLED").as_deref() == Ok("true")
+        && std::env::var("PORTAL_DEATHS_ENABLED").as_deref() == Ok("true")
+}
+
+pub(crate) fn web_link(en: bool, name: &str) -> String {
+    format!(
+        "/{}/characters/{}/deaths",
+        if en { "en" } else { "pl" },
+        percent_encoding::utf8_percent_encode(name, percent_encoding::NON_ALPHANUMERIC),
+    )
+}
+
+/// Configured serving retains the G-4 Q7 activation hold.
 /// The shared V2 watermark is mounted once by [`crate::v2_watermark`].
 pub fn configured_router(db: PgPool) -> Router {
     configured(db, Part::Payload)
@@ -260,14 +275,17 @@ fn configured(db: PgPool, part: Part) -> Router {
     if part == Part::Watermark {
         return ingest;
     }
-    ingest.merge(web::router_with_contract(
+    // The revision 4 wire is accepted. Q7 still requires qualified retained-set,
+    // privacy revocation and exact producer/consumer evidence before serving.
+    const ACTIVATION_QUALIFIED: bool = false;
+    ingest.merge(web::router_with_qualification(
         db.clone(),
         Arc::new(crate::privacy::Authority::configured(db)),
         Config {
-            enabled: base && std::env::var("PORTAL_DEATHS_ENABLED").as_deref() == Ok("true"),
+            enabled: serving_requested(),
             source_authority: authority,
         },
-        false, // G-4 rev 1 is CANDIDATE, without a Game producer.
+        ACTIVATION_QUALIFIED,
     ))
 }
 #[cfg(test)]
