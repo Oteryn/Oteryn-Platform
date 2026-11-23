@@ -106,7 +106,6 @@ verify-login = Zaloguj się
 register-errors = Popraw poniższe pola.
 
 rankings-title = Rankingi
-rankings-as-of = Dane na dzień
 rankings-world = Świat
 rankings-vocation = Profesja
 rankings-apply = Zastosuj filtry
@@ -407,3 +406,4 @@ discovery-stale = Ustawienia zmieniły się podczas edycji. Otwórz ponownie edy
 discovery-unpublished = Opublikuj obie wersje językowe przed dodaniem dokumentu do menu.
 discovery-duplicate = Klucz lub pozycja w menu są już zajęte.
 discovery-navigation = Odnośniki redakcyjne
+rankings-computed-at = Ranking obliczono (UTC)

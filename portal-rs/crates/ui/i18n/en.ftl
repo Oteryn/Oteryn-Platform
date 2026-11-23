@@ -106,7 +106,6 @@ verify-login = Sign in
 register-errors = Please correct the fields below.
 
 rankings-title = Rankings
-rankings-as-of = Data as of
 rankings-world = World
 rankings-vocation = Vocation
 rankings-apply = Apply filters
@@ -407,3 +406,4 @@ discovery-stale = The settings changed while you were editing. Reopen the editor
 discovery-unpublished = Publish both translations before adding the document to a menu.
 discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
+rankings-computed-at = Ranking calculated at (UTC)
