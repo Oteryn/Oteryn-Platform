@@ -14,7 +14,7 @@ const unavailable=new Set(['online','rankings','guilds','houses','deaths','wiki'
 for(const section of inventory.sections) test(`registry ${section.section}: destination and shared shell`,async({page},info)=>{
  const lang=info.project.metadata.locale;
  const path=section.path.startsWith('/')?section.path:`/${lang}/${section.path}`;
- if(section.section==='account-export') await sudo(page,lang,account);
+ if(['account-export','account-termination'].includes(section.section)) await sudo(page,lang,account);
  const errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  page.on('console',m=>{if(m.type()==='error'&&!/^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(m.text()))errors.push(m.text());});
