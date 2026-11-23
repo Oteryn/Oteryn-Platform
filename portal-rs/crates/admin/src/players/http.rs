@@ -77,6 +77,10 @@ fn routes<A: AccountStateReader + 'static, I: Accounts>(players: Players<A, I>) 
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
+            Self::RateLimited => {
+                return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "60")])
+                    .into_response();
+            }
             Self::Conflict => StatusCode::CONFLICT,
             Self::BadInput | Self::TooManyResults => StatusCode::BAD_REQUEST,
             Self::NotFound => StatusCode::NOT_FOUND,
@@ -258,11 +262,15 @@ async fn search<A: AccountStateReader, I: Accounts>(
     State(s): State<Arc<Players<A, I>>>,
     Extension(context): Extension<CheckContext>,
     headers: HeaderMap,
-    Query(query): Query<Search>,
+    query: Result<Query<Search>, axum::extract::rejection::QueryRejection>,
 ) -> Result<Response, Error> {
     s.check(context, Permission::ManageSupportTickets).await?;
     let mut page = Page::new(language(&headers));
     page.characters_search = s.flags.characters;
+    let Ok(Query(query)) = query else {
+        page.feedback = page.t("search-invalid");
+        return Ok(render_status(&page, StatusCode::BAD_REQUEST));
+    };
     page.search_field = query.field.key();
     page.prefix = matches!(query.r#match, MatchMode::Prefix);
     let mut status = StatusCode::OK;
@@ -290,11 +298,15 @@ async fn search<A: AccountStateReader, I: Accounts>(
         }
         page.query = term.chars().take(254).collect();
     }
-    let mut response = oteryn_web::render(&page);
+    Ok(render_status(&page, status))
+}
+
+fn render_status(page: &Page, status: StatusCode) -> Response {
+    let mut response = oteryn_web::render(page);
     if response.status().is_success() {
         *response.status_mut() = status;
     }
-    Ok(response)
+    response
 }
 #[derive(Deserialize)]
 struct ResultQuery {
@@ -413,11 +425,7 @@ async fn change<A: AccountStateReader, I: Accounts>(
                 let mut page = Page::new(language(&headers));
                 page.feedback = page.t(message);
                 page.edit_target = Some(id);
-                let mut response = oteryn_web::render(&page);
-                if response.status().is_success() {
-                    *response.status_mut() = status;
-                }
-                return Ok(response);
+                return Ok(render_status(&page, status));
             }
             Err(error) => return Err(error),
         }

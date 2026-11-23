@@ -58,12 +58,12 @@ impl<'a> SearchQuery<'a> {
 
         match (field, mode) {
             (SearchField::Auto, MatchMode::Exact) => {
-                let field = if term.contains('@') {
-                    SearchField::Email
+                if let Ok(id) = term.parse() {
+                    valid_id(id)?;
+                    Ok(Self::AccountId(id))
                 } else {
-                    SearchField::AccountId
-                };
-                Self::parse(term, field, mode)
+                    Self::parse(term, SearchField::Email, mode)
+                }
             }
             (SearchField::Email, MatchMode::Exact) if oteryn_identity::reset::valid_email(term) => {
                 Ok(Self::Email(term, mode))
@@ -107,7 +107,7 @@ impl IdentityAccounts {
         query: SearchQuery<'_>,
     ) -> Result<Vec<Account>, Error> {
         let pool = &self.accounts.pool;
-        let rows = match query {
+        let mut rows = match query {
             SearchQuery::Email(email, MatchMode::Exact) => self
                 .accounts
                 .find_by_email(email)
@@ -120,13 +120,13 @@ impl IdentityAccounts {
                     .replace('!', "!!")
                     .replace('%', "!%")
                     .replace('_', "!_");
-                sqlx::query_as("SELECT * FROM accounts WHERE status<>'closed' AND lower(email) LIKE $1 ESCAPE '!' ORDER BY id LIMIT 51")
+                sqlx::query_as("SELECT * FROM accounts WHERE status<>'closed' AND lower(email) LIKE $1 ESCAPE '!' LIMIT 51")
                     .bind(format!("{prefix}%"))
                     .fetch_all(pool)
                     .await?
             }
             SearchQuery::IdPrefix(prefix) => {
-                sqlx::query_as("SELECT * FROM accounts WHERE id::text LIKE $1 ORDER BY id LIMIT 51")
+                sqlx::query_as("SELECT * FROM accounts WHERE id::text LIKE $1 LIMIT 51")
                     .bind(format!("{prefix}%"))
                     .fetch_all(pool)
                     .await?
@@ -134,12 +134,13 @@ impl IdentityAccounts {
             SearchQuery::Character(name, mode) => {
                 let projection = self.projection.as_ref().ok_or(Error::Unavailable)?;
                 let ids = projection::search(projection, name, mode).await?;
-                sqlx::query_as("SELECT * FROM accounts WHERE id=ANY($1) AND status='active' AND email_verified_at IS NOT NULL ORDER BY id")
+                sqlx::query_as("SELECT * FROM accounts WHERE id=ANY($1) AND status='active' AND email_verified_at IS NOT NULL")
                     .bind(ids)
                     .fetch_all(pool)
                     .await?
             }
         };
+        rows.sort_unstable_by_key(|row| row.id);
         rows.into_iter().map(Self::safe).collect()
     }
 }

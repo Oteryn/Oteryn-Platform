@@ -50,4 +50,7 @@ edit-unchanged = The account already has this value.
 edit-invalid = Enter a valid value and a reason of up to 500 characters.
 edit-conflict = The account or address is currently ineligible for this change.
 edit-email-help = Changing this address signs the player out everywhere and sends a new verification link.
+edit-locale-help = If verification is pending, changing the language sends a new verification link.
+locale-pl = Polski
+locale-en = English
 edit-return = Return to the account

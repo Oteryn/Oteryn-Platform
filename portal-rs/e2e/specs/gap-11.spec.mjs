@@ -1,6 +1,7 @@
 import { test, expect } from '../fixtures.mjs';
 import fs from 'node:fs';
 import { csrfRejected, mailLink, submit } from '../helpers.mjs';
+import { assertShell } from '../shell.mjs';
 import { action, audit, query, seededAccount, seededLogin, seededStaff, unique } from '../staff-rbac-helpers.mjs';
 
 test('staff find a player and correct account details', async ({ page, browser }, info) => {
@@ -8,6 +9,8 @@ test('staff find a player and correct account details', async ({ page, browser }
   const lang = info.project.metadata.locale;
   const account = await seededAccount(lang);
   await seededLogin(page, lang, account);
+  const playerSearch = await page.request.get('/admin/players', {maxRedirects: 0});
+  expect(playerSearch.status()).toBe(403);
   const context = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true,
     locale: lang, viewport: info.project.use.viewport,
@@ -17,6 +20,13 @@ test('staff find a player and correct account details', async ({ page, browser }
     await seededStaff(admin, lang, 'platform_admin');
     await admin.goto('/admin');
     await admin.locator('nav a[href="/admin/players"]').click();
+    const badSearch = await admin.request.get('/admin/players?field=unknown&q=123', {
+      headers: {'accept-language': lang},
+    });
+    expect(badSearch.status()).toBe(400);
+    expect(await badSearch.text()).toContain(lang === 'pl'
+      ? 'Wpisz poprawną wartość.'
+      : 'Enter a valid search term.');
 
     const detail = `/admin/players/${account.id}`;
     const result = () => admin.locator(`a[href="${detail}"]`);
@@ -24,7 +34,7 @@ test('staff find a player and correct account details', async ({ page, browser }
       await admin.locator('[name=field]').selectOption(field);
       await admin.locator('[name=match]').selectOption(match);
       await admin.locator('[name=q]').fill(term);
-      await admin.locator('form[method=get] button').click();
+      await admin.locator('main form[role=search] button').click();
       await expect(result()).toHaveCount(1);
     }
 
@@ -55,7 +65,7 @@ test('staff find a player and correct account details', async ({ page, browser }
       { value: displayName, reason: nameReason }, 'edit-display-name');
     await expect(admin.locator('#edit-display-name')).toHaveValue(displayName);
     await expect(admin.locator('pomoc')).toHaveCount(0);
-    expect(await admin.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
+    await assertShell(admin);
 
     const email = `${unique()}@example.invalid`;
     const emailReason = unique();
@@ -63,6 +73,10 @@ test('staff find a player and correct account details', async ({ page, browser }
     await action(admin, 'form:has(button[value=edit-email])',
       { value: email, reason: emailReason }, 'edit-email');
     await expect(admin.locator('#edit-email')).toHaveValue(email);
+    const editedLocale = lang === 'pl' ? 'en' : 'pl';
+    await action(admin, 'form:has(button[value=edit-locale])',
+      { value: editedLocale, reason: unique() }, 'edit-locale');
+    await expect(admin.locator('#edit-locale')).toHaveValue(editedLocale);
     await page.goto(`/${lang}/account/sessions`);
     await expect(page).toHaveURL(/\/login(?:\?|$)/);
 
@@ -72,7 +86,9 @@ test('staff find a player and correct account details', async ({ page, browser }
       .toEqual(expect.arrayContaining([{ field: 'display-name', reason: nameReason }, { field: 'email', reason: emailReason }]));
     await audit(admin, 'players.account.edited', account.id);
 
-    const link = await mailLink(page, email, /https:\/\/localhost:18443\/(?:pl|en)\/verify-email\?token=[a-f0-9]+/);
+    const link = await mailLink(page, email, new RegExp(
+      `https://localhost:18443/${editedLocale}/verify-email\\?token=[a-f0-9]+`,
+    ));
     expect((await page.goto(link)).status()).toBe(200);
     await submit(page, 'main form');
     await seededLogin(page, lang, { ...account, email });

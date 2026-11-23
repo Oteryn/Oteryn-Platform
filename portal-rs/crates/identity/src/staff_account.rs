@@ -1,5 +1,5 @@
 //! Trusted staff account edits. The caller supplies target locks, authorization and audit.
-use crate::{AccountId, accounts, email_change, reset, sessions, verify};
+use crate::{AccountId, accounts, email_change, privacy, sessions, verify};
 use sqlx::{PgConnection, Postgres, Transaction};
 
 #[derive(Debug, Clone, Copy)]
@@ -39,6 +39,7 @@ pub struct Details {
     email: String,
     display_name: String,
     locale: String,
+    pending_verification: bool,
     public_account_association: bool,
     public_status_visible: bool,
     character_profiles_hidden: bool,
@@ -73,7 +74,8 @@ pub async fn details(
     id: AccountId,
 ) -> Result<Option<Details>, sqlx::Error> {
     sqlx::query_as(
-        "SELECT email,display_name,locale,public_account_association,public_status_visible,character_profiles_hidden
+        "SELECT email,display_name,locale,status='pending_verification' AS pending_verification,
+                public_account_association,public_status_visible,character_profiles_hidden
          FROM accounts
          WHERE id=$1 AND status IN ('pending_verification','active')
            AND NOT EXISTS (SELECT FROM account_terminations WHERE account_id=$1 AND cancelled_at IS NULL AND finalized_at IS NULL)"
@@ -112,7 +114,16 @@ impl Edit {
     pub fn parse(field: Field, raw: &str) -> Result<Self, Error> {
         let value = raw.trim();
         let valid = match field {
-            Field::Email => reset::valid_email(value),
+            Field::Email => {
+                value.len() <= 254
+                    && value.is_ascii()
+                    && !raw.chars().any(char::is_control)
+                    && email_address::EmailAddress::parse_with_options(
+                        value,
+                        email_address::Options::default().without_display_text(),
+                    )
+                    .is_ok()
+            }
             Field::DisplayName => value.chars().count() <= 80 && !raw.chars().any(char::is_control),
             Field::Locale => matches!(value, "pl" | "en"),
             _ => matches!(value, "true" | "false"),
@@ -156,24 +167,35 @@ impl Edit {
                 return Ok(true);
             }
             Field::DisplayName => {
-                "UPDATE accounts SET display_name=$2,updated_at=now() WHERE id=$1"
+                sqlx::query("UPDATE accounts SET display_name=$2,updated_at=now() WHERE id=$1")
+                    .bind(id)
+                    .bind(&self.value)
+                    .execute(&mut **tx)
+                    .await?;
+                return Ok(true);
             }
-            Field::Locale => "UPDATE accounts SET locale=$2,updated_at=now() WHERE id=$1",
+            Field::Locale => {
+                "UPDATE accounts SET locale=$2,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1 RETURNING privacy_revision"
+            }
             Field::PublicAccountAssociation => {
-                "UPDATE accounts SET public_account_association=$2::text::boolean,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1"
+                "UPDATE accounts SET public_account_association=$2::text::boolean,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1 RETURNING privacy_revision"
             }
             Field::PublicStatusVisible => {
-                "UPDATE accounts SET public_status_visible=$2::text::boolean,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1"
+                "UPDATE accounts SET public_status_visible=$2::text::boolean,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1 RETURNING privacy_revision"
             }
             Field::CharacterProfilesHidden => {
-                "UPDATE accounts SET character_profiles_hidden=$2::text::boolean,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1"
+                "UPDATE accounts SET character_profiles_hidden=$2::text::boolean,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1 RETURNING privacy_revision"
             }
         };
-        sqlx::query(sqlx::AssertSqlSafe(statement))
+        let revision = sqlx::query_scalar(sqlx::AssertSqlSafe(statement))
             .bind(id)
             .bind(&self.value)
-            .execute(&mut **tx)
+            .fetch_one(&mut **tx)
             .await?;
+        privacy::record_revision(tx, id, revision).await?;
+        if matches!(self.field, Field::Locale) && current.pending_verification {
+            verify::issue(tx, id, &self.value).await?;
+        }
         Ok(true)
     }
 

@@ -24,6 +24,8 @@ pub enum Error {
     Conflict,
     #[error("too many search results")]
     TooManyResults,
+    #[error("request budget exhausted")]
+    RateLimited,
     #[error("invalid input")]
     BadInput,
     #[error("not found")]
@@ -220,6 +222,12 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         tx.commit().await?;
         Ok(())
     }
+    async fn admit(&self, actor: Uuid, route: &str, limit: u16) -> Result<(), Error> {
+        if !oteryn_db::ingest_budget::admit(&self.pool, actor.as_bytes(), route, limit).await? {
+            return Err(Error::RateLimited);
+        }
+        Ok(())
+    }
     pub async fn search(
         &self,
         context: CheckContext,
@@ -233,6 +241,8 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         if matches!(query, SearchQuery::Character(..)) && !self.flags.characters {
             return Err(Error::NotFound);
         }
+        self.admit(context.account, "staff.players.search", 30)
+            .await?;
         let results = self.accounts.search(query).await?;
         if results.len() > search::LIMIT {
             return Err(Error::TooManyResults);

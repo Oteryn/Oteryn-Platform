@@ -61,15 +61,24 @@ impl Privacy {
         let saved: Option<Preferences> = sqlx::query_as("UPDATE accounts SET public_account_association=$2,public_status_visible=$3,locale=$4,privacy_revision=privacy_revision+1,updated_at=now() WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL RETURNING public_account_association,public_status_visible,locale,privacy_revision")
             .bind(account).bind(association).bind(status).bind(locale).fetch_optional(&mut *tx).await?;
         if let Some(ref prefs) = saved {
-            sqlx::query("INSERT INTO account_privacy_events (account_id,revision) VALUES ($1,$2)")
-                .bind(account)
-                .bind(prefs.privacy_revision)
-                .execute(&mut *tx)
-                .await?;
+            record_revision(&mut tx, account, prefs.privacy_revision).await?;
         }
         tx.commit().await?;
         Ok(saved)
     }
+}
+
+pub(crate) async fn record_revision(
+    conn: &mut sqlx::PgConnection,
+    account: AccountId,
+    revision: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO account_privacy_events (account_id,revision) VALUES ($1,$2)")
+        .bind(account)
+        .bind(revision)
+        .execute(conn)
+        .await?;
+    Ok(())
 }
 
 #[cfg(test)]

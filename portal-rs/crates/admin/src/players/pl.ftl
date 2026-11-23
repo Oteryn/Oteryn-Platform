@@ -50,4 +50,7 @@ edit-unchanged = Konto ma już tę wartość.
 edit-invalid = Wpisz poprawną wartość i podaj powód liczący do 500 znaków.
 edit-conflict = Konto lub adres obecnie nie pozwala na tę zmianę.
 edit-email-help = Zmiana adresu wyloguje gracza ze wszystkich sesji i wyśle nowy link weryfikacyjny.
+edit-locale-help = Jeśli konto oczekuje na weryfikację, zmiana języka spowoduje wysłanie nowego linku weryfikacyjnego.
+locale-pl = Polski
+locale-en = English
 edit-return = Wróć do konta

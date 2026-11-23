@@ -229,7 +229,9 @@ impl Projection {
         let candidates: Vec<uuid::Uuid> = sqlx::query_scalar(
             "SELECT DISTINCT c.account_id FROM account_characters c
              JOIN account_character_snapshots s USING (account_id)
+             JOIN accounts a ON a.id=c.account_id
              WHERE s.projection_epoch=$1 AND s.source_authority=$2 AND NOT s.invalid
+               AND a.status='active' AND a.email_verified_at IS NOT NULL
                AND lower(c.name) LIKE lower($3) ESCAPE '!'
              ORDER BY c.account_id LIMIT 51",
         )

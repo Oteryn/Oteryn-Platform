@@ -80,6 +80,10 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         valid_text(reason, 500)?;
         let edit = staff_account::Edit::parse(field, value)?;
         self.target(id).await?;
+        if matches!(field, Field::Email | Field::Locale) {
+            self.admit(context.account, "staff.players.contact", 6)
+                .await?;
+        }
         let mut tx = self.pool.begin().await?;
         crate::rbac::mutation_budget(&mut tx).await?;
         edit.lock_address(&mut tx).await?;

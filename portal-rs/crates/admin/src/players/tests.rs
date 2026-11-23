@@ -2251,6 +2251,10 @@ fn targeted_search_validates_field_and_match() {
         SearchQuery::parse(&id, SearchField::AccountId, MatchMode::Exact),
         Ok(SearchQuery::AccountId(_))
     ));
+    assert!(matches!(
+        SearchQuery::parse(&id.replace('-', ""), SearchField::Auto, MatchMode::Exact),
+        Ok(SearchQuery::AccountId(_))
+    ));
     for value in [&id[..12], &id.replace('-', ""), &Uuid::nil().to_string()] {
         assert!(matches!(
             SearchQuery::parse(value, SearchField::AccountId, MatchMode::Exact),
@@ -2394,6 +2398,11 @@ async fn postgres_targeted_search_and_account_field_edits() {
     ));
     for (field, value, reason) in [
         (Field::Email, "plain text", "ticket review"),
+        (
+            Field::Email,
+            "Player <player@example.invalid>",
+            "ticket review",
+        ),
         (Field::Locale, "de", "ticket review"),
         (Field::PublicStatusVisible, "1", "ticket review"),
         (Field::DisplayName, "Alina\nNowak", "ticket review"),
@@ -2470,5 +2479,69 @@ async fn postgres_targeted_search_and_account_field_edits() {
             (db.approver, "email".into(), "ticket review".into()),
         ]
     );
+    assert!(
+        players
+            .edit(admin, db.target, Field::Locale, "pl", "ticket review")
+            .await
+            .unwrap()
+    );
+    let verification: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT o.payload->>'locale', t.used_at IS NULL FROM outbox o
+         JOIN account_email_tokens t ON t.token_hash=sha256(convert_to(o.payload->>'token','UTF8'))
+         WHERE o.kind='email.verify' AND t.account_id=$1 ORDER BY t.created_at",
+    )
+    .bind(db.target)
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(verification, [("en".into(), false), ("pl".into(), true)]);
+    let privacy_revisions: Vec<i64> = sqlx::query_scalar(
+        "SELECT revision FROM account_privacy_events WHERE account_id=$1 ORDER BY revision",
+    )
+    .bind(db.target)
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(privacy_revisions, [1, 2]);
+
+    for _ in 0..3 {
+        assert!(
+            !players
+                .edit(admin, db.target, Field::Locale, "pl", "ticket review")
+                .await
+                .unwrap()
+        );
+    }
+    assert!(matches!(
+        players
+            .edit(admin, db.target, Field::Locale, "en", "ticket review")
+            .await,
+        Err(Error::RateLimited)
+    ));
+    for _ in 0..28 {
+        assert!(
+            players
+                .search(
+                    support,
+                    "absent@example.invalid",
+                    SearchField::Email,
+                    MatchMode::Exact
+                )
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(matches!(
+        players
+            .search(
+                support,
+                "absent@example.invalid",
+                SearchField::Email,
+                MatchMode::Exact
+            )
+            .await,
+        Err(Error::RateLimited)
+    ));
     db.close().await;
 }
