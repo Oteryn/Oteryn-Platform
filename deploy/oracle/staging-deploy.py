@@ -53,10 +53,9 @@ OFF = (
     'PORTAL_PLAYERDATA_G9_INGEST_ENABLED', 'PORTAL_PLAYERDATA_G10_INGEST_ENABLED',
     'PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED', 'PORTAL_ACCOUNT_CLOSURE_ENABLED',
 )
-# Read-only features production enables (/opt/oteryn-portal/portal.env), so the
-# tunnel-facing portal-public shows the same navigation. Only portal-public gets
-# them; the in-stack E2E keeps the default profile. Flags that need a running
-# Game or money (OFF) stay off.
+# Read-only features production enables (/opt/oteryn-portal/portal.env), on both
+# the tunnel-facing portal-public and the in-stack E2E portal. Flags that need a
+# running Game or money (OFF) stay off.
 PUBLIC_FLAGS = (
     'OTERYN_ACCOUNT_BADGES_ENABLED', 'OTERYN_ACCOUNT_EXPORT_ENABLED',
     'OTERYN_ATLAS_ENABLED', 'OTERYN_ATLAS_BESTIARY_ENABLED', 'OTERYN_ATLAS_DELIVERY_ENABLED',
@@ -76,6 +75,33 @@ ADMIN_FLAGS = (
     'OTERYN_ADMIN_PANEL', 'OTERYN_ADMIN_PLAYERS', 'OTERYN_ADMIN_PLAYER_CHARACTERS',
     'OTERYN_ADMIN_CONSOLE', 'OTERYN_ADMIN_CONTROL',
 )
+# The in-stack E2E runs every collected spec except these, each of which needs
+# something the staging profile does not provide (rule: no Game, no money, no
+# local-harness control endpoint). A spec named on the command line still runs.
+STAGING_IGNORED = {
+    'specs/outbox.spec.mjs': 'local harness --outbox report',
+    'specs/league.spec.mjs': 'league fixture producer',
+    'specs/public-depth-minigames.spec.mjs': 'league fixture producer',
+    'specs/account-closure.spec.mjs': 'Game closure control endpoint',
+    'specs/rate-limits-export-profile.spec.mjs': 'Game closure control endpoint',
+    'specs/lifecycle.spec.mjs': 'Game-backed account closure (OFF)',
+    'specs/oauth.spec.mjs': 'local harness OAuth callback client',
+    'specs/character-create-nav.spec.mjs': 'spawns its own harness and Game',
+    'specs/account.spec.mjs': 'walks shop, bazaar and season pass (money, OFF)',
+    'specs/wallet-topup.spec.mjs': 'payments (OFF)',
+    'specs/season-pass.spec.mjs': 'season pass wallet (OFF)',
+    'specs/staff-commerce-store.spec.mjs': 'store (OFF)',
+    'specs/staff-commerce-referrals.spec.mjs': 'store and coins (OFF)',
+    'specs/staff-commerce-premium.spec.mjs': 'premium payments (OFF)',
+    'specs/staff-commerce-codes.spec.mjs': 'store codes (OFF)',
+    'specs/staff-commerce-reconciliation.spec.mjs': 'payments (OFF)',
+    'specs/bazaar.spec.mjs': 'bazaar and the local fake Game (OFF)',
+    'specs/game-sim-boundaries.spec.mjs': 'local fake Game',
+    'specs/game-sim-bazaar.spec.mjs': 'local fake Game',
+    'specs/gm-bazaar.spec.mjs': 'local fake Game',
+    'bazaar/legacy.spec.mjs': 'local PostgreSQL administrator URL',
+    'security/auth-throttle.spec.mjs': 'per-peer addresses from the local harness proxy',
+}
 # One staff account per built-in role (staff-<role>@example.invalid, plus
 # founder@example.invalid as platform_admin). Passwords are random and
 # discarded: each black-box tester takes over its own account through the
@@ -359,6 +385,11 @@ def configure(directory, sha):
     })
     portal = dict.fromkeys(OFF, 'false')
     portal.update({f'OTERYN_ACCOUNT_{flag}': 'true' for flag in ACCOUNT_FLAGS})
+    # The in-stack E2E portal is reachable only through the browser container's
+    # loopback origin; it runs the same read-only features and the staff panel
+    # there so the specs can reach them (as the local harness does).
+    portal.update({flag: 'true' for flag in PUBLIC_FLAGS + ADMIN_FLAGS})
+    portal['OTERYN_ADMIN_HOST'] = ORIGIN.split('://', 1)[1]
     portal.update({
         'OTERYN_ENV': 'testing', 'APP_ENV': 'testing', 'OTERYN_BIND': '0.0.0.0:8080',
         'OTERYN_STATIC_DIR': '/app/static', 'OTERYN_PUBLIC_ORIGIN': ORIGIN,
@@ -375,11 +406,11 @@ def configure(directory, sha):
     origin = public_origin()
     host = origin.split('://', 1)[1]
     admin = admin_origin(origin)
-    staff = {flag: 'true' for flag in ADMIN_FLAGS} if admin else {}
-    if admin:
-        staff['OTERYN_ADMIN_HOST'] = admin.split('://', 1)[1]
+    # Override the loopback staff settings inherited from portal.env: staff only
+    # on the admin host, or no staff panel at all.
+    staff = dict.fromkeys(ADMIN_FLAGS, 'true' if admin else 'false')
+    staff['OTERYN_ADMIN_HOST'] = admin.split('://', 1)[1] if admin else ''
     env_file(directory, 'public.env', {
-        **{flag: 'true' for flag in PUBLIC_FLAGS},
         **staff,
         'OTERYN_PUBLIC_ORIGIN': origin,
         'OTERYN_WEBAUTHN_RP_ID': host.split(':', 1)[0],
@@ -390,6 +421,9 @@ def configure(directory, sha):
         'OTERYN_STATIC_DIR': '/app/static', 'PORTAL_E2E_ORIGIN': ORIGIN,
         'PORTAL_E2E_BINARY': '/usr/local/bin/staging-portal',
         'OTERYN_DATABASE_URL': local_db, 'PORTAL_E2E_DATABASE_URL': local_db,
+        # The seed CLI encrypts MFA secrets the deployed portal must decrypt.
+        'OTERYN_MFA_KEY': portal['OTERYN_MFA_KEY'],
+        'STAGING_IGNORED': json.dumps(sorted(STAGING_IGNORED)),
     })
     env_file(directory, 'pg-tests.env', {
         'DATABASE_URL': test_db, 'PORTAL_TEST_DATABASE_URL': test_db, 'RUST_TEST_THREADS': '1',
@@ -535,7 +569,9 @@ async function start() {
   fs.writeFileSync('/tmp/staging.config.mjs', `
     import base from '/workspace/e2e/playwright.config.mjs';
     import { chromium } from '/workspace/e2e/node_modules/playwright/index.mjs';
-    export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts',
+    const ignored = process.argv.includes('--') ? [] :
+      JSON.parse(process.env.STAGING_IGNORED || '[]').map(spec => '/workspace/e2e/' + spec);
+    export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts', testIgnore: ignored,
       // Only the JSON report leaves the container: traces and screenshots of
       // failures filled the 512 MB /tmp and crashed every later page.
       use: {...base.use, ignoreHTTPSErrors: false, trace: 'off', screenshot: 'off', video: 'off',

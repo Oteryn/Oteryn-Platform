@@ -591,8 +591,13 @@ portal; without the file the staff panel stays off. Passkeys are bound to the
 public host, so staff use TOTP on the staff host. Mail goes to the stack's authenticated
 STARTTLS catcher. Game,
 store and payment features are disabled. With no spec argument Playwright
-discovers the full suite, which includes specs that require the local harness's
-Game or commerce fixtures and can fail under this staging profile.
+runs every collected spec except those in `STAGING_IGNORED` in
+`staging-deploy.py`; each entry names what it needs that staging does not have
+(a running Game, money features, or a local-harness control endpoint). A spec
+named on the command line always runs. The in-stack E2E portal enables the same
+read-only features as `portal-public` plus the staff panel on its loopback
+origin, and the browser container shares its MFA key so the seed CLI can
+provision MFA accounts.
 
 ### Staging from GitHub Actions
 

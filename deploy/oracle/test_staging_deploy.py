@@ -232,10 +232,11 @@ class StagingDeploy(unittest.TestCase):
         public = (self.root / 'public.env').read_text()
         self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n', public)
         self.assertIn('OTERYN_WEBAUTHN_RP_ID=localhost\n', public)
+        # portal-public reads portal.env then public.env, so both portals get them.
         for flag in staging.PUBLIC_FLAGS:
-            self.assertIn(flag + '=true\n', public)
-            self.assertNotIn(flag + '=true\n', (self.root / 'portal.env').read_text())
+            self.assertIn(flag + '=true\n', (self.root / 'portal.env').read_text())
         self.assertFalse(set(staging.PUBLIC_FLAGS) & set(staging.OFF))
+        self.assertFalse(set(staging.ADMIN_FLAGS) & set(staging.OFF))
         (self.root / 'public-origin').write_text('https://staging.example.com\n')
         staging.configure(self.root, SHA)
         public = (self.root / 'public.env').read_text()
@@ -243,18 +244,20 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('OTERYN_WEBAUTHN_RP_ID=staging.example.com\n', public)
         self.assertIn('OTERYN_NOTIFY_UNSUBSCRIBE_URL=https://staging.example.com/en/unsubscribe\n', public)
         # No admin-origin: the staff panel stays off, never on the player host.
-        self.assertNotIn('OTERYN_ADMIN_HOST', public)
+        self.assertIn('OTERYN_ADMIN_HOST=\n', public)
         for flag in staging.ADMIN_FLAGS:
-            self.assertNotIn(flag + '=true\n', public)
+            self.assertIn(flag + '=false\n', public)
         (self.root / 'admin-origin').write_text('https://staging-admin.example.com\n')
         staging.configure(self.root, SHA)
         public = (self.root / 'public.env').read_text()
         self.assertIn('OTERYN_ADMIN_HOST=staging-admin.example.com\n', public)
         self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
+        portal = (self.root / 'portal.env').read_text()
         for flag in staging.ADMIN_FLAGS:
             self.assertIn(flag + '=true\n', public)
-            self.assertNotIn(flag + '=true\n', (self.root / 'portal.env').read_text())
-        self.assertNotIn('OTERYN_ADMIN_HOST', (self.root / 'portal.env').read_text())
+            # The in-stack E2E portal serves staff only on its loopback origin.
+            self.assertIn(flag + '=true\n', portal)
+        self.assertIn('OTERYN_ADMIN_HOST=localhost:18443\n', portal)
         for bad in ('https://staging.example.com', 'http://staging-admin.example.com'):
             with self.subTest(admin=bad):
                 (self.root / 'admin-origin').write_text(bad)
@@ -346,6 +349,20 @@ class StagingDeploy(unittest.TestCase):
     def test_playwright_keeps_no_failure_artifacts_in_the_bounded_tmp(self):
         for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
             self.assertIn(option, self.staging.BROWSER)
+
+    def test_e2e_ignores_only_named_existing_specs_and_shares_the_mfa_key(self):
+        staging = self.staging
+        e2e = HERE.parents[1] / 'portal-rs' / 'e2e'
+        for spec, reason in staging.STAGING_IGNORED.items():
+            with self.subTest(spec=spec):
+                self.assertTrue((e2e / spec).is_file())
+                self.assertTrue(reason)
+        staging.configure(self.root, SHA)
+        browser = (self.root / 'browser.env').read_text()
+        portal = (self.root / 'portal.env').read_text()
+        key = next(line for line in portal.splitlines() if line.startswith('OTERYN_MFA_KEY='))
+        self.assertIn(key + '\n', browser)
+        self.assertIn('testIgnore: ignored', staging.BROWSER)
 
     def test_playwright_runs_one_project_within_the_cap(self):
         self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
