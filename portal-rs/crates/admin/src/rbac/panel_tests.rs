@@ -1064,7 +1064,7 @@ async fn role_edits_cannot_delegate_grants_without_staff_action_controls() -> Te
     assert_eq!(
         created,
         (
-            serde_json::json!({"permissions": ["admin.roles.grant"]}),
+            serde_json::json!({"key": "delegation_new", "permissions": ["admin.roles.grant"]}),
             "role_assignment".into()
         )
     );

@@ -45,6 +45,7 @@ impl Fixture {
         let path = format!("SET search_path TO {schema}");
         let pool = PgPoolOptions::new()
             .max_connections(size)
+            .min_connections(size)
             .acquire_timeout(std::time::Duration::from_secs(1))
             .after_connect(move |c, _| {
                 let path = path.clone();
@@ -149,6 +150,7 @@ async fn world_two_queued_mutations_complete_with_two_connections() -> TestResul
     sqlx::query("SELECT pg_advisory_xact_lock(71010)")
         .execute(&mut *blocker)
         .await?;
+    let mut observer = db.root.acquire().await?;
     let mut tasks = Vec::new();
     for _ in 0..2 {
         let panel = panel.clone();
@@ -160,11 +162,12 @@ async fn world_two_queued_mutations_complete_with_two_connections() -> TestResul
     // One mutation waits at authorization; the other queues at its resource.
     tokio::time::timeout(std::time::Duration::from_secs(3), async {
         loop {
-            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE')").bind(&db.schema).fetch_one(&db.root).await?;
+            let waiting: i64 = sqlx::query_scalar("SELECT count(*) FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND (query='SELECT pg_advisory_xact_lock(71010)' OR query='SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE')").bind(&db.schema).fetch_one(&mut *observer).await?;
             if waiting >= 2 { return Ok::<_, sqlx::Error>(()); }
             tokio::task::yield_now().await;
         }
     }).await??;
+    drop(observer);
     blocker.commit().await?;
     for task in tasks {
         assert_eq!(
@@ -191,7 +194,7 @@ async fn world_refuses_revoked_prerequisite_with_action_retained() -> TestResult
         account: Uuid::now_v7(),
         ..db.actor
     };
-    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin'").bind(manager.account).execute(&db.pool).await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(manager.account).execute(&db.pool).await?;
     let role = auth
         .change(
             manager,

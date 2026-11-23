@@ -162,6 +162,7 @@ impl WorldStore {
         })?;
 
         let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
         let (active, _) = lock_active(&mut tx).await?;
         let version = if let Some(active) = active {
             let revision: String =
