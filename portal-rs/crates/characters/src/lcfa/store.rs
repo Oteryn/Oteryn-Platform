@@ -2,7 +2,7 @@ use super::{
     AccountId, Availability, CharacterId, CharacterSummary, Error, Outcome, Settings, Snapshot,
     Watermark, WorldId,
 };
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgRow};
 use std::{future::Future, pin::Pin, sync::Arc};
 use subtle::ConstantTimeEq;
 
@@ -162,29 +162,16 @@ impl Projection {
         let mut tx = self.pool.begin().await?;
         // A shared feed lock spans metadata and rows, excluding epoch changes,
         // snapshot replacement and watermark updates until the read completes.
-        let Some(feed) = sqlx::query("SELECT highest_epoch, watermark_epoch, source_authority, complete_through FROM account_character_feed WHERE id = 1 FOR SHARE")
-            .fetch_optional(&mut *tx).await? else { return Ok(AccountView::empty(ReadState::Unavailable)); };
-        let highest: Option<String> = feed.try_get("highest_epoch")?;
-        let watermark: Option<String> = feed.try_get("watermark_epoch")?;
-        let authority: Option<String> = feed.try_get("source_authority")?;
-        let complete: Option<i64> = feed.try_get("complete_through")?;
-        let live = highest.is_some()
-            && highest == watermark
-            && authority.as_deref() == Some(&self.settings.source_authority)
-            && complete.is_some_and(|complete| {
-                complete <= now.saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
-                    && now
-                        .saturating_sub(complete)
-                        .saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
-                        <= i64::from(self.settings.freshness_seconds)
-            });
-        if !live {
+        let Some(feed) = locked_feed(&mut tx).await? else {
+            return Ok(AccountView::empty(ReadState::Unavailable));
+        };
+        let Some(highest) = self.live_epoch(&feed, now)? else {
             return Ok(AccountView::empty(ReadState::Stale));
-        }
+        };
         let Some(snapshot) = sqlx::query("SELECT projection_epoch, invalid, source_authority FROM account_character_snapshots WHERE account_id = $1")
             .bind(account.0).fetch_optional(&mut *tx).await? else { return Ok(AccountView::empty(ReadState::Missing)); };
         if snapshot.try_get::<bool, _>("invalid")?
-            || Some(snapshot.try_get::<String, _>("projection_epoch")?) != highest
+            || snapshot.try_get::<String, _>("projection_epoch")? != highest
             || snapshot.try_get::<String, _>("source_authority")? != self.settings.source_authority
         {
             return Ok(AccountView::empty(ReadState::Invalid));
@@ -211,7 +198,92 @@ impl Projection {
             characters,
         })
     }
+
+    /// Find accounts in the same fresh cut used by account-character reads.
+    /// The caller must authorize the cross-account search before invoking it.
+    pub async fn search_accounts(
+        &self,
+        name: &str,
+        prefix: bool,
+        now: i64,
+    ) -> Result<Vec<AccountId>, Error> {
+        if !self.settings.available() || now < 0 {
+            return Err(Error::Unavailable);
+        }
+        if name.is_empty() || name.len() > 64 || name.chars().any(char::is_control) {
+            return Err(Error::BadInput);
+        }
+        let mut pattern = name
+            .replace('!', "!!")
+            .replace('%', "!%")
+            .replace('_', "!_");
+        if prefix {
+            pattern.push('%');
+        }
+        let mut tx = self.pool.begin().await?;
+        sqlx::raw_sql("SET LOCAL lock_timeout='2s'; SET LOCAL statement_timeout='3s'")
+            .execute(&mut *tx)
+            .await?;
+        let feed = locked_feed(&mut tx).await?.ok_or(Error::Unavailable)?;
+        let epoch = self.live_epoch(&feed, now)?.ok_or(Error::Unavailable)?;
+        let candidates: Vec<uuid::Uuid> = sqlx::query_scalar(
+            "SELECT DISTINCT c.account_id FROM account_characters c
+             JOIN account_character_snapshots s USING (account_id)
+             JOIN accounts a ON a.id=c.account_id
+             WHERE s.projection_epoch=$1 AND s.source_authority=$2 AND NOT s.invalid
+               AND a.status='active' AND a.email_verified_at IS NOT NULL
+               AND lower(c.name) LIKE lower($3) ESCAPE '!'
+             ORDER BY c.account_id LIMIT 51",
+        )
+        .bind(epoch)
+        .bind(&self.settings.source_authority)
+        .bind(pattern)
+        .fetch_all(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        if candidates.len() > 50 {
+            return Err(Error::Conflict);
+        }
+        let mut accounts = Vec::with_capacity(candidates.len());
+        for candidate in candidates {
+            let account = AccountId(candidate);
+            match self.accounts.state(account).await {
+                AccountState::Active => accounts.push(account),
+                AccountState::Denied | AccountState::Unknown => continue,
+                AccountState::Ambiguous | AccountState::Unavailable => {
+                    return Err(Error::Unavailable);
+                }
+            }
+        }
+        Ok(accounts)
+    }
+
+    fn live_epoch(&self, feed: &PgRow, now: i64) -> Result<Option<String>, Error> {
+        let highest: Option<String> = feed.try_get("highest_epoch")?;
+        let watermark: Option<String> = feed.try_get("watermark_epoch")?;
+        let authority: Option<String> = feed.try_get("source_authority")?;
+        let complete: Option<i64> = feed.try_get("complete_through")?;
+        let live = highest == watermark
+            && authority.as_deref() == Some(&self.settings.source_authority)
+            && complete.is_some_and(|complete| {
+                complete <= now.saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
+                    && now
+                        .saturating_sub(complete)
+                        .saturating_add(i64::from(self.settings.clock_uncertainty_seconds))
+                        <= i64::from(self.settings.freshness_seconds)
+            });
+        Ok(highest.filter(|_| live))
+    }
 }
+async fn locked_feed(tx: &mut Transaction<'_, Postgres>) -> Result<Option<PgRow>, sqlx::Error> {
+    sqlx::query(
+        "SELECT highest_epoch, watermark_epoch, source_authority, complete_through
+         FROM account_character_feed WHERE id=1 FOR SHARE",
+    )
+    .fetch_optional(&mut **tx)
+    .await
+}
+
 fn number(raw: &str) -> Result<u64, Error> {
     raw.parse().map_err(|_| Error::Unavailable)
 }

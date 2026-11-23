@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main class="op-panel op-stack"><h1>{{ title }}</h1><nav class="op-tabs" aria-label="{{ title }}">
+{% if players %}<a href="/admin/players">{{ players_label }}</a>{% endif %}
 {% if manage %}<a href="/admin/roles">{{ roles_label }}</a>{% endif %}
 {% if moderate_reports %}<a href="/admin/moderation/reports">{{ reports_label }}</a>{% endif %}
 {% if let Some(label) = mail_link %}<a href="/admin/mail-outbox">{{ label }}</a>{% endif %}

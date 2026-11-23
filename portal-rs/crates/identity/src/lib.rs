@@ -25,6 +25,7 @@ pub mod termination;
 
 pub mod privacy;
 pub mod sessions;
+pub mod staff_account;
 
 /// Shared portal navigation registration.
 pub mod navigation;

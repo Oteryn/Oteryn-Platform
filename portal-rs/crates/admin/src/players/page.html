@@ -4,10 +4,66 @@
 {% if let Some(id) = kick_target %}
 <section class="op-stack"><h2>{{ id }}</h2><form method="post" action="/admin/players/{{ id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="kick-reason">{{ reason }}</label><textarea class="op-input" id="kick-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="kick">{{ kick }}</button></form></section>
 {% else %}
-<form method="get" action="/admin/players" class="op-stack"><div class="op-field"><label for="q">{{ query_label }}</label><input class="op-input" id="q" name="q" maxlength="254" value="{{ query }}" required></div><button class="op-button">{{ search }}</button></form>
+<form method="get" action="/admin/players" class="op-stack" role="search">
+  <div class="op-field">
+    <label for="field">{{ self.t("search-field") }}</label>
+    <select class="op-input" id="field" name="field">
+      <option value="auto"{% if search_field == "auto" %} selected{% endif %}>{{ self.t("search-auto") }}</option>
+      <option value="email"{% if search_field == "email" %} selected{% endif %}>{{ self.t("email") }}</option>
+      <option value="account-id"{% if search_field == "account-id" %} selected{% endif %}>{{ self.t("account-id") }}</option>
+      {% if characters_search %}<option value="character"{% if search_field == "character" %} selected{% endif %}>{{ self.t("character") }}</option>{% endif %}
+    </select>
+  </div>
+  <div class="op-field">
+    <label for="match">{{ self.t("search-match") }}</label>
+    <select class="op-input" id="match" name="match">
+      <option value="exact"{% if !prefix %} selected{% endif %}>{{ self.t("search-exact") }}</option>
+      <option value="prefix"{% if prefix %} selected{% endif %}>{{ self.t("search-prefix") }}</option>
+    </select>
+  </div>
+  <div class="op-field"><label for="q">{{ query_label }}</label><input class="op-input" id="q" name="q" maxlength="254" value="{{ query }}" required></div>
+  <button class="op-button">{{ search }}</button>
+</form>
+{% if !feedback.is_empty() %}<p role="status">{{ feedback }}</p>{% endif %}
+{% if let Some(id) = edit_target %}<p><a href="/admin/players/{{ id }}">{{ self.t("edit-return") }}</a></p>{% endif %}
 <ul>{% for row in accounts %}<li><a href="/admin/players/{{ row.id }}">{{ row.id }}</a></li>{% endfor %}</ul>
 {% if let Some(row) = account %}
 <section class="op-stack"><h2>{{ row.id }}</h2><dl><dt>{{ status }}</dt><dd>{{ row.status }}</dd><dt>{{ locale }}</dt><dd>{{ row.locale }}</dd><dt>{{ verified }}</dt><dd>{% if row.email_verified %}{{ yes }}{% else %}{{ no }}{% endif %}</dd></dl></section>
+{% if !edit_fields.is_empty() %}
+<section class="op-stack">
+  <h2>{{ self.t("edit-title") }}</h2>
+  {% for field in edit_fields %}
+  <form method="post" action="/admin/players/{{ row.id }}" class="op-stack">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <div class="op-field">
+      <label for="edit-{{ field.key }}" id="edit-{{ field.key }}-label">{{ field.label }}</label>
+      {% if field.key == "email" %}
+      <input class="op-input" type="email" id="edit-{{ field.key }}" name="value" value="{{ field.value }}" maxlength="254" aria-describedby="edit-email-help" required>
+      <p id="edit-email-help">{{ self.t("edit-email-help") }}</p>
+      {% elif field.key == "display-name" %}
+      <input class="op-input" id="edit-{{ field.key }}" name="value" value="{{ field.value }}" maxlength="80">
+      {% else %}
+      <select class="op-input" id="edit-{{ field.key }}" name="value">
+        {% if field.key == "locale" %}
+        <option value="pl" lang="pl"{% if field.value == "pl" %} selected{% endif %}>{{ self.t("locale-pl") }}</option>
+        <option value="en" lang="en"{% if field.value == "en" %} selected{% endif %}>{{ self.t("locale-en") }}</option>
+        {% else %}
+        <option value="false"{% if field.value == "false" %} selected{% endif %}>{{ no }}</option>
+        <option value="true"{% if field.value == "true" %} selected{% endif %}>{{ yes }}</option>
+        {% endif %}
+      </select>
+      {% if field.key == "locale" %}<p>{{ self.t("edit-locale-help") }}</p>{% endif %}
+      {% endif %}
+    </div>
+    <div class="op-field">
+      <label for="reason-{{ field.key }}">{{ reason }}</label>
+      <textarea class="op-input" id="reason-{{ field.key }}" name="reason" maxlength="500" required></textarea>
+    </div>
+    <button class="op-button" name="action" value="edit-{{ field.key }}" aria-labelledby="save-{{ field.key }} edit-{{ field.key }}-label" id="save-{{ field.key }}">{{ self.t("edit-save") }}</button>
+  </form>
+  {% endfor %}
+</section>
+{% endif %}
 <section><h2>{{ sessions_label }}</h2>{% if sessions_unavailable %}<p>{{ unavailable }}</p>{% endif %}<ul>{% for session in sessions %}<li>{{ session.kind }} · {{ session.expires_at }}</li>{% endfor %}</ul></section>
 <section><h2>{{ characters_label }}</h2>{% if characters_unavailable %}<p>{{ unavailable }}</p>{% endif %}<ul>{% for character in characters %}<li>{{ character.name }} · {{ character.id }} · {{ character.world }}</li>{% endfor %}</ul></section>
 <section class="op-stack"><h2>{{ notes_label }}</h2><ul>{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ul>

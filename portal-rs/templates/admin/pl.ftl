@@ -5,6 +5,7 @@ role = Rola
 grant = Przypisz rolę
 revoke = Odbierz rolę
 mfa = Wymagane uwierzytelnianie wieloskładnikowe
+players = Gracze
 reports = Moderacja zgłoszeń
 mail-title = Kolejka poczty
 mail-overview = Stan kolejki

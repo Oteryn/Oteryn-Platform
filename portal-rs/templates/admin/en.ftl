@@ -5,6 +5,7 @@ role = Role
 grant = Assign role
 revoke = Revoke role
 mfa = Multi-factor authentication required
+players = Players
 reports = Report moderation
 mail-title = Mail outbox
 mail-overview = Queue overview

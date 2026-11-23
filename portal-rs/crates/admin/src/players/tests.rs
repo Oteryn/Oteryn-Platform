@@ -37,7 +37,7 @@ struct Backend {
     id: Uuid,
 }
 impl Accounts for Backend {
-    async fn search(&self, _: &str) -> Result<Vec<Account>, Error> {
+    async fn search(&self, _: SearchQuery<'_>) -> Result<Vec<Account>, Error> {
         Ok(vec![self.account(self.id).await?.unwrap()])
     }
     async fn account(&self, id: Uuid) -> Result<Option<Account>, Error> {
@@ -200,7 +200,18 @@ async fn postgres_read_note_and_logout_success_refusal_bad_input() {
     };
     let s = db.service();
     let c = context(db.support);
-    assert_eq!(s.search(c, "example").await.unwrap().len(), 1);
+    assert_eq!(
+        s.search(
+            c,
+            &db.target.to_string(),
+            SearchField::AccountId,
+            MatchMode::Exact
+        )
+        .await
+        .unwrap()
+        .len(),
+        1
+    );
     assert_eq!(s.account(c, db.target).await.unwrap().id, db.target);
     assert_eq!(s.sessions(c, db.target).await.unwrap().len(), 1);
     assert_eq!(s.characters(c, db.target).await.unwrap().len(), 1);
@@ -434,7 +445,7 @@ impl StaffSession for Browser {
 #[derive(Clone)]
 struct DeniedCharacters(Backend);
 impl Accounts for DeniedCharacters {
-    async fn search(&self, query: &str) -> Result<Vec<Account>, Error> {
+    async fn search(&self, query: SearchQuery<'_>) -> Result<Vec<Account>, Error> {
         self.0.search(query).await
     }
     async fn account(&self, id: Uuid) -> Result<Option<Account>, Error> {
@@ -601,7 +612,11 @@ async fn postgres_http_actor_search_detail_csrf_note_and_refusals() {
         assert_eq!(response.status(), status);
     }
     for (uri, host, status) in [
-        ("/admin/players?q=example", "staff.test", StatusCode::OK),
+        (
+            "/admin/players?q=example%40example.invalid",
+            "staff.test",
+            StatusCode::OK,
+        ),
         (
             "/admin/players?q=%00",
             "staff.test",
@@ -698,7 +713,10 @@ async fn postgres_real_identity_lookup_safe_projection_and_missing_character_wat
         projection: Some(projection::configured(db.pool.clone(), true, &|_| None)),
     };
     let account = adapter
-        .search("PLAYER@example.invalid")
+        .search(SearchQuery::Email(
+            "PLAYER@example.invalid",
+            MatchMode::Exact,
+        ))
         .await
         .unwrap()
         .remove(0);
@@ -706,10 +724,13 @@ async fn postgres_real_identity_lookup_safe_projection_and_missing_character_wat
     let debug = format!("{account:?}");
     assert!(!debug.contains("example.invalid"));
     assert!(!debug.contains("fixture-credential"));
-    assert!(adapter.search("partial").await.is_err());
+    assert!(SearchQuery::parse("partial", SearchField::Auto, MatchMode::Exact).is_err());
     assert!(
         adapter
-            .search("missing@example.invalid")
+            .search(SearchQuery::Email(
+                "missing@example.invalid",
+                MatchMode::Exact
+            ))
             .await
             .unwrap()
             .is_empty()
@@ -2220,5 +2241,307 @@ async fn self_kick_commits_with_live_session() {
         .await;
     assert_eq!(result.expect("authorized self kick"), before + 1);
     assert_eq!(kick_state(&db).await.0, before + 1);
+    db.close().await;
+}
+
+#[test]
+fn targeted_search_validates_field_and_match() {
+    let id = Uuid::now_v7().to_string();
+    assert!(matches!(
+        SearchQuery::parse(&id, SearchField::AccountId, MatchMode::Exact),
+        Ok(SearchQuery::AccountId(_))
+    ));
+    assert!(matches!(
+        SearchQuery::parse(&id.replace('-', ""), SearchField::Auto, MatchMode::Exact),
+        Ok(SearchQuery::AccountId(_))
+    ));
+    for value in [&id[..12], &id.replace('-', ""), &Uuid::nil().to_string()] {
+        assert!(matches!(
+            SearchQuery::parse(value, SearchField::AccountId, MatchMode::Exact),
+            Err(Error::BadInput)
+        ));
+    }
+    for (value, field) in [
+        ("abc-def", SearchField::AccountId),
+        (" A B ", SearchField::Email),
+        ("ab", SearchField::Character),
+        ("alice", SearchField::Auto),
+    ] {
+        assert!(matches!(
+            SearchQuery::parse(value, field, MatchMode::Prefix),
+            Err(Error::BadInput)
+        ));
+    }
+}
+
+#[tokio::test]
+async fn postgres_targeted_search_and_account_field_edits() {
+    use oteryn_identity::staff_account::Field;
+
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else {
+        return;
+    };
+    let other = Uuid::now_v7();
+    for (id, email) in [
+        (db.target, "player_name@example.invalid"),
+        (other, "playerxname@example.invalid"),
+        (db.approver, "staff@example.invalid"),
+    ] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'fixture','active','en',now())")
+            .bind(id).bind(email).execute(&db.pool).await.unwrap();
+    }
+    let players = Players::new(
+        db.pool.clone(),
+        Flags {
+            players: true,
+            ..Flags::default()
+        },
+        Staff,
+        IdentityAccounts {
+            accounts: oteryn_identity::accounts::Accounts {
+                pool: db.pool.clone(),
+            },
+            projection: None,
+        },
+    );
+    let support = context(db.support);
+    let admin = context(db.approver);
+    assert!(matches!(
+        players
+            .search(
+                context(other),
+                "player",
+                SearchField::Email,
+                MatchMode::Prefix
+            )
+            .await,
+        Err(Error::Authorization(crate::rbac::Error::Denied))
+    ));
+    let rows = players
+        .search(support, "PLAYER_", SearchField::Email, MatchMode::Prefix)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+        [db.target]
+    );
+    assert!(matches!(
+        players
+            .search(support, "Player", SearchField::Character, MatchMode::Exact)
+            .await,
+        Err(Error::NotFound)
+    ));
+    sqlx::query("INSERT INTO accounts(email,password_hash,locale) SELECT 'bulk-'||n||'@example.invalid','fixture','en' FROM generate_series(1,51) AS n")
+        .execute(&db.pool).await.unwrap();
+    assert!(matches!(
+        players
+            .search(support, "bulk-", SearchField::Email, MatchMode::Prefix)
+            .await,
+        Err(Error::TooManyResults)
+    ));
+    assert!(matches!(
+        players
+            .edit(
+                support,
+                db.target,
+                Field::DisplayName,
+                "Alina",
+                "ticket review"
+            )
+            .await,
+        Err(Error::Authorization(crate::rbac::Error::Denied))
+    ));
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,$1 FROM roles WHERE key='support'")
+        .bind(Permission::EditPlayerDisplayName.as_str()).execute(&db.pool).await.unwrap();
+    assert!(
+        players
+            .edit(
+                support,
+                db.target,
+                Field::DisplayName,
+                " Alina Żółć ",
+                "ticket review"
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        !players
+            .edit(
+                support,
+                db.target,
+                Field::DisplayName,
+                "Alina Żółć",
+                "ticket review"
+            )
+            .await
+            .unwrap()
+    );
+    assert!(matches!(
+        players
+            .edit(support, db.target, Field::Locale, "pl", "ticket review")
+            .await,
+        Err(Error::Authorization(crate::rbac::Error::Denied))
+    ));
+    assert!(matches!(
+        players
+            .edit(
+                admin,
+                db.approver,
+                Field::DisplayName,
+                "Alina",
+                "ticket review"
+            )
+            .await,
+        Err(Error::Denied)
+    ));
+    for (field, value, reason) in [
+        (Field::Email, "plain text", "ticket review"),
+        (
+            Field::Email,
+            "Player <player@example.invalid>",
+            "ticket review",
+        ),
+        (Field::Locale, "de", "ticket review"),
+        (Field::PublicStatusVisible, "1", "ticket review"),
+        (Field::DisplayName, "Alina\nNowak", "ticket review"),
+        (Field::DisplayName, "Alina", " "),
+    ] {
+        assert!(matches!(
+            players.edit(admin, db.target, field, value, reason).await,
+            Err(Error::BadInput)
+        ));
+    }
+    assert!(matches!(
+        players
+            .edit(
+                admin,
+                db.target,
+                Field::Email,
+                "playerxname@example.invalid",
+                "ticket review"
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+    assert!(
+        players
+            .edit(
+                admin,
+                db.target,
+                Field::PublicStatusVisible,
+                "true",
+                "ticket review"
+            )
+            .await
+            .unwrap()
+    );
+    assert!(
+        players
+            .edit(
+                admin,
+                db.target,
+                Field::Email,
+                " corrected@EXAMPLE.invalid ",
+                "ticket review"
+            )
+            .await
+            .unwrap()
+    );
+    let state: (String, String, String, bool, i64, i64) = sqlx::query_as(
+        "SELECT email,display_name,status,email_verified_at IS NOT NULL,privacy_revision,native_security_generation FROM accounts WHERE id=$1",
+    ).bind(db.target).fetch_one(&db.pool).await.unwrap();
+    assert_eq!(
+        state,
+        (
+            "corrected@example.invalid".into(),
+            "Alina Żółć".into(),
+            "pending_verification".into(),
+            false,
+            1,
+            2
+        )
+    );
+
+    let audit: Vec<(Uuid, String, String)> = sqlx::query_as(
+        "SELECT actor,after->>'field',after->>'reason' FROM audit_log WHERE action='players.account.edited' AND target=$1 ORDER BY created_at",
+    ).bind(db.target.to_string()).fetch_all(&db.pool).await.unwrap();
+    assert_eq!(
+        audit,
+        [
+            (db.support, "display-name".into(), "ticket review".into()),
+            (
+                db.approver,
+                "public-status-visible".into(),
+                "ticket review".into()
+            ),
+            (db.approver, "email".into(), "ticket review".into()),
+        ]
+    );
+    assert!(
+        players
+            .edit(admin, db.target, Field::Locale, "pl", "ticket review")
+            .await
+            .unwrap()
+    );
+    let verification: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT o.payload->>'locale', t.used_at IS NULL FROM outbox o
+         JOIN account_email_tokens t ON t.token_hash=sha256(convert_to(o.payload->>'token','UTF8'))
+         WHERE o.kind='email.verify' AND t.account_id=$1 ORDER BY t.created_at",
+    )
+    .bind(db.target)
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(verification, [("en".into(), false), ("pl".into(), true)]);
+    let privacy_revisions: Vec<i64> = sqlx::query_scalar(
+        "SELECT revision FROM account_privacy_events WHERE account_id=$1 ORDER BY revision",
+    )
+    .bind(db.target)
+    .fetch_all(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(privacy_revisions, [1, 2]);
+
+    for _ in 0..3 {
+        assert!(
+            !players
+                .edit(admin, db.target, Field::Locale, "pl", "ticket review")
+                .await
+                .unwrap()
+        );
+    }
+    assert!(matches!(
+        players
+            .edit(admin, db.target, Field::Locale, "en", "ticket review")
+            .await,
+        Err(Error::RateLimited)
+    ));
+    for _ in 0..28 {
+        assert!(
+            players
+                .search(
+                    support,
+                    "absent@example.invalid",
+                    SearchField::Email,
+                    MatchMode::Exact
+                )
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(matches!(
+        players
+            .search(
+                support,
+                "absent@example.invalid",
+                SearchField::Email,
+                MatchMode::Exact
+            )
+            .await,
+        Err(Error::RateLimited)
+    ));
     db.close().await;
 }

@@ -289,6 +289,14 @@ pub async fn staff_revoke_all(
     if found != 1 {
         return Err(sqlx::Error::RowNotFound);
     }
+    revoke_staff_credentials(connection, account).await
+}
+
+/// Clear credentials after the caller advanced the account generation.
+pub(crate) async fn revoke_staff_credentials(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+) -> std::result::Result<(), sqlx::Error> {
     crate::recovery_key::revoke_authorizations(connection, account).await?;
     sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
         .bind(account)

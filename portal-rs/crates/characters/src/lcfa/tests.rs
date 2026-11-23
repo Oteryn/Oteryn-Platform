@@ -426,6 +426,18 @@ async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestRe
     };
     let p = db.projection();
     let account = AccountId::parse(ACCOUNT)?;
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105155256_t03_accounts.sql"
+    ))
+    .execute(&db.pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at)
+                 VALUES($1,'lcfa@example.invalid','fixture','active','en',now())",
+    )
+    .bind(account.as_uuid())
+    .execute(&db.pool)
+    .await?;
     p.snapshot(Snapshot::decode(SNAPSHOT.as_bytes())?, NOW)
         .await?;
     p.watermark(Watermark::decode(WATERMARK.as_bytes())?, NOW)
@@ -433,6 +445,34 @@ async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestRe
     assert_eq!(
         p.list_characters(account, NOW).await?.state,
         ReadState::Ready
+    );
+    assert_eq!(p.search_accounts("ALDRIC", false, NOW).await?, [account]);
+    assert_eq!(p.search_accounts("ald", true, NOW).await?, [account]);
+    assert!(p.search_accounts("ald", false, NOW).await?.is_empty());
+    assert!(p.search_accounts("ald%", true, NOW).await?.is_empty());
+    sqlx::query(
+        "WITH pending AS (
+             INSERT INTO accounts(email,password_hash,locale)
+             SELECT 'pending-'||n||'@example.invalid','fixture','en' FROM generate_series(1,51) n
+             RETURNING id
+         ), snapshots AS (
+             INSERT INTO account_character_snapshots
+                 (account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest)
+             SELECT pending.id,s.source_authority,s.projection_epoch,s.projection_revision,s.source_observed_at,s.content_digest
+             FROM pending CROSS JOIN account_character_snapshots s WHERE s.account_id=$1
+             RETURNING account_id
+         )
+         INSERT INTO account_characters(account_id,character_id,world_id,name,availability)
+         SELECT snapshots.account_id,uuidv7(),c.world_id,c.name,c.availability
+         FROM snapshots CROSS JOIN account_characters c WHERE c.account_id=$1",
+    )
+    .bind(account.as_uuid())
+    .execute(&db.pool)
+    .await?;
+    assert_eq!(p.search_accounts("ald", true, NOW).await?, [account]);
+    assert_eq!(
+        p.search_accounts("ald", true, NOW + 60).await,
+        Err(Error::Unavailable)
     );
     p.snapshot(
         Snapshot::decode(SNAPSHOT.replace("1790000000", "1790000004").as_bytes())?,
@@ -456,6 +496,7 @@ async fn db_conflict_persists_and_higher_revision_repairs_atomically() -> TestRe
         p.list_characters(account, NOW).await?.state,
         ReadState::Invalid
     );
+    assert!(p.search_accounts("Aldric", false, NOW).await?.is_empty());
     assert_eq!(
         p.snapshot(Snapshot::decode(SNAPSHOT.as_bytes())?, NOW)
             .await,

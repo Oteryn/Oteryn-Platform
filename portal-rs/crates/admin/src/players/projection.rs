@@ -49,14 +49,33 @@ pub(super) fn configured(
         Arc::new(Identity(oteryn_identity::accounts::Accounts { pool })),
     )
 }
-pub(super) async fn characters(projection: &Projection, id: Uuid) -> Result<Vec<Character>, Error> {
+fn now() -> Result<i64, Error> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| Error::Unavailable)?;
-    let now = i64::try_from(now.as_secs()).map_err(|_| Error::Unavailable)?;
+    i64::try_from(now.as_secs()).map_err(|_| Error::Unavailable)
+}
+
+pub(super) async fn search(
+    projection: &Projection,
+    name: &str,
+    mode: super::MatchMode,
+) -> Result<Vec<Uuid>, Error> {
+    projection
+        .search_accounts(name, matches!(mode, super::MatchMode::Prefix), now()?)
+        .await
+        .map(|rows| rows.into_iter().map(|id| id.as_uuid()).collect())
+        .map_err(|error| match error {
+            lcfa::Error::BadInput => Error::BadInput,
+            lcfa::Error::Conflict => Error::TooManyResults,
+            _ => Error::Unavailable,
+        })
+}
+
+pub(super) async fn characters(projection: &Projection, id: Uuid) -> Result<Vec<Character>, Error> {
     let account = lcfa::AccountId::parse(&id.to_string()).map_err(|_| Error::BadInput)?;
     let view = projection
-        .list_characters(account, now)
+        .list_characters(account, now()?)
         .await
         .map_err(|_| Error::Unavailable)?;
     match view.state {
