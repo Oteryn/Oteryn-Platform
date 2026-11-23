@@ -1,4 +1,4 @@
-//! Private player, content and guild reporting. No commands are sent to the game.
+//! Private reporting and moderation for player, content, guild and Atlas reports.
 //!
 //! Behavioural reference: app/Support/Actions/ManagePlayerReport.php and
 //! app/Support/Http/Requests/PlayerReportRequest.php. The plan additionally requires
@@ -224,7 +224,7 @@ impl Reports {
         }
         let mut tx = self.pool.begin().await?;
         Self::account(&mut tx, owner).await?;
-        let rows = sqlx::query_as(AssertSqlSafe(format!("SELECT {PROJECTION} FROM player_reports WHERE reporter_account_id=$1 AND created_at >= now()-interval '30 days' ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $2")))
+        let rows = sqlx::query_as(AssertSqlSafe(format!("SELECT {PROJECTION} FROM support_report_queue WHERE reporter_account_id=$1 AND (created_at >= now()-interval '30 days' OR (report_type='atlas' AND processed_at >= now()-interval '30 days')) ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $2")))
             .bind(owner).bind(i64::from(page-1)*20).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(rows)
@@ -234,7 +234,7 @@ impl Reports {
         let mut tx = self.pool.begin().await?;
         Self::account(&mut tx, owner).await?;
         let report = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {PROJECTION} FROM player_reports WHERE reporter_account_id=$1 AND id=$2"
+            "SELECT {PROJECTION} FROM support_report_queue WHERE reporter_account_id=$1 AND id=$2"
         )))
         .bind(owner)
         .bind(id)
@@ -251,7 +251,7 @@ mod tests;
 
 impl Reports {
     /// Staff domain mutation in the caller's authorization/audit transaction.
-    pub async fn staff_apply(
+    pub(crate) async fn staff_apply(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         actor: Uuid,
@@ -272,7 +272,7 @@ impl Reports {
         command.validate()?;
         let (id, version) = binding;
         let owner: Uuid =
-            sqlx::query_scalar("SELECT reporter_account_id FROM player_reports WHERE id=$1")
+            sqlx::query_scalar("SELECT reporter_account_id FROM support_report_queue WHERE id=$1")
                 .bind(id)
                 .fetch_optional(&mut **tx)
                 .await
@@ -292,18 +292,43 @@ impl Reports {
         ) {
             return Err(StaffError::Denied);
         }
-        let row: (String, i64) =
-            sqlx::query_as("SELECT status,lock_version FROM player_reports WHERE id=$1 FOR UPDATE")
-                .bind(id)
-                .fetch_one(&mut **tx)
-                .await
-                .map_err(|_| StaffError::Unavailable)?;
-        if row.1 != version {
+        // The adapter locks the underlying report in prepare before authorization.
+        let (current, current_version, report_type): (String, i64, String) = sqlx::query_as(
+            "SELECT status,lock_version,report_type FROM support_report_queue WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?
+        .ok_or(StaffError::NotFound)?;
+        if current_version != version {
             return Err(StaffError::Conflict);
         }
-        command.transition(&row.0)?;
-        sqlx::query("UPDATE player_reports SET status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,updated_at=clock_timestamp() WHERE id=$1")
-            .bind(id).bind(status).bind(public_outcome).bind(moderator_notes).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        command.transition(&current)?;
+        let update = if report_type == "atlas" {
+            "UPDATE atlas_map_reports SET
+                status=CASE $2 WHEN 'actioned' THEN 'resolved' WHEN 'rejected' THEN 'rejected' ELSE status END,
+                moderation_phase=CASE WHEN $2 IN ('reviewing','closed') THEN $2 END,
+                public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,
+                processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,
+                updated_at=clock_timestamp()
+              WHERE id=$1"
+        } else {
+            "UPDATE player_reports SET
+                status=$2,public_outcome=nullif(btrim($3),''),moderator_notes=nullif(btrim($4),''),assigned_to=$5,lock_version=lock_version+1,
+                processed_at=CASE WHEN $2 IN ('actioned','rejected','closed') THEN clock_timestamp() ELSE processed_at END,
+                updated_at=clock_timestamp()
+              WHERE id=$1"
+        };
+        sqlx::query(AssertSqlSafe(update))
+            .bind(id)
+            .bind(status)
+            .bind(public_outcome)
+            .bind(moderator_notes)
+            .bind(actor)
+            .execute(&mut **tx)
+            .await
+            .map_err(|_| StaffError::Unavailable)?;
         crate::tickets::staff::notify(
             tx,
             notifications,
@@ -312,7 +337,7 @@ impl Reports {
         )
         .await?;
         Ok((
-            serde_json::json!({"status":row.0,"lock_version":version}),
+            serde_json::json!({"status":current,"lock_version":version}),
             serde_json::json!({"status":status,"lock_version":version+1}),
         ))
     }

@@ -145,6 +145,16 @@ impl Database {
         ))
         .execute(&pool)
         .await?;
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261105220249_t84_atlas_private.sql"
+        ))
+        .execute(&pool)
+        .await?;
+        sqlx::raw_sql(include_str!(
+            "../../../../migrations/20261124100900_gap_59_atlas_report_moderation.sql"
+        ))
+        .execute(&pool)
+        .await?;
         Ok(Some(Self { root, pool, schema }))
     }
     async fn account(&self, status: &str) -> Result<Uuid, sqlx::Error> {

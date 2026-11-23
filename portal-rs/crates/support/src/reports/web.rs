@@ -116,8 +116,9 @@ const FLASH: SessionKey<Option<Flash>> = SessionKey::new("support.reports.flash"
 <div class="op-field"><label for="evidence_summary">{{ self.text("evidence") }}</label><textarea class="op-input" id="evidence_summary" name="evidence_summary" maxlength="4000" rows="8">{{ input.evidence_summary.as_deref().unwrap_or_default() }}</textarea></div>
 <button class="op-button" type="submit">{{ self.text("submit") }}</button></form>{% else %}
 {% if reports.is_empty() %}<p class="op-empty">{{ self.text("empty") }}</p>{% endif %}
-{% for report in reports %}<article class="op-panel op-stack"><h2><a href="/{{ locale.0 }}/support/reports/{{ report.id }}">{{ report.target_reference }}</a></h2><p>{{ self.text(&report.report_type) }} · {{ self.text(&report.category) }}</p><p>{{ self.text("status") }}: {{ self.text(&report.status) }}</p><p>{{ self.text("date") }}: {{ report.created_at.date() }}</p>
-{% if detail %}<p>{{ report.evidence_summary.as_deref().unwrap_or_default() }}</p>{% if let Some(outcome) = report.public_outcome %}<h3>{{ self.text("outcome") }}</h3><p>{{ outcome }}</p>{% endif %}{% endif %}</article>{% endfor %}
+{% for report in reports %}<article class="op-panel op-stack"><h2><a href="/{{ locale.0 }}/support/reports/{{ report.id }}">{{ report.target_reference }}</a></h2><p>{{ self.text(&report.report_type) }} · {{ self.text(&report.category) }}</p><p>{{ self.text("status") }}: {{ self.status_text(report) }}</p><p>{{ self.text("date") }}: {{ report.created_at.date() }}</p>
+{% if detail %}<p>{{ report.evidence_summary.as_deref().unwrap_or_default() }}</p>{% endif %}
+{% if detail || report.report_type == "atlas" %}{% if let Some(outcome) = report.public_outcome %}{% if detail %}<h3>{{ self.text("outcome") }}</h3>{% else %}<p><strong>{{ self.text("outcome") }}</strong></p>{% endif %}<p>{{ outcome }}</p>{% endif %}{% endif %}</article>{% endfor %}
 {% if !detail %}<nav class="op-row" aria-label="{{ self.text("pagination") }}">{% if page > 1 %}<a class="op-button op-button--secondary" href="?page={{ page - 1 }}">{{ self.text("previous") }}</a>{% endif %}{% if reports.len() == 20 %}<a class="op-button op-button--secondary" href="?page={{ page + 1 }}">{{ self.text("next") }}</a>{% endif %}</nav>{% endif %}
 {% endif %}</main></body></html>"#,
     ext = "html"
@@ -149,6 +150,13 @@ impl Page {
     }
     fn text(&self, key: &str) -> String {
         self.locale.text(key)
+    }
+    fn status_text(&self, report: &Report) -> String {
+        if report.report_type == "atlas" && report.status == "actioned" {
+            self.text("resolved")
+        } else {
+            self.text(&report.status)
+        }
     }
     fn categories(&self, kind: &str) -> &'static [&'static str] {
         categories(kind)
