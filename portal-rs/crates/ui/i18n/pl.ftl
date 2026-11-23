@@ -35,7 +35,6 @@ thais-home-registration-unavailable = Rejestracja jest obecnie niedostępna.
 thais-home-rules-intro = Przeczytaj
 thais-home-character-unavailable = Tworzenie postaci jest obecnie niedostępne.
 thais-home-client-info = Informacje o kliencie znajdziesz na stronie serwera.
-thais-home-client-unavailable = Informacje o pobieraniu klienta są obecnie niedostępne.
 
 brand = Oteryn
 skip = Przejdź do treści
@@ -145,6 +144,7 @@ rankings-vocation-none = Bez profesji
 
 shell-play = Graj
 shell-community = Społeczność
+shell-forum = Forum społeczności
 shell-world = Świat
 shell-account = Konto
 shell-login = Zaloguj
@@ -347,3 +347,29 @@ shell-account-closure-pending = Oczekujące zamknięcie konta
 shell-account-overview-back = Wróć do przeglądu konta
 shell-account-sudo = Potwierdź hasło
 shell-account-export-sudo = Potwierdź hasło, aby pobrać dane konta.
+# Instalacja klienta
+onboarding-guide = Jak zainstalować klienta
+onboarding-download-intro = Wybierz aktualnego klienta Oteryn dla swojego systemu operacyjnego i procesora.
+onboarding-channel = Kanał wydania
+onboarding-stable = Stabilny (zalecany)
+onboarding-beta = Beta
+onboarding-verified = Zweryfikowane wydanie
+onboarding-unavailable = W tym kanale nie ma zweryfikowanego wydania.
+onboarding-platform-help = Użyj obsługiwanej wersji systemu operacyjnego wskazanego przy pakiecie. Dobierz architekturę procesora i upewnij się, że masz dość miejsca na pobranie i instalację.
+onboarding-download = Pobierz
+onboarding-size = Rozmiar pliku
+onboarding-bytes = B
+onboarding-start-intro = Zainstaluj klienta Oteryn, a następnie zaloguj się za pomocą konta portalu.
+onboarding-install = Instalacja i logowanie
+onboarding-choose-package = Do pierwszej instalacji użyj kanału stabilnego. Wybierz pakiet dla swojego systemu operacyjnego i procesora.
+onboarding-check-package = Przed otwarciem pliku porównaj jego sumę SHA-256 z wartością na stronie pobierania. Jeśli sumy się różnią, usuń plik i pobierz go ponownie.
+onboarding-open-package = Uruchom instalator i postępuj zgodnie z instrukcjami. Jeśli pobrano archiwum, rozpakuj je do folderu z prawem zapisu i uruchom z niego klienta.
+onboarding-first-login = Otwórz klienta, wybierz logowanie i postępuj zgodnie z instrukcjami. Użyj konta portalu. Jeśli konto wymaga weryfikacji, dokończ ją przed kolejną próbą.
+onboarding-update = Aktualizacja i naprawa klienta
+onboarding-update-help = Zamknij klienta. Jeśli program uruchamiający proponuje aktualizację, zainstaluj ją w nim. Jeśli aktualizacja się nie powiedzie, sprawdź połączenie i wolne miejsce na dysku, a potem spróbuj ponownie. Jeśli program nie proponuje aktualizacji, pobierz i ponownie zainstaluj aktualny zweryfikowany pakiet dla tego samego kanału i platformy.
+onboarding-update-refused = Jeśli program uruchamiający odrzuci pakiet lub nie może zweryfikować aktualizacji, przerwij instalację i skontaktuj się z pomocą.
+onboarding-sign-in-help = Problemy z logowaniem?
+onboarding-recovery-help = Jeśli nie pamiętasz hasła lub nie masz dostępu do konta, sprawdź opcje odzyskiwania w sekcji pomocy. Nigdy nie przesyłaj pomocy technicznej hasła ani kodów odzyskiwania.
+onboarding-support = Odzyskiwanie konta i pomoc
+
+service-status = Status usług

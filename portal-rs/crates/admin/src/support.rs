@@ -186,6 +186,7 @@ pub struct Record {
     pub appeal_status: Option<String>,
     pub messages: Vec<Message>,
     pub next_message: Option<Uuid>,
+    pub forum_post: Option<Uuid>,
 }
 #[derive(Debug, Clone)]
 pub struct Message {

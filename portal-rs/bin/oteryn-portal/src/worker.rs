@@ -2,6 +2,9 @@
 use oteryn_db::outbox::{self, Job, PgPool};
 use std::{collections::BTreeMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
+#[path = "observability_alerts.rs"]
+mod observability_alerts;
+
 pub type HandlerFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 pub type DeliveryFuture<'a> =
     Pin<Box<dyn Future<Output = Result<DeliveryOutcome, String>> + Send + 'a>>;
@@ -265,15 +268,36 @@ async fn run_until(
     pool: PgPool,
     registry: Registry,
     shutdown: impl Future<Output = ()>,
+    heartbeat_interval: Duration,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let heartbeats = async {
+        loop {
+            if let Err(error) = oteryn_admin::system::record_worker_heartbeat(&pool).await {
+                tracing::warn!(%error, "worker heartbeat could not be recorded");
+            }
+            tokio::time::sleep(heartbeat_interval).await;
+        }
+    };
+    tokio::select! {
+        biased;
+        result = process_jobs(&pool, registry, shutdown) => result,
+        () = heartbeats => Ok(()),
+    }
+}
+
+async fn process_jobs(
+    pool: &PgPool,
+    registry: Registry,
+    shutdown: impl Future<Output = ()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     tokio::pin!(shutdown);
     loop {
         tokio::select! {
             biased;
             () = &mut shutdown => return Ok(()),
-            result = registry.schedule(&pool) => result?,
+            result = registry.schedule(pool) => result?,
         }
-        let batch = registry.batch(&pool);
+        let batch = registry.batch(pool);
         tokio::pin!(batch);
         let count = tokio::select! {
             biased;
@@ -390,6 +414,7 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         Arc::new(closure.terminations),
     )?;
     register_security_notifications(&mut registry, pool.clone())?;
+    observability_alerts::register(&mut registry, pool.clone())?;
     registry.cleanup(
         "cleanup.deaths",
         3600,
@@ -486,7 +511,10 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         "email.password-reset",
         "email.verify",
         "email.account_exists",
+        oteryn_admin::rbac::staff::MAIL_JOB,
         oteryn_notify::EMAIL_JOB,
+        observability_alerts::ALERT_JOB,
+        observability_alerts::MAIL_JOB,
         "bazaar.authority",
         "league.ingest",
         "identity.email-change",
@@ -516,7 +544,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let _ = tokio::signal::ctrl_c().await;
     };
     tracing::info!("outbox worker started");
-    run_until(pool, registry, shutdown).await
+    run_until(pool, registry, shutdown, Duration::from_secs(15)).await
 }
 impl Handler for oteryn_notify::Delivery {
     fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {

@@ -74,7 +74,7 @@ async fn prepare_download(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let id = authorized_account(&mut *tx, session).await?;
-    let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'email_verified_at',email_verified_at,'status',status,'display_name',display_name,'locale',locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
+    let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'email_verified_at',email_verified_at,'status',status,'display_name',display_name,'locale',locale,'mail_locale',mail_locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
     let errors = sender.clone();

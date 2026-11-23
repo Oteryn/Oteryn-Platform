@@ -6,6 +6,7 @@
 
 mod catalog;
 pub mod guard;
+pub mod staff;
 mod storage;
 
 pub use catalog::{BuiltInRole, Permission};
@@ -411,7 +412,7 @@ impl<A: AccountStateReader> Authorizer<A> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 mod panel_tests;

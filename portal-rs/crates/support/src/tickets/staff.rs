@@ -84,7 +84,7 @@ impl StaffSupport {
     fn available(&self, area: Area) -> std::result::Result<(), StaffError> {
         if match area {
             Area::Tickets => self.tickets.is_some(),
-            Area::Reports => self.reports_enabled,
+            Area::Reports => self.notifications.is_some(),
             Area::Enforcement => self.sanctions_enabled,
         } {
             Ok(())
@@ -132,9 +132,10 @@ impl Backend for StaffSupport {
             }
             Command::Moderate { .. } => {
                 let (owner, report_type): (Uuid, String) = sqlx::query_as(
-                    "SELECT reporter_account_id,report_type FROM support_report_queue WHERE id=$1",
+                    "SELECT q.reporter_account_id,q.report_type FROM support_report_queue q LEFT JOIN player_reports p ON p.id=q.id AND q.report_type<>'atlas' WHERE q.id=$1 AND ($2 OR p.forum_post_id IS NOT NULL)",
                 )
                 .bind(id)
+                .bind(self.reports_enabled)
                 .fetch_optional(&mut **tx)
                 .await
                 .map_err(|_| StaffError::Unavailable)?
@@ -228,7 +229,7 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,subject,status,NULL::text FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
-                "SELECT id,lock_version,target_reference,status,NULL::text FROM support_report_queue ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT q.id,q.lock_version,q.target_reference,q.status,NULL::text FROM support_report_queue q LEFT JOIN player_reports p ON p.id=q.id AND q.report_type<>'atlas' WHERE ($2 OR p.forum_post_id IS NOT NULL) ORDER BY q.created_at DESC,q.id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
                 "SELECT s.id,s.lock_version+(COALESCE(a.version,1)-1),s.public_reason,s.status,NULLIF(a.status,'none')
@@ -238,12 +239,17 @@ impl Backend for StaffSupport {
                  LIMIT 30 OFFSET $1"
             }
         };
-        let rows: Vec<(Uuid, i64, String, String, Option<String>)> =
-            sqlx::query_as(sqlx::AssertSqlSafe(query))
-                .bind(i64::from(page.saturating_sub(1)) * 30)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(|_| StaffError::Unavailable)?;
+        let rows_query =
+            sqlx::query_as(sqlx::AssertSqlSafe(query)).bind(i64::from(page.saturating_sub(1)) * 30);
+        let rows_query = if area == Area::Reports {
+            rows_query.bind(self.reports_enabled)
+        } else {
+            rows_query
+        };
+        let rows: Vec<(Uuid, i64, String, String, Option<String>)> = rows_query
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|_| StaffError::Unavailable)?;
         Ok(rows
             .into_iter()
             .map(|(id, version, title, status, appeal_status)| Record {
@@ -254,6 +260,7 @@ impl Backend for StaffSupport {
                 appeal_status,
                 messages: vec![],
                 next_message: None,
+                forum_post: None,
             })
             .collect())
     }
@@ -275,6 +282,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                forum_post: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -292,7 +300,7 @@ impl Backend for StaffSupport {
         }
         let query = match area {
             Area::Reports => {
-                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,public_outcome,moderator_notes AS private_message,NULL::text AS appeal_status FROM support_report_queue WHERE id=$1"
+                "SELECT q.id,q.lock_version,q.target_reference AS title,q.status,q.evidence_summary AS public_message,q.public_outcome,q.moderator_notes AS private_message,NULL::text AS appeal_status,p.forum_post_id FROM support_report_queue q LEFT JOIN player_reports p ON p.id=q.id AND q.report_type<>'atlas' WHERE q.id=$1 AND ($2 OR p.forum_post_id IS NOT NULL)"
             }
             _ => {
                 "SELECT s.id,s.lock_version+(COALESCE(a.version,1)-1) AS lock_version,s.public_reason AS title,s.status,
@@ -302,8 +310,13 @@ impl Backend for StaffSupport {
                  WHERE s.id=$1 AND s.status<>'pending'"
             }
         };
-        let row = sqlx::query(sqlx::AssertSqlSafe(query))
-            .bind(id)
+        let row_query = sqlx::query(sqlx::AssertSqlSafe(query)).bind(id);
+        let row_query = if area == Area::Reports {
+            row_query.bind(self.reports_enabled)
+        } else {
+            row_query
+        };
+        let row = row_query
             .fetch_optional(&self.pool)
             .await
             .map_err(|_| StaffError::Unavailable)?
@@ -331,6 +344,11 @@ impl Backend for StaffSupport {
                 appeal_status: row.try_get("appeal_status")?,
                 messages,
                 next_message: None,
+                forum_post: if area == Area::Reports {
+                    row.try_get("forum_post_id")?
+                } else {
+                    None
+                },
             })
         };
         decode().map_err(|_| StaffError::Unavailable)

@@ -1,0 +1,39 @@
+{% extends "layout.html" %}
+{% block title %}{{ chrome.text("onboarding-guide") }}{% endblock %}
+{% block content %}
+<section class="op-shell__hero op-stack">
+  <h1>{{ chrome.text("onboarding-guide") }}</h1>
+  <p>{{ chrome.text("onboarding-start-intro") }}</p>
+</section>
+<section class="op-panel op-stack">
+  <h2>{{ chrome.text("onboarding-install") }}</h2>
+  <ol>
+    <li><a href="/{{ chrome.lang }}/download">{{ chrome.text("stage-btn-download") }}</a>. {{ chrome.text("onboarding-choose-package") }}</li>
+    <li>{{ chrome.text("onboarding-check-package") }}</li>
+    <li>{{ chrome.text("onboarding-open-package") }}</li>
+    <li>{{ chrome.text("onboarding-first-login") }}
+      {% if chrome.signed_in() %}
+        {% if chrome.account_mounted %}<a href="/account">{{ chrome.text("stage-my-account") }}</a>{% endif %}
+      {% else %}
+        {% if chrome.registration_mounted %}<a href="/{{ chrome.lang }}/register">{{ chrome.text("stage-btn-register") }}</a>{% endif %}
+        {% if chrome.login_mounted %}<a href="/{{ chrome.lang }}/login">{{ chrome.text("stage-login") }}</a>{% endif %}
+      {% endif %}
+    </li>
+  </ol>
+</section>
+<section class="op-panel op-stack">
+  <h2>{{ chrome.text("onboarding-update") }}</h2>
+  <p>{{ chrome.text("onboarding-update-help") }}</p>
+  <p>{{ chrome.text("onboarding-update-refused") }}</p>
+</section>
+<section class="op-panel op-stack">
+  <h2>{{ chrome.text("onboarding-sign-in-help") }}</h2>
+  <p>{{ chrome.text("onboarding-recovery-help") }}</p>
+  <p><a href="/{{ chrome.lang }}/support">{{ chrome.text("onboarding-support") }}</a></p>
+  {% if chrome.signed_in() %}
+    {% if let Some(link) = chrome.link("account-recovery-key") %}
+      <p><a href="{{ link.url }}">{{ link.label }}</a></p>
+    {% endif %}
+  {% endif %}
+</section>
+{% endblock %}

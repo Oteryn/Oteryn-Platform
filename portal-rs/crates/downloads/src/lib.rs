@@ -1,5 +1,6 @@
 //! Client release channels and TUF metadata (design T35).
 
+mod browser;
 mod domain;
 mod http;
 mod storage;

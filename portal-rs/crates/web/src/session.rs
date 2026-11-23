@@ -600,7 +600,7 @@ impl SessionCleanup {
 
 #[cfg(test)]
 #[path = "session_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 impl oteryn_db::outbox::Cleanup for SessionCleanup {
     fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {

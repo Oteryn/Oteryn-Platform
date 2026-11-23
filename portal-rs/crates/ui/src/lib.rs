@@ -210,6 +210,7 @@ impl Registry {
             groups,
             home_current: matches!(clean, "/" | "/pl" | "/en" | "/pl/" | "/en/"),
             current_section,
+            service_status_current: suffix == "status" || suffix.starts_with("status/"),
             account,
             login_mounted: self.login,
             registration_mounted: self.registration,
@@ -259,6 +260,7 @@ pub struct Chrome {
     pub groups: Vec<NavGroup>,
     pub current_section: String,
     pub home_current: bool,
+    pub service_status_current: bool,
     pub account: Account,
     pub login_mounted: bool,
     pub registration_mounted: bool,
@@ -571,8 +573,9 @@ mod tests {
                 assert_eq!(html.contains("/register\""), enabled);
                 assert!(!html.contains("/logout\""));
                 assert!(!html.contains("style="));
-                assert_eq!(html.matches("<script").count(), 1);
+                assert_eq!(html.matches("<script").count(), 2);
                 assert!(html.contains("src=\"/static/thais/home.js\""));
+                assert!(html.contains("src=\"/static/status/status.js\""));
             }
             let chrome = registry().chrome(
                 lang,

@@ -1,0 +1,52 @@
+<article id="post-{{ p.id }}" class="op-panel op-stack forum-post">
+  <header class="op-row forum-between">
+    {% if let Some(name) = p.author %}<a class="forum-author" href="/{{ lang }}/forum/profiles/{{ name }}">{{ name }}</a>
+    {% else %}<span>{{ self.tr("unknown-author") }}</span>{% endif %}
+    <a href="{{ base }}/posts/{{ p.id }}{{ self.query() }}"><time datetime="{{ self.iso(p.created_at) }}">{{ self.when(p.created_at) }}</time></a>
+    {% if let Some(edited) = p.edited_at %}<span class="op-badge">{{ self.tr("edited") }} <time datetime="{{ self.iso(edited) }}">{{ self.when(edited) }}</time></span>{% endif %}
+    {% if p.deleted_at.is_some() %}<span class="op-badge">{{ self.tr("deleted") }}</span>{% endif %}
+  </header>
+  {% if let Some(quote_id) = p.quote_id %}
+  <blockquote class="forum-quote">
+    {% if let Some(excerpt) = p.quote_body %}
+    <a href="{{ base }}/posts/{{ quote_id }}{{ self.query() }}">{% if let Some(author) = p.quote_author %}{{ author }}{% else %}{{ self.tr("quoted-post") }}{% endif %}</a>
+    <p>{{ excerpt }}</p>
+    {% else %}<p>{{ self.tr("quote-unavailable") }}</p>{% endif %}
+  </blockquote>
+  {% endif %}
+  <div class="op-prose forum-message">{{ item.rendered|safe }}</div>
+  {% if can_post && !t.locked && t.deleted_at.is_none() && p.deleted_at.is_none() && (!staff || self.permitted("forum.post.create")) %}
+    <p><a href="{{ self.page_url(*page) }}&amp;quote={{ p.id }}#reply">{{ self.tr("quote") }}</a></p>
+  {% endif %}
+  {% if !staff && signed_in %}
+    {% if p.editable && !t.locked %}
+    <details>
+      <summary>{{ self.tr("edit") }}</summary>
+      <form class="op-stack" method="post" action="{{ base }}/actions/edit">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="id" value="{{ t.id }}">
+        <input type="hidden" name="post_id" value="{{ p.id }}">
+        <input type="hidden" name="version" value="{{ p.version }}">
+        <label class="op-field">{{ self.tr("body") }}<textarea class="op-input" name="body" rows="6" maxlength="8000" required>{{ p.body }}</textarea></label>
+        <button class="op-button" type="submit">{{ self.tr("save-edit") }}</button>
+      </form>
+    </details>
+    {% endif %}
+    <details>
+      <summary>{{ self.tr("report") }}</summary>
+      <form class="op-stack" method="post" action="{{ base }}/actions/report">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="id" value="{{ t.id }}">
+        <input type="hidden" name="post_id" value="{{ p.id }}">
+        <label class="op-field">{{ self.tr("report-category") }}
+          <select class="op-input" name="category">
+            {% for category in categories %}<option value="{{ category }}">{{ self.tr(category) }}</option>{% endfor %}
+          </select>
+        </label>
+        <label class="op-field">{{ self.tr("report-reason") }}<textarea class="op-input" name="reason" rows="4" maxlength="4000" required></textarea></label>
+        <button class="op-button" type="submit">{{ self.tr("submit-report") }}</button>
+      </form>
+    </details>
+  {% endif %}
+  {% if staff %}{% include "forum/moderate_post.html" %}{% endif %}
+</article>

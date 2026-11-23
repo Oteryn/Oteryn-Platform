@@ -390,14 +390,9 @@ async fn sudo(
         )
         .await;
     }
-    let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
-    sqlx::query(
-        "INSERT INTO credential_security_events(account_id,kind) VALUES($1,'sudo_confirmed')",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await
-    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    let until = credentials::record_sudo_confirmation(&mut tx, id)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let rotation = session::rotate_in_transaction(&session, &mut tx, until)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;

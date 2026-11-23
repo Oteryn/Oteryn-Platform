@@ -292,6 +292,7 @@ mod flag_boundary {
         "commerce.refund",
         "email.account_exists",
         "email.password-reset",
+        "email.staff_invitation",
         "email.verify",
         "identity.email-change",
         "league.ingest",
@@ -933,17 +934,24 @@ mod flag_boundary {
     .execute(pool)
     .await?;
 
-        let baseline = row_counts(pool).await?;
+        let observability_tables = ["portal_errors", "portal_error_rate"];
+        let mut baseline = row_counts(pool).await?;
         let serve = tokio::task::spawn_local(async { crate::run(crate::Role::Serve).await });
         let routes = exercise_routes(&serve).await;
         serve.abort();
         let _ = serve.await;
-        let writes = take_writes(pool).await?;
+        let mut writes = take_writes(pool).await?;
+        writes.retain(|(table, operation, _)| {
+            !(observability_tables.contains(&table.as_str())
+                && matches!(operation.as_str(), "INSERT" | "UPDATE"))
+        });
         let mut failures = routes?;
         if !writes.is_empty() {
             failures.push(format!("serve wrote {writes:?}"));
         }
-        let after_routes = row_counts(pool).await?;
+        let mut after_routes = row_counts(pool).await?;
+        baseline.retain(|(table, _)| !observability_tables.contains(&table.as_str()));
+        after_routes.retain(|(table, _)| !observability_tables.contains(&table.as_str()));
         if baseline != after_routes {
             failures.push(format!(
                 "serve changed table row counts: {:?}",
@@ -1590,6 +1598,7 @@ mod flag_boundary {
         "OTERYN_ACCOUNT_SESSIONS",
         "OTERYN_ADMIN_ANALYTICS_INGEST",
         "OTERYN_ADMIN_ANALYTICS_PRESENT",
+        "OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED",
         "OTERYN_ADMIN_COMMERCE",
         "OTERYN_ADMIN_CONSOLE",
         "OTERYN_ADMIN_CONTROL",
@@ -1728,7 +1737,14 @@ mod flag_boundary {
     }
 
     fn route_probes() -> TestResult<BTreeSet<Probe>> {
-        let mut probes = BTreeSet::new();
+        let mut probes = BTreeSet::from(["/admin/system", "/admin/system/data"].map(|path| Probe {
+            listener: Listener::Public,
+            method: 'G',
+            path: path.to_owned(),
+            status: 404,
+            location: None,
+            fallback: false,
+        }));
         let inventory = inventory()?;
         for row in inventory_rows(&inventory) {
             let routes = row
@@ -1851,6 +1867,26 @@ mod flag_boundary {
                 }
             }
         }
+        // Staff invitations use the existing admin host guard. Public
+        // confirmation with a missing token also returns 404.
+        for (method, path) in [
+            ('G', "/admin/roles/invitations"),
+            ('P', "/admin/roles/invitations"),
+            ('P', "/admin/roles/invitations/019ad000-0000-7000-8000-000000000001/revoke"),
+            ('G', "/pl/staff-invitation"),
+            ('P', "/pl/staff-invitation"),
+            ('G', "/en/staff-invitation"),
+            ('P', "/en/staff-invitation"),
+        ] {
+            probes.insert(Probe {
+                listener: Listener::Public,
+                method,
+                path: path.into(),
+                status: 404,
+                location: None,
+                fallback: false,
+            });
+        }
         Ok(probes)
     }
 
@@ -1878,6 +1914,7 @@ mod flag_boundary {
                 "/admin/commerce",
                 "/admin/world",
                 "/admin/players",
+                "/admin/system",
                 "/console",
                 "/admin/console",
                 "/admin/control",
@@ -1889,7 +1926,7 @@ mod flag_boundary {
         RoutePrerequisites {
             flags: &["OTERYN_REPORTS_ENABLED"],
             paths: &["/admin/moderation/reports"],
-            registration_removed: true,
+            registration_removed: false,
             disabled_status: None,
         },
         RoutePrerequisites {
@@ -2091,10 +2128,12 @@ mod flag_boundary {
                     {
                         continue;
                     }
-                    if group.registration_removed
-                        && disabled.contains(&(*listener, *method, route.clone()))
-                    {
+                    let registered = disabled.contains(&(*listener, *method, route.clone()));
+                    if group.registration_removed && registered {
                         return Err(format!("{flag}=false left {method} {route} registered").into());
+                    }
+                    if flag == "OTERYN_REPORTS_ENABLED" {
+                        assert!(registered, "forum report moderation must remain available");
                     }
                     for probe in probes.iter().filter(|probe| {
                         probe.listener == *listener
@@ -2103,7 +2142,17 @@ mod flag_boundary {
                     }) {
                         let response =
                             exchange(address, None, http_method(*method)?, &probe.path).await?;
-                        let status = group.disabled_status.unwrap_or(probe.status);
+                        let status = if flag == "OTERYN_REPORTS_ENABLED"
+                            && probe.path == "/admin/moderation/reports"
+                        {
+                            assert!(
+                                !response.contains("route fixture"),
+                                "legacy reports must stay hidden when OTERYN_REPORTS_ENABLED=false"
+                            );
+                            200
+                        } else {
+                            group.disabled_status.unwrap_or(probe.status)
+                        };
                         assert!(
                             response.starts_with(&format!("HTTP/1.1 {status} ")),
                             "{flag}=false failed to disable {method} {}: {response}",
@@ -2529,7 +2578,12 @@ mod flag_boundary {
         } else {
             ""
         };
-        let form = format!("_csrf={CSRF}{fields}");
+        let csrf = if path.ends_with("/account/notifications") {
+            ""
+        } else {
+            CSRF
+        };
+        let form = format!("_csrf={csrf}{fields}");
         let target = if path.ends_with("/journal/reports/notes") {
             format!("{path}?kind=session&id=019ad000-0000-7000-8000-000000000001")
         } else {
@@ -2543,7 +2597,7 @@ mod flag_boundary {
             ("application/x-www-form-urlencoded", form.as_str())
         };
         let request = format!(
-            "{method} {target} HTTP/1.1\r\nHost: {host}\r\nOrigin: https://{host}\r\nCookie: __Host-oteryn_session={session}\r\nAuthorization: Bearer {SESSION}\r\nX-CSRF-Token: {CSRF}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "{method} {target} HTTP/1.1\r\nHost: {host}\r\nOrigin: https://{host}\r\nCookie: __Host-oteryn_session={session}\r\nAuthorization: Bearer {SESSION}\r\nX-CSRF-Token: {csrf}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
         );
         tokio::time::timeout(Duration::from_secs(5), async {

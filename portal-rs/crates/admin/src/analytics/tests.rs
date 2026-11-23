@@ -131,6 +131,10 @@ async fn wrong_purpose_transport_and_bounds() {
     }
 }
 async fn database() -> Option<(PgPool, PgPool, String)> {
+    database_at(i64::MAX).await
+}
+
+async fn database_at(version: i64) -> Option<(PgPool, PgPool, String)> {
     let url = std::env::var("PORTAL_TEST_DATABASE_URL").ok()?;
     let root = PgPool::connect(&url).await.unwrap();
     let name = format!("analytics_test_{}", Uuid::now_v7().simple());
@@ -144,7 +148,10 @@ async fn database() -> Option<(PgPool, PgPool, String)> {
         .connect_with(options.database(&name))
         .await
         .unwrap();
-    for migration in oteryn_db::MIGRATOR.iter() {
+    for migration in oteryn_db::MIGRATOR
+        .iter()
+        .take_while(|migration| migration.version <= version)
+    {
         if migration.migration_type.is_down_migration() {
             continue;
         }
@@ -743,19 +750,31 @@ async fn postgres_host_gate_refuses_before_session_and_audit() {
         0
     );
     let support = staff(&pool, "support").await;
+    let request_id = Uuid::now_v7();
+    let response = get(
+        panel(pool.clone(), Some(support), true).layer(axum::Extension(
+            oteryn_web::observability::RequestId(request_id),
+        )),
+        "/admin/analytics",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(
-        get(panel(pool.clone(), Some(support), true), "/admin/analytics")
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
+        response.headers()["x-request-id"].to_str().unwrap(),
+        request_id.to_string()
     );
-    let denied: (Option<Uuid>, String) = sqlx::query_as("SELECT actor,action FROM audit_log")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let denied: (Option<Uuid>, String, Uuid) =
+        sqlx::query_as("SELECT actor,action,request_id FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         denied,
-        (Some(support.account), "admin.analytics.denied".into())
+        (
+            Some(support.account),
+            "admin.analytics.denied".into(),
+            request_id
+        )
     );
     clean(pool, root, name).await;
 }
@@ -854,16 +873,10 @@ async fn postgres_refused_messages_preserve_epoch_and_active_generation() {
 #[tokio::test]
 async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let Some((pool, root, name)) = database().await else {
+    let Some((pool, root, name)) = database_at(20261107140001).await else {
         eprintln!("PORTAL_TEST_DATABASE_URL unset");
         return;
     };
-    // The historical down migration predates later permissions; remove their
-    // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick','payments.coin_hold.release','store.catalog.import','store.catalog.activate','store.codes.generate') OR permission LIKE 'mail.outbox.%' OR starts_with(permission,'players.account.edit.')")
-        .execute(&pool)
-        .await
-        .unwrap();
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261107140001_admin_analytics.down.sql"
     ))

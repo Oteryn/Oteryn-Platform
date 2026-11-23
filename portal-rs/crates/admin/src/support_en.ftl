@@ -40,3 +40,4 @@ appeal-requested = Appeal submitted
 appeal-reviewing = Appeal under review
 appeal-accepted = Appeal accepted
 appeal-rejected = Appeal rejected
+forum-post = View forum post

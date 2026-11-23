@@ -70,6 +70,9 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("game-route") {
         return game_route_cli::main().await;
     }
+    if arg.as_deref() == Some("admin-cli") {
+        return admin_cli::main().await;
+    }
     if std::env::args().nth(1).as_deref() == Some("catalog") {
         return catalog_cli::main().await;
     }
@@ -290,6 +293,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_web::seo::router(seo));
             let app = app.merge(oteryn_admin::console::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::web::configured_router(db.clone())?);
+            let app = app.merge(oteryn_admin::status::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::analytics::configured_router(db.clone())?);
             let app = app.merge(oteryn_admin::console::access::configured_router(
                 db.clone(),
@@ -502,6 +506,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             oteryn_payments::navigation::register(&mut navigation);
             oteryn_support::navigation::register(&mut navigation);
             oteryn_bazaar::navigation::register(&mut navigation);
+            let app = app.merge(oteryn_forum::router(db.clone(), &mut navigation)?);
             let app = app.layer(axum::middleware::from_fn_with_state(
                 oteryn_web::chrome::Shell {
                     registry: navigation,
@@ -544,6 +549,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             record_route_registrations("internal", &app)?;
             #[cfg(test)]
             record_route_registrations("public", &public_app)?;
+            let (public_app, app) = oteryn_web::observability::instrument(public_app, app, db);
             let internal_listener = internal_tls::start(app, game_ingress).await?;
             let app = public_app;
             let native_listener = oteryn_gameauth::devices::tls::start(app.clone()).await?;
@@ -742,6 +748,7 @@ mod tests {
     }
 }
 
+mod admin_cli;
 mod bootstrap_intent;
 mod coin_purchases;
 mod game_ingress;

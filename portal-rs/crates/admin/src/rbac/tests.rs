@@ -42,7 +42,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 80);
+    assert_eq!(Permission::ALL.len(), 114);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
@@ -51,6 +51,15 @@ fn permission_catalog_is_stable_unique_and_covered() {
             Permission::MailRetry,
             Permission::MailRetryBatch,
             Permission::MailCancel,
+            Permission::ListStaffInvites,
+            Permission::CreateStaffInvite,
+            Permission::RevokeStaffInvite,
+            Permission::ViewRegistrationPolicy,
+            Permission::ManageRegistrationPolicy,
+            Permission::ViewPortalErrors,
+            Permission::ResolvePortalErrors,
+            Permission::IgnorePortalErrors,
+            Permission::ViewSystem,
         ] {
             assert_eq!(
                 role.permissions().contains(&permission),
@@ -143,13 +152,13 @@ async fn guard_rejects_missing_or_unverified_identity() {
     );
 }
 
-struct Database {
-    pool: PgPool,
+pub(crate) struct Database {
+    pub(crate) pool: PgPool,
     root: PgPool,
     schema: String,
 }
 impl Database {
-    async fn open() -> Option<Self> {
+    pub(crate) async fn open() -> Option<Self> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return None;
@@ -183,7 +192,7 @@ impl Database {
         Some(Self { pool, root, schema })
     }
 
-    async fn close(self) {
+    pub(crate) async fn close(self) {
         self.pool.close().await;
         sqlx::query(AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -1206,3 +1215,6 @@ async fn r8_grant_invalidates_existing_staff_session() {
     tx.rollback().await.unwrap();
     db.close().await;
 }
+
+#[path = "staff_tests.rs"]
+mod staff_tests;

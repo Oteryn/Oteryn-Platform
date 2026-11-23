@@ -52,8 +52,7 @@ pub fn configured_router_from<B: Backend>(
         // Fence disabled surfaces before staff authorization and form extraction.
         let flag = match area {
             Area::Tickets => Some("OTERYN_SUPPORT_TICKETS"),
-            Area::Reports => Some("OTERYN_REPORTS_ENABLED"),
-            Area::Enforcement => None,
+            Area::Reports | Area::Enforcement => None,
         };
         if flag.is_some_and(|flag| lookup(flag).as_deref() != Some("true")) {
             continue;
@@ -257,6 +256,7 @@ async fn show<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
     Extension(area): Extension<Area>,
     Extension(session): Extension<BrowserSession>,
+    Extension(context): Extension<CheckContext>,
     Path(id): Path<Uuid>,
     Query(paging): Query<MessagePaging>,
     headers: HeaderMap,
@@ -264,12 +264,20 @@ async fn show<A: AccountStateReader, B: Backend>(
     if id.is_nil() {
         return status(Error::Invalid);
     }
-    let record = match s.backend.load(area, id, paging.after).await {
+    let mut record = match s.backend.load(area, id, paging.after).await {
         Ok(v) => v,
         Err(e) => return status(e),
     };
     if record.id != id || !valid_record(area, &record) {
         return status(Error::Unavailable);
+    }
+    if record.forum_post.is_some()
+        && s.auth
+            .check(context, Permission::ForumModerator)
+            .await
+            .is_err()
+    {
+        record.forum_post = None;
     }
     render_record(area, record, session, headers, false).await
 }
@@ -285,6 +293,7 @@ async fn create_page(
         appeal_status: None,
         messages: vec![],
         next_message: None,
+        forum_post: None,
     };
     render_record(Area::Enforcement, record, session, headers, true).await
 }
@@ -316,6 +325,14 @@ async fn render_record(
         body.push_str(&format!(
             "<p>{}</p>",
             text(lang, &format!("appeal-{status}"))
+        ));
+    }
+    if area == Area::Reports
+        && let Some(post) = record.forum_post
+    {
+        body.push_str(&format!(
+            "<p><a href=\"/admin/forum/posts/{post}?lang={lang}\">{}</a></p>",
+            text(lang, "forum-post")
         ));
     }
     for message in record.messages {

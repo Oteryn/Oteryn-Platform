@@ -30,13 +30,8 @@
         {% endif %}
       </div></li>
       <li><span class="number" aria-hidden="true">3</span><div>
-        {% if let Some(link) = chrome.link("server") %}
-          <strong>{{ chrome.text("stage-btn-download") }}</strong>
-          <p><a class="step-rules" href="{{ link.url }}">{{ link.label }}</a></p>
-        {% else %}
-          <strong>{{ chrome.text("stage-btn-download") }}</strong>
-          <p>{{ chrome.text("thais-home-client-unavailable") }}</p>
-        {% endif %}
+        <a href="/{{ chrome.lang }}/download">{{ chrome.text("stage-btn-download") }}</a>
+        <p><a class="step-rules" href="/{{ chrome.lang }}/start">{{ chrome.text("onboarding-guide") }}</a></p>
       </div></li>
     </ol>
   </div>

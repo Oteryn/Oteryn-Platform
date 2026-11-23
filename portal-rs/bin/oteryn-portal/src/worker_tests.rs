@@ -4,13 +4,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
-struct Database {
-    pool: PgPool,
+pub(super) struct Database {
+    pub(super) pool: PgPool,
     admin: PgPool,
     schema: String,
 }
 impl Database {
-    async fn new() -> Result<Option<Self>, Box<dyn std::error::Error>> {
+    pub(super) async fn new() -> Result<Option<Self>, Box<dyn std::error::Error>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("SKIPPED PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -46,7 +46,7 @@ impl Database {
             schema,
         }))
     }
-    async fn close(self) -> TestResult {
+    pub(super) async fn close(self) -> TestResult {
         self.pool.close().await;
         query(outbox::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",
@@ -316,9 +316,22 @@ async fn shutdown_drains_in_flight_job() -> TestResult {
         }),
     )?;
     let subscriber = tracing_subscriber::registry().with(ObserveDrain(draining.clone()));
-    let worker = run_until(db.pool.clone(), registry, shutdown.notified()).with_subscriber(subscriber);
+    let worker = run_until(db.pool.clone(), registry, shutdown.notified(), Duration::from_millis(50)).with_subscriber(subscriber);
     let control = async {
         started.notified().await;
+        // Keep delivery blocked until two distinct heartbeats have committed.
+        let mut previous = None;
+        loop {
+            let seen: Option<OffsetDateTime> =
+                query_scalar("SELECT seen_at FROM portal_worker_heartbeat")
+                    .fetch_optional(&db.pool)
+                    .await?;
+            if previous.is_some() && seen > previous {
+                break;
+            }
+            previous = seen;
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         shutdown.notify_one();
         draining.notified().await;
         assert_eq!(outbox::counts(&db.pool).await?.running, 1);
@@ -955,7 +968,7 @@ async fn shutdown_budget_cancels_locked_topup_and_leaves_retryable_lease() -> Te
     };
     let (result, signalled) = tokio::time::timeout(Duration::from_secs(5), async {
         tokio::join!(
-            run_until(db.pool.clone(), registry, shutdown.notified()),
+            run_until(db.pool.clone(), registry, shutdown.notified(), Duration::from_millis(50)),
             control
         )
     })

@@ -1,0 +1,7 @@
+{% if page > 1 || next %}
+<nav class="op-row forum-between" aria-label="{{ self.tr("pagination") }}">
+  {% if page > 1 %}<a class="op-button op-button--secondary" href="{{ self.page_url(page - 1) }}">{{ self.tr("previous") }}</a>{% endif %}
+  <span aria-current="page">{{ page }}</span>
+  {% if next %}<a class="op-button op-button--secondary" href="{{ self.page_url(page + 1) }}">{{ self.tr("next") }}</a>{% endif %}
+</nav>
+{% endif %}

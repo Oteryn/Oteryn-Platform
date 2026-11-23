@@ -1,6 +1,7 @@
 //! RBAC, audit log, four-eyes approvals and the staff panel shell (design T10).
 
 pub mod audit;
+mod errors;
 pub mod rbac;
 
 pub mod web;
@@ -10,6 +11,7 @@ pub mod commerce;
 mod mail_ops;
 pub use control::controls;
 pub mod players;
+pub mod status;
 pub mod support;
 
 pub mod console;
@@ -18,6 +20,10 @@ pub mod control;
 pub use control::control_http;
 
 pub mod analytics;
+pub mod system;
+
+mod charts;
+mod newsletter;
 
 #[cfg(test)]
 mod begin_guard_tests;

@@ -10,7 +10,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -21,6 +21,12 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
+
+#[path = "staff_web.rs"]
+mod invitations;
+
+#[path = "registration_policy.rs"]
+mod registration_policy;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
@@ -138,7 +144,7 @@ impl PanelConfig {
 pub(crate) struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
-    required: Option<Permission>,
+    required: Vec<Permission>,
     players_enabled: bool,
     identity: I,
     pub(crate) auth: Arc<Authorizer<A>>,
@@ -178,9 +184,11 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
         std::env::var("OTERYN_ADMIN_PLAYERS").is_ok_and(|value| value == "true"),
     );
+    let router = router.merge(invitations::acceptance_router(pool.clone()));
+    let router = router.merge(crate::errors::configured_router(pool.clone())?);
+    let router = router.merge(crate::newsletter::configured_router(pool)?);
     Ok(if reports_enabled {
         router.layer(Extension(ReportsNavigation))
     } else {
@@ -205,14 +213,31 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
+    configured_guard_with_permissions(routes, pool, &[permission], lookup)
+}
+
+fn configured_guard_with_permissions(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded_with_permissions(
         routes,
         pool.clone(),
         config_from(lookup)?,
         PortalIdentity::configured_from(pool.clone(), lookup),
         PortalIdentity::configured_from(pool, lookup),
-        permission,
+        permissions,
     ))
+}
+
+pub(super) fn configured_guard_all(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_guard_with_permissions(routes, pool, permissions, &|key| std::env::var(key).ok())
 }
 
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
@@ -228,12 +253,23 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permission: Permission,
 ) -> Router {
+    guarded_with_permissions(routes, pool, config, identity, accounts, &[permission])
+}
+
+fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: Some(permission),
+        required: permissions.to_vec(),
         players_enabled: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
@@ -273,11 +309,11 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: None,
+        required: Vec::new(),
         players_enabled,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
-        pool,
+        pool: pool.clone(),
     });
     Router::new()
         .route("/admin", get(page::<I, A>))
@@ -295,6 +331,28 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             "/admin/mail-outbox/cancel",
             post(crate::mail_ops::cancel::<I, A>),
         )
+        .route(
+            invitations::PATH,
+            get(invitations::list::<I, A>).post(invitations::create::<I, A>),
+        )
+        .route(
+            "/admin/roles/invitations/{id}/revoke",
+            post(invitations::revoke::<I, A>),
+        )
+        .route(
+            registration_policy::PATH,
+            get(registration_policy::show::<I, A>).post(registration_policy::save::<I, A>),
+        )
+        .route(
+            registration_policy::CONFIRM_PATH,
+            axum::routing::post(registration_policy::confirm::<I, A>),
+        )
+        .merge(crate::system::routes(pool))
+        .merge(crate::charts::routes(
+            state.pool.clone(),
+            std::env::var("OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED")
+                .is_ok_and(|value| value == "true"),
+        ))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -399,7 +457,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return Redirect::to("/login").into_response();
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        let lang = language(request.headers());
+        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{lang}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(lang, "mfa")))).into_response();
     }
     let proof = match (
         session.identity_hash().await,
@@ -426,15 +485,38 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s.required.unwrap_or_else(|| match request.uri().path() {
-        "/admin/roles" => Permission::ManageRoles,
-        "/admin/mail-outbox" => Permission::MailView,
-        "/admin/mail-outbox/retry" => Permission::MailRetry,
-        "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
-        "/admin/mail-outbox/cancel" => Permission::MailCancel,
-        _ => Permission::Access,
-    });
-    for required in [Permission::Access, permission] {
+    let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
+        ("/admin/roles", _) => &[Permission::ManageRoles],
+        ("/admin/mail-outbox", _) => &[Permission::MailView],
+        ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
+        ("/admin/mail-outbox/retry-kind", _) => &[Permission::MailRetryBatch],
+        ("/admin/mail-outbox/cancel", _) => &[Permission::MailCancel],
+        (invitations::PATH, &Method::POST) => &[Permission::CreateStaffInvite],
+        (path, &Method::POST) if path.starts_with("/admin/roles/invitations/") => {
+            &[Permission::RevokeStaffInvite]
+        }
+        (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => {
+            &[Permission::ViewRegistrationPolicy]
+        }
+        (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => &[
+            Permission::ManageRegistrationPolicy,
+            Permission::ViewRegistrationPolicy,
+        ],
+        ("/admin/system" | "/admin/system/data", _) => &[Permission::ViewSystem],
+        (crate::charts::PAGE | crate::charts::STYLESHEET, _) => &[Permission::AdminAnalyticsView],
+        (path, _) if path.starts_with("/admin/charts/") => &[
+            Permission::AdminAnalyticsView,
+            Permission::AdminAnalyticsExport,
+        ],
+        _ => &[],
+    };
+    let configured_permissions = s.required.as_slice();
+    let permissions = if configured_permissions.is_empty() {
+        panel_permissions
+    } else {
+        configured_permissions
+    };
+    for required in std::iter::once(Permission::Access).chain(permissions.iter().copied()) {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();
@@ -444,6 +526,16 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             };
         }
+    }
+    if configured_permissions.is_empty() && request.uri().path() == crate::charts::PAGE {
+        let export = s
+            .auth
+            .check(context, Permission::AdminAnalyticsExport)
+            .await
+            .is_ok();
+        request
+            .extensions_mut()
+            .insert(crate::charts::CanExport(export));
     }
     request.extensions_mut().insert(context);
     request
@@ -470,27 +562,59 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
+fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'static str {
+    match requested {
+        Some("pl") => "pl",
+        Some("en") => "en",
+        _ => language(headers),
     }
+}
+
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
+    for cookie in headers.get_all(header::COOKIE) {
+        if let Ok(cookie) = cookie.to_str() {
+            for part in cookie.split(';') {
+                match part.trim().split_once('=') {
+                    Some(("portal_language", "en")) => return "en",
+                    Some(("portal_language", "pl")) => return "pl",
+                    _ => {}
+                }
+            }
+        }
+    }
+    let value = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let mut preferred = ("pl", 0.0);
+    for item in value.split(',') {
+        let mut parts = item.trim().split(';');
+        let tag = parts.next().unwrap_or_default().trim();
+        let primary = tag.split('-').next().unwrap_or_default();
+        let lang = if primary.eq_ignore_ascii_case("en") {
+            "en"
+        } else if primary.eq_ignore_ascii_case("pl") {
+            "pl"
+        } else {
+            continue;
+        };
+        let quality = parts.next().map_or(1.0, |part| {
+            part.trim()
+                .strip_prefix("q=")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(0.0)
+        });
+        if quality > preferred.1 && quality <= 1.0 {
+            preferred = (lang, quality);
+        }
+    }
+    preferred.0
 }
 pub(crate) fn messages(
     lang: &str,
 ) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
     let mut bundle = fluent_bundle::FluentBundle::new(vec![lang.parse().ok()?]);
-    let source = if lang == "en" {
-        include_str!("../../../templates/admin/en.ftl")
-    } else {
-        include_str!("../../../templates/admin/pl.ftl")
-    };
-    let resource = fluent_bundle::FluentResource::try_new(source.to_owned()).ok()?;
+    let resource = fluent_bundle::FluentResource::try_new(locale_source(lang).to_owned()).ok()?;
     bundle.add_resource(resource).ok()?;
     Some(bundle)
 }
@@ -511,6 +635,14 @@ pub(crate) fn message(
         .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
+pub(crate) fn locale_source(lang: &str) -> &'static str {
+    if lang == "en" {
+        include_str!("../../../templates/admin/en.ftl")
+    } else {
+        include_str!("../../../templates/admin/pl.ftl")
+    }
+}
+
 #[derive(Template)]
 #[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
@@ -522,6 +654,14 @@ struct Page {
     mail_link: Option<String>,
     players_label: String,
     players: bool,
+    registration_policy_label: Option<String>,
+    errors_label: Option<String>,
+    system_label: Option<String>,
+    status_label: Option<String>,
+    charts_label: String,
+    can_view_charts: bool,
+    newsletter_label: Option<String>,
+    forum_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -529,6 +669,7 @@ struct Page {
     csrf: String,
     roles: Vec<(Uuid, String)>,
     manage: bool,
+    invitations_label: Option<String>,
     next: Option<Uuid>,
 }
 impl Page {
@@ -540,6 +681,7 @@ const ROLE_PAGE_SIZE: i64 = 50;
 #[derive(Deserialize, Default)]
 struct RolePageQuery {
     after: Option<Uuid>,
+    lang: Option<String>,
 }
 pub(crate) async fn role_page(
     pool: &PgPool,
@@ -617,14 +759,38 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = language_for(query.lang.as_deref(), &headers);
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let invitations_label = match (
+        invitations::allowed(&s, context, Permission::ListStaffInvites).await,
+        invitations::allowed(&s, context, Permission::CreateStaffInvite).await,
+    ) {
+        (Ok(true), _) | (_, Ok(true)) => Some(text(lang, "invite-title")),
+        (Ok(false), Ok(false)) => None,
+        _ => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let registration_policy_label = match s
+        .auth
+        .check(context, Permission::ViewRegistrationPolicy)
+        .await
+    {
+        Ok(()) => Some(text(lang, "registration-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let system_label = s
+        .auth
+        .check(context, Permission::ViewSystem)
+        .await
+        .ok()
+        .map(|()| text(lang, "system-title"));
     oteryn_web::render(&Page {
         lang,
+        registration_policy_label,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         reports_label: text(lang, "reports"),
@@ -632,6 +798,37 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         mail_link,
         players_label: text(lang, "players"),
         players,
+        errors_label: s
+            .auth
+            .check(context, Permission::ViewPortalErrors)
+            .await
+            .ok()
+            .map(|()| text(lang, "errors-title")),
+        system_label,
+        status_label: s
+            .auth
+            .check(context, Permission::StatusView)
+            .await
+            .ok()
+            .map(|()| crate::status::text(lang, "staff-title")),
+        charts_label: crate::charts::nav_label(lang),
+        can_view_charts: s
+            .auth
+            .check(context, Permission::AdminAnalyticsView)
+            .await
+            .is_ok(),
+        newsletter_label: s
+            .auth
+            .check(context, Permission::NewsletterView)
+            .await
+            .is_ok()
+            .then(|| crate::newsletter::label(lang, "title")),
+        forum_label: s
+            .auth
+            .check(context, Permission::ForumModerator)
+            .await
+            .ok()
+            .map(|()| text(lang, "forum")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
@@ -642,6 +839,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .flatten(),
         roles,
         manage,
+        invitations_label,
     })
 }
 #[derive(Deserialize)]

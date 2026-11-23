@@ -1,0 +1,54 @@
+{% import "status/macros.html" as status %}
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ labels.get("title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/status/status.css">
+  <script src="/static/status/status.js" defer></script>
+  <link rel="alternate" type="application/atom+xml" title="{{ labels.get("feed") }}" href="/{{ lang }}/status/incidents.atom">
+</head>
+<body>
+<main id="main" class="status-page" tabindex="-1">
+  <header class="status-heading">
+    <div><h1>{{ labels.get("title") }}</h1><p>{{ labels.get("status-explainer") }}</p></div>
+    <a class="op-button op-button--secondary" href="/{{ lang }}/status/incidents.atom">{{ labels.get("feed-link") }}</a>
+  </header>
+  <section aria-labelledby="components-title">
+    <h2 id="components-title">{{ labels.get("components") }}</h2>
+    <p class="status-meta">{{ labels.get("uptime-explainer") }}</p>
+    <ul class="status-components">
+      {% for component in components %}
+      <li class="op-panel status-card" data-component="{% if let Some(id) = component.id %}{{ id }}{% else %}portal{% endif %}">
+        <h3>{% call status::scope(component.name, "portal") %}{% endcall %}</h3>
+        <p class="status-state" data-state="{{ component.state }}">{{ labels.get(component.state.as_str()) }}</p>
+        <p class="status-meta">{{ labels.get("uptime") }} <strong>{{ labels.uptime(component.uptime) }}</strong></p>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section id="active-incidents" aria-labelledby="active-title">
+    <h2 id="active-title">{{ labels.get("active") }}</h2>
+    {% for incident in active %}{% call status::incident_row(incident, false) %}{% endcall %}
+    {% else %}<p class="status-meta">{{ labels.get("empty-active") }}</p>{% endfor %}
+  </section>
+  <section id="maintenance" aria-labelledby="maintenance-title">
+    <h2 id="maintenance-title">{{ labels.get("maintenance") }}</h2>
+    {% for window in maintenance %}{% call status::notice(window) %}{% endcall %}
+    {% else %}<p class="status-meta">{{ labels.get("empty-maintenance") }}</p>{% endfor %}
+  </section>
+  <section id="incident-history" aria-labelledby="history-title">
+    <h2 id="history-title">{{ labels.get("history") }}</h2>
+    {% for incident in history %}{% call status::incident_row(incident, true) %}{% endcall %}
+    {% else %}<p class="status-meta">{{ labels.get("empty-history") }}</p>{% endfor %}
+    {% if previous.is_some() || next.is_some() %}
+    <nav class="status-pages" aria-label="{{ labels.get("history") }}">
+      {% if let Some(page) = previous %}<a href="?page={{ page }}#incident-history">{{ labels.get("previous") }}</a>{% endif %}
+      {% if let Some(page) = next %}<a href="?page={{ page }}#incident-history">{{ labels.get("next") }}</a>{% endif %}
+    </nav>
+    {% endif %}
+  </section>
+</main>
+</body>
+</html>

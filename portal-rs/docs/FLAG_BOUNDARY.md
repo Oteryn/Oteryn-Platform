@@ -5,6 +5,12 @@ its routes must be absent or return their documented disabled response, its
 work must stay unclaimed, and its tables must receive no feature writes.
 The retention and finalization exceptions below continue to enforce their existing duties.
 
+HTTP observability remains active in every profile. Its error recording may
+insert and update `portal_errors` and `portal_error_rate` when a route returns 5xx.
+
+With the staff panel enabled, its moderation queue can serve forum reports while
+`OTERYN_REPORTS_ENABLED` is off. Legacy reports remain gated by that flag.
+
 The boundary test reads explicit method and path registrations from the portal's
 production routers. The inventory supplies expected disabled responses and
 concrete values for path parameters. Methods use G for GET, P for POST, U for
@@ -46,6 +52,7 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `OTERYN_ACCOUNT_SESSIONS` | `GD:/{prefix}/account/sessions` `P:/{prefix}/account/sessions/others` `P:/{prefix}/account/sessions/all` `PD:/{prefix}/account/sessions/{id}` | Security email delivery also requires mail configuration | web_sessions, security_events, web_known_devices, passkey_ceremonies, game_login_tickets, accounts, outbox |
 | `OTERYN_ADMIN_ANALYTICS_INGEST` | `P503@internal:/internal/v1/admin-analytics/page` `P503@internal:/internal/v1/admin-analytics/commit` `P503@internal:/internal/v1/admin-analytics/watermark` | — | admin_analytics.* (staging, snapshots, watermark and budgets) |
 | `OTERYN_ADMIN_ANALYTICS_PRESENT` | `G:/admin/analytics` `G:/admin/analytics/data` `G:/admin/analytics/{analytics}` `G:/admin/analytics/{analytics}/data` | — | audit_log, web_rate_limits |
+| `OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED` | — | — | Read-only. Enables the extended datasets on the existing staff charts and exports. |
 | `OTERYN_ADMIN_COMMERCE`, `OTERYN_PREMIUM_ENABLED`, `OTERYN_REFUNDS_ENABLED`, `OTERYN_PAYMENTS_ENABLED`, `OTERYN_WALLET_ENABLED` | `G:/admin/commerce` `P:/admin/commerce/{commerce_action}` `P:/admin/commerce/approvals/{id}` `P:/admin/commerce/cancellations/{id}` | commerce.refund requires admin commerce, refunds and configured payments. wallet.top_up requires payments and wallet. referrals.process applies premium only when premium is on. | commerce_operations, commerce_refunds, admin_approvals, audit_log, outbox, premium_ledger, premium_audit, premium_authority, wallet_accounts, wallet_adjustments, wallet_entries, wallet_operations, payment_intents, payment_events |
 | `OTERYN_ADMIN_CONSOLE` | `GP:/console/dashboard` `GP:/console/worlds` `GP:/console/nodes` `GP:/console/database` `GP:/admin/console/players` `G:/admin/console/audit` `G:/admin/console/access` `G:/admin/console/approvals` | — | admin_approvals, audit_log, admin_control_* |
 | `OTERYN_ADMIN_CONTROL` | `GP:/admin/control/step-up` `GP:/admin/control/approvals/{id}` | — | admin_control_approvals, admin_control_previews, admin_control_requests, admin_control_step_up_attempts, audit_log |
@@ -68,7 +75,8 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `OTERYN_LCFA_ENABLED` | `~P@internal:/internal/v1/game-auth/native-account-characters` `P@closure:/internal/v1/game-auth/native-account-characters` `~P@internal:/internal/v1/game-auth/native-account-characters/watermark` `P@closure:/internal/v1/game-auth/native-account-characters/watermark` | — | account_character_feed, account_character_publisher_limits, account_character_snapshots, account_characters |
 | `OTERYN_LEAGUE_ENABLED` | `G:/{lang}/league` `~P@internal:/internal/v1/game-public/world-event-outcome` `P@league:/internal/v1/game-public/world-event-outcome` `~P@internal:/internal/v1/game-public/guild-season` `P@league:/internal/v1/game-public/guild-season` `~P@internal:/internal/v1/game-public/league-watermark` `P@league:/internal/v1/game-public/league-watermark` | league.ingest and the dedicated TLS listener stop when disabled. league.retention stays on. | league_audit, league_event_questions, league_feed_inbox, league_feed_requests, league_feed_state, league_feed_withdrawals, league_occurrences, league_receipts, league_subjects |
 | `OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED` | `P503:/api/v1/game-auth/device-sessions` `P503:/api/v1/game-auth/device-sessions/native-characters` `P503:/api/v1/game-auth/device-sessions/tickets` `P503:/api/v1/game-auth/device-sessions/revoke` | — | device_sessions, device_session_credentials, device_session_source_limits, oauth_token_families, game_login_tickets |
-| `OTERYN_NOTIFY_UNSUBSCRIBE_KEY` | `GP:/{lang}/unsubscribe` `GP:/{lang}/account/notifications` | notify.email requires shared mail configuration | account_notification_prefs |
+| `OTERYN_NOTIFY_UNSUBSCRIBE_KEY` | `GP:/{lang}/unsubscribe` | notify.email requires shared mail configuration | account_notification_prefs |
+| Account notification preferences | `G200:/{lang}/account/notifications` `P403:/{lang}/account/notifications` (missing CSRF) | — | The preferences remain available independently of mail delivery. A CSRF refusal writes nothing. |
 | `OTERYN_PLAYERDATA_GAME_LOGIN_HISTORY_ENABLED`, `OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED` | `G503:/{prefix}/account/game-logins` | cleanup.game-logins stays on | Read-only browser surface. The worker purges pd_game_logins. |
 | `OTERYN_PLAYERDATA_HUNTS_READ` | `G503:/{lang}/account/hunts` `G503:/{lang}/account/hunts/compare` `G503:/{lang}/account/hunts/{id}` `GP503:/{lang}/account/hunts/{id}/share` `G:/static/playerdata/hunts.css` | — | pd_hunt_access, pd_hunt_sessions |
 | `OTERYN_PLAYERDATA_PLACES_AGGREGATE` | `G503:/{lang}/atlas/places` `GP503:/{lang}/atlas/places/participation` | cleanup.hunting-places stays on | pd_places_preferences, pd_places_sessions, pd_places_replay_fences |

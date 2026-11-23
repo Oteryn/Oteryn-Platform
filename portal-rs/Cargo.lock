@@ -2857,6 +2857,7 @@ dependencies = [
 name = "oteryn-downloads"
 version = "0.1.0"
 dependencies = [
+ "askama",
  "async-trait",
  "axum",
  "bytes",
@@ -2867,6 +2868,7 @@ dependencies = [
  "hex",
  "oteryn-admin",
  "oteryn-db",
+ "oteryn-ui",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2876,6 +2878,30 @@ dependencies = [
  "tokio",
  "tough",
  "tower",
+ "url",
+ "uuid",
+]
+
+[[package]]
+name = "oteryn-forum"
+version = "0.1.0"
+dependencies = [
+ "askama",
+ "axum",
+ "fluent-bundle",
+ "oteryn-admin",
+ "oteryn-db",
+ "oteryn-notify",
+ "oteryn-support",
+ "oteryn-ui",
+ "oteryn-web",
+ "pulldown-cmark",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.21",
+ "time",
+ "tokio",
  "url",
  "uuid",
 ]
@@ -3181,6 +3207,7 @@ dependencies = [
  "oteryn-core",
  "oteryn-db",
  "oteryn-downloads",
+ "oteryn-forum",
  "oteryn-gameauth",
  "oteryn-gateway",
  "oteryn-hirelings",

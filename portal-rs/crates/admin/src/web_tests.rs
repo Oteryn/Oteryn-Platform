@@ -140,6 +140,14 @@ fn localized_responsive_labelled_template() {
             mail_link: None,
             players_label: text(lang, "players"),
             players: true,
+            registration_policy_label: Some(text(lang, "registration-title")),
+            errors_label: None,
+            system_label: None,
+            status_label: Some(crate::status::text(lang, "staff-title")),
+            charts_label: crate::charts::nav_label(lang),
+            can_view_charts: true,
+            newsletter_label: None,
+            forum_label: Some(text(lang, "forum")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,6 +156,7 @@ fn localized_responsive_labelled_template() {
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
             next: None,
+            invitations_label: None,
         }
         .render()
         .unwrap();
@@ -160,8 +169,10 @@ fn localized_responsive_labelled_template() {
             "Report moderation"
         }));
         assert!(html.contains("href=\"/admin/players\""));
+        assert!(html.contains(&format!(r#"href="/admin/status?lang={lang}""#)));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
+        assert!(html.contains(&format!("/admin/forum?lang={lang}")));
         assert!(!html.contains("<unsafe>"));
         std::fs::write(format!("/tmp/t10b-{lang}.html"), &html).unwrap();
         assert!(!text(lang, "mfa").is_empty());
@@ -251,6 +262,147 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+    let review = guarded_with_permissions(
+        Router::new().route("/admin/feature", get(|| async { "feature" })),
+        pool.clone(),
+        PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Identity(identity),
+        Identity(identity),
+        &[
+            Permission::ViewPortalErrors,
+            Permission::ResolvePortalErrors,
+        ],
+    );
+    for (permission, expected) in [
+        (Permission::ResolvePortalErrors, StatusCode::FORBIDDEN),
+        (Permission::ViewPortalErrors, StatusCode::OK),
+    ] {
+        sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,$2)")
+            .bind(role)
+            .bind(permission.as_str())
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            request(review.clone(), "/admin/feature", "staff.test")
+                .await
+                .status(),
+            expected
+        );
+    }
+    for path in ["/admin/system", "/admin/system/data"] {
+        assert_eq!(
+            request(app(pool.clone(), identity, true), path, "staff.test")
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.system.view')")
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    for path in ["/admin/system", "/admin/system/data"] {
+        assert_eq!(
+            request(app(pool.clone(), identity, true), path, "public.test")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let response = request(app(pool.clone(), identity, true), path, "staff.test").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    }
+    assert!(!body.contains("href=\"/admin/charts"));
+    let charts_actor = Uuid::now_v7();
+    let charts_identity = Some(StaffIdentity {
+        account: charts_actor,
+        mfa_satisfied: true,
+    });
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(charts_actor)
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let panel = app(pool.clone(), charts_identity, true);
+    assert_eq!(
+        request(panel.clone(), "/admin/charts", "wrong.test")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    for path in ["/admin/charts", "/admin/charts/tickets-opened.csv"] {
+        assert_eq!(
+            request(panel.clone(), path, "staff.test").await.status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    let platform_role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(charts_actor)
+        .bind(platform_role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        request(
+            panel.clone(),
+            "/admin/charts/tickets-opened.csv",
+            "staff.test"
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    sqlx::query(
+        "DELETE FROM role_permissions WHERE role_id=$1 AND permission='admin.analytics.export'",
+    )
+    .bind(platform_role)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        request(
+            panel.clone(),
+            "/admin/charts/tickets-opened.csv",
+            "staff.test"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let css = request(panel.clone(), crate::charts::STYLESHEET, "staff.test").await;
+    assert_eq!(css.status(), StatusCode::OK);
+    assert_eq!(
+        css.headers()[header::CONTENT_TYPE],
+        "text/css; charset=utf-8"
+    );
+    assert_eq!(css.headers()[header::CACHE_CONTROL], "no-store");
+    let page = request(panel, "/admin/charts", "staff.test").await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = to_bytes(page.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(!html.contains(" download href="));
+    sqlx::query(
+        "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.analytics.export')",
+    )
+    .bind(platform_role)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
+        .bind(charts_actor)
+        .execute(&pool)
+        .await
+        .unwrap();
     // Feature routes require their own permission on top of panel access.
     assert_eq!(
         request(
@@ -432,7 +584,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     };
     let panel = Panel {
         config: PanelConfig::default(),
-        required: None,
+        required: Vec::new(),
         players_enabled: false,
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),

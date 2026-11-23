@@ -41,6 +41,7 @@
                 {% for key in ["places", "wiki", "calculators", "atlas", "houses", "delivery"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
+                <li><a href="/{{ chrome.lang }}/status"{% if chrome.service_status_current %} aria-current="page"{% endif %}>{{ chrome.text("service-status") }}</a></li>
                 {% if interior %}
                   {% for key in ["worlds", "world-stats"] %}
                   {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
@@ -60,7 +61,7 @@
             {% endif %}
           </div>
         {% if interior %}</details>{% else %}</div>{% endif %}
-        {% if chrome.first_link("online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() %}
+        {% if chrome.first_link("forum,online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() %}
         {% if interior %}
         <details class="om-section" name="portal-sections">
           <summary class="om-top-link"><span class="om-label">{{ chrome.text("shell-community") }}</span><span class="om-chevron" aria-hidden="true"></span></summary>
@@ -71,11 +72,11 @@
           </button>
           {% endif %}
           <div id="portal-community-panel" class="om-panel"{% if !interior %} hidden{% endif %}>
-            {% if chrome.first_link("online,party,bazaar,guilds,deaths").is_some() %}
+            {% if chrome.first_link("forum,online,party,bazaar,guilds,deaths").is_some() %}
             <div class="om-column">
               <h2 class="om-heading">{{ chrome.text("thais-nav-players") }}</h2>
               <ul>
-                {% for key in ["online", "party", "bazaar", "guilds", "deaths"] %}
+                {% for key in ["forum", "online", "party", "bazaar", "guilds", "deaths"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
               </ul>

@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.text("preview") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <nav><a href="/admin/newsletter">{{ self.text("title") }}</a></nav>
+  <h1>{{ self.text("preview") }}</h1>
+  <dl>
+    <dt>{{ self.text("audience") }}</dt><dd>{{ self.audience_label() }}</dd>
+    <dt>{{ self.text("status") }}</dt><dd><output>{{ self.text(campaign.state()) }}</output></dd>
+    {% if campaign.started_at.is_some() %}
+    <dt>{{ self.text("eligible-count") }}</dt><dd>{{ campaign.eligible_count }}</dd>
+    <dt>{{ self.text("queued-count") }}</dt><dd>{{ campaign.queued_count }}</dd>
+    {% endif %}
+  </dl>
+  <section class="op-panel op-stack" lang="pl">
+    <h2>{{ self.text("polish-autonym") }}</h2>
+    <h3>{{ pl.subject() }}</h3>
+    <p>{% for line in pl.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p>
+  </section>
+  <section class="op-panel op-stack" lang="en">
+    <h2>{{ self.text("english-autonym") }}</h2>
+    <h3>{{ en.subject() }}</h3>
+    <p>{% for line in en.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p>
+  </section>
+  <p class="op-hint">{{ self.text("automatic-footer") }}</p>
+  {% if campaign.tested %}<p role="status">{{ self.text("test-queued") }}</p>{% endif %}
+  {% if !delivery_available %}
+  <p>{{ self.text("unavailable") }}</p>
+  {% else %}
+    {% if can_test %}
+    <form class="op-stack" method="post" action="/admin/newsletter/{{ campaign.id }}/test">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <p>{{ self.text("test-help") }}</p>
+      <label class="op-field">{{ self.text("test-language") }}
+        <select class="op-input" name="locale">
+          <option value="pl"{% if lang == "pl" %} selected{% endif %}>{{ self.text("polish") }}</option>
+          <option value="en"{% if lang == "en" %} selected{% endif %}>{{ self.text("english") }}</option>
+        </select>
+      </label>
+      <div><button class="op-button op-button--secondary" type="submit">{{ self.text("test") }}</button></div>
+    </form>
+    {% endif %}
+    {% if can_send %}
+    <form class="op-stack" method="post" action="/admin/newsletter/{{ campaign.id }}/send">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <p>{{ self.text("send-help") }}</p>
+      <label class="op-field">{{ self.text("current-password") }}
+        <input class="op-input" name="current_password" type="password" autocomplete="current-password" maxlength="1024" required>
+      </label>
+      <div><button class="op-button" type="submit">{% if campaign.started_at.is_some() %}{{ self.text("continue") }}{% else %}{{ self.text("send") }}{% endif %}</button></div>
+    </form>
+    {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>

@@ -40,3 +40,4 @@ appeal-requested = Odwołanie złożone
 appeal-reviewing = Odwołanie w trakcie rozpatrywania
 appeal-accepted = Odwołanie uwzględnione
 appeal-rejected = Odwołanie odrzucone
+forum-post = Zobacz wpis na forum

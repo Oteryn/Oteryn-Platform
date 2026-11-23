@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.t("registration-title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack" id="main" tabindex="-1">
+  <nav aria-label="{{ self.t("title") }}"><a href="/admin?lang={{ lang }}">{{ self.t("title") }}</a></nav>
+  <h1>{{ self.t("registration-title") }}</h1>
+  {% if let Some(key) = message %}<p role="alert">{{ self.t(key) }}</p>{% endif %}
+  <section class="op-card op-stack" aria-labelledby="registration-preferences-title">
+    <h2 id="registration-preferences-title">{{ self.t("registration-settings") }}</h2>
+    <p id="registration-reason-help">{{ self.t("registration-reason-help") }}</p>
+    {% if sudo %}
+    <form method="post" class="op-stack" action="/admin/registration-policy?lang={{ lang }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="revision" value="{{ policy.revision }}">
+      <div class="op-field">
+        <label for="registration-state">{{ self.t("registration-state") }}</label>
+        <select class="op-input" id="registration-state" name="enabled">
+          <option value="true"{% if policy.values.enabled %} selected{% endif %}>{{ self.t("registration-open") }}</option>
+          <option value="false"{% if !policy.values.enabled %} selected{% endif %}>{{ self.t("registration-closed") }}</option>
+        </select>
+      </div>
+      <div class="op-field">
+        <label for="registration-reason-pl">{{ self.t("registration-reason-pl") }}</label>
+        <textarea class="op-input" id="registration-reason-pl" name="reason_pl" rows="3" maxlength="500" lang="pl" aria-describedby="registration-reason-help">{{ policy.values.reason_pl }}</textarea>
+      </div>
+      <div class="op-field">
+        <label for="registration-reason-en">{{ self.t("registration-reason-en") }}</label>
+        <textarea class="op-input" id="registration-reason-en" name="reason_en" rows="3" maxlength="500" lang="en" aria-describedby="registration-reason-help">{{ policy.values.reason_en }}</textarea>
+      </div>
+      <div class="op-field">
+        <label for="registration-work-bits">{{ self.t("registration-work-bits") }}</label>
+        <input class="op-input" id="registration-work-bits" name="work_bits" type="number" min="16" max="18" value="{{ policy.values.work_bits }}" required>
+      </div>
+      <div class="op-field">
+        <label for="registration-work-ttl">{{ self.t("registration-work-ttl") }}</label>
+        <input class="op-input" id="registration-work-ttl" name="work_ttl_seconds" type="number" min="300" max="900" value="{{ policy.values.work_ttl_seconds }}" required>
+      </div>
+      <div class="op-field">
+        <label for="registration-challenge-limit">{{ self.t("registration-challenge-limit") }}</label>
+        <input class="op-input" id="registration-challenge-limit" name="challenge_limit" type="number" min="1" max="5" value="{{ policy.values.challenge_limit }}" required>
+      </div>
+      <div class="op-field">
+        <label for="registration-attempt-limit">{{ self.t("registration-attempt-limit") }}</label>
+        <input class="op-input" id="registration-attempt-limit" name="attempt_limit" type="number" min="1" max="5" value="{{ policy.values.attempt_limit }}" required>
+      </div>
+      <div class="op-field">
+        <label for="registration-rate-window">{{ self.t("registration-rate-window") }}</label>
+        <input class="op-input" id="registration-rate-window" name="rate_window_seconds" type="number" min="60" max="3600" value="{{ policy.values.rate_window_seconds }}" required>
+      </div>
+      <button class="op-button op-button--primary" type="submit">{{ self.t("registration-save") }}</button>
+    </form>
+    {% else %}
+    <dl class="op-stack op-prose">
+      <div><dt>{{ self.t("registration-state") }}</dt><dd>{% if policy.values.enabled %}{{ self.t("registration-open") }}{% else %}{{ self.t("registration-closed") }}{% endif %}</dd></div>
+      <div><dt>{{ self.t("registration-reason-pl") }}</dt><dd lang="pl">{% if policy.values.reason_pl.is_empty() %}{{ self.t("registration-none") }}{% else %}{{ policy.values.reason_pl }}{% endif %}</dd></div>
+      <div><dt>{{ self.t("registration-reason-en") }}</dt><dd lang="en">{% if policy.values.reason_en.is_empty() %}{{ self.t("registration-none") }}{% else %}{{ policy.values.reason_en }}{% endif %}</dd></div>
+      <div><dt>{{ self.t("registration-work-bits") }}</dt><dd>{{ policy.values.work_bits }}</dd></div>
+      <div><dt>{{ self.t("registration-work-ttl") }}</dt><dd>{{ policy.values.work_ttl_seconds }}</dd></div>
+      <div><dt>{{ self.t("registration-challenge-limit") }}</dt><dd>{{ policy.values.challenge_limit }}</dd></div>
+      <div><dt>{{ self.t("registration-attempt-limit") }}</dt><dd>{{ policy.values.attempt_limit }}</dd></div>
+      <div><dt>{{ self.t("registration-rate-window") }}</dt><dd>{{ policy.values.rate_window_seconds }}</dd></div>
+    </dl>
+    {% if may_manage %}
+    <form method="post" class="op-stack" action="/admin/registration-policy/confirm?lang={{ lang }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <div class="op-field">
+        <label for="registration-current-password">{{ self.t("registration-password") }}</label>
+        <input class="op-input" type="password" id="registration-current-password" name="current_password" autocomplete="current-password" maxlength="1024" required>
+      </div>
+      <button class="op-button op-button--primary" type="submit">{{ self.t("registration-confirm") }}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+  </section>
+
+  <section class="op-card op-stack" aria-labelledby="registration-corpus-title" data-corpus-status>
+    <h2 id="registration-corpus-title">{{ self.t("registration-corpus") }}</h2>
+    <dl class="op-stack">
+      <div><dt>{{ self.t("registration-corpus-count") }}</dt><dd>{{ corpus.complete }}</dd></div>
+      <div><dt>{{ self.t("registration-corpus-fresh") }}</dt><dd>{{ corpus.fresh }}</dd></div>
+      <div><dt>{{ self.t("registration-corpus-import") }}</dt><dd>{% if let Some(imported) = corpus.last_import %}{{ imported }}{% else %}{{ self.t("registration-none") }}{% endif %}</dd></div>
+    </dl>
+    <p>{{ self.t("registration-corpus-note") }}</p>
+  </section>
+
+  <section class="op-card op-stack" aria-labelledby="registration-history-title" data-policy-history>
+    <h2 id="registration-history-title">{{ self.t("registration-history") }}</h2>
+    {% for change in changes %}
+    <details class="op-stack">
+      <summary>{{ change.changed_at }} · {% if let Some(actor) = change.actor %}{{ actor }}{% else %}{{ self.t("registration-none") }}{% endif %}</summary>
+      <dl class="op-stack op-prose">
+        {% for (key, before, after) in change.fields %}
+        <div>
+          <dt>{{ self.t(key) }}</dt>
+          <dd>{{ self.t("registration-before") }} <span>{% if before.is_empty() %}{{ self.t("registration-none") }}{% else %}{{ before }}{% endif %}</span></dd>
+          <dd>{{ self.t("registration-after") }} <span>{% if after.is_empty() %}{{ self.t("registration-none") }}{% else %}{{ after }}{% endif %}</span></dd>
+        </div>
+        {% endfor %}
+      </dl>
+    </details>
+    {% else %}
+    <p>{{ self.t("registration-history-empty") }}</p>
+    {% endfor %}
+  </section>
+</main>
+</body>
+</html>

@@ -99,7 +99,7 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     }
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
-        .fallback_service(app)
+        .fallback_service(oteryn_web::observability::carry_matched_path(app))
         .layer(axum::middleware::from_fn(rewrite_login))
 }
 async fn mfa_session(
@@ -545,6 +545,7 @@ async fn login(
         crate::sessions_http::complete_login(&context.mfa.pool(), &session, account).await?;
         return home_or_return(language, &session).await;
     }
+    crate::login_http::record_failure(&context.mfa.pool()).await;
     refusal(language, &session, "/login").await
 }
 #[derive(Default, Deserialize)]
@@ -619,6 +620,7 @@ async fn challenge(
     {
         return establish(&context, language, &session, auth).await;
     }
+    crate::login_http::record_failure(&context.mfa.pool()).await;
     refusal(language, &session, "/mfa/challenge").await
 }
 async fn email(

@@ -43,3 +43,5 @@ mod oauth_mfa_web_tests;
 mod native_recovery_test_support;
 
 pub mod mutation_actor;
+pub mod newsletter_mail;
+pub mod notification_preferences;

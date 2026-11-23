@@ -2,12 +2,14 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, State},
-    http::{HeaderMap, StatusCode},
+    body::Bytes,
+    extract::{ConnectInfo, Request, State},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use oteryn_identity::{
+    notification_preferences::{self, Choices, MailLanguage},
     sessions::NotificationAccounts as AccountState,
     termination::{self, ActorProof, BoundaryFuture},
 };
@@ -134,6 +136,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
         .into_iter()
         .collect();
     let mut routes = Router::new()
+        .route("/{lang}/account/notifications", get(preferences).post(save))
         .route("/{lang}/account/privacy/delete", get(deletion))
         .route(
             "/{lang}/account/privacy/delete/cancel",
@@ -147,16 +150,21 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
     }
     if notifications.is_some() {
         routes = routes
-            .route("/{lang}/account/notifications", get(preferences).post(save))
-            .route("/{lang}/unsubscribe", get(unsubscribe_page));
+            .route("/{lang}/unsubscribe", get(unsubscribe_page))
+            .route(
+                "/{lang}/unsubscribe/confirm",
+                axum::routing::post(confirm_unsubscribe),
+            );
     }
     let mut routes = routes.route_layer(axum::middleware::from_fn_with_state(
         sessions,
         oteryn_web::session::middleware,
     ));
     if notifications.is_some() {
-        routes = routes
-            .merge(Router::new().route("/{lang}/unsubscribe", axum::routing::post(unsubscribe)));
+        routes = routes.merge(Router::new().route(
+            "/{lang}/unsubscribe",
+            axum::routing::post(one_click_unsubscribe),
+        ));
     }
     let routes = routes
         .with_state(Services {
@@ -167,6 +175,25 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
         })
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024));
     oteryn_web::ratelimit::finish_routes(routes)
+        .layer(axum::middleware::from_fn(unsubscribe_referrer))
+}
+
+async fn unsubscribe_referrer(request: Request, next: axum::middleware::Next) -> Response {
+    let unsubscribe = matches!(
+        request.uri().path(),
+        "/en/unsubscribe"
+            | "/pl/unsubscribe"
+            | "/en/unsubscribe/confirm"
+            | "/pl/unsubscribe/confirm"
+    );
+    let mut response = next.run(request).await;
+    if unsubscribe {
+        response.headers_mut().insert(
+            header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("origin"),
+        );
+    }
+    response
 }
 fn text(l: Language, key: &str) -> String {
     let source = if l.code() == "en" {
@@ -205,10 +232,8 @@ struct Page {
     restoration_pending: bool,
     unsubscribe: bool,
     token: String,
-    news_email: bool,
-    news_portal: bool,
-    support_email: bool,
-    support_portal: bool,
+    mail_locale: String,
+    choices: Choices,
 }
 impl Page {
     fn shell_text(&self, key: &str) -> String {
@@ -266,10 +291,8 @@ async fn page(
         restoration_pending: false,
         unsubscribe,
         token,
-        news_email: false,
-        news_portal: true,
-        support_email: false,
-        support_portal: true,
+        mail_locale: l.code().into(),
+        choices: Choices::default(),
     })
 }
 fn render(p: Page) -> Response {
@@ -287,20 +310,12 @@ async fn preferences(
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     let mut p = page(l, &s, "", false, false, false, String::new()).await?;
-    (p.news_email, p.news_portal) = st
-        .notifications
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .preference(id, oteryn_notify::Category::News)
+    let preferences = notification_preferences::current(&st.pool, id)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    (p.support_email, p.support_portal) = st
-        .notifications
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .preference(id, oteryn_notify::Category::Support)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+    p.mail_locale = preferences.language;
+    p.choices = preferences.choices;
     Ok(render(p))
 }
 #[derive(serde::Deserialize)]
@@ -311,6 +326,9 @@ struct PreferenceInput {
     news_portal: Option<String>,
     support_email: Option<String>,
     support_portal: Option<String>,
+    events_email: Option<String>,
+    forum_digest_email: Option<String>,
+    mail_locale: Option<MailLanguage>,
 }
 fn boolean(v: Option<String>) -> Result<bool, StatusCode> {
     match v.as_deref() {
@@ -367,51 +385,32 @@ async fn save(
     {
         return Ok(r);
     }
-    let mut tx = st
-        .pool
-        .begin()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if input.mail_locale.is_none()
+        && (input.events_email.is_some() || input.forum_digest_email.is_some())
+    {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let choices = Choices {
+        news: (boolean(input.news_email)?, boolean(input.news_portal)?),
+        support: (
+            boolean(input.support_email)?,
+            boolean(input.support_portal)?,
+        ),
+        events: boolean(input.events_email)?,
+        forum_digest: boolean(input.forum_digest_email)?,
+    };
     let actor = oteryn_identity::mutation_actor::MutationActor::browser(
         id,
         s.csrf_token()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
     );
-    if !actor
-        .live(&mut tx)
+    if !notification_preferences::save(&st.pool, &actor, input.mail_locale, choices)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    for (category, email, portal) in [
-        (
-            oteryn_notify::Category::News,
-            input.news_email,
-            input.news_portal,
-        ),
-        (
-            oteryn_notify::Category::Support,
-            input.support_email,
-            input.support_portal,
-        ),
-    ] {
-        st.notifications
-            .as_ref()
-            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-            .preferences(&mut tx, id, category, boolean(email)?, boolean(portal)?)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    }
-    tx.commit()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Redirect::to(&format!("/{}/account/notifications", l.code())).into_response())
 }
 #[derive(serde::Deserialize, Default)]
@@ -420,25 +419,23 @@ struct Token {
     token: String,
 }
 async fn unsubscribe_page(
-    Extension(l): Extension<Language>,
-    Extension(s): Extension<BrowserSession>,
-    axum::extract::Query(q): axum::extract::Query<Token>,
-) -> Result<Response, StatusCode> {
-    if q.token.len() > 512 {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    Ok(render(page(l, &s, "", false, false, true, q.token).await?))
-}
-async fn unsubscribe(
     State(st): State<Services>,
     supplied: Option<Extension<RateLimiter>>,
     Extension(l): Extension<Language>,
+    Extension(s): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<Token>,
 ) -> Result<Response, StatusCode> {
+    if q.token.is_empty() {
+        return Ok(oteryn_web::render(&Message {
+            lang: l.code(),
+            title: text(l, "unsubscribe-link-required"),
+        }));
+    }
+    unsubscribe_target(&st, &q.token)?;
     let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
-    if let Err(r) = rate(
+    if let Err(response) = rate(
         &limiter,
         &headers,
         peer,
@@ -449,6 +446,162 @@ async fn unsubscribe(
     )
     .await
     {
+        return Ok(response);
+    }
+    let action = format!("/{}/unsubscribe/confirm", l.code());
+    Ok(render(
+        page(l, &s, &action, false, false, true, q.token).await?,
+    ))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct UnsubscribeConfirmation {
+    _csrf: String,
+    token: String,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OneClickForm {
+    #[serde(rename = "List-Unsubscribe")]
+    action: String,
+}
+
+async fn confirm_unsubscribe(
+    State(st): State<Services>,
+    supplied: Option<Extension<RateLimiter>>,
+    Extension(l): Extension<Language>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    Form(input): Form<UnsubscribeConfirmation>,
+) -> Result<Response, StatusCode> {
+    let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
+    unsubscribe(&st, &limiter, l, peer, &headers, &input.token).await
+}
+
+async fn one_click_unsubscribe(
+    State(st): State<Services>,
+    supplied: Option<Extension<RateLimiter>>,
+    Extension(l): Extension<Language>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
+    axum::extract::Query(q): axum::extract::Query<Token>,
+    body: Bytes,
+) -> Result<Response, StatusCode> {
+    if headers.contains_key(header::ORIGIN) || headers.contains_key("sec-fetch-site") {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .ok_or(StatusCode::UNSUPPORTED_MEDIA_TYPE)?;
+    let mut media = content_type.split(';');
+    let kind = media.next().unwrap_or_default().trim();
+    let confirmed = if kind.eq_ignore_ascii_case("application/x-www-form-urlencoded") {
+        serde_urlencoded::from_bytes::<OneClickForm>(&body)
+            .is_ok_and(|input| input.action == "One-Click")
+    } else if kind.eq_ignore_ascii_case("multipart/form-data") {
+        let boundary = media.find_map(|parameter| mime_parameter(parameter, "boundary"));
+        boundary.is_some_and(|boundary| multipart_one_click(boundary, &body))
+    } else {
+        return Err(StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    };
+    if !confirmed {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let limiter = supplied.map(|v| v.0).unwrap_or_else(|| st.limiter.clone());
+    unsubscribe(&st, &limiter, l, peer, &headers, &q.token).await
+}
+
+fn mime_parameter<'a>(parameter: &'a str, key: &str) -> Option<&'a str> {
+    let (name, value) = parameter.split_once('=')?;
+    let value = value.trim();
+    name.trim().eq_ignore_ascii_case(key).then(|| {
+        value
+            .strip_prefix('"')
+            .and_then(|value| value.strip_suffix('"'))
+            .unwrap_or(value)
+    })
+}
+
+fn multipart_one_click(boundary: &str, body: &[u8]) -> bool {
+    // RFC 8058 defines a single ASCII form field. Match its complete MIME part.
+    if boundary.is_empty() || boundary.len() > 70 || boundary.contains(['\r', '\n']) {
+        return false;
+    }
+    let Ok(body) = std::str::from_utf8(body) else {
+        return false;
+    };
+    let opening = format!("--{boundary}\r\n");
+    let closing = format!("\r\n--{boundary}--");
+    let Some((headers, content)) = body
+        .strip_prefix(&opening)
+        .and_then(|body| body.split_once("\r\n\r\n"))
+    else {
+        return false;
+    };
+    let mut dispositions = headers.split("\r\n").filter_map(|header| {
+        let (name, value) = header.split_once(':')?;
+        name.eq_ignore_ascii_case("content-disposition")
+            .then_some(value)
+    });
+    let Some(disposition) = dispositions.next() else {
+        return false;
+    };
+    let mut parts = disposition.split(';');
+    dispositions.next().is_none()
+        && parts
+            .next()
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("form-data"))
+        && parts.find_map(|part| mime_parameter(part, "name")) == Some("List-Unsubscribe")
+        && content
+            .strip_prefix("One-Click")
+            .and_then(|content| content.strip_prefix(&closing))
+            .is_some_and(|tail| matches!(tail, "" | "\r\n"))
+}
+
+fn unsubscribe_target<'a>(
+    st: &'a Services,
+    token: &str,
+) -> Result<(&'a oteryn_notify::Notifications, Uuid), StatusCode> {
+    if token.is_empty() || token.len() > 256 {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let notifications = st
+        .notifications
+        .as_ref()
+        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?;
+    let (account, _) = notifications
+        .unsubscribe
+        .verify(
+            token,
+            sqlx::types::time::OffsetDateTime::now_utc().unix_timestamp(),
+        )
+        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+    Ok((notifications, account))
+}
+
+async fn unsubscribe(
+    st: &Services,
+    limiter: &RateLimiter,
+    l: Language,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &HeaderMap,
+    token: &str,
+) -> Result<Response, StatusCode> {
+    let (notifications, account) = unsubscribe_target(st, token)?;
+    if let Err(r) = rate(
+        limiter,
+        headers,
+        peer,
+        None,
+        l,
+        NamedPolicy::IdentityEmailToken,
+        Some(token),
+    )
+    .await
+    {
         return Ok(r);
     }
     let mut tx = st
@@ -456,12 +609,25 @@ async fn unsubscribe(
         .begin()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    st.notifications
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .unsubscribe(&mut tx, &q.token)
+    oteryn_db::mutation_budget(&mut tx)
         .await
-        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)?;
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    sqlx::query_scalar::<_, Uuid>("SELECT id FROM accounts WHERE id = $1 FOR UPDATE")
+        .bind(account)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
+    notifications
+        .unsubscribe(&mut tx, token)
+        .await
+        .map_err(|error| {
+            if error.is::<sqlx::Error>() {
+                StatusCode::SERVICE_UNAVAILABLE
+            } else {
+                StatusCode::UNPROCESSABLE_ENTITY
+            }
+        })?;
     tx.commit()
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;

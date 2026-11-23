@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}{{ chrome.text("stage-btn-download") }}{% endblock %}
+{% block content %}
+<section class="op-shell__hero op-stack">
+  <h1>{{ chrome.text("stage-btn-download") }}</h1>
+  <p>{{ chrome.text("onboarding-download-intro") }}</p>
+  <p><a href="/{{ chrome.lang }}/start">{{ chrome.text("onboarding-guide") }}</a></p>
+</section>
+<section class="op-panel op-stack">
+  <h2>{{ chrome.text("onboarding-channel") }}</h2>
+  <ul>
+    <li><a href="/{{ chrome.lang }}/download"{% if channel == Channel::Stable %} aria-current="page"{% endif %}>{{ chrome.text("onboarding-stable") }}</a></li>
+    <li><a href="/{{ chrome.lang }}/download?channel=beta"{% if channel == Channel::Beta %} aria-current="page"{% endif %}>{{ chrome.text("onboarding-beta") }}</a></li>
+  </ul>
+  {% if let Some(release) = release %}
+  <h2>{{ chrome.text("onboarding-verified") }} {{ release.version }}</h2>
+  <p>{{ chrome.text("onboarding-platform-help") }}</p>
+  <ul>
+    {% for package in release.packages %}
+    <li>
+      <a href="/{{ chrome.lang }}/download/{{ channel.as_str() }}/{{ release.id }}/{{ package.platform }}/{{ package.architecture }}">{{ chrome.text("onboarding-download") }} {{ package.platform_name() }} ({{ package.architecture }})</a>
+      <p>{{ chrome.text("onboarding-size") }} {{ package.length }} {{ chrome.text("onboarding-bytes") }}<br>
+        SHA-256 <code>{{ package.sha256 }}</code></p>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p>{{ chrome.text("onboarding-unavailable") }}</p>
+  {% endif %}
+</section>
+{% endblock %}
