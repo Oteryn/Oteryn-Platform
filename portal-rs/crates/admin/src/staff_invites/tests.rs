@@ -270,7 +270,7 @@ async fn escalation_is_refused_at_issue_and_after_loss_of_role() -> TestResult {
         sqlx::query_scalar("INSERT INTO roles(key) VALUES('invite_manager') RETURNING id")
             .fetch_one(&f.invites.pool)
             .await?;
-    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.roles.grant'),($1,'admin.roles.grant'),($1,'admin.access')")
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES($1,'admin.roles.manage'),($1,'admin.roles.grant'),($1,'admin.access')")
         .bind(manager).execute(&f.invites.pool).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
         .bind(f.inviter.account)

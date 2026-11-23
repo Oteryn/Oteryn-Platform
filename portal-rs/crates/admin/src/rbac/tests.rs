@@ -577,10 +577,14 @@ async fn moderator_can_review_reports_without_ticket_or_role_management() {
         .unwrap();
     let auth = db.auth();
     let mut actor = verified(moderator);
-    auth.check(actor, Permission::ManageSupportReports)
+    auth.check(actor, Permission::ReviewSupportReports)
         .await
         .unwrap();
-    for permission in [Permission::ManageSupportTickets, Permission::ManageRoles] {
+    for permission in [
+        Permission::ManageSupportReports,
+        Permission::ManageSupportTickets,
+        Permission::ManageRoles,
+    ] {
         assert!(matches!(
             auth.check(actor, permission).await,
             Err(Error::Denied)
@@ -588,11 +592,11 @@ async fn moderator_can_review_reports_without_ticket_or_role_management() {
     }
     actor.mfa_verified = false;
     assert!(matches!(
-        auth.check(actor, Permission::ManageSupportReports).await,
+        auth.check(actor, Permission::ReviewSupportReports).await,
         Err(Error::Denied)
     ));
     assert!(matches!(
-        auth.check(verified(Uuid::nil()), Permission::ManageSupportReports)
+        auth.check(verified(Uuid::nil()), Permission::ReviewSupportReports)
             .await,
         Err(Error::Denied)
     ));

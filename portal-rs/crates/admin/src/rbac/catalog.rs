@@ -543,7 +543,12 @@ impl BuiltInRole {
 /// Platform and Game panel sections reuse the permissions enforced by their routes.
 pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
     ("/admin", "panel-admin", Permission::Access, None),
-    ("/admin/roles", "panel-roles", Permission::ManageRoles, None),
+    (
+        "/admin/roles?lang={lang}",
+        "panel-roles",
+        Permission::ManageRoles,
+        None,
+    ),
     (
         "/admin/players",
         "panel-accounts",

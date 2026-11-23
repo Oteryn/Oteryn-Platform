@@ -288,7 +288,23 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
     let role: Uuid = sqlx::query_scalar("SELECT id FROM roles WHERE key='platform_admin'")
         .fetch_one(&db.pool)
         .await?;
-    for table in ["world_catalog_publication", "world_active_version"] {
+    let mut observer = db.root.acquire().await?;
+    for (table, resource_query) in [
+        (
+            "world_catalog_publication",
+            "SELECT snapshot_id FROM world_catalog_publication WHERE singleton FOR UPDATE",
+        ),
+        (
+            "world_active_version",
+            "SELECT version_id FROM world_active_version WHERE singleton FOR UPDATE",
+        ),
+    ] {
+        let unrelated = Uuid::now_v7();
+        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
+            .bind(unrelated)
+            .bind(role)
+            .execute(&db.pool)
+            .await?;
         let mut blocker = db.pool.begin().await?;
         sqlx::query(AssertSqlSafe(format!(
             "SELECT singleton FROM {table} WHERE singleton FOR UPDATE"
@@ -306,17 +322,11 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
         // Wait for the foreground transaction to reach its resource wait.
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
             loop {
-                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND (query LIKE '%world_%version%FOR UPDATE%' OR query LIKE '%world_catalog_publication%FOR UPDATE%'))").bind(&db.schema).fetch_one(&db.pool).await?;
+                let waiting: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=$1 AND datid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND wait_event_type='Lock' AND query=$2)").bind(&db.schema).bind(resource_query).fetch_one(&mut *observer).await?;
                 if waiting { break Ok::<_, sqlx::Error>(()); }
                 tokio::task::yield_now().await;
             }
-        }).await??;
-        let unrelated = Uuid::now_v7();
-        sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)")
-            .bind(unrelated)
-            .bind(role)
-            .execute(&db.pool)
-            .await?;
+        }).await.map_err(|_| format!("world mutation did not wait for {table}"))??;
         tokio::time::timeout(
             std::time::Duration::from_millis(150),
             revoker.change(
@@ -328,7 +338,8 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
                 },
             ),
         )
-        .await??;
+        .await
+        .map_err(|_| format!("unrelated role revocation stalled while {table} was locked"))??;
         let remains: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1)")
                 .bind(unrelated)
@@ -341,6 +352,7 @@ async fn publication_wait_does_not_hold_global_authorization_fence() -> TestResu
         );
         blocker.rollback().await?;
     }
+    drop(observer);
     db.close().await?;
     eprintln!(
         "publication_wait_does_not_hold_global_authorization_fence: {:?}",
