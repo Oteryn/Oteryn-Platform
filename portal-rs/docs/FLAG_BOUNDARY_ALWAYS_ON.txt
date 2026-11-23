@@ -215,3 +215,12 @@ public G /{lang}/worlds/{world}/uptime
 public G /admin/world-status/{lang}/{world}
 public P /admin/world-status/{lang}/{world}
 public P /admin/world-status/{lang}/{world}/{incident}/resolve
+internal G /admin/console/sanctions
+internal P /admin/console/sanctions
+internal P /admin/console/sanctions/{id}
+native G /admin/console/sanctions
+native P /admin/console/sanctions
+native P /admin/console/sanctions/{id}
+public G /admin/console/sanctions
+public P /admin/console/sanctions
+public P /admin/console/sanctions/{id}

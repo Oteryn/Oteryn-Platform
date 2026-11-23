@@ -8,6 +8,7 @@ pub mod audit;
 pub mod players;
 
 mod projection;
+mod sanctions;
 mod stored;
 pub use stored::StoredChannel;
 mod alerts;

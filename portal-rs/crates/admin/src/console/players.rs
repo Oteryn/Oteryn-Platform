@@ -324,6 +324,9 @@ pub(crate) async fn page<B: Backend>(
         backend,
     };
     let mut page = view(&scoped, actor, input).await?;
+    if state.check(actor, "game.sanction.read").await.is_ok() {
+        page.sanction_reviews = Some(tr(page.lang, "sanction-reviews"));
+    }
     if page.search && state.backend.advertised("player.search").await {
         page.csrf = session.csrf_token().await?;
     }

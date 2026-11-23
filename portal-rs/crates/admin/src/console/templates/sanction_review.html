@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("sanction-reviews") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme op-stack">
+  <a class="op-skip" href="#main">{{ self.text("sanctions-skip") }}</a>
+  <header>
+    <nav class="op-panel" aria-label="{{ self.text("sanction-reviews") }}">
+      <ul class="op-tabs">
+        <li><a href="/admin/console/players?lang={{ lang }}">{{ self.text("players") }}</a></li>
+        <li><a href="/admin/console/sanctions?lang={{ lang }}"{% if !detail %} aria-current="page"{% endif %}>{{ self.text("sanction-reviews") }}</a></li>
+      </ul>
+    </nav>
+  </header>
+  <main class="op-panel op-stack" id="main" tabindex="-1">
+    <h1>{{ self.text("sanction-reviews") }}</h1>
+    <section class="op-stack" aria-labelledby="game-evidence">
+      <h2 id="game-evidence">{{ self.text("sanctions-game-evidence") }}</h2>
+      <p>{{ self.text("unavailable") }}</p>
+      <p>{{ self.text("sanctions-qualification") }}</p>
+    </section>
+    {% if !detail && (can_write || can_ban) %}
+      <section class="op-stack" aria-labelledby="proposal">
+        <h2 id="proposal">{{ self.text("sanctions-propose") }}</h2>
+        {% if targets.is_empty() %}
+          <p>{{ self.text("sanctions-no-targets") }}</p>
+        {% else if confirmed %}
+          <form class="op-stack" method="post" action="/admin/console/sanctions">
+            <input type="hidden" name="_csrf" value="{{ csrf }}">
+            <input type="hidden" name="lang" value="{{ lang }}">
+            <div>
+              <label for="review-target">{{ self.text("sanctions-target") }}</label>
+              <input class="op-input" name="target" id="review-target" list="review-targets" maxlength="36" required>
+              <datalist id="review-targets">
+              {% for target in targets %}
+                <option value="{{ target.id }}">{{ target.character_id }}</option>
+              {% endfor %}
+              </datalist>
+            </div>
+            <div>
+              <label for="review-report">{{ self.text("sanctions-report") }}</label>
+              <input class="op-input" name="report" id="review-report" maxlength="36" required>
+            </div>
+            <div>
+              <label for="review-kind">{{ self.text("operation") }}</label>
+              <select class="op-input" name="kind" id="review-kind" required>
+                {% if can_ban %}<option value="ban">{{ self.text("sanctions-ban") }}</option>{% endif %}
+                {% if can_write %}
+                  <option value="mute">{{ self.text("sanctions-mute") }}</option>
+                  <option value="jail">{{ self.text("sanctions-jail") }}</option>
+                {% endif %}
+              </select>
+            </div>
+            <div>
+              <label for="review-reason">{{ self.text("sanctions-reason") }}</label>
+              <select class="op-input" name="reason" id="review-reason" required>
+                <option value="conduct">{{ self.text("sanctions-conduct") }}</option>
+                <option value="harassment">{{ self.text("sanctions-harassment") }}</option>
+                <option value="cheating">{{ self.text("sanctions-cheating") }}</option>
+                <option value="other">{{ self.text("sanctions-other") }}</option>
+              </select>
+            </div>
+            <div>
+              <label for="review-expiry">{{ self.text("sanctions-expiry") }}</label>
+              <input class="op-input" type="datetime-local" name="expires" id="review-expiry" aria-describedby="expiry-help">
+              <p id="expiry-help">{{ self.text("sanctions-expiry-help") }}</p>
+            </div>
+            <button class="op-button" type="submit">{{ self.text("sanctions-propose") }}</button>
+          </form>
+        {% endif %}
+      </section>
+    {% endif %}
+    {% if (can_write || can_ban) && !confirmed && (!targets.is_empty() || detail) %}
+      <p><a href="/{{ lang }}/account/sudo">{{ self.text("sanctions-confirm") }}</a></p>
+    {% endif %}
+    {% if detail %}
+      {% for review in reviews %}
+        <article class="op-card op-stack">
+          <h2>{{ self.text(review.kind) }}</h2>
+          <p>{{ self.text(review.status) }}</p>
+          <dl class="op-stack">
+            <div><dt>{{ self.text("request") }}</dt><dd>{{ review.id }}</dd></div>
+            <div><dt>{{ self.text("sanctions-report") }}</dt><dd>{{ review.report_id }}</dd></div>
+            <div><dt>{{ self.text("sanctions-world") }}</dt><dd>{{ review.target.world_id }}</dd></div>
+            <div><dt>{{ self.text("sanctions-account") }}</dt><dd>{{ review.target.account_id }}</dd></div>
+            <div><dt>{{ self.text("character") }}</dt><dd>{{ review.target.character_id }}</dd></div>
+            <div><dt>{{ self.text("sanctions-expiry") }}</dt><dd>{% if review.expires.is_empty() %}{{ self.text("sanctions-permanent") }}{% else %}<time datetime="{{ review.expires }}">{{ review.expires }}</time>{% endif %}</dd></div>
+            <div><dt>{{ self.text("sanctions-reason") }}</dt><dd>{{ self.text(review.reason.as_str()) }}</dd></div>
+          {% if let Some(reason) = review.lift_reason %}<div><dt>{{ self.text("sanctions-lift-reason") }}</dt><dd>{{ self.text(reason) }}</dd></div>{% endif %}
+          </dl>
+          <h3>{{ self.text("sanctions-history") }}</h3>
+          <ul class="op-stack">
+          {% for event in review.events %}
+            <li>{{ self.text(event.action) }}<br>{{ event.actor }}<br><time datetime="{{ event.at }}">{{ event.at }}</time></li>
+          {% endfor %}
+          </ul>
+          {% if can_read_dossier %}
+            <p><a href="/admin/console/players?lang={{ lang }}&amp;character={{ review.target.character_id }}">{{ self.text("sanctions-dossier") }}</a></p>
+          {% endif %}
+          {% if review.approve %}
+            <form class="op-stack" method="post" action="/admin/console/sanctions/{{ review.id }}">
+              <input type="hidden" name="_csrf" value="{{ csrf }}">
+              <input type="hidden" name="lang" value="{{ lang }}">
+              <input type="hidden" name="revision" value="{{ review.revision }}">
+              <input type="hidden" name="action" value="approve">
+              <button class="op-button" type="submit">{{ self.text("sanctions-approve") }}</button>
+            </form>
+          {% endif %}
+          {% if review.lift %}
+            <form class="op-stack" method="post" action="/admin/console/sanctions/{{ review.id }}">
+              <input type="hidden" name="_csrf" value="{{ csrf }}">
+              <input type="hidden" name="lang" value="{{ lang }}">
+              <input type="hidden" name="revision" value="{{ review.revision }}">
+              <input type="hidden" name="action" value="lift">
+              <label for="lift-reason">{{ self.text("sanctions-lift-reason") }}</label>
+              <select class="op-input" name="reason" id="lift-reason" required>
+                <option value="appeal">{{ self.text("sanctions-lift-appeal") }}</option>
+                <option value="correction">{{ self.text("sanctions-lift-correction") }}</option>
+                <option value="review">{{ self.text("sanctions-lift-review") }}</option>
+              </select>
+              <button class="op-button" type="submit">{{ self.text("sanctions-propose-lift") }}</button>
+            </form>
+          {% endif %}
+        </article>
+      {% endfor %}
+    {% else %}
+      <section class="op-stack" aria-labelledby="review-list">
+        <h2 id="review-list">{{ self.text("sanctions-list") }}</h2>
+        {% if reviews.is_empty() %}
+          <p>{{ self.text("empty") }}</p>
+        {% else %}
+          <ul class="op-stack">
+            {% for review in reviews %}
+              <li><a href="/admin/console/sanctions?lang={{ lang }}&amp;id={{ review.id }}">{{ self.text(review.kind) }} · {{ review.id }}</a><br>{{ self.text(review.status) }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if let Some(cursor) = next %}
+          <a href="/admin/console/sanctions?lang={{ lang }}&amp;before={{ cursor }}">{{ self.text("sanctions-older") }}</a>
+        {% endif %}
+      </section>
+    {% endif %}
+  </main>
+</body>
+</html>
