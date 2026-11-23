@@ -63,6 +63,7 @@ test('login and sudo rotate sessions, and logout removes the active session', as
 });
 
 test('session list and targeted revoke preserve the current browser, then password change revokes it', async ({ page, context, browser }, info) => {
+  test.setTimeout(240_000);
   const lang = info.project.metadata.locale;
   const account = await seedAccount(lang);
   const sessionsPath = `/${lang}/account/sessions`;

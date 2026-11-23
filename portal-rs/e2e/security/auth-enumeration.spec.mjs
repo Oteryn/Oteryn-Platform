@@ -29,6 +29,9 @@ test('login gives a localized, identical refusal for wrong credentials and unkno
 });
 
 test('registration gives the same confirmation for a new and an existing email', async ({ page }, info) => {
+  // Each submission includes real browser proof of work with a four-minute deadline.
+  const registrationTimeout = 270_000;
+  test.setTimeout(600_000);
   const lang = info.project.metadata.locale;
   const account = await seedAccount(lang);
   const newEmail = emailAddress();
@@ -38,11 +41,14 @@ test('registration gives the same confirmation for a new and an existing email',
   for (const email of [newEmail, account.email]) {
     expect((await page.goto(`/${lang}/register`)).status()).toBe(200);
     await page.locator('[name=work_token]').waitFor({ state: 'attached' });
-    const submitted = page.waitForResponse(response => response.request().method() === 'POST' &&
-      response.status() !== 403 && new URL(response.url()).pathname === `/${lang}/register`);
+    const submitted = page.waitForResponse(
+      response => response.request().method() === 'POST' && response.status() !== 403 &&
+        new URL(response.url()).pathname === `/${lang}/register`,
+      { timeout: registrationTimeout },
+    );
     await submit(page, 'main form', {
       email, password: pass, password_confirmation: pass, terms: true, privacy: true,
-    });
+    }, { timeout: registrationTimeout });
     const response = await submitted;
     expect(response.status()).toBe(303);
     expect(response.headers().location).toBe(confirmation);

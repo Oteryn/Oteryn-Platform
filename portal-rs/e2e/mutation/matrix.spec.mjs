@@ -556,7 +556,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
 
 test('ticket owner reply and close enforce ownership and version', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   const options = {
     baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
