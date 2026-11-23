@@ -3,7 +3,7 @@ use super::*;
 use axum::{
     Router,
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, header},
 };
 use oteryn_admin::{
     rbac::{AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, CheckContext},
@@ -698,7 +698,8 @@ async fn postgres_public_events_only_link_to_nonempty_pages() {
         sqlx::query(
             "WITH added AS (
                 INSERT INTO events(status, starts_at, ends_at, created_by, updated_by, published_by)
-                SELECT 'published', now(), now()+interval '1 day', $1, $1, $1
+                SELECT 'published', '2096-04-01 01:00Z'::timestamptz,
+                       '2096-04-02 00:00Z'::timestamptz, $1, $1, $1
                 FROM generate_series(1, $2) RETURNING id
             )
             INSERT INTO event_translations(event_id, locale, title, slug, summary, body)
@@ -721,7 +722,106 @@ async fn postgres_public_events_only_link_to_nonempty_pages() {
             let second = public_html(&app, &format!("{path}?page=1")).await;
             assert_eq!(second.matches("<article ").count(), usize::from(count == 1));
             assert!(!second.contains("href=\"?page=2\""));
+
+            let calendar = format!("{path}/calendar/month?month=2096-04");
+            let first = public_html(&app, &calendar).await;
+            assert_eq!(first.matches("id=\"day-2096-04-01\"").count(), 1);
+            assert!(!first.contains("id=\"day-2096-04-02\""));
+            assert_eq!(first.contains("&amp;page=1\" rel=\"next\""), count == 1);
+            let second = request(app.clone(), &format!("{calendar}&page=1")).await;
+            assert_eq!(
+                second.status(),
+                if count == 1 {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                }
+            );
+            if count == 1 {
+                let second = to_bytes(second.into_body(), 50_000).await.unwrap();
+                let second = std::str::from_utf8(&second).unwrap();
+                assert!(second.contains("&amp;page=0\" rel=\"prev\""));
+                assert!(!second.contains("&amp;page=2\" rel=\"next\""));
+            }
+
+            let feed = format!("{path}/upcoming.ics");
+            let first = request(app.clone(), &feed).await;
+            assert_eq!(first.status(), StatusCode::OK);
+            let follow = format!("<{feed}?page=1>; rel=\"next\"");
+            assert_eq!(
+                first
+                    .headers()
+                    .get(header::LINK)
+                    .map(|link| link.to_str().unwrap()),
+                (count == 1).then_some(follow.as_str()),
+            );
+            let first = to_bytes(first.into_body(), 100_000).await.unwrap();
+            let first = std::str::from_utf8(&first).unwrap();
+            assert_eq!(first.matches("BEGIN:VEVENT\r\n").count(), 200);
+            if count == 1 {
+                let second = public_html(&app, &format!("{feed}?page=1")).await;
+                assert_eq!(second.matches("BEGIN:VEVENT\r\n").count(), 1);
+                let uid = second
+                    .lines()
+                    .find(|line| line.starts_with("UID:"))
+                    .unwrap();
+                assert!(!first.contains(uid));
+            }
         }
+    }
+    db.close().await;
+}
+
+#[tokio::test]
+async fn postgres_calendar_shares_the_public_read_budget() {
+    use axum::extract::ConnectInfo;
+    use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
+    use std::net::SocketAddr;
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("disposable PostgreSQL");
+    let peer: SocketAddr = "192.0.2.10:443".parse().unwrap();
+    let policy = NamedPolicy::PublicGameData;
+    RateLimiter::new(db.pool.clone())
+        .check(policy, &[Keys::source(peer.ip())])
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO web_rate_limits (limiter_name, key_hash, window_start, count)
+         SELECT limiter_name, key_hash, window_start + make_interval(secs => $3 * n), $2
+         FROM web_rate_limits CROSS JOIN generate_series(0, 1) AS n
+         WHERE limiter_name = $1
+         ON CONFLICT (limiter_name, key_hash, window_start) DO UPDATE
+         SET count = excluded.count",
+    )
+    .bind(policy.name())
+    .bind(policy.limit())
+    .bind(policy.window_seconds() as f64)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+
+    let app = web::public_router(db.pool.clone());
+    for (method, path) in [
+        ("GET", "/en/events/calendar/month"),
+        ("POST", "/en/events/calendar/month"),
+        ("GET", "/en/events/upcoming.ics"),
+        ("GET", "/en/events/example/event.ics"),
+    ] {
+        let reply = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(method)
+                    .uri(path)
+                    .extension(ConnectInfo(peer))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(reply.headers().contains_key(header::RETRY_AFTER));
     }
     db.close().await;
 }
@@ -740,4 +840,174 @@ async fn public_html(app: &Router, path: &str) -> String {
             .to_vec(),
     )
     .unwrap()
+}
+
+#[tokio::test]
+async fn postgres_calendar_visibility_preferences_and_exports() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("disposable PostgreSQL");
+    let (actor, auth, _) = db.author().await;
+    let events = Events::new(db.pool.clone());
+    let utc = |year, month, day, hour, minute| {
+        time::Date::from_calendar_date(year, month, day)
+            .unwrap()
+            .with_hms(hour, minute, 0)
+            .unwrap()
+            .assume_utc()
+    };
+    let mut content = draft("month-meeting");
+    content.starts_at = utc(2096, time::Month::March, 31, 22, 30);
+    content.ends_at = utc(2096, time::Month::April, 1, 1, 30);
+    content.en.title = "Meeting, west; east".to_owned();
+    content.en.summary = "First line\r\nSecond \\ line".to_owned();
+    let id = events
+        .save(&auth, context(actor), None, content)
+        .await
+        .unwrap();
+    let mut past = draft("past-meeting");
+    past.starts_at = utc(2020, time::Month::January, 1, 1, 0);
+    past.ends_at = utc(2020, time::Month::January, 1, 2, 0);
+    let past_id = events
+        .save(&auth, context(actor), None, past)
+        .await
+        .unwrap();
+    let app = web::public_router(db.pool.clone());
+    let month = "/en/events/calendar/month?month=2096-04";
+    let detail = "/en/events/month-meeting";
+    let single = "/en/events/month-meeting/event.ics";
+    let upcoming = "/en/events/upcoming.ics";
+    let uid = format!("UID:{id}@oteryn.com");
+    let html = public_html(&app, month).await;
+    assert!(!html.contains("month-meeting"));
+    assert_eq!(
+        request(app.clone(), single).await.status(),
+        StatusCode::NOT_FOUND
+    );
+
+    for id in [id, past_id] {
+        events
+            .transition(
+                &auth,
+                context(actor),
+                id,
+                1,
+                "published",
+                "Publish meetings",
+            )
+            .await
+            .unwrap();
+    }
+    let html = public_html(&app, month).await;
+    assert!(html.contains("2096-03-31 22:30"));
+    assert!(
+        !public_html(&app, "/pl/events/calendar/month?month=2096-04")
+            .await
+            .contains("month-meeting")
+    );
+    for bad_month in ["2096-13", "2096-4", "2096-04-01", "0000-04", ""] {
+        assert_eq!(
+            request(
+                app.clone(),
+                &format!("/en/events/calendar/month?month={bad_month}")
+            )
+            .await
+            .status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+
+    let page = request(app.clone(), month).await;
+    let cookie = page.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let html =
+        String::from_utf8(to_bytes(page.into_body(), 200_000).await.unwrap().to_vec()).unwrap();
+    let csrf = html
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    for (token, zone, expected) in [
+        ("", "Europe%2FWarsaw", StatusCode::FORBIDDEN),
+        (csrf, "Mars%2FOlympus", StatusCode::UNPROCESSABLE_ENTITY),
+        (csrf, "Europe%2FWarsaw", StatusCode::SEE_OTHER),
+    ] {
+        let reply = app
+            .clone()
+            .oneshot(
+                Request::post(month)
+                    .header(header::COOKIE, &cookie)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(format!("_csrf={token}&zone={zone}")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), expected);
+        if reply.status() == StatusCode::SEE_OTHER {
+            assert_eq!(reply.headers()[header::LOCATION], month);
+            let prefs = reply.headers()[header::SET_COOKIE]
+                .to_str()
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap();
+            let shown = app
+                .clone()
+                .oneshot(
+                    Request::get(detail)
+                        .header(header::COOKIE, prefs)
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            let shown =
+                String::from_utf8(to_bytes(shown.into_body(), 200_000).await.unwrap().to_vec())
+                    .unwrap();
+            assert!(shown.contains("2096-04-01 00:30"));
+            assert!(shown.contains("datetime=\"2096-03-31T22:30:00Z\""));
+        } else {
+            assert!(!reply.headers().contains_key(header::SET_COOKIE));
+        }
+    }
+
+    let download = request(app.clone(), single).await;
+    assert_eq!(download.status(), StatusCode::OK);
+    assert_eq!(
+        download.headers()[header::CONTENT_TYPE],
+        "text/calendar; charset=utf-8"
+    );
+    let ics = String::from_utf8(
+        to_bytes(download.into_body(), 8_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(ics.contains(&uid));
+    assert!(ics.contains("DTSTART:20960331T223000Z\r\n"));
+    assert!(ics.contains("SUMMARY:Meeting\\, west\\; east\r\n"));
+    assert!(ics.contains("DESCRIPTION:First line\\nSecond \\\\ line\r\n"));
+    let feed = public_html(&app, upcoming).await;
+    assert!(feed.contains(&uid));
+    assert!(!feed.contains(&past_id.to_string()));
+
+    events
+        .transition(&auth, context(actor), id, 2, "archived", "Archive meeting")
+        .await
+        .unwrap();
+    assert_eq!(
+        request(app.clone(), single).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert!(!public_html(&app, upcoming).await.contains(&uid));
+    assert!(!public_html(&app, month).await.contains("month-meeting"));
+    db.close().await;
 }

@@ -6,6 +6,7 @@ use oteryn_admin::{
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool};
+use time::{Date, PrimitiveDateTime};
 
 async fn translation_snapshot(
     db: &mut PgConnection,
@@ -38,6 +39,36 @@ async fn translation_snapshot(
 pub struct Events {
     pool: PgPool,
 }
+
+#[derive(sqlx::FromRow)]
+pub(super) struct ZonedEvent {
+    #[sqlx(flatten)]
+    pub event: PublicEvent,
+    pub local_start: PrimitiveDateTime,
+    pub local_end: PrimitiveDateTime,
+}
+
+#[derive(sqlx::FromRow)]
+pub(super) struct CalendarEvent {
+    pub title: String,
+    pub slug: String,
+    pub starts_at: OffsetDateTime,
+    pub ends_at: OffsetDateTime,
+    pub local_start: PrimitiveDateTime,
+    pub local_end: PrimitiveDateTime,
+    pub last_day: Date,
+}
+
+#[derive(sqlx::FromRow)]
+pub(super) struct ExportEvent {
+    pub id: Uuid,
+    pub title: String,
+    pub summary: String,
+    pub starts_at: OffsetDateTime,
+    pub ends_at: OffsetDateTime,
+    pub updated_at: OffsetDateTime,
+}
+
 impl Events {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -47,20 +78,124 @@ impl Events {
         locale: &str,
         slug: Option<&str>,
     ) -> Result<Vec<PublicEvent>, Error> {
-        self.public_page(locale, slug, 0, 200).await
+        Ok(self
+            .public_page(locale, slug, 0, 200, "UTC")
+            .await?
+            .into_iter()
+            .map(|row| row.event)
+            .collect())
     }
-    pub(crate) async fn public_page(
+    pub(super) async fn public_page(
         &self,
         locale: &str,
         slug: Option<&str>,
         offset: i64,
         limit: i64,
-    ) -> Result<Vec<PublicEvent>, Error> {
+        zone: &str,
+    ) -> Result<Vec<ZonedEvent>, Error> {
         if !matches!(locale, "pl" | "en") || slug.is_some_and(|s| !valid_slug(s)) {
             return Err(Error::Invalid);
         }
-        Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY (e.ends_at>clock_timestamp()) DESC,e.featured DESC,e.starts_at,e.id LIMIT $4 OFFSET $3")
-            .bind(locale).bind(slug).bind(offset).bind(limit).fetch_all(&self.pool).await?)
+        Ok(sqlx::query_as(
+            "SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at,
+                    e.starts_at AT TIME ZONE $5 AS local_start,
+                    e.ends_at AT TIME ZONE $5 AS local_end
+             FROM events e JOIN event_translations t ON t.event_id=e.id
+             WHERE e.status='published' AND e.published_by IS NOT NULL
+               AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2)
+             ORDER BY (e.ends_at>clock_timestamp()) DESC,e.featured DESC,e.starts_at,e.id
+             LIMIT $4 OFFSET $3",
+        )
+        .bind(locale)
+        .bind(slug)
+        .bind(offset)
+        .bind(limit)
+        .bind(zone)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub(super) async fn time_zones(&self, name: Option<&str>) -> Result<Vec<String>, Error> {
+        // Use the same tzdata for the selector and for conversion. Require a
+        // geographic name (or UTC) so PostgreSQL does not resolve abbreviations.
+        Ok(sqlx::query_scalar(
+            "SELECT name FROM pg_timezone_names
+             WHERE ($1::text IS NULL OR name=$1)
+               AND (name='UTC' OR name ~ '^[A-Za-z0-9_+-]+(/[A-Za-z0-9_+-]+)+$')
+               AND name NOT LIKE 'posix/%' AND name NOT LIKE 'right/%'
+             ORDER BY (name='UTC') DESC, name",
+        )
+        .bind(name)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub(super) async fn local_today(&self, zone: &str) -> Result<Date, Error> {
+        Ok(
+            sqlx::query_scalar("SELECT (CURRENT_TIMESTAMP AT TIME ZONE $1)::date")
+                .bind(zone)
+                .fetch_one(&self.pool)
+                .await?,
+        )
+    }
+
+    pub(super) async fn calendar_events(
+        &self,
+        locale: &str,
+        zone: &str,
+        first: Date,
+        next: Date,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<CalendarEvent>, Error> {
+        // Pad the UTC window so both occurrences of a repeated local hour
+        // remain candidates. The calendar clips the rows to the local month.
+        Ok(sqlx::query_as(
+            "SELECT * FROM (
+                 SELECT e.id,t.title,t.slug,e.starts_at,e.ends_at,
+                        e.starts_at AT TIME ZONE $2 AS local_start,
+                        e.ends_at AT TIME ZONE $2 AS local_end,
+                        ((e.ends_at - interval '1 microsecond') AT TIME ZONE $2)::date AS last_day
+                 FROM events e JOIN event_translations t ON t.event_id=e.id
+                 WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1
+                   AND e.starts_at < (($4::date + 1)::timestamp AT TIME ZONE 'UTC')
+                   AND e.ends_at > (($3::date - 1)::timestamp AT TIME ZONE 'UTC')
+             ) AS candidates
+             WHERE least(local_start::date,last_day) < $4
+               AND greatest(local_start::date,last_day) >= $3
+             ORDER BY starts_at,id LIMIT $6 OFFSET $5",
+        )
+        .bind(locale)
+        .bind(zone)
+        .bind(first)
+        .bind(next)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    pub(super) async fn export_events(
+        &self,
+        locale: &str,
+        slug: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<ExportEvent>, Error> {
+        Ok(sqlx::query_as(
+            "SELECT e.id,t.title,t.summary,e.starts_at,e.ends_at,e.updated_at
+             FROM events e JOIN event_translations t ON t.event_id=e.id
+             WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1
+               AND (($2::text IS NOT NULL AND t.slug=$2)
+                    OR ($2::text IS NULL AND e.ends_at>CURRENT_TIMESTAMP))
+             ORDER BY e.starts_at,e.id LIMIT $4 OFFSET $3",
+        )
+        .bind(locale)
+        .bind(slug)
+        .bind(offset)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
     }
     pub(crate) async fn digest(
         &self,

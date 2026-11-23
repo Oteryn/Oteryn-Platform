@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ heading }} · {{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/events/calendar.css">
+</head>
+<body class="op-theme">
+  <main class="op-stack op-panel events-page">
+    <h1>{{ heading }}</h1>
+    <div class="events-controls">
+      <a href="/{{ lang }}/events">{{ list_label }}</a>
+      <a href="/{{ lang }}/events/upcoming.ics">{{ export_label }}</a>
+    </div>
+    <div class="events-controls">
+      <form method="get" action="/{{ lang }}/events/calendar/month" class="events-controls">
+        <div>
+          <label for="event-month">{{ month_label }}</label>
+          <input id="event-month" class="op-input" type="month" name="month" value="{{ month }}" min="0001-01" max="9998-12" required>
+        </div>
+        <button class="op-button" type="submit">{{ show_month_label }}</button>
+      </form>
+      <form method="post" action="/{{ lang }}/events/calendar/month?month={{ month }}{% if page > 0 %}&amp;page={{ page }}{% endif %}" class="events-controls">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <div>
+          <label for="event-zone">{{ zone_label }}</label>
+          <select id="event-zone" name="zone" class="op-input" required>
+            {% for option in zones %}<option value="{{ option }}"{% if option.as_str() == zone %} selected{% endif %}>{{ option }}</option>{% endfor %}
+          </select>
+        </div>
+        <button class="op-button" type="submit">{{ save_zone_label }}</button>
+      </form>
+    </div>
+    <h2 id="event-month-title">{{ title }}</h2>
+    <div class="events-controls">
+      {% if let Some(previous) = previous %}<a href="?month={{ previous }}" rel="prev">{{ previous_label }}</a>{% endif %}
+      {% if let Some(next) = next %}<a href="?month={{ next }}" rel="next">{{ next_label }}</a>{% endif %}
+    </div>
+    <table class="events-calendar" aria-labelledby="event-month-title">
+      <thead>
+        <tr>{% for weekday in weekdays %}<th scope="col">{{ weekday }}</th>{% endfor %}</tr>
+      </thead>
+      <tbody>
+        {% for week in weeks %}
+        <tr>
+          {% for day in *week %}
+          <td>
+            {% if let Some(day) = day %}
+            {% if day.items.is_empty() %}
+            <time datetime="{{ day.date }}">{{ day.date.day() }}</time>
+            {% else %}
+            <a href="#day-{{ day.date }}"><time datetime="{{ day.date }}">{{ day.date.day() }}</time></a>
+            {% endif %}
+            {% endif %}
+          </td>
+          {% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if is_empty %}<p>{{ empty_label }}</p>{% endif %}
+    {% for day in days %}
+    {% if !day.items.is_empty() %}
+    <section class="op-stack op-card events-agenda" id="day-{{ day.date }}" aria-labelledby="heading-{{ day.date }}">
+      <h3 id="heading-{{ day.date }}"><time datetime="{{ day.date }}">{{ day.label }}</time></h3>
+      <ul class="op-stack">
+        {% for item in day.items %}
+        <li>
+          <a href="/{{ lang }}/events/{{ item.slug }}">{{ item.title }}</a><br>
+          <time datetime="{{ item.start.datetime }}">{{ item.start.display }}</time> – <time datetime="{{ item.end.datetime }}">{{ item.end.display }}</time>
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
+    {% endfor %}
+    {% if previous_page.is_some() || next_page.is_some() %}
+    <div class="events-controls">
+      {% if let Some(previous) = previous_page %}<a href="?month={{ month }}&amp;page={{ previous }}" rel="prev">{{ previous_page_label }}</a>{% endif %}
+      {% if let Some(next) = next_page %}<a href="?month={{ month }}&amp;page={{ next }}" rel="next">{{ next_page_label }}</a>{% endif %}
+    </div>
+    {% endif %}
+  </main>
+</body>
+</html>
