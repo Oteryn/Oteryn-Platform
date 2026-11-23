@@ -49,7 +49,7 @@ services:
       MP_SMTP_TLS_KEY: /tls/key.pem
       MP_SMTP_REQUIRE_STARTTLS: 'true'
       MP_SMTP_AUTH_FILE: /tls/auth
-      MP_MAX_MESSAGES: '100'
+      MP_MAX_MESSAGES: '5000'
     volumes:
       - mail_tls:/tls:ro
     tmpfs:
