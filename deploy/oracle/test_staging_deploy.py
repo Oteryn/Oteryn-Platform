@@ -1,4 +1,5 @@
 """Exercise the staging host boundary without building a portal or touching Oracle."""
+import hashlib
 import fcntl
 import importlib.util
 import io
@@ -270,6 +271,22 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual(grant[0].kwargs['data'], staging.GRANT_STAFF)
         # subprocess input must be bytes (a str raised TypeError on the host).
         self.assertIsInstance(staging.GRANT_STAFF, bytes)
+        # Registration is enabled and every range prefix is cached as complete
+        # before the public portal starts, because the stack has no egress.
+        policy = [entry for entry in grant if entry.kwargs['data'] == staging.REGISTRATION_POLICY]
+        self.assertEqual(len(policy), 1)
+        self.assertIn('-1', policy[0].args[0])
+        self.assertIsInstance(staging.REGISTRATION_POLICY, bytes)
+        sql = staging.REGISTRATION_POLICY.decode()
+        self.assertIn('SET enabled = true', sql)
+        self.assertIn('generate_series(0, 1048575)', sql)
+        for sample in staging.BREACHED_SAMPLES:
+            digest = hashlib.sha1(sample.encode()).hexdigest().upper()
+            self.assertIn(f"ARRAY['{digest[5:]}']", sql)
+            self.assertIn(f"WHERE prefix = '{digest[:5]}'", sql)
+        self.assertLess(command.call_args_list.index(policy[0]),
+                        [i for i, entry in enumerate(command.call_args_list)
+                         if entry.args[0][10:12] == ['up', '-d'] and 'portal-public' in entry.args[0]][0])
         self.assertEqual(staging.GRANT_STAFF.count(b'INSERT INTO account_roles'), len(staging.STAFF))
         self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress'])
         removals = [item for item in commands if item[:3] == ['docker', 'volume', 'rm']]

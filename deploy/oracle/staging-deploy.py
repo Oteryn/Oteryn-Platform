@@ -83,6 +83,23 @@ GRANT_STAFF = ''.join(
     "INSERT INTO account_roles(account_id, role_id) SELECT a.id, r.id FROM accounts a "
     f"CROSS JOIN roles r WHERE a.email = '{email}' AND r.key = '{role}' ON CONFLICT DO NOTHING;\n"
     for email, role in STAFF.items()).encode()
+# Staging has no egress, so the breached-password check could never reach the
+# range API and registration and reset would fail closed (503). Every prefix is
+# cached as complete; only these documented passwords count as breached, so
+# black-box tests can still see the refusal. Registration is enabled here.
+BREACHED_SAMPLES = ('Staging-Breached-Password-1', 'Staging-Breached-Password-2')
+REGISTRATION_POLICY = (
+    "UPDATE registration_abuse_policy SET enabled = true WHERE singleton;\n"
+    "INSERT INTO registration_password_ranges(prefix, suffixes, expires_at, complete, complete_xact) "
+    "SELECT upper(lpad(to_hex(n), 5, '0')), ARRAY[]::text[], now() + interval '30 days', true, "
+    "pg_current_xact_id() FROM generate_series(0, 1048575) AS n ON CONFLICT (prefix) DO UPDATE SET "
+    "suffixes = EXCLUDED.suffixes, expires_at = EXCLUDED.expires_at, complete = true, "
+    "complete_xact = pg_current_xact_id();\n"
+    + ''.join(
+        "UPDATE registration_password_ranges SET suffixes = suffixes || "
+        f"ARRAY['{digest[5:]}'], complete_xact = pg_current_xact_id() WHERE prefix = '{digest[:5]}';\n"
+        for digest in (hashlib.sha1(sample.encode()).hexdigest().upper() for sample in BREACHED_SAMPLES))
+).encode()
 ACCOUNT_FLAGS = (
     'LOGIN', 'MFA', 'PASSKEYS', 'PASSWORD_RESET', 'SESSIONS', 'CREDENTIALS',
     'EMAIL_CHANGE', 'RECOVERY_KEYS', 'OVERVIEW_ENABLED', 'PRIVACY_ENABLED',
@@ -429,6 +446,8 @@ def replace_stack(directory, sha, smtp_password, seed_password):
     compose(directory, 'up', '-d', '--wait', 'postgres')
     compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
             '-U', 'portal', '-d', PORTAL_DB, data=GRANT_STAFF)
+    compose(directory, 'exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
+            '-U', 'portal', '-d', PORTAL_DB, '-1', data=REGISTRATION_POLICY, timeout=600)
     compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress')
     wait_ready()
 
