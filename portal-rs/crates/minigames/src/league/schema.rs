@@ -66,7 +66,7 @@ pub fn number(s: &str, zero: bool) -> Result<u64> {
     ensure((zero || n > 0) && n.to_string() == s)?;
     Ok(n)
 }
-fn key(s: &str) -> bool {
+pub(super) fn key(s: &str) -> bool {
     !s.is_empty()
         && s.len() <= 128
         && (s.as_bytes()[0].is_ascii_lowercase() || s.as_bytes()[0].is_ascii_digit())

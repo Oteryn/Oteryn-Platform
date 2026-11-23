@@ -69,7 +69,8 @@ they do not mean VOID or zero standings. The worker validates canonical bytes,
 registered World identity, immutable question/occurrence identity, revision order,
 correction lineage and final-state rules. Equal revision with different content,
 revision gaps and regressions fail closed. SCHEDULED/LOCKED observations retain
-controls but never open predictions or appear as decided outcomes.
+controls and can appear in the Portal prediction view. Only a current SCHEDULED
+record opens the form before its lock time.
 
 Game acknowledges retained snapshots/correction lineage before advancing either
 family watermark. Platform processes its durable queue in arrival order. Serving
@@ -90,7 +91,7 @@ snapshots, their verified SPKI identity, local receipts and derived adapter audi
 payloads. These local records are not native Game provenance. For compatibility,
 historical SQL columns named `signature` and `peer_certificate_sha256` store the
 verified SPKI identity; old signature metadata and certificate digests fail the
-new grammar. No migration or old migration checksum change is needed.
+new grammar. The prediction migration leaves the published feed migrations unchanged.
 Local audit expiry uses immutable snapshot observation timestamps; first observed
 final-freeze retention is preserved across retries. Raw inbox/audit/history is
 bounded to P90D; minimal non-reuse, receipt and final-state controls persist.
@@ -101,8 +102,11 @@ Owner acceptance flags `accepted_sources`, `accepted_season_rules`,
 `accepted_final_freeze`, `accepted_pki` default true. `OTERYN_LEAGUE_POLICY` may
 supply these boolean members; malformed policy refuses. Policy flags never
 substitute for deployment trust or Game source facts. Outcome mappings, seasons,
-scoring, guild attribution and correction windows remain Game-owned. There are no
-predictions, stakes, rewards, Wallet/Store effects or inferred season-pass sources.
+scoring, guild attribution and correction windows remain Game-owned. The Portal records one stake-free prediction per
+eligible account and scores it from the verified CLOSED result. There are no
+rewards, Wallet/Store effects or inferred season-pass sources. See the
+[GAP-64 qualification notes](../../../../../docs/product/GAP-64_LEAGUE_QUALIFICATION.md)
+for operator status and remaining producer evidence.
 
 Defaults: 16 TLS connections, 2s handshake, 5s exchange, 120 requests/minute,
 64 queued requests per worker tick. Lower connection/batch caps through

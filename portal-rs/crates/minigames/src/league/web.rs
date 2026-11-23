@@ -1,16 +1,20 @@
-//! Read-only public surface; no prediction mutation exists.
-use super::*;
+//! Public league results and private, stake-free predictions.
+use super::{predictions::Overview, *};
 use askama::Template;
 use axum::{
-    Extension, Router,
-    extract::{Path, State},
-    http::{StatusCode, header},
-    middleware::from_fn_with_state,
-    response::{Html, IntoResponse, Response},
-    routing::get,
+    Extension, Form, Router,
+    extract::{DefaultBodyLimit, Path, Request, State, rejection::FormRejection},
+    http::{HeaderValue, StatusCode, header},
+    middleware::{Next, from_fn, from_fn_with_state},
+    response::{Html, IntoResponse, Redirect, Response},
+    routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_web::ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter};
+use oteryn_web::{
+    csrf::CsrfConfig,
+    ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter},
+    session::{self, BrowserSession, SessionLayer, SignedInSession},
+};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Semaphore;
@@ -20,8 +24,8 @@ const MAX_CONCURRENT_READS: usize = 4;
 
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><style>body{margin:auto;padding:1rem;max-width:90rem;font:1rem/1.5 system-ui;color:#eee;background:#151b25}article{padding:1rem;border:1px solid #708090;border-radius:.5rem;overflow-wrap:anywhere}section{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.3rem}h1{font-size:clamp(1.5rem,4vw,2.5rem)}</style></head><body><main><h1>{{ title }}</h1><p role=\"status\">{{ message }}</p><h2>{{ outcomes }}</h2><section>{% for row in events %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><p>{{ result }}: {{ row.result }}</p></article>{% endfor %}</section><h2>{{ standings }}</h2><section>{% for row in seasons %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><table><thead><tr><th>{{ rank }}</th><th>{{ guild }}</th><th>{{ points }}</th></tr></thead><tbody>{% for g in row.guilds %}<tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>{% endfor %}</tbody></table></article>{% endfor %}</section></main></body></html>",
-    ext = "html"
+    path = "minigames/league.html",
+    config = "../../templates/minigames/askama.toml"
 )]
 struct Page {
     lang: String,
@@ -34,14 +38,35 @@ struct Page {
     rank: String,
     guild: String,
     points: String,
+    lock_at: String,
+    choice_label: String,
+    score_label: String,
+    choose: String,
+    submit: String,
+    sign_in_label: String,
+    back: String,
+    retry: bool,
+    csrf: String,
     events: Vec<EventRow>,
     seasons: Vec<SeasonRow>,
 }
 struct EventRow {
     subject: String,
+    source: String,
     world: String,
     state: String,
-    result: String,
+    deadline: Option<String>,
+    result: Option<String>,
+    choice: Option<String>,
+    score: Option<u8>,
+    form: Option<PredictionForm>,
+    sign_in: bool,
+}
+struct PredictionForm {
+    epoch: String,
+    generation: u64,
+    revision: String,
+    options: Vec<String>,
 }
 struct SeasonRow {
     subject: String,
@@ -71,18 +96,11 @@ fn text(lang: &str, id: &str) -> String {
     bundle.format_pattern(value, None, &mut vec![]).into_owned()
 }
 impl Page {
-    fn new(lang: &str, snapshots: Option<Vec<schema::Snapshot>>) -> Self {
+    fn new(lang: &str, overview: Option<Overview>, session: Option<SignedInSession>) -> Self {
         let mut p = Self {
             lang: lang.into(),
             title: text(lang, "title"),
-            message: text(
-                lang,
-                if snapshots.is_some() {
-                    "pending"
-                } else {
-                    "unavailable"
-                },
-            ),
+            message: text(lang, "unavailable"),
             outcomes: text(lang, "outcomes"),
             standings: text(lang, "standings"),
             world: text(lang, "world"),
@@ -90,27 +108,36 @@ impl Page {
             rank: text(lang, "rank"),
             guild: text(lang, "guild"),
             points: text(lang, "points"),
+            lock_at: text(lang, "lock-at"),
+            choice_label: text(lang, "choice"),
+            score_label: text(lang, "score"),
+            choose: text(lang, "choose"),
+            submit: text(lang, "submit"),
+            sign_in_label: text(lang, "sign-in"),
+            back: text(lang, "back"),
+            retry: false,
+            csrf: String::new(),
             events: vec![],
             seasons: vec![],
         };
-        for s in snapshots.unwrap_or_default() {
+        let Some(overview) = overview else {
+            return p;
+        };
+        let signed_in = session.is_some();
+        p.csrf = session.map(|session| session.csrf).unwrap_or_default();
+        p.events.extend(
+            overview
+                .active
+                .iter()
+                .filter_map(|s| Self::event(lang, &overview, s, signed_in)),
+        );
+        for s in &overview.decisions {
             match s {
                 schema::Snapshot::Event(s) => {
-                    for e in s.event {
-                        p.events.push(EventRow {
-                            subject: s.event_id.clone(),
-                            world: s.world_id.clone(),
-                            state: text(lang, &e.state.to_lowercase()),
-                            result: e
-                                .outcome
-                                .first()
-                                .cloned()
-                                .unwrap_or_else(|| text(lang, "void")),
-                        });
-                    }
+                    p.events.extend(Self::event(lang, &overview, s, signed_in));
                 }
                 schema::Snapshot::Season(s) => {
-                    for e in s.season {
+                    for e in &s.season {
                         p.seasons.push(SeasonRow {
                             subject: s.season_id.clone(),
                             world: s.world_id.clone(),
@@ -118,34 +145,81 @@ impl Page {
                             guilds: if e.state == "VOID" {
                                 vec![]
                             } else {
-                                e.standings
+                                e.standings.clone()
                             },
                         });
                     }
                 }
             }
         }
+        p.message = text(
+            lang,
+            if p.events.is_empty() && p.seasons.is_empty() {
+                "empty"
+            } else {
+                "pending"
+            },
+        );
         p
     }
+
+    fn event(
+        lang: &str,
+        overview: &Overview,
+        snapshot: &schema::EventSnapshot,
+        signed_in: bool,
+    ) -> Option<EventRow> {
+        let record = snapshot.event.first()?;
+        let key = (
+            snapshot.source_authority.clone(),
+            schema::id(&snapshot.world_id).ok()?,
+            schema::id(&snapshot.event_id).ok()?,
+        );
+        let choice = overview.choices.get(&key);
+        let open = predictions::open(record, overview.now);
+        let deadline = schema::number(&record.lock_at, false)
+            .ok()
+            .and_then(|seconds| i64::try_from(seconds).ok())
+            .and_then(|seconds| time::OffsetDateTime::from_unix_timestamp(seconds).ok())
+            .and_then(|time| {
+                time.format(&time::format_description::well_known::Rfc3339)
+                    .ok()
+            });
+        let phase = record.state.to_lowercase();
+        let active = matches!(record.state.as_str(), "SCHEDULED" | "LOCKED");
+        Some(EventRow {
+            subject: snapshot.event_id.clone(),
+            source: record.source_key.clone(),
+            world: snapshot.world_id.clone(),
+            state: text(lang, if active && !open { "locked" } else { &phase }),
+            deadline: deadline.filter(|_| active),
+            result: (!active).then(|| {
+                record
+                    .outcome
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| text(lang, "void"))
+            }),
+            choice: choice.cloned(),
+            score: choice.and_then(|choice| predictions::final_score(record, choice)),
+            form: (open && overview.eligible && choice.is_none()).then(|| PredictionForm {
+                epoch: snapshot.projection_epoch.clone(),
+                generation: overview.generation,
+                revision: snapshot.projection_revision.clone(),
+                options: record.options.clone(),
+            }),
+            sign_in: open && !signed_in,
+        })
+    }
+
     fn response(self, status: StatusCode) -> Response {
         match self.render() {
-            Ok(body) => (
-                status,
-                [
-                    (header::CACHE_CONTROL, "no-store"),
-                    (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-                ],
-                Html(body),
-            )
-                .into_response(),
-            Err(_) => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                [(header::CACHE_CONTROL, "no-store")],
-            )
-                .into_response(),
+            Ok(body) => (status, Html(body)).into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
 }
+
 struct Surface<A> {
     league: League<A>,
     read_slots: Semaphore,
@@ -154,6 +228,7 @@ struct Surface<A> {
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
     router_with_clock(league, || time::OffsetDateTime::now_utc().unix_timestamp())
 }
+
 pub(super) fn router_with_clock<A: Authority + 'static>(
     league: League<A>,
     clock: fn() -> i64,
@@ -162,9 +237,31 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
         return Router::new();
     }
     let limiter = RateLimiter::new(league.pool.clone());
+    let mut sessions = SessionLayer::new(league.pool.clone());
+    sessions.csrf = CsrfConfig {
+        trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")
+            .ok()
+            .into_iter()
+            .collect(),
+        ..CsrfConfig::default()
+    };
     Router::new()
-        .route("/{lang}/league", get(page::<A>))
+        .route(
+            "/{lang}/league",
+            get(page::<A>).layer(from_fn_with_state(
+                sessions.clone(),
+                session::read_only_middleware,
+            )),
+        )
+        .merge(
+            Router::new()
+                .route("/{lang}/league/prediction", post(submit::<A>))
+                .layer(from_fn_with_state(sessions, session::middleware))
+                .layer(DefaultBodyLimit::max(4096))
+                .layer(tower_http::limit::RequestBodyLimitLayer::new(4096)),
+        )
         .layer(from_fn_with_state(limiter, ratelimit::supply))
+        .layer(from_fn(response_policy))
         .with_state(Arc::new(Surface {
             league,
             read_slots: Semaphore::new(MAX_CONCURRENT_READS),
@@ -177,24 +274,24 @@ pub fn configured_router(pool: PgPool) -> Router {
     router(League::new(pool, flags, authority))
 }
 
-async fn page<A: Authority>(
-    Path(lang): Path<String>,
-    State(state): State<Arc<Surface<A>>>,
-    Extension(limiter): Extension<RateLimiter>,
+async fn response_policy(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+}
+
+async fn limit(
+    limiter: &RateLimiter,
     source: std::result::Result<Option<ClientSource>, StatusCode>,
-) -> Response {
-    if !matches!(lang.as_str(), "pl" | "en") {
-        return StatusCode::NOT_FOUND.into_response();
-    }
-    let source = match source {
-        Ok(source) => source,
-        Err(status) => return Page::new(&lang, None).response(status),
-    };
-    let Ok(now) = u64::try_from((state.clock)()) else {
-        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    };
+) -> std::result::Result<(), StatusCode> {
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
-    if let Some(ClientSource(ip)) = source {
+    if let Some(ClientSource(ip)) = source? {
         let keys = [Keys::source(ip)];
         match tokio::time::timeout(
             Duration::from_secs(1),
@@ -203,23 +300,89 @@ async fn page<A: Authority>(
         .await
         {
             Ok(Ok(())) => {}
-            Ok(Err(denial)) => return Page::new(&lang, None).response(denial.status()),
-            Err(_) => return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
+            Ok(Err(denial)) => return Err(denial.status()),
+            Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE),
         }
     }
-    let Ok(slot) = state.read_slots.try_acquire() else {
-        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    };
-    let snapshots = state.league.read(now).await;
-    drop(slot);
-    match snapshots {
-        Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),
-        Err(_) => Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
+    Ok(())
+}
+
+async fn page<A: Authority>(
+    Path(lang): Path<String>,
+    State(state): State<Arc<Surface<A>>>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: std::result::Result<Option<ClientSource>, StatusCode>,
+    signed_in: Option<Extension<SignedInSession>>,
+) -> Response {
+    if !matches!(lang.as_str(), "pl" | "en") {
+        return StatusCode::NOT_FOUND.into_response();
     }
+    if let Err(status) = limit(&limiter, source).await {
+        return Page::new(&lang, None, None).response(status);
+    }
+    if (state.clock)() < 0 {
+        return Page::new(&lang, None, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let Ok(_slot) = state.read_slots.try_acquire() else {
+        return Page::new(&lang, None, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let session = signed_in.map(|Extension(value)| value);
+    match state
+        .league
+        .overview(session.as_ref().map(|s| s.account_id))
+        .await
+    {
+        Ok(overview) => Page::new(&lang, Some(overview), session).response(StatusCode::OK),
+        Err(_) => Page::new(&lang, None, None).response(StatusCode::SERVICE_UNAVAILABLE),
+    }
+}
+
+async fn submit<A: Authority>(
+    Path(lang): Path<String>,
+    State(state): State<Arc<Surface<A>>>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: std::result::Result<Option<ClientSource>, StatusCode>,
+    Extension(session): Extension<BrowserSession>,
+    form: std::result::Result<Form<predictions::Form>, FormRejection>,
+) -> Response {
+    if !matches!(lang.as_str(), "pl" | "en") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    if let Err(status) = limit(&limiter, source).await {
+        return Page::new(&lang, None, None).response(status);
+    }
+    let result = match (session.account_id().await, form) {
+        (None, _) => Err(Error::Denied),
+        (_, Err(_)) => Err(Error::Invalid),
+        (Some(account), Ok(Form(form))) => state.league.predict(account, form).await,
+    };
+    let (status, message) = match result {
+        Ok(()) => return Redirect::to(&format!("/{lang}/league")).into_response(),
+        Err(Error::Conflict) => (StatusCode::CONFLICT, "refused"),
+        Err(Error::Denied) => (StatusCode::FORBIDDEN, "denied"),
+        Err(Error::Invalid) => (StatusCode::UNPROCESSABLE_ENTITY, "invalid"),
+        Err(_) => (StatusCode::SERVICE_UNAVAILABLE, "unavailable"),
+    };
+    let mut page = Page::new(&lang, None, None);
+    page.message = text(&lang, message);
+    page.retry = true;
+    page.response(status)
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn overview(decisions: Vec<schema::Snapshot>) -> Overview {
+        Overview {
+            decisions,
+            active: vec![],
+            choices: Default::default(),
+            eligible: false,
+            now: 1790000200,
+            generation: 1,
+        }
+    }
+
     #[test]
     fn void_season_never_claims_a_ranking() -> std::result::Result<(), Box<dyn std::error::Error>> {
         let fixtures: serde_json::Value =
@@ -232,16 +395,38 @@ mod tests {
             s.season[0].state = "VOID".into();
         }
         for lang in ["pl", "en"] {
-            let html = Page::new(lang, Some(vec![snapshot.clone()])).render()?;
+            let html = Page::new(lang, Some(overview(vec![snapshot.clone()])), None).render()?;
             assert!(!html.contains("Aldric Guild"));
             assert!(!html.contains("Second Guild"));
         }
         Ok(())
     }
     #[test]
+    fn fresh_empty_feed_has_an_empty_state() {
+        assert_eq!(
+            Page::new("en", Some(overview(vec![])), None).message,
+            "No world events or guild standings have been published."
+        );
+    }
+    #[tokio::test]
+    async fn prediction_route_is_disabled_by_default()
+    -> std::result::Result<(), Box<dyn std::error::Error>> {
+        use axum::{body::Body, http::Request};
+        use sqlx::postgres::PgPoolOptions;
+        use tower::ServiceExt;
+        let pool = PgPoolOptions::new().connect_lazy_with(sqlx::postgres::PgConnectOptions::new());
+        let app = router(League::new(pool, Flags::default(), Unavailable));
+        let response = app
+            .oneshot(Request::post("/en/league/prediction").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        Ok(())
+    }
+
+    #[test]
     fn responsive_localized_pages() -> std::result::Result<(), askama::Error> {
         for lang in ["pl", "en"] {
-            let p = Page::new(lang, None);
+            let p = Page::new(lang, None, None);
             assert!(!p.title.is_empty());
             assert!(!p.message.is_empty());
             let html = p.render()?;

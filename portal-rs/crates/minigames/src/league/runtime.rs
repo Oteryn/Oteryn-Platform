@@ -124,6 +124,65 @@ impl Authority for GameAuthority {
             .await
     }
 
+    async fn prediction_events(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        fence: Fence,
+        now: u64,
+        subject: Option<(Uuid, Uuid)>,
+    ) -> Result<Vec<schema::EventSnapshot>> {
+        let c = self.config.as_ref().ok_or(Error::Unavailable)?;
+        let rows = sqlx::query(
+            "SELECT w.world_id,w.subject_id,w.revision::text,w.record_hash,
+                    i.request_id,i.body,i.meta,i.signature,i.peer_certificate_sha256
+             FROM league_feed_withdrawals w
+             JOIN league_feed_inbox i ON i.request_id=w.prediction_publication
+             WHERE w.authority=$1 AND w.family='world_event_outcome'
+               AND w.epoch=$2::numeric AND w.recovery_generation=$3::numeric
+               AND ($4::uuid IS NULL OR w.world_id=$4) AND ($5::uuid IS NULL OR w.subject_id=$5)
+               AND w.prediction_publication IS NOT NULL AND NOT w.withdrawn
+               AND i.path=$6 AND i.state='done' AND i.expires_at>$7
+             ORDER BY w.world_id,w.subject_id LIMIT $8",
+        )
+        .bind(&c.authority)
+        .bind(fence.epoch.to_string())
+        .bind(fence.recovery_generation.to_string())
+        .bind(subject.map(|p| p.0))
+        .bind(subject.map(|p| p.1))
+        .bind(admission::EVENT)
+        .bind(i64::try_from(now).map_err(|_| Error::Unavailable)?)
+        .bind(super::store::SERVING_LIMIT as i64)
+        .fetch_all(&mut **tx)
+        .await?;
+        let mut events = Vec::with_capacity(rows.len());
+        for row in rows {
+            let body: Vec<u8> = row.try_get("body")?;
+            let meta: Vec<u8> = row.try_get("meta")?;
+            let signature: Vec<u8> = row.try_get("signature")?;
+            let admitted = admission::authenticate(c, admission::EVENT, &meta, &body, &signature)?;
+            let snapshot = schema::Snapshot::decode(&body, false, now)?;
+            schema::ensure(
+                admitted.request_id == row.try_get::<Uuid, _>("request_id")?.to_string()
+                    && c.client_spki_sha256
+                        == row.try_get::<String, _>("peer_certificate_sha256")?
+                    && schema::id(snapshot.world())? == row.try_get::<Uuid, _>("world_id")?
+                    && schema::id(snapshot.subject())? == row.try_get::<Uuid, _>("subject_id")?
+                    && snapshot.epoch() == fence.epoch.to_string()
+                    && snapshot.revision() == row.try_get::<String, _>("revision")?
+                    && schema::hash(&snapshot.record()?)
+                        == row.try_get::<String, _>("record_hash")?
+                    && snapshot.observed()? <= fence.complete_through
+                    && nonterminal(&snapshot),
+            )?;
+            registered_world(tx, snapshot.world()).await?;
+            let schema::Snapshot::Event(event) = snapshot else {
+                return Err(Error::Unavailable);
+            };
+            events.push(event);
+        }
+        Ok(events)
+    }
+
     fn reconciled_recovery(&self) -> bool {
         true
     }
@@ -622,8 +681,10 @@ impl FeedJob {
                 sqlx::query("UPDATE league_subjects SET epoch=$5::numeric,revision=$6::numeric,recovery_generation=$7::numeric WHERE authority=$1 AND family=$2 AND world_id=$3 AND subject_id=$4")
                     .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(&m.recovery_generation).execute(&mut *tx).await?;
             }
-            sqlx::query("INSERT INTO league_feed_withdrawals(authority,family,world_id,subject_id,epoch,revision,withdrawn,record_hash,recovery_generation) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7,$8,$9::numeric) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,withdrawn=EXCLUDED.withdrawn,record_hash=EXCLUDED.record_hash,recovery_generation=EXCLUDED.recovery_generation")
-                .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(withdrawn).bind(schema::hash(&s.record()?)).bind(&m.recovery_generation).execute(&mut *tx).await?;
+            let request_id = schema::id(&m.request_id)?;
+            sqlx::query("INSERT INTO league_feed_withdrawals(authority,family,world_id,subject_id,epoch,revision,withdrawn,record_hash,recovery_generation,prediction_publication) VALUES($1,$2,$3,$4,$5::numeric,$6::numeric,$7,$8,$9::numeric,$10) ON CONFLICT(authority,family,world_id,subject_id) DO UPDATE SET epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,withdrawn=EXCLUDED.withdrawn,record_hash=EXCLUDED.record_hash,recovery_generation=EXCLUDED.recovery_generation,prediction_publication=EXCLUDED.prediction_publication")
+                .bind(s.authority()).bind(s.family()).bind(schema::id(s.world())?).bind(schema::id(s.subject())?).bind(s.epoch()).bind(s.revision()).bind(withdrawn).bind(schema::hash(&s.record()?)).bind(&m.recovery_generation)
+                .bind(nonterminal(&s).then_some(request_id)).execute(&mut *tx).await?;
             sqlx::query("WITH updated AS (UPDATE league_feed_inbox SET state='done' WHERE request_id=$1 RETURNING request_id) UPDATE league_feed_requests SET state='done' WHERE request_id IN (SELECT request_id FROM updated)")
                 .bind(schema::id(&m.request_id)?).execute(&mut *tx).await?;
             tx.commit().await?;
@@ -729,6 +790,8 @@ impl Retention {
             .await?;
         sqlx::query("UPDATE league_subjects SET wire=''::bytea WHERE ctid IN (SELECT ctid FROM league_subjects WHERE finalized_at <= $1 AND octet_length(wire)>0 LIMIT 256)").bind(clock.saturating_sub(90*86400)).execute(&mut *tx).await?;
         sqlx::query("WITH deleted AS (DELETE FROM league_feed_inbox WHERE request_id IN (SELECT request_id FROM league_feed_inbox WHERE expires_at <= $1 ORDER BY expires_at,request_id LIMIT 256) RETURNING request_id) UPDATE league_feed_requests SET state=CASE WHEN state='pending' THEN 'gone' ELSE state END WHERE request_id IN (SELECT request_id FROM deleted)").bind(clock).execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM league_predictions WHERE ctid IN (SELECT ctid FROM league_predictions WHERE expires_at <= $1 ORDER BY expires_at LIMIT 256)")
+            .bind(clock).execute(&mut *tx).await?;
         tx.commit().await?;
         Ok(())
     }
