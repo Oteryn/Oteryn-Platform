@@ -655,7 +655,8 @@ async fn render_record(
                 let choices: &[&str] = match (field, area) {
                     ("status", Area::Tickets) => TICKET_STATUSES,
                     ("status", Area::Reports) => match record.status.as_str() {
-                        "submitted" | "reviewing" => &["reviewing", "rejected", "actioned"],
+                        "submitted" => &["submitted", "reviewing", "actioned", "rejected"],
+                        "reviewing" => &["reviewing", "actioned", "rejected"],
                         _ => &["closed"],
                     },
                     ("status", Area::Enforcement) => &["active", "expired", "revoked"],
@@ -792,7 +793,6 @@ fn form_field(
     selected: &str,
 ) -> SupportField {
     let label = match (action, field) {
-        ("moderate", "moderator_notes") => "moderator_reason",
         ("revoke_sanction", "public_reason") => "revocation-reason",
         ("verify_report_target", "target") => "report-target-account",
         (_, "sanction") => "sanction-id",

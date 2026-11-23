@@ -187,7 +187,7 @@ test('report creation, validation, staff decisions and public history', async ({
       await staff.locator(`a[href="${staffReports}/${reports[0]}"]`).click();
       await labels(staff, [a.title, a.submitted, a.status, a.public_outcome, a.moderator_notes, a.moderate]);
       const form = staffForm(staff, 'moderate');
-      for (const state of ['submitted', 'reviewing', 'actioned', 'rejected', 'closed']) {
+      for (const state of ['submitted', 'reviewing', 'actioned', 'rejected']) {
         await expect(form.locator(`option[value=${state}]`)).toHaveText(a[state]);
       }
       const workflows = [
@@ -198,7 +198,10 @@ test('report creation, validation, staff decisions and public history', async ({
       ];
       for (const [index, workflow] of workflows.entries()) {
         await open(staff, `${staffReports}/${reports[index]}`);
+        let closedForm;
         for (const state of workflow) {
+          if (state === 'closed') closedForm = await form.evaluate(element => Object.fromEntries(new FormData(element)));
+          await expect(form.locator(`option[value=${state}]`)).toHaveText(a[state]);
           const outcome = `Public decision ${state}`;
           await submitForm(form, { status: state, public_outcome: outcome, moderator_notes: 'Staff-only report note' }, {
             bad: { status: 'invalid' },
@@ -208,8 +211,8 @@ test('report creation, validation, staff decisions and public history', async ({
           await labels(player, [r[state], r.outcome, outcome]);
           await expect(player.locator('main')).not.toContainText('Staff-only report note');
         }
-        const fields = await form.evaluate(element => Object.fromEntries(new FormData(element)));
-        await mutation(staff, detail(staff), { ...fields, status: 'reviewing' }, 409);
+        await expect(form).toHaveCount(0);
+        await mutation(staff, detail(staff), { ...closedForm, lock_version: Number(closedForm.lock_version) + 1, status: 'reviewing' }, 409);
       }
       await open(staff, enforcement, 403);
     });
@@ -259,7 +262,7 @@ test('moderator creates sanctions, revokes them, and adjudicates requested appea
         await submitForm(sanction, values, { bad: { expires_at: values.effective_at } });
         await expect(staff).toHaveURL(new RegExp(`${enforcement}/[a-f0-9-]+$`));
         const id = recordId(staff);
-        await expect(staff.locator('main > p').first()).toHaveText(a.active);
+        await expect(staff.locator('main > p').first()).toHaveText(a[decision === 'expired' ? 'expired' : 'active']);
         await expect(sanction.locator('button')).toHaveText(a.sanction);
         await open(staff, enforcement);
         await staff.getByRole('link', { name: values.public_reason }).click();
@@ -270,6 +273,7 @@ test('moderator creates sanctions, revokes them, and adjudicates requested appea
           const bad = decision === 'revoked' ? { status: 'expired', expected: 409 } : { target: randomUUID() };
           await submitForm(sanction, { ...values, status: decision }, { bad });
           await expect(staff.locator('main > p').first()).toHaveText(a[decision]);
+          expect(await query('SELECT status FROM sanctions WHERE id=$1', [id])).toEqual([{ status: decision }]);
         } else {
           const appealPath = `/${lang}/support/appeals/${id}`;
           const message = 'Review requested by account owner';
@@ -326,7 +330,7 @@ test('support searches players, adds notes, revokes sessions and requests a two-
         .toHaveCount(1);
       await open(staff, players + '?q=bad-search', 400);
       await open(staff, path);
-      await submitForm(playerForm(staff, 'note'), { body: 'New internal player note' }, { bad: { body: ' ', expected: 400 } });
+      await submitForm(playerForm(staff, 'note'), { body: 'New internal player note', reason: 'support_case' }, { bad: { body: ' ', expected: 422 } });
       await expect(staff.getByRole('heading', { name: p.notes }).locator('..').getByRole('listitem'))
         .toHaveText('New internal player note');
       if (lang === 'pl') {

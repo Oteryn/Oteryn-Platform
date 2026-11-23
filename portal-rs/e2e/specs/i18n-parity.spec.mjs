@@ -522,6 +522,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
   const missingFixture = /^\/(?:shop\/test-checkout\/[^/]+|account\/characters\/[^/]+\/(?:achievements|equipment|outfit))$/u.test(route);
   const missingInvite = /^\/referrals\/[^/]+$/u.test(route);
   let status = inventoryStatus ?? (coldProjection ? 503 : missingFixture ? 404 : missingInvite ? 403 : 200);
+  if (route === '/staff-invite') status = 403;
   let pathname = target;
   if (target === '/') pathname = `/${locale}/`;
   if (target === '/forgot-password' || /^\/events(?:\/|$)/u.test(target)) pathname = `/${locale}${target}`;

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use super::*;
+use axum::http::Method;
 fn fixture(format: ImageFormat, width: u32, height: u32) -> Vec<u8> {
     let image = image::DynamicImage::new_rgb8(width, height);
     let mut out = Cursor::new(Vec::new());
@@ -327,6 +328,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(auth.clone()),
             Path(id),
             Query(Options::default()),
+            Method::POST,
         )
         .await
         .err(),
@@ -354,6 +356,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(auth.clone()),
             Path(id),
             Query(Options::default()),
+            Method::POST,
         )
         .await
         .err(),
@@ -379,6 +382,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(auth.clone()),
             Path(id),
             Query(Options::default()),
+            Method::POST,
         ),
     )
     .await
@@ -539,7 +543,7 @@ async fn browser_lifecycle(pool: &PgPool) {
         StatusCode::FORBIDDEN
     );
     for language in [oteryn_web::Language::Pl, oteryn_web::Language::En] {
-        let mut upload = make(csrf, " ");
+        let mut upload = make(csrf, " ", "image/png");
         upload
             .headers_mut()
             .insert(header::ACCEPT_LANGUAGE, language.code().parse().unwrap());
