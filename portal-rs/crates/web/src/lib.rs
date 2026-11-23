@@ -348,7 +348,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(surface::module_router())
         .merge(surface::module_routes())
         .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
-        .merge(oteryn_characters::overview::display_routes(state.db.clone(), |session: session::BrowserSession| async move { let (Some(account), Some(hash)) = (session.account_id().await, session.identity_hash().await) else { return Ok(None); }; Ok(Some(oteryn_characters::overview::DisplaySession { account, hash, csrf: session.csrf_token().await? })) }))
+        .merge(oteryn_characters::overview::display_routes(state.db.clone(), |session: session::BrowserSession| async move { let (Some(account), Some(hash)) = (session.account_id().await, session.identity_hash().await) else { return Ok(None); }; Ok(Some(oteryn_characters::overview::DisplaySession { account, hash, csrf: session.csrf_token().await? })) }, RenderedPage))
         .route("/{lang}/account/consents", get(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>| async move {
             let mut config = config.map(|c| c.0).unwrap_or_else(oteryn_identity::consents::OptionalConfig::configured);
             config.enabled |= flags.is_some_and(|flags| flags.contains(oteryn_identity::consents::FEATURE));

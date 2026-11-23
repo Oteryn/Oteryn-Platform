@@ -2,7 +2,7 @@ use super::{private, text};
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{DefaultBodyLimit, Path, Query, State, rejection::FormRejection},
+    extract::{DefaultBodyLimit, Path, State, rejection::FormRejection},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     routing::get,
@@ -35,7 +35,11 @@ struct Web<S, F> {
 }
 
 /// Mount inside the standard browser session and CSRF layers.
-pub fn display_routes<S, F, Fut, A>(pool: PgPool, session: F) -> Router<A>
+pub fn display_routes<S, F, Fut, A>(
+    pool: PgPool,
+    session: F,
+    rendered_page: impl Clone + Send + Sync + 'static,
+) -> Router<A>
 where
     S: Clone + Send + Sync + 'static,
     F: Fn(S) -> Fut + Clone + Send + Sync + 'static,
@@ -48,6 +52,14 @@ where
             get(edit::<S, F, Fut>).post(save::<S, F, Fut>),
         )
         .layer(DefaultBodyLimit::max(4096))
+        .layer(axum::middleware::map_response(
+            move |mut response: Response| {
+                if response.status() == StatusCode::UNPROCESSABLE_ENTITY {
+                    response.extensions_mut().insert(rendered_page.clone());
+                }
+                std::future::ready(response)
+            },
+        ))
         .with_state(Web {
             pool,
             session,
@@ -128,12 +140,18 @@ async fn settings(
     if session_id.is_none() {
         return Err(Error::Denied);
     }
-    let current = staff_account::details(&mut tx, id)
+    let mut current = staff_account::details(&mut tx, id)
         .await?
         .ok_or(Error::Denied)?;
     if let Some(edits) = edits {
+        let mut changed = false;
         for edit in edits {
-            edit.apply(&mut tx, id, &current).await?;
+            changed |= edit.apply(&mut tx, id, &current).await?;
+        }
+        if changed {
+            current = staff_account::details(&mut tx, id)
+                .await?
+                .ok_or(Error::Denied)?;
         }
     }
     tx.commit().await?;
@@ -182,7 +200,6 @@ async fn handle<S, F, Fut>(
     session: S,
     lang: String,
     input: Option<Result<Form<Input>, FormRejection>>,
-    saved: bool,
 ) -> Response
 where
     F: Fn(S) -> Fut,
@@ -204,30 +221,27 @@ where
     };
     let invalid = edits.is_err();
     match settings(&web.pool, &session, edits.ok().flatten()).await {
-        Ok(_) if !invalid && updating => {
-            Redirect::to(&format!("/{lang}/account/display?saved=1")).into_response()
-        }
-        Ok(current) => render(&lang, &session.csrf, &current, invalid, saved),
+        Ok(current) => render(
+            &lang,
+            &session.csrf,
+            &current,
+            invalid,
+            updating && !invalid,
+        ),
         Err(error) => failure(&lang, error),
     }
-}
-
-#[derive(Deserialize)]
-struct DisplayQuery {
-    saved: Option<u8>,
 }
 
 async fn edit<S, F, Fut>(
     State(web): State<Web<S, F>>,
     Extension(session): Extension<S>,
     Path(lang): Path<String>,
-    Query(query): Query<DisplayQuery>,
 ) -> Response
 where
     F: Fn(S) -> Fut,
     Fut: Future<Output = Result<Option<DisplaySession>, sqlx::Error>>,
 {
-    private(handle(web, session, lang, None, query.saved == Some(1)).await)
+    private(handle(web, session, lang, None).await)
 }
 
 async fn save<S, F, Fut>(
@@ -240,5 +254,5 @@ where
     F: Fn(S) -> Fut,
     Fut: Future<Output = Result<Option<DisplaySession>, sqlx::Error>>,
 {
-    private(handle(web, session, lang, Some(input), false).await)
+    private(handle(web, session, lang, Some(input)).await)
 }

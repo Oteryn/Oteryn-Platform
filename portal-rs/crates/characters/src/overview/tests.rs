@@ -248,6 +248,23 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
             .await?
             .is_empty()
     );
+    let stale_profile = load(
+        &pool,
+        Some(id),
+        "en",
+        true,
+        settings.clone(),
+        Some(authority),
+    )
+    .await;
+    let stale_profile = String::from_utf8(
+        axum::body::to_bytes(stale_profile.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(stale_profile.contains("data-roster-verified"));
+    assert!(stale_profile.contains("<dt>Level</dt><dd>Unavailable</dd>"));
+    assert!(!stale_profile.contains("Profile observed"));
     sqlx::query("UPDATE account_character_feed SET complete_through=0 WHERE id=1")
         .execute(&pool)
         .await?;
@@ -501,11 +518,18 @@ async fn display_round_trip(
             "_csrf={csrf}&display_name=%20%3Cb%3EAlias%3C%2Fb%3E%20&locale=pl"
         ))?)
         .await?;
-    assert_eq!(saved.status(), StatusCode::SEE_OTHER);
+    assert_eq!(saved.status(), StatusCode::OK);
+    let confirmed = String::from_utf8(
+        axum::body::to_bytes(saved.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(confirmed.contains("Display settings saved."));
+    assert!(confirmed.contains("value=\"pl\" selected"));
     let current = app
         .clone()
         .oneshot(
-            Request::get(href)
+            Request::get(format!("{href}?saved=1"))
                 .header(header::COOKIE, &cookie)
                 .body(Body::empty())?,
         )
@@ -515,6 +539,7 @@ async fn display_round_trip(
             .await?
             .to_vec(),
     )?;
+    assert!(!html.contains("Display settings saved."));
     assert!(!html.contains("<b>Alias</b>"));
     assert!(html.contains("Alias"));
     assert!(html.contains("value=\"pl\" selected"));
@@ -537,13 +562,31 @@ async fn display_round_trip(
     for form in [
         format!("_csrf={csrf}&display_name={}&locale=en", "x".repeat(81)),
         format!("_csrf={csrf}&display_name=Invalid&locale=de"),
+        format!("_csrf={csrf}&display_name=Invalid%00&locale=en"),
+        format!("_csrf={csrf}&display_name=One&display_name=Two&locale=en"),
         format!("_csrf={csrf}&display_name=Invalid&locale=en&account_id={other}"),
     ] {
-        assert_eq!(
-            app.clone().oneshot(request(form)?).await?.status(),
-            StatusCode::UNPROCESSABLE_ENTITY
-        );
+        let response = app.clone().oneshot(request(form)?).await?;
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        let html = String::from_utf8(
+            axum::body::to_bytes(response.into_body(), 65536)
+                .await?
+                .to_vec(),
+        )?;
+        assert!(html.contains(r#"<p role="alert">Enter a display name"#));
+        assert!(html.contains(r#"<form method="post" action="/en/account/display""#));
     }
+    sqlx::query("ALTER TABLE account_privacy_events ADD CHECK (revision < 2)")
+        .execute(pool)
+        .await?;
+    let failed = app
+        .clone()
+        .oneshot(request(format!(
+            "_csrf={csrf}&display_name=Changed&locale=en"
+        ))?)
+        .await?;
+    assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(read(owner).await?, ("<b>Alias</b>".into(), "pl".into(), 1));
     sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')")
         .bind(owner).execute(pool).await?;
     let refused = app

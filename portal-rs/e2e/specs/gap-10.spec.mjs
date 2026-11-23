@@ -66,6 +66,9 @@ test('account owner reads a verified roster and saves private display preference
     maxRedirects: 0,
   });
   expect(refused.status()).toBe(422);
+  expect(await refused.text()).toContain(
+    lang === 'pl' ? 'Wpisz nazwę do 80 znaków' : 'Enter a display name of up to 80 characters',
+  );
   const preferred = lang === 'pl' ? 'en' : 'pl';
   await form.locator('[name=display_name]').fill('<b>Żółty smok</b>');
   await form.locator('[name=locale]').selectOption(preferred);
