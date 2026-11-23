@@ -1,15 +1,17 @@
 import { test, expect } from '@playwright/test';
 import { appendFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { login, submit } from '../helpers.mjs';
+import { csrfRejected, waitForLoginBudget } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
+import { guardPrivacyOrigin, privacyFormAction } from './privacy-origin.mjs';
 
 test('seeded account persists and restores a Privacy preference', async ({ page, baseURL }, info) => {
   const { lang } = info.project.metadata;
   const diagnostics = join(process.env.MONITOR_RUN_DIRECTORY, 'diagnostics');
   try {
     const target = new URL(baseURL);
-    if (!['localhost', '127.0.0.1', '[::1]'].includes(target.hostname)) {
+    if (!['http:', 'https:'].includes(target.protocol) ||
+        !['localhost', '127.0.0.1', '[::1]'].includes(target.hostname) || target.username || target.password) {
       throw new Error('Seeded Privacy checks require a loopback portal');
     }
     const { MONITOR_SEEDED_PRIVACY_EMAIL: email, MONITOR_SEEDED_PRIVACY_PASSWORD: password } = process.env;
@@ -25,7 +27,35 @@ test('seeded account persists and restores a Privacy preference', async ({ page,
     };
     const initial = await settings();
     expect(['pl', 'en']).toContain(initial?.locale);
-    await login(page, lang, { email, password });
+    const session = await page.context().newCDPSession(page);
+    const verifyOrigin = await guardPrivacyOrigin(page, session, target.origin);
+    async function visit(path) {
+      const response = await page.goto(path);
+      verifyOrigin();
+      expect(response.status()).toBe(200);
+    }
+    async function submitLocal(values) {
+      verifyOrigin();
+      const form = page.locator('main form').first();
+      const action = privacyFormAction(page.url(), await form.evaluate(form => form.action), target.origin);
+      const fields = await form.evaluate(form => Object.fromEntries(new FormData(form)));
+      verifyOrigin();
+      await csrfRejected(page, action, { ...fields, ...values });
+      for (const [name, value] of Object.entries(values)) {
+        const input = form.locator(`[name="${name}"]`);
+        if (typeof value === 'boolean') await input.setChecked(value);
+        else await input.fill(value);
+      }
+      verifyOrigin();
+      await Promise.all([
+        page.waitForNavigation(),
+        form.locator('button[type=submit], button:not([type])').first().click(),
+      ]);
+      verifyOrigin();
+    }
+    await visit(`/${lang}/login`);
+    await waitForLoginBudget();
+    await submitLocal({ email, password });
 
     const privacy = `/${lang}/account/privacy`;
     const locale = page.locator('main select[name="locale"]');
@@ -40,10 +70,11 @@ test('seeded account persists and restores a Privacy preference', async ({ page,
       }
     }
     async function saveLocale(value, revision) {
+      verifyOrigin();
       await locale.selectOption(value);
-      await submit(page, 'main form', visibility);
+      await submitLocal(visibility);
       await expect(page).toHaveURL(new URL(`/${value}/account/privacy`, target).href);
-      expect((await page.goto(privacy)).status()).toBe(200);
+      await visit(privacy);
       await checkSettings(value);
       expect(await settings()).toEqual({
         ...visibility,
@@ -52,7 +83,7 @@ test('seeded account persists and restores a Privacy preference', async ({ page,
       });
     }
 
-    expect((await page.goto(privacy)).status()).toBe(200);
+    await visit(privacy);
     await checkSettings(initial.locale);
     const initialRevision = BigInt(initial.privacy_revision);
     let alternateVerified = false;
@@ -64,7 +95,7 @@ test('seeded account persists and restores a Privacy preference', async ({ page,
         const observed = await settings();
         if (alternateVerified || observed.locale !== initial.locale ||
             Object.entries(visibility).some(([name, checked]) => observed[name] !== checked)) {
-          expect((await page.goto(privacy)).status()).toBe(200);
+          await visit(privacy);
           const restoredRevision = alternateVerified ? initialRevision + 2n : BigInt(observed.privacy_revision) + 1n;
           await saveLocale(initial.locale, restoredRevision);
         }

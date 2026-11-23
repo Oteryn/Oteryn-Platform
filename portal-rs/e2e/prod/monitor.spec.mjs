@@ -1,8 +1,8 @@
-import { test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { Secret, TOTP } from 'otpauth';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { freshTotpTimestamp } from './totp-window.mjs';
 
 const READ = 10_000;
 const FORM = 15_000;
@@ -27,7 +27,13 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   const counter = join(runDirectory, 'requests');
   const diagnostics = join(runDirectory, 'diagnostics');
   const localAuth = process.env.MONITOR_LOCAL_AUTH === '1';
+  const productionAuth = process.env.MONITOR_PRODUCTION_AUTH === '1';
+  const authenticatedProbe = localAuth || productionAuth;
   const { MONITOR_EMAIL: email, MONITOR_PASSWORD: password, MONITOR_TOTP_SECRET: secret } = process.env;
+  if (productionAuth) {
+    requireThat(target.href === 'https://oteryn.com/' && email && password && secret && !localAuth,
+      'production account or origin unavailable');
+  }
   if (localAuth) {
     try {
       requireThat(['http:', 'https:'].includes(target.protocol)
@@ -116,7 +122,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
   });
 
   const safeReads = new Set(['/healthz', '/pl/', '/en/']);
-  if (localAuth) {
+  if (authenticatedProbe) {
     for (const path of ['/account', '/account/security', '/login', '/']) safeReads.add(path);
     for (const lang of LANGUAGES) {
       for (const suffix of ['login', 'account', 'account/privacy', 'account/security',
@@ -131,7 +137,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     const { requestId, request, resourceType, responseStatusCode, responseHeaders } = event;
     const { origin: targetOrigin, pathname, search } = new URL(request.url);
     const portal = targetOrigin === origin;
-    const beacon = targetOrigin === 'https://static.cloudflareinsights.com'
+    const beacon = !productionAuth && targetOrigin === 'https://static.cloudflareinsights.com'
       && pathname.startsWith('/beacon.min.js') && resourceType === 'Script';
     const asset = (portal && pathname.startsWith('/static/')
       && ['Stylesheet', 'Script'].includes(resourceType)) || beacon;
@@ -164,7 +170,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
         await cdp.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' });
         return;
       }
-      if (localAuth && request.method === 'POST' && portal && !search && pathname === allowedPost?.path
+      if (authenticatedProbe && request.method === 'POST' && portal && !search && pathname === allowedPost?.path
           && resourceType === 'Document') {
         const { fields } = allowedPost;
         allowedPost = undefined;
@@ -238,7 +244,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       if (performance.now() - started > budget) diagnostic.push(`exceeded ${budget} ms budget`);
       if (problem) diagnostic.push(problem);
       if (diagnostic.length) {
-        if (publicHome && page.url() === new URL(publicHome, origin).href) {
+        if (!productionAuth && publicHome && page.url() === new URL(publicHome, origin).href) {
           await page.screenshot({ path: info.outputPath(`public-home-${++nextScreenshot}.png`),
             timeout: 2_000 }).catch(() => {});
         }
@@ -302,7 +308,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       requireThat(response.ok() && currentPath() === '/healthz' && await response.text() === 'ok',
         'unexpected health response');
     }]);
-    if (localAuth) {
+    if (authenticatedProbe) {
       publicChecks.push(['Anonymous login form', async () => {
         await go('/login');
         await loginForm();
@@ -332,7 +338,7 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
     appendFileSync(diagnostics, `${info.project.name} passed\n`);
   }
 
-  if (!localAuth) {
+  if (!authenticatedProbe) {
     await finish();
     return;
   }
@@ -370,14 +376,13 @@ test('Production portal synthetic monitor', async ({ browser, context, baseURL }
       const totp = new TOTP({ secret: Secret.fromBase32(secret) });
       // The account is shared by sequential projects and the portal consumes each counter.
       const totpCounter = join(runDirectory, 'totp-counter');
-      const previous = Number(readFileSync(totpCounter, { encoding: 'utf8', flag: 'a+' }) || 0);
-      const now = Date.now();
-      const boundary = now - now % 30_000 + 30_000;
-      // A manual run queued immediately after another run can share a counter.
-      const minimum = previous ? (previous + 1) * 30_000 : boundary;
-      const next = Math.max(minimum, boundary - now < 3_000 ? boundary : 0);
-      if (next > now) await delay(next - now + 250);
-      const timestamp = Date.now();
+      const last = readFileSync(totpCounter, { encoding: 'utf8', flag: 'a+' });
+      // A newly dispatched production run must also avoid the previous run's counter.
+      const previous = last ? Number(last) : productionAuth ? Math.floor(Date.now() / 30_000) : -1;
+      const timestamp = await freshTotpTimestamp(
+        (ready, timeout) => expect.poll(ready, { timeout, intervals: [250] }).toBe(true),
+        previous,
+      );
       writeFileSync(totpCounter, String(Math.floor(timestamp / 30_000)));
       const code = totp.generate({ timestamp });
       await form.locator('#code[autocomplete="one-time-code"]').fill(code);

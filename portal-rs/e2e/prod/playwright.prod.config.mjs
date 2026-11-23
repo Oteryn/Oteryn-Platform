@@ -4,6 +4,12 @@ if (!process.env.MONITOR_RUN_DIRECTORY || process.env.PLAYWRIGHT_NO_COPY_PROMPT 
   throw new Error('Start the production monitor with node prod/run.mjs.');
 }
 
+const browserEnv = { ...process.env };
+for (const key of ['MONITOR_EMAIL', 'MONITOR_PASSWORD', 'MONITOR_TOTP_SECRET',
+  'MONITOR_SEEDED_PRIVACY_EMAIL', 'MONITOR_SEEDED_PRIVACY_PASSWORD']) {
+  delete browserEnv[key];
+}
+
 export default defineConfig({
   testDir: '.',
   testMatch: 'monitor.spec.mjs',
@@ -28,6 +34,7 @@ export default defineConfig({
     video: 'off',
     screenshot: 'off',
     launchOptions: {
+      env: browserEnv,
       executablePath: process.env.CHROMIUM_PATH,
       args: ['--dns-prefetch-disable', '--disable-background-networking'],
     },

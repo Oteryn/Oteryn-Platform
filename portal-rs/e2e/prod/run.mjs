@@ -14,21 +14,42 @@ async function run() {
   const args = process.argv.slice(2);
   const seededPrivacy = args[0] === '--seeded-privacy';
   const seededAuth = args[0] === '--seeded-auth';
-  if (seededPrivacy || seededAuth) args.shift();
+  const productionAuth = args[0] === '--production-auth';
+  if (seededPrivacy || seededAuth || productionAuth) args.shift();
   if (args.length > 1 || args.some((arg) => !/^--project=(pl-1440|en-390)$/.test(arg))) {
-    console.error('Usage: node prod/run.mjs [--seeded-auth|--seeded-privacy] [--project=pl-1440|--project=en-390]');
+    console.error('Usage: node prod/run.mjs [--production-auth|--seeded-auth|--seeded-privacy] [--project=pl-1440|--project=en-390]');
     return 1;
+  }
+
+  const { OTERYN_MONITOR_EMAIL: email, OTERYN_MONITOR_PASSWORD: password,
+    OTERYN_MONITOR_TOTP_SEED: secret, MONITOR_BASE_URL: origin } = process.env;
+  if (productionAuth) {
+    if (origin && new URL(origin).href !== 'https://oteryn.com/') {
+      console.error('Production sign-in requires the canonical portal origin.');
+      return 1;
+    }
+    if (!email || !password || !secret) {
+      console.log('skipped: monitor account not configured');
+      return 0;
+    }
   }
 
   const dir = await mkdtemp(join(tmpdir(), 'portal-prod-monitor-'));
   try {
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
-      !/^(DEBUG|NODE_DEBUG|NODE_OPTIONS$|PW|PLAYWRIGHT_)/i.test(key)
-      || key === 'PLAYWRIGHT_BROWSERS_PATH',
+      key === 'PLAYWRIGHT_BROWSERS_PATH'
+      || !/^(DEBUG|NODE_DEBUG|NODE_OPTIONS$|PW|PLAYWRIGHT_|OTERYN_MONITOR_)/i.test(key),
     ));
     env.PLAYWRIGHT_NO_COPY_PROMPT = '1';
     env.MONITOR_RUN_DIRECTORY = dir;
     env.MONITOR_LOCAL_AUTH = seededAuth ? '1' : '0';
+    env.MONITOR_PRODUCTION_AUTH = productionAuth ? '1' : '0';
+    if (productionAuth) {
+      env.MONITOR_BASE_URL = 'https://oteryn.com';
+      env.MONITOR_EMAIL = email;
+      env.MONITOR_PASSWORD = password;
+      env.MONITOR_TOTP_SECRET = secret;
+    }
     const counter = join(dir, 'requests');
     await writeFile(counter, '0');
     const cli = fileURLToPath(new URL('../node_modules/@playwright/test/cli.js', import.meta.url));

@@ -1,6 +1,6 @@
 # Production synthetic monitor
 
-The monitor runs one Chromium worker with two sequential projects. `pl-1440` covers Polish desktop at 1440 × 900. `en-390` covers English mobile at 390 × 844. Both verify the localized home URL, document language and public news heading. The desktop project also checks that `/healthz` returns the exact body `ok`. These are the only page endpoints the production monitor may request. Browser telemetry is suppressed.
+The monitor runs one Chromium worker with two sequential projects. `pl-1440` covers Polish desktop at 1440 × 900. `en-390` covers English mobile at 390 × 844. Both verify the localized home URL, document language and public news heading. The desktop project also checks that `/healthz` returns the exact body `ok`. These are the only page endpoints in public mode. The authenticated probe allows the canonical HTTPS portal and its sign-in, MFA, account, session, and sign-out routes. Browser telemetry is suppressed.
 
 The sign-in journey runs on the disposable harness. It checks the login form, account overview, Privacy, Security, sessions, logout and the post-logout redirect. Preference writes run in a separate seeded test.
 
@@ -60,23 +60,14 @@ Any 5xx, browser console error, uncaught browser exception, CSP violation, unexp
 
 Failure screenshots are limited to public home pages. Traces, video and Playwright's automatic failure snapshots are disabled. The launcher strips Playwright debug settings before startup and emits project names, step names, fixed diagnostics and the request count. Start with `NODE_DEBUG` unset because Node initializes that logger before loading the launcher.
 
-## Owner setup for scheduled runs
+## Scheduled runs
 
-Create both GitHub Actions environments in repository settings before enabling the monitor or adding credentials. In each environment, set the deployment branch policy to **Selected branches and tags**, allow the **repository default branch only** (currently `main`), and add no tag rules. A preflight job checks both environment names and branch rules before the probe or incident job can start. Keep SMTP credentials in the alert environment.
+The workflow runs every 15 minutes on the default branch and supports manual dispatch there. It reads these repository secrets for the dedicated, least-privilege production account:
 
-| Environment | Environment secrets |
-| --- | --- |
-| `production-monitor-probe` | None |
-| `production-monitor-alert` | `MONITOR_SMTP_HOST`, `MONITOR_SMTP_USER`, and `MONITOR_SMTP_PASSWORD` to enable email alerts |
+- `OTERYN_MONITOR_EMAIL`
+- `OTERYN_MONITOR_PASSWORD`
+- `OTERYN_MONITOR_TOTP_SEED`
 
-The workflow runs every 15 minutes and supports default-branch manual dispatch. The probe has read-only contents access. The incident job alone has issues-write access and reads completed probe jobs from GitHub Actions history. Job outcomes remain available if the incident job fails to write to Issues. Incomplete attempt listings are retried and block replay until a completed probe or an explicit skip is visible. Replay can verify incident-only reruns from the probe attempt in the incident job name. A cancellation before job creation requires a completed, cancelled GitHub Actions check suite with zero check runs. The incident job checks history from the saved checkpoint in bounded time windows, splitting any window that hits the API search cap. Continuity starts at the first unreconciled run. The incident job still checks newer attempts of the checkpoint run when it is retained. Missing unreconciled runs fail visibly and leave the checkpoint in place. Outstanding results are applied in run and attempt order, using the `prod-monitor-state` issue to track reconciliation. An incident-only rerun verifies the original probe attempt before reusing its result. The workflow uses only GitHub Actions bot issues bearing its state or incident marker. Keep those markers, the issue labels and the unprocessed Actions runs until they have been reconciled.
+When a secret is missing, the workflow reports `skipped: monitor account not configured` in the job log and summary, then runs the public checks. With all three secrets, it exercises sign-in, TOTP, account reads, and sign-out on `https://oteryn.com` in both projects. Preference writes run only in the seeded loopback suite.
 
-The incident job validates SMTP configuration before marking a transition `attempted`. Temporary SMTP rejections and disconnects or timeouts confirmed before DATA authorization clear the attempt so the pending alert can retry. Permanent message rejections receive a separate `rejected` label, are removed from the retry queue, and do not block later alerts. Relay acceptance or an uncertain outcome keeps the attempt recorded to prevent duplicate mail. A crash between recording the attempt and relay acceptance can leave an alert undelivered. If both labels remain, check the relay before any manual resend. The Message-ID is stable for relay lookup.
-
-The relay must accept the SMTP user as sender when it is an email address, or `support@oteryn.com` when the user is a relay login. The host accepts a hostname, `smtp://host:port` for STARTTLS, or `smtps://host:port` for implicit TLS. The default ports are 587 and 465 respectively.
-
-### Recovering from a deleted run range
-
-A history-gap error reports the first missing range as `FIRST..LAST`. Check the workflow history and the storage-retention run before proceeding. If the missing runs still exist, leave the checkpoint alone and rerun after the API can read them.
-
-If the runs were deleted, manually dispatch **Production synthetic monitor** on the default branch with `recovery_checkpoint` set to the exact reported range, for example `102..105`. This confirms that those outcomes are unavailable and that reconciliation may resume after run 105. The workflow rejects a range that differs from the first gap, so retained runs preceding the gap are still reconciled. The `prod-monitor-state` issue records the range, dispatch actor, run ID, and attempt with the updated checkpoint. The skip itself does not open or close an incident. Retained probe outcomes determine incident state. If the job reports another gap, verify that range and submit a new dispatch.
+The workflow token has contents-read access. Reconciliation reads public Actions history and writes the last completed probe outcome to the run summary. An empty, completed cancellation is verified by exact run ID and attempt and passed over. The current probe still controls the job's result. GitHub Actions exposes failures through its normal workflow notifications.
