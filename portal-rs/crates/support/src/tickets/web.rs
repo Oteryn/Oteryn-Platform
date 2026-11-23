@@ -1013,7 +1013,7 @@ mod route_tests {
                 retry_after,
                 |version| {
                     form(&reply, staff_origin, staff_host, &staff_cookie).body(Body::from(format!(
-                        "_csrf={staff_csrf}&lock_version={version}&body=Reply+{version}"
+                        "_csrf={staff_csrf}&lock_version={version}&body=Reply+{version}&reason=Staff+reply+review"
                     )))
                 },
             )
@@ -1032,7 +1032,7 @@ mod route_tests {
                     let version = ticket.lock_version + attempt - 1;
                     let next = if attempt % 2 == 1 { "closed" } else { "open" };
                     form(&status, staff_origin, staff_host, &staff_cookie).body(Body::from(
-                        format!("_csrf={staff_csrf}&lock_version={version}&status={next}"),
+                        format!("_csrf={staff_csrf}&lock_version={version}&status={next}&reason=Staff+status+review"),
                     ))
                 },
             )
