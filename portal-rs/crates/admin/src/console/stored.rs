@@ -61,6 +61,10 @@ impl StoredChannel {
         operation: &str,
         target: Option<&str>,
     ) -> Result<control::Agent, Error> {
+        let global = control::catalog::GLOBAL_READS.contains(&operation);
+        if global && target.is_some() {
+            return Err(Error::Read(GameReadError::InvalidTarget));
+        }
         let mut candidates = self
             .store
             .agents()
@@ -69,6 +73,7 @@ impl StoredChannel {
             .into_iter()
             .filter(|a| {
                 a.connected
+                    && (global || !a.served_worlds.is_empty())
                     && agent.is_none_or(|id| a.agent_id == id)
                     && a.advertised_operations.iter().any(|op| {
                         op.operation == operation
@@ -87,11 +92,18 @@ impl StoredChannel {
             return Err(Error::Unavailable);
         }
         // Results require configured verification keys even if transport is authenticated.
-        if !self
-            .bindings
-            .iter()
-            .any(|b| b.agent_id == owner.agent_id && b.result_key.is_some())
-        {
+        if !self.bindings.iter().any(|b| {
+            b.agent_id == owner.agent_id
+                && b.result_key.is_some()
+                && owner
+                    .served_worlds
+                    .iter()
+                    .all(|id| b.allowed_worlds.contains(id))
+                && owner
+                    .served_nodes
+                    .iter()
+                    .all(|id| b.allowed_nodes.contains(id))
+        }) {
             return Err(Error::Unavailable);
         }
         Ok(owner)
@@ -129,9 +141,13 @@ impl StoredChannel {
         target: Option<&str>,
     ) -> Result<control::Target, Error> {
         let (world_id, node_id) = match (operation, target) {
+            (Operation::Database | Operation::Migrations, None) => {
+                return Ok(control::Target::default());
+            }
             (Operation::World, Some(id)) if owner.served_worlds.iter().any(|world| world == id) => {
                 (Some(id.to_owned()), None)
             }
+            (Operation::Worlds, None) => (Some(Self::single_world(owner)?), None),
             (Operation::Node, Some(id)) if owner.served_nodes.iter().any(|node| node == id) => {
                 (None, Some(id.to_owned()))
             }
@@ -144,6 +160,18 @@ impl StoredChannel {
             character_id: None,
             account_ref: None,
         })
+    }
+    fn single_world(agent: &control::Agent) -> Result<String, Error> {
+        match agent.served_worlds.as_slice() {
+            [world] => Ok(world.clone()),
+            _ => Err(Error::Unavailable),
+        }
+    }
+    fn ops_params(operation: Operation) -> Value {
+        match operation {
+            Operation::Worlds | Operation::Nodes | Operation::Migrations => json!({"limit":100}),
+            _ => json!({}),
+        }
     }
     async fn submit_query(
         &self,
@@ -162,6 +190,9 @@ impl StoredChannel {
             params,
             risk,
         } = query;
+        if !control::catalog::valid_read_target(operation, &target) {
+            return Err(Error::Read(GameReadError::InvalidTarget));
+        }
         let (ring, key_id) = self.signer.as_ref().ok_or(Error::Unavailable)?;
         let session_hash = session.identity_hash().await.ok_or(Error::Denied)?;
         let now = OffsetDateTime::now_utc();
@@ -368,10 +399,11 @@ impl StoredChannel {
                      WHERE other.agent_id<>g.agent_id AND other.owner_epoch>=g.owner_epoch
                          AND (r.target->>'world_id'=ANY(other.served_worlds)
                              OR r.target->>'node_id'=ANY(other.served_nodes)))
-                 AND (r.status<>'succeeded' OR (r.agent_id=g.agent_id AND COALESCE(
+                 AND (r.status NOT IN ('succeeded','failed','rejected') OR
+                     (r.agent_id=g.agent_id AND COALESCE(
                      (SELECT t.after->>'owner_epoch' FROM audit_log t
                       WHERE t.request_id=r.request_id AND t.action='admin.control.transition'
-                          AND t.after->>'status'='succeeded' LIMIT 1),
+                          AND t.after->>'status'=r.status LIMIT 1),
                      CASE WHEN a.target=g.agent_id THEN a.after->>'owner_epoch'
                           ELSE g.owner_epoch::text END) = g.owner_epoch::text))
              ORDER BY r.issued_at DESC LIMIT 1",
@@ -410,7 +442,10 @@ impl StoredChannel {
             return Ok(None);
         };
         if request.expires_at <= OffsetDateTime::now_utc()
-            || request.status != control::Status::Succeeded
+            || !matches!(
+                request.status,
+                control::Status::Succeeded | control::Status::Failed | control::Status::Rejected
+            )
             || request.agent_id.as_deref() != Some(&agent.agent_id)
         {
             return Ok(None);
@@ -420,7 +455,7 @@ impl StoredChannel {
             .results(request.request_id, 1)
             .await
             .map_err(|_| Error::Unavailable)?;
-        let Some(row) = rows.first() else {
+        let Some(row) = rows.first().filter(|row| row.status == request.status) else {
             return Ok(None);
         };
         let result: signer::ResultEnvelope =
@@ -446,12 +481,31 @@ impl StoredChannel {
         if result.request_id != request.request_id
             || result.admin_operation_id != request.admin_operation_id
             || result.agent_id != agent.agent_id
-            || result.status != signer::Status::Succeeded
+            || !matches!(
+                (request.status, result.status),
+                (control::Status::Succeeded, signer::Status::Succeeded)
+                    | (control::Status::Failed, signer::Status::Failed)
+                    | (control::Status::Rejected, signer::Status::Rejected)
+            )
             || completed < request.issued_at
             || completed > request.expires_at
             || completed > OffsetDateTime::now_utc()
         {
             return Err(Error::Unavailable);
+        }
+        if result.status != signer::Status::Succeeded {
+            return match result.error.as_ref().map(|error| error.code.as_str()) {
+                Some("ADM_INVALID_PARAMS") => Err(Error::Read(GameReadError::InvalidTarget)),
+                Some("ADM_PRECONDITION_FAILED")
+                    if matches!(
+                        request.operation.as_str(),
+                        "player.character.get" | "player.inventory.get"
+                    ) =>
+                {
+                    Err(Error::Read(GameReadError::CharacterOnline))
+                }
+                _ => Ok(None),
+            };
         }
         let bounded = bounded_json(&result.result.0, 0);
         if matches!(
@@ -480,17 +534,20 @@ impl StoredChannel {
         permission: &str,
         character: Option<&str>,
         params: Value,
-    ) -> Result<Option<(Uuid, String, Value)>, access::Error> {
-        let agent = self
-            .owner(None, operation, None)
-            .await
-            .map_err(|_| access::Error::Unavailable)?;
-        let target =
-            Self::target(&agent, None, character).map_err(|_| access::Error::Unavailable)?;
+    ) -> Result<Option<(Uuid, String, Value)>, Error> {
+        let agent = self.owner(None, operation, None).await?;
+        let target = if control::catalog::GLOBAL_READS.contains(&operation) {
+            control::Target::default()
+        } else {
+            control::Target {
+                world_id: Some(Self::single_world(&agent)?),
+                character_id: character.map(str::to_owned),
+                ..Default::default()
+            }
+        };
         if let Some((request, result)) = self
             .verified(actor.account, &agent, operation, &target, &params, None)
-            .await
-            .map_err(|_| access::Error::Unavailable)?
+            .await?
         {
             return Ok(Some((
                 request.request_id,
@@ -513,8 +570,7 @@ impl StoredChannel {
                     risk: control::RiskClass::R1,
                 },
             )
-            .await
-            .map_err(|_| access::Error::Unavailable)?;
+            .await?;
         }
         Ok(None)
     }
@@ -546,7 +602,14 @@ impl Channel for StoredChannel {
         let owner = self.owner(Some(agent), operation.name(), target).await?;
         let scope = Self::ops_target(&owner, operation, target)?;
         let selected = self
-            .authorized_request(actor, &owner, operation.name(), &scope, &json!({}), request)
+            .authorized_request(
+                actor,
+                &owner,
+                operation.name(),
+                &scope,
+                &Self::ops_params(operation),
+                request,
+            )
             .await?;
         let status = selected.as_ref().map_or(QueryStatus::Pending, |request| {
             use control::Status;
@@ -565,7 +628,6 @@ impl Channel for StoredChannel {
                 Status::Cancelled => QueryStatus::Cancelled,
             }
         });
-        let verified = self.verified_result(&owner, selected).await?;
         let mut view = AgentView {
             owner_epoch: owner.owner_epoch as u64,
             last_contact: SystemTime::UNIX_EPOCH
@@ -574,6 +636,14 @@ impl Channel for StoredChannel {
             operations: vec![(operation, 1)],
             result: None,
             status,
+        };
+        let verified = match self.verified_result(&owner, selected).await {
+            Ok(result) => result,
+            Err(Error::Read(error)) => {
+                view.status = QueryStatus::ReadError(error);
+                return Ok(view);
+            }
+            Err(error) => return Err(error),
         };
         if let Some((request, result)) = verified
             && control::result_schema::valid_success(
@@ -623,7 +693,7 @@ impl Channel for StoredChannel {
                 operation: operation.name(),
                 permission: operation.permission(),
                 target: scope,
-                params: json!({}),
+                params: Self::ops_params(operation),
                 risk: control::RiskClass::R0,
             },
         )

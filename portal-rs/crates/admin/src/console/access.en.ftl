@@ -38,3 +38,7 @@ house = House
 bank = Bank balance
 logins = Last login times
 empty = No matching records.
+
+game-read-invalid-target = The selected target or filters are incompatible with this Game read.
+game-read-character-online = The character must be offline. Sign out of the character and try again.
+stash = Stash

@@ -79,6 +79,11 @@ pub struct Item {
     pub count: String,
 }
 #[derive(Debug, Clone)]
+pub struct StashBalance {
+    pub type_id: String,
+    pub count: String,
+}
+#[derive(Debug, Clone)]
 pub struct Sanction {
     pub sanction_id: String,
     pub kind: String,
@@ -91,6 +96,7 @@ pub struct Snapshot {
     pub observed_at: String,
     pub characters: Option<Vec<Character>>,
     pub inventory: Option<Vec<Item>>,
+    pub stash_balances: Vec<StashBalance>,
     pub sanctions: Option<Vec<Sanction>>,
 }
 /// The shared audit writer stores one R1 event before releasing the view.
@@ -227,7 +233,9 @@ pub(crate) async fn view<B: Backend>(
                     "player.inventory.get",
                 )
                 .await?;
-                snapshot.inventory
+                snapshot
+                    .inventory
+                    .map(|items| (items, snapshot.stash_balances))
             } else {
                 None
             }
@@ -236,7 +244,7 @@ pub(crate) async fn view<B: Backend>(
         };
         page.section(
             "inventory",
-            inventory.map(|rows| {
+            inventory.map(|(rows, stash)| {
                 rows.into_iter()
                     .map(|i| {
                         format!(
@@ -244,6 +252,14 @@ pub(crate) async fn view<B: Backend>(
                             i.instance_id, i.type_id, i.location, i.count
                         )
                     })
+                    .chain(stash.into_iter().map(|balance| {
+                        format!(
+                            "{} · {} · {}",
+                            tr(lang, "stash"),
+                            balance.type_id,
+                            balance.count
+                        )
+                    }))
                     .collect()
             }),
         );

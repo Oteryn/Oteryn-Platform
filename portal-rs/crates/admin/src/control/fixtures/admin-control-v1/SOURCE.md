@@ -1,96 +1,190 @@
 # Admin control v1 golden fixtures
 
 Repository: `Oteryn/Oteryn-Game` (read-only).
-Commit: `b144aabe4e8080756ecc312923a74856b79b4c1e`.
+Commit: `3d4ea6ed913359c2e5aafb7ab6b890a894ff32fa`.
 Source root: `docs/contracts/admin-control/v1/`.
-Fetched byte-for-byte from `https://raw.githubusercontent.com/Oteryn/Oteryn-Game/b144aabe4e8080756ecc312923a74856b79b4c1e/<path>`.
+Fixture bytes verified against the pinned commit. Upstream files are available at
+`https://raw.githubusercontent.com/Oteryn/Oteryn-Game/3d4ea6ed913359c2e5aafb7ab6b890a894ff32fa/<path>`.
 
-All three owner-supplied SHA-256 values verified before use. The pinned tree has 35 vectors (3 successful, 32 rejecting). No test private key/seed is supplied; exact signing reproduction is therefore not applicable.
+The pin includes the upstream README, 86 schemas, 35 Phase-1 vectors and 52 Phase-2 vectors.
 
 ## File hashes
 
 Paths below are relative to the source root and this directory.
 
-| Path | SHA-256 |
-| --- | --- |
-| `request.schema.json` | `2100361d374acecf58512a2c064fe278c74aa8feccf5a6dd0caad7cf606766ae` |
-| `result.schema.json` | `6270ea1fe56e937748d4e7befba00304d2e329bc65e12357d85206d007e8cb3f` |
-| `vectors/busy.json` | `2cb31cb72ecc3598cf0e9f48985ab4cd05e7bfc0a62ff31ddb39f267e4aece02` |
-| `vectors/closed-params.json` | `7df81d11d2b62e9393fbcf973ad86ca8564b682b27b4a86eee4c46e7fd0480af` |
-| `vectors/disabled-operation.json` | `b5e0cde4caa8767c3aa8f43190199543f7c36d38f903dd10ac55479876fac031` |
-| `vectors/disabled-world.json` | `31800923c972749efa3b92f5e166ce1ba3ec2cbd11fe84713c1defc7be20aeeb` |
-| `vectors/excessive-lifetime.json` | `1ecdaa50e55f3fe20395851f8a614fb48a2f2d3f35f73e844228bcf2495daaa5` |
-| `vectors/expired-key.json` | `245c7ff4f883fa0a0c353984f33acbc5e809ad3516ff796b9c82cdf42cb96b7f` |
-| `vectors/expired.json` | `38fd8c7b7624e9f33f1dc43652f805507637ed0e8a966350f342963383154065` |
-| `vectors/future-issued.json` | `10c4d03a35c2869c3b5f6b5914e7b044c13cbbd51269d8a878d89978ffaba432` |
-| `vectors/future-step-up.json` | `a9df9f9b464ca4d35f36d30fb938c127f835decfe769eb1ee044f49c2b063092` |
-| `vectors/idempotency-conflict.json` | `68b53efde5c5b6ba9b5702447546848b93d08be0d50b5f9bf09d6a71ca20310f` |
-| `vectors/idempotency-recorded.json` | `7406544f3871dabac2c23e24d5407ed780cc089c85b5ef9367b60e7679aa2b00` |
-| `vectors/internal.json` | `ef2ef99005271c2ef497a9dc51241d64889946ba8183ce8b92b2a636c5a74ffb` |
-| `vectors/invalid-nonce.json` | `bdd900f0417a3f0462a54d49daea13a78c7285732e9140d86b5cf8e92aef2289` |
-| `vectors/limit.json` | `c0e4c4251375b68c2ff922fcc1f33242c6f553e3f58975d2c107af640f36ec03` |
-| `vectors/missing-reason.json` | `7fd7aef8c408dd465dd8a1b0f6be0e1e7e3e881265e4223b931e8a386eda6df7` |
-| `vectors/missing-step-up.json` | `d887061d8ee3ef3dfa612d8bea319a89f3f671ab6e02d28f526b0dbdd5932561` |
-| `vectors/permission.json` | `56a7acc728042cf7c0cc65a685273c562a3ed96cc7aa76dbc8a2f54b1e5527ed` |
-| `vectors/precondition.json` | `a85579a0d79f22cfc2c90eec32901dee05fe899c86ac6a5766c253fcc73321b9` |
-| `vectors/preview-mismatch.json` | `a04b3645b7c6bb375f31751a00177d1c4074241fde07c3e03e5484434ffac571` |
-| `vectors/replay.json` | `9f17d9db0e2f2ac554a92bba9e35f0d356c6ffa5cefd53cc527e415cf56e3719` |
-| `vectors/risk-downgrade.json` | `4df94a160a2a25604b32602dadbf624aa2e59a4f70e5465738bc50fb6183f8f0` |
-| `vectors/rotated-out-key.json` | `9d3a7a13831d978e15633aeb008f9ef783d9dd226ad3870fa4c3d566c3751871` |
-| `vectors/rotation-next-key.json` | `2c8951d2e67b7b93147bd7701aef0506f44a9785705ab3d97402db0e5b65b541` |
-| `vectors/self-approval.json` | `b33200b37084ac77029182a1448e7842a703607f716220f30f4977c2c523b1f7` |
-| `vectors/stale-approval.json` | `022926c478f7a5ee9a45cf63db0d833340ceed65b4e82f0f87814e0e1e85f779` |
-| `vectors/stale-step-up.json` | `51bc33571f1d0fe3f02d784b7646dc652b9f7fb0d31ce7fe00bb8ccff29d533c` |
-| `vectors/superseded.json` | `228c1d003f375c7612d770350b0a8e9c29c1b11bb287220e61594c75ce04bb63` |
-| `vectors/tampered-field.json` | `78b0fd92e6ab4c79426d8a137976f1d2313fb7c26c80888eb1bacc230ebc17bf` |
-| `vectors/target-not-found.json` | `4d2004d01bef079f2e7536f85a3e9f09fc64028257ed6336bb98551e71a7ccf0` |
-| `vectors/unavailable.json` | `e16184096b20cf635beb0d8dfc0fdfc0d12b1bb4d0927268cf13d992b4cd33cc` |
-| `vectors/unknown-contract.json` | `68525f1c094720cee122dabaa358be1d5d8dead15c72f419a9f129bb3f439cf7` |
-| `vectors/unknown-operation.json` | `b339491f247ec7b3d8dc39932de983f88883149080fc9de610caadd6a52f2e4b` |
-| `vectors/unknown-version.json` | `4114cf344143dc1398ce21710d9bb4bf6a6983da77f42ce210029e9863a571ef` |
-| `vectors/valid.json` | `0d24a1eb8e8c0d9b3d6805b64829c8e49eabdac2cb0e70fd8b746f95dac9682e` |
-| `vectors/wrong-key.json` | `3538c7ce19cbe16c401327f544c02ebee585c55be44223412261dda49431b9ce` |
-
-## Vector classification
-
-| Vector | Expected reason | Platform check |
+| Path | SHA-256 | Game Git blob SHA-1 |
 | --- | --- | --- |
-| `busy.json` | `ADM_BUSY` | Game runtime policy, not a Platform signer check |
-| `closed-params.json` | `ADM_INVALID_PARAMS` | Game runtime policy, not a Platform signer check |
-| `disabled-operation.json` | `ADM_FORBIDDEN` | Game runtime policy, not a Platform signer check |
-| `disabled-world.json` | `ADM_FORBIDDEN` | Game runtime policy, not a Platform signer check |
-| `excessive-lifetime.json` | `ADM_EXPIRED` | Game runtime policy, not a Platform signer check |
-| `expired-key.json` | `ADM_SIGNER_UNTRUSTED` | `Error::Untrusted` |
-| `expired.json` | `ADM_EXPIRED` | Game runtime policy, not a Platform signer check |
-| `future-issued.json` | `ADM_EXPIRED` | Game runtime policy, not a Platform signer check |
-| `future-step-up.json` | `ADM_CONTROL_MISSING` | Game runtime policy, not a Platform signer check |
-| `idempotency-conflict.json` | `ADM_IDEMPOTENCY_CONFLICT` | Game runtime policy, not a Platform signer check |
-| `idempotency-recorded.json` | `None` | Success: schema, exact JCS bytes, trusted-key signature |
-| `internal.json` | `ADM_INTERNAL` | Game runtime policy, not a Platform signer check |
-| `invalid-nonce.json` | `ADM_INVALID_PARAMS` | `Error::Envelope` |
-| `limit.json` | `ADM_LIMIT_EXCEEDED` | Game runtime policy, not a Platform signer check |
-| `missing-reason.json` | `ADM_CONTROL_MISSING` | Game runtime policy, not a Platform signer check |
-| `missing-step-up.json` | `ADM_CONTROL_MISSING` | Game runtime policy, not a Platform signer check |
-| `permission.json` | `ADM_FORBIDDEN` | Game runtime policy, not a Platform signer check |
-| `precondition.json` | `ADM_PRECONDITION_FAILED` | Game runtime policy, not a Platform signer check |
-| `preview-mismatch.json` | `ADM_PREVIEW_STALE` | Game runtime policy, not a Platform signer check |
-| `replay.json` | `ADM_REPLAY` | Game runtime policy, not a Platform signer check |
-| `risk-downgrade.json` | `ADM_RISK_CLASS_MISMATCH` | Game runtime policy, not a Platform signer check |
-| `rotated-out-key.json` | `ADM_SIGNER_UNTRUSTED` | `Error::Untrusted` |
-| `rotation-next-key.json` | `None` | Success: schema, exact JCS bytes, trusted-key signature |
-| `self-approval.json` | `ADM_CONTROL_MISSING` | Game runtime policy, not a Platform signer check |
-| `stale-approval.json` | `ADM_CONTROL_MISSING` | Game runtime policy, not a Platform signer check |
-| `stale-step-up.json` | `ADM_CONTROL_MISSING` | Game runtime policy, not a Platform signer check |
-| `superseded.json` | `ADM_AGENT_SUPERSEDED` | Game runtime policy, not a Platform signer check |
-| `tampered-field.json` | `ADM_BAD_SIGNATURE` | `Error::BadSignature` |
-| `target-not-found.json` | `ADM_TARGET_NOT_FOUND` | Game runtime policy, not a Platform signer check |
-| `unavailable.json` | `ADM_TARGET_UNAVAILABLE` | Game runtime policy, not a Platform signer check |
-| `unknown-contract.json` | `ADM_UNKNOWN_OPERATION` | Game runtime policy, not a Platform signer check |
-| `unknown-operation.json` | `ADM_UNKNOWN_OPERATION` | Game runtime policy, not a Platform signer check |
-| `unknown-version.json` | `ADM_UNKNOWN_OPERATION` | Game runtime policy, not a Platform signer check |
-| `valid.json` | `None` | Success: schema, exact JCS bytes, trusted-key signature |
-| `wrong-key.json` | `ADM_BAD_SIGNATURE` | `Error::BadSignature` |
-
-Unaligned acceptance item: `closed-params.json` expects `ADM_INVALID_PARAMS`, but exercises an operation-specific closed params schema. The vendored envelope schema explicitly leaves params opaque, and Platform delegates operation schema validation to callers. It currently passes schema and signature checks rather than producing `Error::Envelope`. Owner clarification is pending; this candidate does not claim that rejection is implemented.
-
-Schema checks interpret only the pinned request schema vocabulary and reject unsupported keywords. They are test-only, not a general JSON Schema implementation. All vectors reproduce their stored canonical bytes; signature and key-validity failures use closed Platform variants. Runtime failures are not inferred from signature failures.
+| `README.md` | `906964972fe7a12201d800593235d97913de067372f275edc7e7d62400d68994` | `d16f0bc300cf8a80485f04204a4e8e795c605602` |
+| `admin.agent.list.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` | `8d1bd4de48d2e570912dfe3b03ef244412a55ec7` |
+| `admin.agent.list.result.schema.json` | `c2696a3da5f45a138a0f36175416bf351beb2f8d94c31f8f9d013aad06804435` | `8424d907899248f4cf968c051d24c3b7556d76f5` |
+| `admin.ledger.query.params.schema.json` | `efaf06f999e689640f71940385d253a8e277d486a26011cfdd3ab9d855a7efec` | `085e2a2efac2c3fb28639273bd3ba458034ff764` |
+| `admin.ledger.query.result.schema.json` | `b9b67aeabb90920db62cb4e5024ed3f68efe227f1358e6d2290219b8da799aed` | `c0ae8ca8afd103d8466aafe2544d5fa61e89d4ea` |
+| `admin.policy.get.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `admin.policy.get.result.schema.json` | `221fad7498807d1805feffa372b8695bd3528cd8b9578a6eab1b4b0c99f537f2` | `d267a680c9c6188a9650952fd271ec2625cea353` |
+| `analytics.catalog.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `analytics.catalog.result.schema.json` | `ce03dc7e35399aaeae74a3c8d071f789a4cb930d497e501446f5f18dc5bbe844` | `325f31dc939fd8bbadb216297079e3d0e710203e` |
+| `analytics.query.gold_sources_sinks.params.schema.json` | `ad99f91f21d9718e1035a789f86efd719c6aaa85f723e6d9991ff4b32898335b` | `4f8245c173922ced0d986c3ec3b0cedbd0df5998` |
+| `analytics.query.gold_sources_sinks.result.schema.json` | `a265192cd7a8bd2a4eb4a8be832d5a4b20f5f0f4da2f6b786b9ab546458e1fe3` | `f4bc0b23fa6084a90ab26bc71d835fce8d0ece6d` |
+| `analytics.query.gold_supply.params.schema.json` | `fe2cbb888f244716ea59be9859f2c58dd84c19409a8992b182945b8c22374f62` | `89493e04b73a68c981c0b1ae9f4864c04362bec8` |
+| `analytics.query.gold_supply.result.schema.json` | `dcc5f018b36bacef5eabdd48b4db8dc45713fe197f5453f69b298ee35e51b9cc` | `46fc1f0b7f6e5f61c35eff2b9b902f0aa73cb565` |
+| `analytics.query.item_supply_by_type.params.schema.json` | `183a57f0b60484900ab5be55c3910dfac2a820dbe21ceaeffa7ebdeb255840de` | `8d05282a2094e6353841de38b886db3c7180dab1` |
+| `analytics.query.item_supply_by_type.result.schema.json` | `079cd652ea263625662386539ac4efacd66801ca22f9bd6ba344862e017b141b` | `60112656cc5e1494856c27c7084cf4d2d3128f92` |
+| `analytics.query.market_price_series.params.schema.json` | `e82595684bbefc8a593407c77ec50c8c96787733b4a1ed19804ec63eb16317db` | `9dbfa69bf9c9b64c44b547ad461e337b676eabd2` |
+| `analytics.query.market_price_series.result.schema.json` | `eb860cff601b7127304a64579ade626643581a16883a306ab657fb74d22beae5` | `c46675996936b37d7dbe5324e4e61104d30399fa` |
+| `analytics.query.market_volume.params.schema.json` | `84b50ab2eea01087573a09f45402b8f40e2cc656d0c9fc8c1b671ec5e44f3c14` | `20b6023505442e15a0cf03e90c36be9cd7e84087` |
+| `analytics.query.market_volume.result.schema.json` | `6b6d7dc4877bb694671135cf8b4b72532a6b9a47c863d785726cec25b4041ce5` | `999acb65bf851678fb34bd69903e79e174484f11` |
+| `analytics.query.npc_trade_flow.params.schema.json` | `0e03b6bd79c11df8c5d5f666de45c4feab1206277aef2a0c9fdd221ede690668` | `3707b6d8d093fc5aa814dee3d4bf8a9773d4667d` |
+| `analytics.query.npc_trade_flow.result.schema.json` | `7447b8e128b11d97c79d39a0fb8e9da347c46d5ef5b153d826581c03ef7b8c72` | `ed0242ddce17d69775ed02bc5af01d45bc7d21d4` |
+| `analytics.query.params.schema.json` | `5ccf6364db297aded2bcc5a453433ffcc2b007eecfc307cb6bd1d942b75881a0` | `7035a73af891c9f1d464ea1471edfd9007b20850` |
+| `analytics.query.result.schema.json` | `e149845fefcfe7eaccfc84aacf714750560fa05cf59bab16ba7d169bc401e765` | `eb8e9141ce5ec971c2c960fd8336735207115304` |
+| `analytics.query.top_wealth.params.schema.json` | `993619629f152e80c859ec33af9b1a23e30c13f4040c50b6a1b72b85748b8c95` | `a5b06fd45b2cb0ead5e456f978d97ac882b530d1` |
+| `analytics.query.top_wealth.result.schema.json` | `ac6fc69fa4d345fa87fbdc5a2ce715fd519b4fba03c788ba3d8f947b24a19583` | `5f97cbe1beb11eb89e94e3b62cb76f3b6987b632` |
+| `db.migrations.list.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` | `8d1bd4de48d2e570912dfe3b03ef244412a55ec7` |
+| `db.migrations.list.result.schema.json` | `24a07eed478d5b47da8043a5952323be7100722e885685151df7d3725cd2e92e` | `0bccc971e2312a462a6aefb521e168ce9022c37a` |
+| `db.status.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `db.status.result.schema.json` | `d5d9fe475150a94bcce45b0ed31e3574505c47cd423060b5aa789080eebee64d` | `23a68605db50d7894b7c5a13e4568f176bfe062f` |
+| `node.drain.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `node.drain.result.schema.json` | `444dae05a11d19e8f1aaeeb12dcfbbd4c0be7e96049ece1d52d5fb6acb5270b9` | `3a644fd4d65fbcd168252a7c4053771bd00f51e0` |
+| `node.get.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `node.get.result.schema.json` | `47550106a3c0638a683f954e3644114074aa4bb2415dcc89131d303db9127c2c` | `df40dbaeb201fbe125893f4c1e77cbddaf9a1908` |
+| `node.list.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` | `8d1bd4de48d2e570912dfe3b03ef244412a55ec7` |
+| `node.list.result.schema.json` | `f0ec2d09f18f5752fc4d67d094bae80d6a8179e8f292e78497bbb98c425d1117` | `dd3dbd824f1e0c2a17669b9ea30b5c84ca091713` |
+| `ops.alerts.ack.params.schema.json` | `074da637cd8de50bc384bcb183dbcaa73e2ba38840a08fc719b5279712fc1c37` | `1c132105d52c3b2b1d3a88195988eac34934c45d` |
+| `ops.alerts.ack.result.schema.json` | `e9947699ea35a2fd8b9f0db91eddfffa427025628475e4ae0d55b63345c70802` | `092fbf3c3eb7e9f699a89b18c77f92bb363d5544` |
+| `ops.alerts.list.params.schema.json` | `b5142b748f0ad26812da9604b0dc3f91c8fce04c6c7db50c1508b76d2f917508` | `d9debe7022a2d057211114e13c9264bebd51b792` |
+| `ops.alerts.list.result.schema.json` | `b57e64f17b78a2a60427e3b6e6801ef6df3c237f601e77924986c3bfc3ba2424` | `4b54728ae706c2bb7222a0699792d052a81db179` |
+| `ops.logs.tail.params.schema.json` | `688406b6d0e6ef1673521661f32e57e382e6d00b36dd9277fa8a9247ccc184da` | `96754f46d58fcde381b71bf733680a4e6110c8ff` |
+| `ops.logs.tail.result.schema.json` | `0358d7009812570a83f86b547f1d7ca88d5ee29e76d033e3985a03dbbe2465b7` | `119225d01a6c17601d0da75b95ad85fe5517aecd` |
+| `ops.metrics.series.params.schema.json` | `14d94b6aa9257f8108468c1974f8a5de7febc3dbe9895a1365c21a0eef94b3cc` | `07bfe98da139e3c4795142d431dd8da74b18becd` |
+| `ops.metrics.series.result.schema.json` | `96ffb763477384c6f895cacdf02c3e1e88a0a4faf94f58282917897e99eeb2e4` | `7731f0063ab884e3418201815b303ae30ba6bd1c` |
+| `ops.overview.get.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `ops.overview.get.result.schema.json` | `a0056d0dca99c532a98c6945c5c7f304d9a4373b64c17b7f58756e550a0192a6` | `c7abca7c1464609d374a43d70966dda4b2e1cc5d` |
+| `player.character.get.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `player.character.get.result.schema.json` | `dc799b739a15614c902531c241c8edab301c7a5332a3105a5a6307092e55ed57` | `90a4bfa380b689ae36fc75a297eb856a842c62a5` |
+| `player.inventory.get.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` | `8d1bd4de48d2e570912dfe3b03ef244412a55ec7` |
+| `player.inventory.get.result.schema.json` | `ea84aa0607c516dbf3dc70c9c732f0909f3b4db9884a10a3eadd029b686148e4` | `43e15175f65219603db2be18529673e139428a92` |
+| `player.kick.params.schema.json` | `e319161ab8a25955f69c85b1e52e5db35e5e96fcda0aaa03cbdb8cce86d99833` | `30ee6ae7e25c762a5d7ef6bb927221d9fd0deef2` |
+| `player.kick.result.schema.json` | `1129acfd1e26ff64f7d52e9743be5536346b0abbb59c3f4b6e380474ed274770` | `0f896b6e781cdfc1d7d59974fc45a66283c06fd7` |
+| `player.message.params.schema.json` | `39f67b92c6dd4819cadc12179bfccb27d7687bda8c53ac43e9085517f921a1f7` | `8ce4646bc4f5c20eaf35801efc30ac802cc6eff5` |
+| `player.message.result.schema.json` | `56679440f9e3932d0a99cd3e8f7152c6ef9857bcc789a0fd2123a7fe3036da44` | `895057377e5afe8b1d0e7cc168b823231ee024e0` |
+| `player.search.params.schema.json` | `dafd3a58c6fb530c06b72e7eb96d05f2622a5c6cfb0e2f710607633f5b9b7f74` | `bbd98e5d94897b0e0f2e4b86cd941a27e101fab4` |
+| `player.search.result.schema.json` | `b1a66043e76a9c6b1daf1faf913949c1ede3d5b65c791d1ef6c43061fcdc0097` | `99f10c0ff50b4aa37f6bdfa29e50d36d3ae19bf6` |
+| `player.teleport.params.schema.json` | `65a516440ad25091177916c86fc9bba2a6893975c75c1b371294952021ce819a` | `772547fc8eb9ec1a6be84d502af473c0b828351d` |
+| `player.teleport.result.schema.json` | `253fa30f73c8664b4c6af6ce26c1811885b5ab9fb36bba8061ae14c654925dc3` | `9a3e2e3fb4ef0cfd8f399a440532dc4bd9185d2b` |
+| `request.schema.json` | `2100361d374acecf58512a2c064fe278c74aa8feccf5a6dd0caad7cf606766ae` | `1c5bec77a9172c31d9c3e97087f97f88e835e171` |
+| `result.schema.json` | `e5d18caabc84ec01836ce2fee706999658a248e3ac4eb03106e9965500d6832d` | `108d020e4bc6638821a0eccd5364bfe10dbf9c2e` |
+| `sanction.ban.account.params.schema.json` | `e92216d75443132f60fbaa5a3ed25a3e97d79c7b0f98bea94d1bbe3172da5ca8` | `1a2d70566e06ac82d8165a3ca4db72265a4a6afd` |
+| `sanction.ban.account.result.schema.json` | `db1ccfd7b14ad506d116c87986f83a1840bb39e8a353ee90bc7729f16e2b8850` | `c2cb83a618928a07852163cc44a8a631f9f45a56` |
+| `sanction.ban.character.params.schema.json` | `e92216d75443132f60fbaa5a3ed25a3e97d79c7b0f98bea94d1bbe3172da5ca8` | `1a2d70566e06ac82d8165a3ca4db72265a4a6afd` |
+| `sanction.ban.character.result.schema.json` | `0ff24d3bc390dd40ec652cfd4b26fb1af04389ed7a7ba6592ea9f9e7589dee6c` | `3f52169d06f4d5148f3356b1b7195221a9aef26f` |
+| `sanction.list.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` | `8d1bd4de48d2e570912dfe3b03ef244412a55ec7` |
+| `sanction.list.result.schema.json` | `0c974b9cf16dec3a1116c33bf8cdc7ecb8edac2925c8e9719ce3158311b9850d` | `f3482c267086243406d2a3a676dd873fea25216e` |
+| `sanction.mute.params.schema.json` | `e0ed4695ec221f8e24ab0ec3920c8d212c3ed59c585bb81d078e258470c273f0` | `a9d298c7eff2ca5750e39ec8a98ec52706e2cf3e` |
+| `sanction.mute.result.schema.json` | `5bb132fdd0a5b9e90b16706d4499e6af417af6fcb024b2f47a0d5d7c8b8ec131` | `d00b1981562fff1d7e3f30a72667cc2370b64b04` |
+| `sanction.notation.add.params.schema.json` | `b66d3d209bcf490a63471e60d610b2654bb835d822e1665aab7f9e95a8ef2a97` | `7ec18bfef94f04a246342f192d22678a4d473dac` |
+| `sanction.notation.add.result.schema.json` | `46a85bbf67f08f89138851e49ec9ecfd5f39f50cdfa8a50da2d6c5ebc7d4f95b` | `e3bde547035361e1c7db445cc0fe3c01db8b97fc` |
+| `sanction.revoke.params.schema.json` | `ccb3d43bc8b5db43cba5876be73e4f55b6b9e297e4e27a1e03a97eb2285bf762` | `5298e79550e05f525ab8a6bef49dbf6c8d8c0aa6` |
+| `sanction.revoke.result.schema.json` | `34d8a6fcd4d80ccf8bd6b9fe7a1a45b7300a8ce61fd453c936cc678c7843ca3c` | `62717049d7c2050a56ac6f519d0a951b44a144d7` |
+| `sanction.unmute.params.schema.json` | `c4cbd0a68ee1692bc64df11f47c122f14c2a6582a6b41164a5e1bf121f45cd43` | `94025950eee3b603b46fba65069052cbf595e26d` |
+| `sanction.unmute.result.schema.json` | `bb4c9a919c2c5423a2ade56db0d3993d413c7a83c4ff07177b7c0c6d918ba9b6` | `62147e5ef3d542058d2e3850348d6f5a50f4c47c` |
+| `vectors/busy.json` | `2cb31cb72ecc3598cf0e9f48985ab4cd05e7bfc0a62ff31ddb39f267e4aece02` | `f7b89c4fa6e4a8bea65a6b09035c33db3cc527ce` |
+| `vectors/closed-params.json` | `7df81d11d2b62e9393fbcf973ad86ca8564b682b27b4a86eee4c46e7fd0480af` | `5ca5955548f50a625b704965a22fffb5f16cddb0` |
+| `vectors/disabled-operation.json` | `b5e0cde4caa8767c3aa8f43190199543f7c36d38f903dd10ac55479876fac031` | `ad3ffe0538b72bb3da61e7db36c8126507a91f90` |
+| `vectors/disabled-world.json` | `4096d8b01f28262feb812ae947b6ed5f7036146ddbf2f0e0302060b5e1863cba` | `44fd7505730f6bf2a4d383c147bfc92d75ecb99d` |
+| `vectors/excessive-lifetime.json` | `1ecdaa50e55f3fe20395851f8a614fb48a2f2d3f35f73e844228bcf2495daaa5` | `4ba142a1e658af769a3247a62446d4b6ad6b4cd3` |
+| `vectors/expired-key.json` | `245c7ff4f883fa0a0c353984f33acbc5e809ad3516ff796b9c82cdf42cb96b7f` | `82e9703249e1d64e5187009aebee05f4fc63aedc` |
+| `vectors/expired.json` | `38fd8c7b7624e9f33f1dc43652f805507637ed0e8a966350f342963383154065` | `5cadc04711a54eec40ff0029d1324801f46b5b2b` |
+| `vectors/future-issued.json` | `10c4d03a35c2869c3b5f6b5914e7b044c13cbbd51269d8a878d89978ffaba432` | `bb2f0e905d29649726524cc9c35fa658b72a2f9c` |
+| `vectors/future-step-up.json` | `a9df9f9b464ca4d35f36d30fb938c127f835decfe769eb1ee044f49c2b063092` | `94b1d75e0c813f5f135cd7c76cd32ee6dd7d8d2e` |
+| `vectors/idempotency-conflict.json` | `68b53efde5c5b6ba9b5702447546848b93d08be0d50b5f9bf09d6a71ca20310f` | `6c24a9fb449952f91ae15a62697f4441a053d7de` |
+| `vectors/idempotency-recorded.json` | `7406544f3871dabac2c23e24d5407ed780cc089c85b5ef9367b60e7679aa2b00` | `f9a64990563798ffb67dd9d709847fc03cc009b1` |
+| `vectors/internal.json` | `ef2ef99005271c2ef497a9dc51241d64889946ba8183ce8b92b2a636c5a74ffb` | `0c6e3065255772fa9b1cf5f52de84f2c4e2c6fd0` |
+| `vectors/invalid-nonce.json` | `bdd900f0417a3f0462a54d49daea13a78c7285732e9140d86b5cf8e92aef2289` | `e2dceaf55e073e22bd86bab4eab661fedd331f4e` |
+| `vectors/limit.json` | `c0e4c4251375b68c2ff922fcc1f33242c6f553e3f58975d2c107af640f36ec03` | `dbe392aeee2758604451ace1101b784bb86cdf7c` |
+| `vectors/missing-reason.json` | `7fd7aef8c408dd465dd8a1b0f6be0e1e7e3e881265e4223b931e8a386eda6df7` | `6d3c2011507724bd3314a4cd43823a5505751939` |
+| `vectors/missing-step-up.json` | `d887061d8ee3ef3dfa612d8bea319a89f3f671ab6e02d28f526b0dbdd5932561` | `f174ac28878ae0b8c99523806cb1627f525e2c50` |
+| `vectors/permission.json` | `56a7acc728042cf7c0cc65a685273c562a3ed96cc7aa76dbc8a2f54b1e5527ed` | `34d84c340a6fe692ec98ba5fb86eb953ff7f44c1` |
+| `vectors/phase-2/analytics.query.gold_sources_sinks-invalid.json` | `700e76a47289511fd2425458003a57f11589e60a7d4c60ffe21b7f92e2215cdc` | `5a279ef7313d5c10cc8455c1af4afcc2eb6d379a` |
+| `vectors/phase-2/analytics.query.gold_sources_sinks-valid.json` | `7ec0fdb219d11618123d554687e6b9700dfb37e4e980a5a47bd99d67a98986db` | `3f79b86524492bd6519a9b887511b750ba210713` |
+| `vectors/phase-2/analytics.query.gold_supply-invalid.json` | `36c5a40d82b531c115858ce0d96e1279702b575b12119672c73c14fadb62b5d6` | `c2d14a6499bd1a1f179e7349b46da3b7496e9d3c` |
+| `vectors/phase-2/analytics.query.gold_supply-valid.json` | `a96b4bc6574c637a9257134c88e85c5d8cc8f4fd2161505866cfb64dda7a4e5d` | `bd83b89a0b28fe6d5920f2a8cff69b225aa92013` |
+| `vectors/phase-2/analytics.query.item_supply_by_type-invalid.json` | `1cdfedc8a5e4dd8d57d4b2c7d95303c0495fb91488144e36f036eacced18029f` | `408608ba9621dc763b3aad95698cec0390d5db0f` |
+| `vectors/phase-2/analytics.query.item_supply_by_type-valid.json` | `eef208a4a8da8841b965e8d3509e2da6218856f97b9800fc5c6d209cb28107be` | `f1ae6c296377a5981167bb9582fefb2c9b73f7cc` |
+| `vectors/phase-2/analytics.query.market_price_series-invalid.json` | `0e596b7f99a4be1bce092af5dff52892db9bd492d90b1c7eb12f77463d2c05d0` | `88e0343057c3ba674bb552ac27f0337e00e153ca` |
+| `vectors/phase-2/analytics.query.market_price_series-valid.json` | `5a8830ada8f5bf9b5b592a38bfdd89973b3a50fdc540f3e14b10f2a893630888` | `6b3760925781af3aa611213f0c999544aeca2905` |
+| `vectors/phase-2/analytics.query.market_volume-invalid.json` | `dbf4c431bbc51f7339813b3777a7ee8d40b33cbfc32dc94b1703edb1b6e8a661` | `1602f8f406cdfc87b13a7ea6311e62d26404c22b` |
+| `vectors/phase-2/analytics.query.market_volume-valid.json` | `9e2fbcc54bdbd813057d73a9d6607ec5d8f071f3ba00ac10930f856affa3a48f` | `a00e637dca56b39e9090c454997420933ce867a3` |
+| `vectors/phase-2/analytics.query.npc_trade_flow-invalid.json` | `e86ff5aed2feb6a6020961fc4976412ed472e6ee8fa65a03865527cf3d0db116` | `16b6ac785f7a4747966050aee9c9fccc0213e23b` |
+| `vectors/phase-2/analytics.query.npc_trade_flow-valid.json` | `e8628392a5b6f6421e261b0752755d070d88da25d0ac27f0b0e6d1ae3a4c3c6c` | `8df7fb93d22e7a06ef9197206860be48d4971131` |
+| `vectors/phase-2/analytics.query.top_wealth-invalid.json` | `ba324803097b563e1dd523ef7530ab2ffaf15de9ff70ad3250c2649969a0640c` | `8206a306298386f27d6b4800a8c4fd6e1bca18c1` |
+| `vectors/phase-2/analytics.query.top_wealth-valid.json` | `8733beb77829c41e6111e15ed357dfd2c85f5295a5c6eb3009d84effd0083b9e` | `316a9f061ee85fb15c41bc7d97cc4965ee18c980` |
+| `vectors/phase-2/node.drain-invalid.json` | `4cec82240a941de87843b614531ecb8cea8d0e3943321118024727b61f9f14c5` | `29d4f7df05569a9f017271fb78e2b4f72891db8c` |
+| `vectors/phase-2/node.drain-valid.json` | `dad5e0e9a44429da29bb9e74047c813f38b3d4e5d1180c4decb9c986a1908f23` | `574fbf21f0751e39b3dd5ea67f44fdd10bb46a90` |
+| `vectors/phase-2/ops.alerts.ack-invalid.json` | `ec74a5ffa17d6a50d85b58503ba4438457aff88ce54fb8e651dde2ddf36e8c38` | `97850269885ec4b3463e9786d89458b9e655464c` |
+| `vectors/phase-2/ops.alerts.ack-valid.json` | `c3ee615e8bc1fb2266c840e761a6598359f54a8dc5353f37e35a0c6a3434d0cf` | `d95446e1b5fa80d10ea5edce5f9bfb84ddd2df5e` |
+| `vectors/phase-2/ops.alerts.list-invalid.json` | `9db7dfe9df08ddb47899b9d2502f7ac2bf4c3fdd5f6507dc184ace6e14ba046a` | `cde70190cdf8d0279461e50e8c4b67fa910875ad` |
+| `vectors/phase-2/ops.alerts.list-valid.json` | `31bf6cae5952da94932d4b121671eb0ebea8a00b26af1de55a58215b2ba899a6` | `82febd5f7d3c04417e5c6cefc0938de17dbff117` |
+| `vectors/phase-2/ops.logs.tail-invalid.json` | `a223702513dd813a971e87fb68222d94949d9f26098ae64f5d79910baaced594` | `43dd96653bc2536b46a66ca925919764458f6dbf` |
+| `vectors/phase-2/ops.logs.tail-valid.json` | `d593225ec5b45d132674264ecbbbbef96717ff08ee741b1ded75fb3442b1c59c` | `70996c503f9c6c3acd59e6c88dc766a1a4cf6d44` |
+| `vectors/phase-2/ops.metrics.series-invalid.json` | `f79970deca5230c1491288d8d27a9070fb3d29e566d0a5f6306e3d95eb3e6695` | `c135753a6db185384982881bbef491cb27656868` |
+| `vectors/phase-2/ops.metrics.series-valid.json` | `34122346827200028ca0f6bb680c080f74bedb53602e07cb0c9de298199a909a` | `b9f768c9f7d7c62e59b5efcbd6ae2fc903d017fc` |
+| `vectors/phase-2/player.kick-invalid.json` | `5ad2d34b94e8898cc166d22c56201838dbf19961aa7db1cfd4756bbaea78d66a` | `be9e950da10f2b1156d847805ddca259b0a4d900` |
+| `vectors/phase-2/player.kick-valid.json` | `54e01a60b953df12df89c020b5e465f6eaa99cb0b779872a6cb04a619193488f` | `cfaf53ae1e28c21a529172911fe40228406091c6` |
+| `vectors/phase-2/player.message-invalid.json` | `40394457f4d65cff7cc56c49cc45fa89e61a8730b88fa02be233272dfd1ca7b5` | `43bd65bce1977a2eafe2927c70c3ebbdb72d0b27` |
+| `vectors/phase-2/player.message-valid.json` | `73d4c61580bb0753cd040253da70d42361b3c110c85b2139ae1bb0cb26e70630` | `80b1131bd5fd9e22acc0bc3c9873ecb4db0113d0` |
+| `vectors/phase-2/player.teleport-invalid.json` | `e6c3e6f35a863c432869b381710e0252b1ca1f4e398898eccbf4678046358553` | `ad5e7acf838fe47bbb02a8bf9c59f0526525e768` |
+| `vectors/phase-2/player.teleport-valid.json` | `d6ec45f9df2a7ca226ba5f003264596756111a427f27137ea29ac5f50ce9aaa4` | `76afdad0ba6919d9777454888b34d23145a73ce2` |
+| `vectors/phase-2/sanction.ban.account-invalid.json` | `c4a16773b0cd4e083b2f029c590d4770be785c207008ceae5c757af82dd4276c` | `867d747a0da6656adae4853a5bc975a00d998b8a` |
+| `vectors/phase-2/sanction.ban.account-valid.json` | `34afcc33aef9691131c68b18b778761742736e668849f4f988663e5f45b07826` | `a5fdb7a1726508c9a4b7f3e5c34d2e73f3ff6089` |
+| `vectors/phase-2/sanction.ban.character-invalid.json` | `d86a01ee81049b5ad06d0c19cbd3664609787092c906e5b07a830ef7e1de8803` | `927dbcf4c6aa4e2c06e6336731aa02dc7e6927d7` |
+| `vectors/phase-2/sanction.ban.character-valid.json` | `fbffbbb9b30cc58a48baf27f7e0248398808ef7def0af5bfc2988158b4fa00f8` | `897b9de56c4a8e0d9943326179164612ed75fa69` |
+| `vectors/phase-2/sanction.mute-invalid.json` | `95d45b74eea918bb7c1735173c5c10c80c0564fc87b280ec0635612a56efa50e` | `733d001ec1c8bf4c6e5022eef033878870643fb0` |
+| `vectors/phase-2/sanction.mute-valid.json` | `fb371839a094eb2f8fd4526edea81ab172cd6ca0f67fc5f0b60f592e89d1c8d0` | `5f5300f2f2796aee6d223f7d0b5b8e37a216379e` |
+| `vectors/phase-2/sanction.notation.add-invalid.json` | `4be0f3b597dc225e9a0f260dfa3b6bf1fd01f1de75b469b1b39f54fd7785055c` | `8b5d0e7571650b214c2abc97baf236a70c31e2c1` |
+| `vectors/phase-2/sanction.notation.add-valid.json` | `fa99eedcacc0a52f07102df0592a92cca6ea5108eb67ec7ec52001a3bc4e7487` | `25b16f4938ca6bea5bfc13cfd23a288a22b37162` |
+| `vectors/phase-2/sanction.revoke-invalid.json` | `8a45f4864082a164bf22011319de0e00aa4111dc0882e9cbbc219ff1ba59c69f` | `804c71ffef66a2e87001bb0865d9e7729a26ba13` |
+| `vectors/phase-2/sanction.revoke-valid.json` | `ada79fffabc6c436d250ffbb35359f20ac3e51fe6aa42a7e65a757bee2d7629c` | `9d7eb973422abb5bb747dca7668dda3536596604` |
+| `vectors/phase-2/sanction.unmute-invalid.json` | `ea52b9fe7c7e58c1c0ca743ec5eccec39097a0a2c1f4462f4bfcb1b16f986491` | `d7307244c5deac7883621654cc8fc54849c63a90` |
+| `vectors/phase-2/sanction.unmute-valid.json` | `3e710182cf7576ea68976a4e329534b642a9f3de6165c9a6d1fb3c677bd7ad14` | `10ab529946616dc21c5715788911d79dcdba7350` |
+| `vectors/phase-2/world.broadcast-invalid.json` | `06e6a1f2407c4b3ace122e8b367644ffde5040f8a8737293512623d900faa5fc` | `dc393d1955451666a5038150b1badf012df39afe` |
+| `vectors/phase-2/world.broadcast-valid.json` | `95b25c8a157acb05b58fdae7a5bc8aa4e334218271578d9a067f1a0d38dfc7b4` | `9b563149f6201202748cc65fd4f2ea1eb0f96b8b` |
+| `vectors/phase-2/world.motd.set-invalid.json` | `3eca7b2ce29610bb538f65e15152705b34daebdb5ee17e21e53a1849483c11f5` | `80719b515fdc8ce1c8d1551f4bade5ac8ebde4c1` |
+| `vectors/phase-2/world.motd.set-valid.json` | `478e17d463c96263ae1df4ba66c2d783c4a42789e8ec814122eb41e411cadaf1` | `cd423c2b6ab1bd3ecd840d23d065c29f1f678564` |
+| `vectors/phase-2/world.restart-invalid.json` | `c725c25b8137a594eb935015103ca1bfb98f9e91adb82bbc4adfbe826e6a7e5b` | `3ea7a45c217c387d6b013a993631a6b915c9da06` |
+| `vectors/phase-2/world.restart-valid.json` | `a3cd86af6a6dc1d88ac2b3f373f9461350e6d8bde358aa17d53d8ba8ff9ec72f` | `d0a5c68d56591bc258d3c58b8bdf467ec4315203` |
+| `vectors/phase-2/world.save_now-invalid.json` | `9b64b72d0bb4506f355c4d58a5d2bcf615dce5634d2ef134b1a6f83b8da60c6e` | `6c2a55d86843110c0a56f5e2683bd9308395dd3e` |
+| `vectors/phase-2/world.save_now-valid.json` | `3260263fcf6d094f9548b97d40299d8efa967a89390e49506232b2ca369e31a2` | `ce7e0e2144602056054a0be81896238055072f71` |
+| `vectors/phase-2/world.state.set-invalid.json` | `291e844ffbd70bf3fc8b2d255bc8b00c7b6be00a1763c56e3d1cbbb05ac77e80` | `0d7e0a91b8cd85d19a1f12c118f571162e84c975` |
+| `vectors/phase-2/world.state.set-valid.json` | `337a84927ab72270b29033f0b3241bf124aa2a7e3915f51c0d8b481583eb3492` | `8f7be60aa8b343278c7ca26ef690c4c080f71791` |
+| `vectors/precondition.json` | `a85579a0d79f22cfc2c90eec32901dee05fe899c86ac6a5766c253fcc73321b9` | `21c9d856be1ed4f33d7ecb203da908b5228bb59f` |
+| `vectors/preview-mismatch.json` | `a04b3645b7c6bb375f31751a00177d1c4074241fde07c3e03e5484434ffac571` | `dc1774594ec62073c9867f441aa2811abae75b12` |
+| `vectors/replay.json` | `9f17d9db0e2f2ac554a92bba9e35f0d356c6ffa5cefd53cc527e415cf56e3719` | `596968f75aa48910f5b27ba0472b82022b456d0a` |
+| `vectors/risk-downgrade.json` | `4df94a160a2a25604b32602dadbf624aa2e59a4f70e5465738bc50fb6183f8f0` | `44de6c366732dc97f0bb6289052a0b6c955eee49` |
+| `vectors/rotated-out-key.json` | `9d3a7a13831d978e15633aeb008f9ef783d9dd226ad3870fa4c3d566c3751871` | `83e87798861dab32119cdf6464a40d145971f9aa` |
+| `vectors/rotation-next-key.json` | `2c8951d2e67b7b93147bd7701aef0506f44a9785705ab3d97402db0e5b65b541` | `bd67da48bf826b3d650d799196a624c33b1c9264` |
+| `vectors/self-approval.json` | `b33200b37084ac77029182a1448e7842a703607f716220f30f4977c2c523b1f7` | `b53b6f32acf5b3dc92deb491a81a7ccabea2c03a` |
+| `vectors/stale-approval.json` | `022926c478f7a5ee9a45cf63db0d833340ceed65b4e82f0f87814e0e1e85f779` | `f6b8dbf1b84be1fa45d9698132e924f7533fbf59` |
+| `vectors/stale-step-up.json` | `51bc33571f1d0fe3f02d784b7646dc652b9f7fb0d31ce7fe00bb8ccff29d533c` | `1b4f95492b3fad8e45499767d044857f297e70f8` |
+| `vectors/superseded.json` | `228c1d003f375c7612d770350b0a8e9c29c1b11bb287220e61594c75ce04bb63` | `8548c594eec6ae9ea61915c6f3746280b825feb9` |
+| `vectors/tampered-field.json` | `78b0fd92e6ab4c79426d8a137976f1d2313fb7c26c80888eb1bacc230ebc17bf` | `ef890e65b4d643e25f01ba026b19e6b95e8bbf38` |
+| `vectors/target-not-found.json` | `4d2004d01bef079f2e7536f85a3e9f09fc64028257ed6336bb98551e71a7ccf0` | `eeeec4ae378afaddc3e67aae2720739612b6da69` |
+| `vectors/unavailable.json` | `e16184096b20cf635beb0d8dfc0fdfc0d12b1bb4d0927268cf13d992b4cd33cc` | `d9bcafd401bdcff27b531eefeb82921a86abae29` |
+| `vectors/unknown-contract.json` | `68525f1c094720cee122dabaa358be1d5d8dead15c72f419a9f129bb3f439cf7` | `b3a818214123c302ba469f8033acb14f5c154b0e` |
+| `vectors/unknown-operation.json` | `b339491f247ec7b3d8dc39932de983f88883149080fc9de610caadd6a52f2e4b` | `a3a064c0730232f82d28a69c758c32cae8164868` |
+| `vectors/unknown-version.json` | `4114cf344143dc1398ce21710d9bb4bf6a6983da77f42ce210029e9863a571ef` | `5081136c09d64f99fab88bdf214344ef34d85431` |
+| `vectors/valid.json` | `0d24a1eb8e8c0d9b3d6805b64829c8e49eabdac2cb0e70fd8b746f95dac9682e` | `af2deca2f127764b6422c3cdc63999d8ea72ebe3` |
+| `vectors/wrong-key.json` | `3538c7ce19cbe16c401327f544c02ebee585c55be44223412261dda49431b9ce` | `e1478969f9ea85bb0d017762e9852556a1bf088d` |
+| `world.broadcast.params.schema.json` | `39f67b92c6dd4819cadc12179bfccb27d7687bda8c53ac43e9085517f921a1f7` | `8ce4646bc4f5c20eaf35801efc30ac802cc6eff5` |
+| `world.broadcast.result.schema.json` | `b5ff60eff475f739ffd763e8d2ebce0ffe333b5c626863fe6da3bb09de8b803c` | `26bc1c0606ecd8e057d8fb70adb6e71f938c5d0b` |
+| `world.get.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `world.get.result.schema.json` | `8b20cd815813693ee795edfcbc8b58d42499ab9c6da9508525cd14c8b7c33292` | `7cec3bb52c63d1f60201d0d3f7dc6969bf74c5d2` |
+| `world.list.params.schema.json` | `e2a7031fd2a1954eb9e907701c1abb5f3ea72e8a18f1f4cb34682eaec878f8a2` | `8d1bd4de48d2e570912dfe3b03ef244412a55ec7` |
+| `world.list.result.schema.json` | `cf3698eec3e43029112459f056a13861fa4061d52f6e0c3d7a09b5e32914c0f9` | `5264df5b90efe9f3f2fa153d1cd0c2f9d98b6f5d` |
+| `world.motd.set.params.schema.json` | `11d330241dde010172f0199a0ae53e825e1fa05342537cbc274e065856c1a8d5` | `3c0b6196298da101ac771b8fd223c83bd1e76675` |
+| `world.motd.set.result.schema.json` | `3fec3efb9303068e110d17d6627b49147766cf7dcccb47859daba18d07b1b989` | `781ec7a55d496c7b5ce025b5ffa1dea2d331e293` |
+| `world.restart.params.schema.json` | `e60c6676be6530b2a5e419705023a549e465bdd4192b5586a6a36c9edc0c81c6` | `359c779e93cb2cdcdcf2eab93043d11bf3cc9490` |
+| `world.restart.result.schema.json` | `f6691fd0375d1fe47dc19ca66626d564233e153d4785db9242d028c7a3504b64` | `53de502475d8e9dbe50bf80ecf5b98592765aa18` |
+| `world.save_now.params.schema.json` | `9d1560bc438b4e29985c3576e8ccf35c6185fea5191ef8d5f589f132046255a4` | `48fe3566476034b6cd95101bc53456201f743db4` |
+| `world.save_now.result.schema.json` | `7610141ad4b0568bad54546a8926d51119448737a92322deb8b4322e49505246` | `fddbd0061379b5a4d56d0db1164689385c775b8b` |
+| `world.state.set.params.schema.json` | `dd837b138799229696f9939a5018e014150c921c252c8967d8abcbe80ffd9da1` | `4c5f8a26133e31ec4a4f390b8d00aa8804766e60` |
+| `world.state.set.result.schema.json` | `2e6a0594addb40fd02961a90c39c8579dd440180281e8070b6de93acadb63b30` | `bbe428fbb61ae075e0a9100a8f3ceba0d58a23e3` |

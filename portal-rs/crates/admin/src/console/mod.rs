@@ -109,16 +109,38 @@ pub enum Error {
     Denied,
     #[error("invalid query")]
     Invalid,
+    #[error("Game read refused")]
+    Read(GameReadError),
     #[error("channel unavailable")]
     Unavailable,
     #[error("storage unavailable")]
     Storage(#[from] sqlx::Error),
+}
+#[derive(Debug, Clone, Copy)]
+pub enum GameReadError {
+    InvalidTarget,
+    CharacterOnline,
+}
+impl GameReadError {
+    fn key(self) -> &'static str {
+        match self {
+            Self::InvalidTarget => "game-read-invalid-target",
+            Self::CharacterOnline => "game-read-character-online",
+        }
+    }
+    fn status(self) -> StatusCode {
+        match self {
+            Self::InvalidTarget => StatusCode::BAD_REQUEST,
+            Self::CharacterOnline => StatusCode::CONFLICT,
+        }
+    }
 }
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         match self {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::Invalid => StatusCode::BAD_REQUEST,
+            Self::Read(error) => return (error.status(), text("en", error.key())).into_response(),
             _ => StatusCode::SERVICE_UNAVAILABLE,
         }
         .into_response()
@@ -292,6 +314,7 @@ pub enum QueryStatus {
     Succeeded,
     Failed,
     Rejected,
+    ReadError(GameReadError),
     Expired,
     Cancelled,
 }
@@ -303,6 +326,7 @@ impl QueryStatus {
             Self::Succeeded => "unavailable",
             Self::Failed => "failed",
             Self::Rejected => "rejected",
+            Self::ReadError(error) => error.key(),
             Self::Expired => "expired",
             Self::Cancelled => "cancelled",
         }
@@ -564,7 +588,9 @@ async fn render<P: Permissions, C: Channel>(
             .iter()
             .all(|op| matches!(op, Operation::World | Operation::Node))
     {
-        return Err(Error::Invalid);
+        let language = lang(&headers, &q);
+        let error = GameReadError::InvalidTarget;
+        return Ok((error.status(), text(language, error.key())).into_response());
     }
     s.permissions.navigation(context).await?;
     let mut allowed = true;
@@ -779,10 +805,13 @@ async fn submit<P: Permissions, C: Channel>(
         lang: Some(form.lang.clone()),
     };
     q.validate()?;
-    if uri.path() != format!("/console/{}", form.operation.page())
-        || matches!(form.operation, Operation::World | Operation::Node) != target.is_some()
-    {
+    if uri.path() != format!("/console/{}", form.operation.page()) {
         return Err(Error::Invalid);
+    }
+    if matches!(form.operation, Operation::World | Operation::Node) != target.is_some() {
+        let language = if form.lang == "en" { "en" } else { "pl" };
+        let error = GameReadError::InvalidTarget;
+        return Ok((error.status(), text(language, error.key())).into_response());
     }
     s.permissions.check(context, form.operation).await?;
     let view = s

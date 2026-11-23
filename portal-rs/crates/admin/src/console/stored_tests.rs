@@ -88,7 +88,18 @@ async fn browser_get(
     cookie: &str,
     path: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let response = app
+    let response = browser_response(app, cookie, path).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    Ok(String::from_utf8(
+        to_bytes(response.into_body(), 200000).await?.to_vec(),
+    )?)
+}
+async fn browser_response(
+    app: &Router,
+    cookie: &str,
+    path: &str,
+) -> Result<axum::response::Response, Box<dyn std::error::Error>> {
+    Ok(app
         .clone()
         .oneshot(
             Request::get(path)
@@ -97,11 +108,7 @@ async fn browser_get(
                 .header("cookie", cookie)
                 .body(Body::empty())?,
         )
-        .await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    Ok(String::from_utf8(
-        to_bytes(response.into_body(), 200000).await?.to_vec(),
-    )?)
+        .await?)
 }
 async fn poll(
     internal: &Router,
@@ -288,7 +295,7 @@ async fn exercise_reads(
     for request in requests {
         let value = match request.operation.as_str() {
             "player.inventory.get" => {
-                json!({"items":[{"instance_id":"verified-item","type_id":42,"parent_id":null,"location":"bag","count":"2"}],"next_cursor":null})
+                json!({"items":[{"instance_id":"verified-item","type_id":42,"parent_id":null,"location":"bag","count":"2"}],"stash_balances":[{"type_id":99,"count":"9007199254740993"}],"next_cursor":null})
             }
             "sanction.list" => {
                 json!({"sanctions":[{"sanction_id":"verified-sanction","account_ref":null,"character_id":"c-1","kind":"warning","active":true,"starts_at":"2026-11-15T00:00:00Z","expires_at":null}],"next_cursor":null})
@@ -299,6 +306,52 @@ async fn exercise_reads(
     }
     let html = browser_get(&reads, cookie, path).await?;
     assert!(html.contains("verified-item") && html.contains("verified-sanction"));
+    assert!(html.contains("Stash · 99 · 9007199254740993"));
+    if check_correlation {
+        for (character, code, status, message) in [
+            (
+                "c-2",
+                "ADM_PRECONDITION_FAILED",
+                StatusCode::CONFLICT,
+                "The character must be offline.",
+            ),
+            (
+                "c-3",
+                "ADM_INVALID_PARAMS",
+                StatusCode::BAD_REQUEST,
+                "The selected target or filters are incompatible",
+            ),
+        ] {
+            let path = format!("/admin/console/players?lang=en&character={character}");
+            browser_get(&reads, cookie, &path).await?;
+            let requests = poll(internal).await?;
+            assert_eq!(requests.len(), 1);
+            let request = requests.first().ok_or_else(missing)?;
+            assert_eq!(request.operation, "player.character.get");
+            let mut result = signed_result(agent_key, request, Value::Null)?;
+            result.status = signer::Status::Rejected;
+            result.error = Some(signer::ResultError {
+                code: code.into(),
+                message: "agent detail".into(),
+                retryable: false,
+            });
+            result.signature = URL_SAFE_NO_PAD.encode(
+                agent_key
+                    .sign(&signer::adm_x1_signing_bytes(&result)?)
+                    .to_bytes(),
+            );
+            let response = internal
+                .clone()
+                .oneshot(agent_request("results", serde_json::to_value(result)?)?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let response = browser_response(&reads, cookie, &path).await?;
+            assert_eq!(response.status(), status);
+            let body = String::from_utf8(to_bytes(response.into_body(), 200000).await?.to_vec())?;
+            assert!(body.contains(message));
+            assert!(!body.contains("agent detail"));
+        }
+    }
     browser_get(&reads, cookie, "/admin/console/access?lang=en").await?;
     browser_get(&reads, cookie, "/admin/console/audit?lang=en").await?;
     let mut requests = poll(internal).await?;
@@ -672,15 +725,37 @@ async fn stored_console_browser_query_verified_result_and_ownership(
         assert!(html.contains("Request fresh data"));
     }
     if check_lifecycle {
+        let world_target = serde_json::to_value(&request.target)?;
+        let mut scoped = channel.clone();
+        scoped.bindings[0].allowed_worlds.clear();
+        assert!(matches!(
+            scoped
+                .read(
+                    actor,
+                    "agent-a",
+                    Operation::Worlds,
+                    None,
+                    Some(request.request_id)
+                )
+                .await,
+            Err(Error::Unavailable)
+        ));
         for (operation, page) in [
             (Operation::Overview, "dashboard"),
             (Operation::Worlds, "worlds"),
             (Operation::Nodes, "nodes"),
             (Operation::Database, "database"),
         ] {
-            sqlx::query("UPDATE admin_control_requests SET operation=$1 WHERE request_id=$2")
+            let target = if matches!(operation, Operation::Database) {
+                serde_json::to_value(control::Target::default())?
+            } else {
+                world_target.clone()
+            };
+            sqlx::query("UPDATE admin_control_requests SET operation=$1, target=$3, params=$4 WHERE request_id=$2")
                 .bind(operation.name())
                 .bind(request.request_id)
+                .bind(target)
+                .bind(StoredChannel::ops_params(operation))
                 .execute(&pool)
                 .await?;
             for (status, label) in [
@@ -734,7 +809,7 @@ async fn stored_console_browser_query_verified_result_and_ownership(
                 );
             }
         }
-        sqlx::query("UPDATE admin_control_requests SET operation='world.list',status='succeeded',expires_at=clock_timestamp()+interval '60 seconds' WHERE request_id=$1").bind(request.request_id).execute(&pool).await?;
+        sqlx::query("UPDATE admin_control_requests SET operation='world.list',status='succeeded',expires_at=clock_timestamp()+interval '60 seconds',target=$2,params=$3 WHERE request_id=$1").bind(request.request_id).bind(&world_target).bind(StoredChannel::ops_params(Operation::Worlds)).execute(&pool).await?;
     }
     let response = app
         .clone()

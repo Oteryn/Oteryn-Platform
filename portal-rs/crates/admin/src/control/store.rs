@@ -49,6 +49,8 @@ impl Status {
     }
 }
 
+pub(super) const MAX_ADVERTISED_OPERATIONS: usize = 1024;
+
 /// This flag is off unless explicitly enabled. Unknown environment values deny.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Config {
@@ -84,7 +86,7 @@ pub enum Error {
     Storage(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Target {
     pub world_id: Option<String>,
@@ -94,16 +96,15 @@ pub struct Target {
 }
 impl Target {
     fn valid(&self) -> bool {
-        (self.world_id.is_some() || self.node_id.is_some())
-            && [
-                &self.world_id,
-                &self.node_id,
-                &self.character_id,
-                &self.account_ref,
-            ]
-            .into_iter()
-            .flatten()
-            .all(|value| bounded(value, 256))
+        [
+            &self.world_id,
+            &self.node_id,
+            &self.character_id,
+            &self.account_ref,
+        ]
+        .into_iter()
+        .flatten()
+        .all(|value| bounded(value, 256))
     }
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -251,8 +252,7 @@ impl Store {
             || !bounded(&hello.build, 256)
             || hello.catalog_digest.len() != 32
             || hello.owner_epoch <= 0
-            || hello.advertised_operations.len() > 1024
-            || hello.served_worlds.len() + hello.served_nodes.len() == 0
+            || hello.advertised_operations.len() > MAX_ADVERTISED_OPERATIONS
             || hello.served_worlds.len() + hello.served_nodes.len() > 1024
             || !hello
                 .served_worlds
@@ -537,7 +537,20 @@ impl Store {
                     WHERE e.request_id=r.request_id AND e.action='admin.control.evidence.attached'))
                 AND a.advertised_operations @> jsonb_build_array(jsonb_build_object(
                     'operation',r.operation,'operation_version',r.operation_version,'kind',r.kind))
-                AND ((r.target->>'world_id') IS NOT NULL OR (r.target->>'node_id') IS NOT NULL)
+                AND (
+                    (r.kind='query' AND r.operation=ANY($4)
+                     AND r.target->>'world_id' IS NULL AND r.target->>'node_id' IS NULL
+                     AND r.target->>'character_id' IS NULL AND r.target->>'account_ref' IS NULL
+                     AND NOT EXISTS (SELECT 1 FROM audit_log admission
+                         WHERE admission.request_id=r.request_id AND admission.actor=r.actor
+                         AND admission.action='console.query.admitted' AND admission.target<>a.agent_id))
+                    OR (
+                        NOT (r.kind='query' AND r.operation=ANY($4))
+                        AND (r.kind<>'query' OR NOT (r.operation=ANY($5))
+                             OR cardinality(a.served_worlds)>0)
+                        AND (r.target->>'world_id' IS NOT NULL OR r.target->>'node_id' IS NOT NULL)
+                    )
+                )
                 AND ((r.target->>'world_id') IS NULL OR r.target->>'world_id'=ANY(a.served_worlds))
                 AND ((r.target->>'node_id') IS NULL OR r.target->>'node_id'=ANY(a.served_nodes))
                 AND NOT EXISTS (SELECT 1 FROM admin_control_agents other
@@ -552,6 +565,8 @@ impl Store {
         .bind(agent)
         .bind(epoch)
         .bind(i64::from(limit))
+        .bind(&super::catalog::GLOBAL_READS[..])
+        .bind(&super::catalog::REGISTERED_READS[..])
         .fetch_all(&mut *tx)
         .await?;
         // The delivery epoch binds later results to this delivery session.
@@ -769,6 +784,8 @@ fn valid_error(s: &str) -> bool {
     })
 }
 fn validate_request(input: &NewRequest) -> Result<(), Error> {
+    let global_read = input.kind == Kind::Query
+        && super::catalog::GLOBAL_READS.contains(&input.operation.as_str());
     if input.request_id.get_version_num() != 7
         || input.admin_operation_id.get_version_num() != 7
         || input.actor.is_nil()
@@ -776,6 +793,9 @@ fn validate_request(input: &NewRequest) -> Result<(), Error> {
         || input.operation_version <= 0
         || (input.kind == Kind::Query && input.admin_operation_id != input.request_id)
         || !input.target.valid()
+        || (!global_read && input.target.world_id.is_none() && input.target.node_id.is_none())
+        || (input.kind == Kind::Query
+            && !super::catalog::valid_read_target(&input.operation, &input.target))
         || !input.params.is_object()
         || input.params.to_string().len() > 1048576
         || input.params_digest.len() != 32

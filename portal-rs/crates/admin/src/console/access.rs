@@ -22,6 +22,15 @@ pub enum Error {
     Denied,
     BadInput,
     Unavailable,
+    Read(super::GameReadError, &'static str),
+}
+impl Error {
+    fn from_query(error: super::Error, lang: &'static str) -> Self {
+        match error {
+            super::Error::Read(error) => Self::Read(error, lang),
+            _ => Self::Unavailable,
+        }
+    }
 }
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
@@ -29,6 +38,9 @@ impl IntoResponse for Error {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::BadInput => StatusCode::BAD_REQUEST,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Read(error, lang) => {
+                return (error.status(), tr(lang, error.key())).into_response();
+            }
         }
         .into_response()
     }
@@ -242,11 +254,12 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some(channel) = &self.channel else {
             return Err(Error::Unavailable);
         };
-        let params = if let Some(q) = &input.q {
-            serde_json::json!({"query":q})
-        } else {
-            serde_json::json!({})
+        let params = match operation {
+            "player.search" => serde_json::json!({"limit":100,"name_prefix":input.q}),
+            "player.inventory.get" | "sanction.list" => serde_json::json!({"limit":100}),
+            _ => serde_json::json!({}),
         };
+        let lang = language(input.lang.as_deref())?;
         let Some((request_id, observed_at, value)) = channel
             .snapshot(
                 actor,
@@ -256,7 +269,8 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
                 input.character.as_deref(),
                 params,
             )
-            .await?
+            .await
+            .map_err(|error| Error::from_query(error, lang))?
         else {
             return Ok(None);
         };
@@ -278,7 +292,17 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some(channel) = &self.channel else {
             return Err(Error::Unavailable);
         };
-        let params = serde_json::json!({"request_id":filter.request_id,"admin_id":filter.admin,"operation":filter.operation,"target":filter.target});
+        let lang = language(filter.lang.as_deref())?;
+        let day = time::OffsetDateTime::now_utc().replace_time(time::Time::MIDNIGHT);
+        let timestamp = |date: time::OffsetDateTime| {
+            date.format(&time::format_description::well_known::Rfc3339)
+                .map_err(|_| Error::Unavailable)
+        };
+        let params = serde_json::json!({
+            "limit":100,"admin_id":filter.admin,"operation":filter.operation,
+            "from":timestamp(day - time::Duration::days(30))?,
+            "to":timestamp(day + time::Duration::days(1))?
+        });
         let Some((query_id, _, value)) = channel
             .snapshot(
                 actor,
@@ -288,7 +312,8 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
                 None,
                 params,
             )
-            .await?
+            .await
+            .map_err(|error| Error::from_query(error, lang))?
         else {
             return Ok(None);
         };
@@ -346,7 +371,8 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
                 None,
                 serde_json::json!({}),
             )
-            .await?
+            .await
+            .map_err(|error| Error::from_query(error, "en"))?
         else {
             return Ok(None);
         };

@@ -1,5 +1,6 @@
 use super::*;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 const GOLDENS: [&str; 5] = [
     include_str!("fixtures/staff-actions-v1/01-ban.golden.json"),
     include_str!("fixtures/staff-actions-v1/02-unban.golden.json"),
@@ -241,4 +242,83 @@ fn committed_staff_schemas_qualify_requests_and_results() -> Result<(), Box<dyn 
         }
     }
     Ok(())
+}
+#[test]
+fn game_catalog_matches_fixture_schema_pairs() -> Result<(), Box<dyn std::error::Error>> {
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/control/fixtures/admin-control-v1");
+    let mut files = BTreeSet::new();
+    for entry in std::fs::read_dir(directory)? {
+        let name = entry?
+            .file_name()
+            .into_string()
+            .map_err(|_| "fixture filename must be UTF-8")?;
+        files.insert(name);
+    }
+    let operations: BTreeSet<_> = GAME_OPERATIONS.iter().map(|op| op.name).collect();
+    let query_forms: BTreeSet<_> = ECONOMY_QUERIES
+        .iter()
+        .map(|query| format!("analytics.query.{}", query.id))
+        .collect();
+    assert_eq!(operations.len(), GAME_OPERATIONS.len());
+    assert_eq!(query_forms.len(), ECONOMY_QUERIES.len());
+    for suffix in [".params.schema.json", ".result.schema.json"] {
+        let stems: BTreeSet<_> = files
+            .iter()
+            .filter_map(|file| file.strip_suffix(suffix))
+            .collect();
+        let (named, operations_on_disk): (BTreeSet<_>, BTreeSet<_>) = stems
+            .into_iter()
+            .partition(|stem| stem.starts_with("analytics.query."));
+        assert_eq!(operations, operations_on_disk, "{suffix}");
+        assert_eq!(
+            query_forms
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>(),
+            named,
+            "{suffix}"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn game_catalog_preserves_agent_advertisement_scope() {
+    let phase_1: BTreeSet<_> = GAME_OPERATIONS
+        .iter()
+        .filter(|op| op.phase == 1)
+        .map(|op| op.name)
+        .collect();
+    assert_eq!(phase_1, BTreeSet::from(READ_OPERATIONS));
+    let expected = BTreeSet::from([
+        "admin.ledger.query",
+        "admin.policy.get",
+        "db.migrations.list",
+        "db.status",
+        "node.get",
+        "node.list",
+        "ops.overview.get",
+        "player.character.get",
+        "player.inventory.get",
+        "player.search",
+        "sanction.list",
+        "world.get",
+        "world.list",
+    ]);
+    assert_eq!(BTreeSet::from(REGISTERED_READS), expected);
+    for op in GAME_OPERATIONS {
+        assert_eq!(
+            advertised_kind(op.name, 1),
+            expected.contains(op.name).then_some(op.kind),
+            "{}",
+            op.name
+        );
+    }
+    for query in ECONOMY_QUERIES {
+        assert_eq!(
+            advertised_kind(&format!("analytics.query.{}", query.id), 1),
+            None
+        );
+    }
 }

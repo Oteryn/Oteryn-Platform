@@ -1,6 +1,26 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use super::*;
+
+#[test]
+fn inventory_result_supports_stash_balances() {
+    let mut result = serde_json::json!({
+        "items": [],
+        "stash_balances": [{"type_id":42,"count":"9007199254740993"}],
+        "next_cursor":null
+    });
+    assert!(result_schema::valid_success(
+        "player.inventory.get",
+        1,
+        &result
+    ));
+    result["stash_balances"][0]["instance_id"] = serde_json::json!("item-42");
+    assert!(!result_schema::valid_success(
+        "player.inventory.get",
+        1,
+        &result
+    ));
+}
 use serde_json::json;
 use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
 use std::collections::BTreeSet;
