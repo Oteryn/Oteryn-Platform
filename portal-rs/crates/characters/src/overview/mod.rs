@@ -53,6 +53,8 @@ struct Page {
     profession: String,
     unavailable: String,
     shortcuts: String,
+    native_login: String,
+    native_login_help: String,
     security: String,
     security_shortcut: Option<String>,
     security_shortcut_label: String,
@@ -237,6 +239,8 @@ async fn load(
         profession: t("profession"),
         unavailable: t("unavailable"),
         shortcuts: t("shortcuts"),
+        native_login: t("native-login"),
+        native_login_help: t("native-login-help"),
         security: t("security"),
         security_shortcut: oteryn_identity::navigation::sudo_enabled()
             .then(|| oteryn_identity::navigation::SudoReturn::Security.path(lang)),

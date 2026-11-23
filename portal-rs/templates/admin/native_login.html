@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+<h1>{{ title }}</h1>
+<p role="status" data-state="blocked"><strong>{{ blocked }}</strong></p>
+<p>{{ summary }}</p>
+<section aria-labelledby="decisions">
+<h2 id="decisions">{{ decisions_title }}</h2>
+<dl>
+{% for label in decisions %}
+<dt>{{ label }}</dt><dd data-state="pending">{{ pending }}</dd>
+{% endfor %}
+</dl>
+</section>
+<section aria-labelledby="evidence">
+<h2 id="evidence">{{ evidence_title }}</h2>
+<dl>
+{% for label in evidence %}
+<dt>{{ label }}</dt><dd data-state="unavailable">{{ unavailable }}</dd>
+{% endfor %}
+</dl>
+</section>
+<section aria-labelledby="switches">
+<h2 id="switches">{{ switches_title }}</h2>
+<p>{{ switches_help }}</p>
+<dl>
+{% for (label, value) in switches %}
+<dt>{{ label }}</dt><dd>{{ value }}</dd>
+{% endfor %}
+</dl>
+</section>
+<a href="/admin">{{ back }}</a>
+</main>
+</body>
+</html>

@@ -29,3 +29,6 @@ main-character = Main character
 profile-preferences = Profile preferences
 termination-none = No closure scheduled
 termination-pending = Pending closure
+
+native-login = Game sign-in
+native-login-help = Production game sign-in is awaiting release approval. Once it opens, start the official client, sign in through your browser and select a character in the client.

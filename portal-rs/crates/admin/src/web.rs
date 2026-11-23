@@ -283,6 +283,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
+        .route("/admin/native-login", get(crate::native_login::page))
         .route(
             "/admin/mail-outbox/retry",
             post(crate::mail_ops::retry::<I, A>),
@@ -429,6 +430,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let permission = s.required.unwrap_or_else(|| match request.uri().path() {
         "/admin/roles" => Permission::ManageRoles,
         "/admin/mail-outbox" => Permission::MailView,
+        "/admin/native-login" => Permission::ViewAudit,
         "/admin/mail-outbox/retry" => Permission::MailRetry,
         "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
         "/admin/mail-outbox/cancel" => Permission::MailCancel,
@@ -520,6 +522,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    native_login_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -623,6 +626,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let native_login_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "native-login-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +638,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        native_login_link,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

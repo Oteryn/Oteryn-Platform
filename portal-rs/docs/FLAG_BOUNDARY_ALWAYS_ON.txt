@@ -133,3 +133,6 @@ public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}
 admission G /health
+internal G /admin/native-login
+native G /admin/native-login
+public G /admin/native-login

@@ -29,3 +29,6 @@ main-character = Główna postać
 profile-preferences = Preferencje profilu
 termination-none = Brak zaplanowanego zamknięcia
 termination-pending = Zamknięcie w toku
+
+native-login = Logowanie do gry
+native-login-help = Logowanie do gry na produkcji czeka na zatwierdzenie. Po jego uruchomieniu otwórz oficjalnego klienta, zaloguj się w przeglądarce i wybierz postać w kliencie.

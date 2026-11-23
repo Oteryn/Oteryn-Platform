@@ -11,6 +11,11 @@
 <main class="op-stack op-panel">
 <h1>{{ title }}</h1>
 <dl>{% for row in facts %}<dt>{{ row.0 }}</dt><dd>{{ row.1 }}</dd>{% endfor %}</dl>
+<section class="op-stack" id="native-login" aria-labelledby="native-login-title" tabindex="-1">
+<h2 id="native-login-title">{{ native_login }}</h2>
+<p role="status" data-state="unavailable">{{ unavailable }}</p>
+<p>{{ native_login_help }}</p>
+</section>
 {% if !security_actions.is_empty() %}
 <section class="op-stack" aria-labelledby="security-actions">
 <h2 id="security-actions">{{ security }}</h2>
@@ -46,6 +51,7 @@
 {% endif %}
 <li><a class="op-button op-button--secondary" href="/{{ lang }}/panel/premium">{{ premium }}</a></li>
 <li><a class="op-button op-button--secondary" href="/{{ lang }}/shop/history">{{ balance }}</a></li>
+<li><a class="op-button op-button--secondary" href="#native-login">{{ native_login }}</a></li>
 </ul></nav>
 </main>
 </body>
