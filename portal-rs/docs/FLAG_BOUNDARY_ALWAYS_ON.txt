@@ -205,3 +205,29 @@ public G /{lang}/news/{slug}/discussion
 public P /admin/news/discussions/{id}
 public P /{lang}/news/{slug}/discussion
 public P /{lang}/news/{slug}/discussion/{id}/edit
+
+# Editorial, help, and shop routes inherited from integration-4.
+public G /admin/announcements/{id}/preview/{locale}/{revision}
+public G /admin/discovery/announcements/{id}
+public G /admin/discovery/events/{id}
+public G /admin/discovery/news/{id}
+public G /admin/discovery/pages/{id}
+public G /admin/events/{id}/preview/{locale}/{revision}
+public G /admin/news/{id}/preview/{lang}/{revision}
+public G /admin/pages/{slug}/preview/{locale}/{revision}
+public G /en/faq
+public G /en/faq/{slug}
+public G /news/media/{id}
+public G /pl/faq
+public G /pl/faq/{slug}
+public G /static/thais/shop-en.html
+public G /static/thais/shop-pl.html
+public G /{lang}/announcements/{id}
+public P /admin/discovery/announcements/{id}
+public P /admin/discovery/events/{id}
+public P /admin/discovery/news/{id}
+public P /admin/discovery/pages/{id}
+public P /admin/media/{id}
+
+# Account sanctions and appeals.
+public P /{lang}/account/sanctions/{id}
