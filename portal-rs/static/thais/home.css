@@ -63,7 +63,6 @@ svg {
 .hero {
   --gate-fade: 9%;
   --gate-fade-right: 2.5%;
-  --gate-blur: 3px;
   display: flex;
   align-items: flex-end;
   min-height: clamp(480px, 41vw, 640px);
@@ -80,7 +79,7 @@ svg {
   object-position: right center;
   mask-image: linear-gradient(90deg, transparent, black 14%);
 }
-.hero-art, .hero::after {
+.hero-art {
   grid-area: 1 / 1 / 2 / 2;
   inset: 0 max(0px, min(5vw, (100% - 600px) * .16) + max(0px, (100% - 960px) * .1, (100% - 2240px) / 2)) auto auto;
   width: auto;
@@ -93,16 +92,6 @@ svg {
   mask-image: linear-gradient(90deg,
     transparent, #0002 calc(var(--gate-fade) * .24), black var(--gate-fade),
     black calc(100% - var(--gate-fade-right)), #0002 calc(100% - var(--gate-fade-right) * .24), transparent);
-}
-.hero::after {
-  content: "";
-  position: absolute;
-  z-index: -2;
-  pointer-events: none;
-  backdrop-filter: blur(var(--gate-blur));
-  mask-image: linear-gradient(90deg,
-    black calc(var(--gate-fade) * .5), transparent var(--gate-fade),
-    transparent calc(100% - var(--gate-fade-right)), black calc(100% - var(--gate-fade-right) * .5));
 }
 .beast-art { aspect-ratio: 1672 / 941; }
 .feature::before, .start::before { content: ""; position: absolute; inset: 0; z-index: -1; }
@@ -217,7 +206,6 @@ svg {
 @media (max-width: 960px) {
   .hero-body { padding-block: 130px 48px; }
   .hero-art { mask-image: none; }
-  .hero::after { display: none; }
 }
 @media (max-width: 800px) {
   :root { --inset: 24px; }
@@ -309,7 +297,7 @@ svg {
       --gate-panorama-height: min(100vw * 941 / 2868, max(390px, 100svh - 72px));
       grid-template-rows: minmax(var(--gate-panorama-height), auto) auto;
     }
-    .hero-art, .hero::after {
+    .hero-art {
       inset-inline: 0;
       width: min(100%, var(--gate-panorama-height) * 2868 / 941);
       height: auto;
@@ -479,7 +467,7 @@ svg {
     .hero { grid-area: 1 / 1; min-height: clamp(480px, 41vw, 640px); }
     .hero-body { padding-bottom: calc(64px + clamp(36px, 4vw, 72px)); }
     .world-strip { grid-area: 1 / 1; align-self: end; z-index: 1; }
-    .hero-art, .hero::after { inset-block: auto 0; }
+    .hero-art { inset-block: auto 0; }
   }
   @media (min-width: 961px) {
     #main {
