@@ -49,3 +49,20 @@ coin-count = { $count } { $count ->
    *[many] coinów
     [other] coinów
     }
+
+history-store-purchase = Zakup w sklepie
+history-transfer = Przelew coinów
+history-reserve = Rezerwacja coinów
+history-settlement = Rozliczenie coinów na rynku
+history-release = Zwolnienie rezerwacji coinów
+delivery-reference = Identyfikator operacji dostawy w grze
+delivery-pending = Oczekuje na dostawę w grze
+delivery-claim-pending = Oczekuje na odbiór w grze
+delivery-reopened = Oczekuje na ponowne uzgodnienie po odtworzeniu gry
+delivery-delivered = Potwierdzono dostawę w grze
+delivery-claimed = Potwierdzono odbiór w grze
+delivery-revoked = Wycofano dostawę
+delivery-reclaimed = Odzyskano przyznane przedmioty
+delivery-review = Dostawa wymaga weryfikacji przez zespół wsparcia
+delivery-partial = Częściowo cofnięto dostawę
+game-gold = Rozliczenie złota w grze

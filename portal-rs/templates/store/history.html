@@ -1,0 +1,24 @@
+{% for entry in entries %}
+<article class="op-card op-stack" data-wallet-operation="{{ entry.wallet.operation_id }}">
+  <h2>{{ entry.label }}</h2>
+  <p>{{ operation_label }} <strong>{{ entry.wallet.operation_id }}</strong></p>
+  <p>{{ date }}: {{ entry.wallet.created_at }}</p>
+  <p>{{ delta }}: {{ entry.wallet.available_delta }} / {{ entry.wallet.reserved_delta }}</p>
+  {% if entry.is_settlement %}
+  <p>{{ game_gold }} <span>{{ unavailable }}</span></p>
+  {% endif %}
+  {% if entry.is_purchase %}
+    {% for unit in entry.units %}
+    <section class="op-stack">
+      <h3>{{ unit.product }} × {{ unit.quantity }}</h3>
+      <p>{{ unit.state }}</p>
+      {% if unit.awaiting_evidence %}<p>{{ unavailable }}</p>{% endif %}
+      {% if let Some(operation) = unit.operation %}
+      <p>{{ delivery_reference }} <strong>{{ operation }}</strong></p>
+      {% endif %}
+    </section>
+    {% else %}<p>{{ unavailable }}</p>{% endfor %}
+  {% endif %}
+</article>
+{% else %}<p>{{ empty }}</p>{% endfor %}
+{% if let Some(id) = before %}<a class="op-button" href="/{{ lang }}/shop/history?before={{ id }}">{{ next }}</a>{% endif %}

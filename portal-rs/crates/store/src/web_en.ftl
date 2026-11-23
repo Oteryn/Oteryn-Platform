@@ -47,3 +47,20 @@ coin-count = { $count } { $count ->
     [one] coin
    *[other] coins
     }
+
+history-store-purchase = Store purchase
+history-transfer = Coin transfer
+history-reserve = Coins reserved
+history-settlement = Coin market settlement
+history-release = Coin reservation released
+delivery-reference = Game delivery reference
+delivery-pending = Awaiting Game delivery
+delivery-claim-pending = Awaiting Game claim
+delivery-reopened = Awaiting Game reconciliation after restore
+delivery-delivered = Game delivery confirmed
+delivery-claimed = Game claim confirmed
+delivery-revoked = Delivery revoked
+delivery-reclaimed = Delivery reclaimed
+delivery-review = Delivery requires support review
+delivery-partial = Delivery partially reversed
+game-gold = Game gold settlement
