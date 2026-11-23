@@ -4,3 +4,4 @@ oauth-approve = Allow
 oauth-deny = Cancel
 oauth-skip = Skip to content
 oauth-account-services = Allow the registered game client to access account services, including coin purchases (game:account-services)?
+oauth-account-read = Allow this registered client to read your account summary and portal notifications (account:read)?

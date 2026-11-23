@@ -300,3 +300,14 @@ native-login-off = Wyłączone
 native-login-invalid = Nieprawidłowa konfiguracja
 
 pages-link = Strony
+account-read-status-heading = Integracje danych konta
+account-read-api = Podsumowanie konta i lista powiadomień
+account-read-configured = Skonfigurowano rejestrację klienta OAuth
+account-read-unconfigured = Niedostępne. Włącz OAuth i skonfiguruj poprawną rejestrację klienta.
+account-read-journal = Pulpit dziennika
+account-read-journal-pending = Niedostępny do czasu kwalifikacji źródła danych gry
+account-read-coins = Saldo monet w podsumowaniu
+account-read-coins-off = Niedostępne
+account-read-consents = Dobrowolne zgody w przeglądarce
+account-read-consents-enabled = Zbieranie włączone; umowa z klientem w fazie propozycji
+account-read-consents-disabled = Zbieranie wyłączone; umowa z klientem w fazie propozycji

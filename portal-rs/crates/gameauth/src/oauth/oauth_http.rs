@@ -138,6 +138,7 @@ fn texts(language: &str, scope: &str) -> Result<[String; 5], Error> {
         match scope {
             TICKET_SCOPE => "oauth-description",
             ACCOUNT_SERVICES_SCOPE => "oauth-account-services",
+            ACCOUNT_READ_SCOPE => "oauth-account-read",
             _ => return Err(Error::InvalidRequest),
         },
         "oauth-approve",

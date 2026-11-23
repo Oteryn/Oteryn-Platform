@@ -7,7 +7,8 @@ use axum::{
     routing::get,
 };
 use oteryn_db::outbox::{PgPool, Uuid};
-use oteryn_identity::accounts::Accounts;
+use oteryn_gameauth::oauth;
+use oteryn_identity::{accounts::Accounts, sessions::NotificationAccounts};
 use serde::{Deserialize, Serialize};
 use std::{future::Future, pin::Pin, sync::Arc};
 
@@ -18,10 +19,21 @@ pub trait BearerAuthority: std::fmt::Debug + Send + Sync {
     fn owner<'a>(&'a self, token: &'a str) -> ReadFuture<'a, Option<Uuid>>;
 }
 #[derive(Debug)]
-pub struct DenyBearer;
-impl BearerAuthority for DenyBearer {
-    fn owner<'a>(&'a self, _: &'a str) -> ReadFuture<'a, Option<Uuid>> {
-        Box::pin(async { Ok(None) })
+struct AccountReadAuthority {
+    pool: PgPool,
+    config: oauth::Config,
+}
+impl BearerAuthority for AccountReadAuthority {
+    fn owner<'a>(&'a self, token: &'a str) -> ReadFuture<'a, Option<Uuid>> {
+        Box::pin(async move {
+            match oauth::verify_account_read(&self.pool, &self.config, token).await {
+                Ok(owner) => Ok(Some(owner)),
+                Err(oauth::Error::Unavailable | oauth::Error::Disabled) => {
+                    Err(StatusCode::SERVICE_UNAVAILABLE)
+                }
+                Err(_) => Ok(None),
+            }
+        })
     }
 }
 #[derive(Debug, Serialize)]
@@ -73,7 +85,6 @@ pub struct PrivateReads {
     /// Separate money flag, off unless explicitly enabled by composition.
     pub money_enabled: bool,
     pub wallet: Option<Arc<dyn CoinBalance>>,
-    pub notifications: Arc<oteryn_notify::Notifications>,
 }
 impl PrivateReads {
     async fn active(&self, owner: Uuid) -> Result<String, StatusCode> {
@@ -120,11 +131,15 @@ impl PlayerReads for PrivateReads {
     fn feed(&self, owner: Uuid, limit: i64, unread: bool) -> ReadFuture<'_, Vec<FeedItem>> {
         Box::pin(async move {
             self.active(owner).await?;
-            let items = self
-                .notifications
-                .list(owner, unread, limit)
-                .await
-                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+            let items = oteryn_notify::Notifications::list_for(
+                &self.pool,
+                &NotificationAccounts(self.pool.clone()),
+                owner,
+                unread,
+                limit,
+            )
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
             Ok(items
                 .into_iter()
                 .map(|n| FeedItem {
@@ -185,22 +200,18 @@ pub fn router(api: Api) -> Router {
         .with_state(api)
         .layer(axum::middleware::from_fn(private_headers))
 }
-/// Until the OAuth authority is available, production wiring is deliberately closed.
-pub fn configured_router() -> Router {
-    #[derive(Debug)]
-    struct Unavailable;
-    impl PlayerReads for Unavailable {
-        fn summary(&self, _: Uuid) -> ReadFuture<'_, Summary> {
-            Box::pin(async { Err(StatusCode::SERVICE_UNAVAILABLE) })
-        }
-        fn feed(&self, _: Uuid, _: i64, _: bool) -> ReadFuture<'_, Vec<FeedItem>> {
-            Box::pin(async { Err(StatusCode::SERVICE_UNAVAILABLE) })
-        }
-    }
+pub fn configured_router(pool: PgPool, config: oauth::Config) -> Router {
     router(Api {
-        enabled: false,
-        authority: Arc::new(DenyBearer),
-        reads: Arc::new(Unavailable),
+        enabled: config.has_registered_client(),
+        authority: Arc::new(AccountReadAuthority {
+            pool: pool.clone(),
+            config,
+        }),
+        reads: Arc::new(PrivateReads {
+            pool,
+            money_enabled: false,
+            wallet: None,
+        }),
     })
 }
 async fn summary(
@@ -245,5 +256,11 @@ async fn private_headers(
         header::VARY,
         header::HeaderValue::from_static("Authorization"),
     );
+    if response.status() == StatusCode::UNAUTHORIZED {
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            header::HeaderValue::from_static("Bearer"),
+        );
+    }
     response
 }

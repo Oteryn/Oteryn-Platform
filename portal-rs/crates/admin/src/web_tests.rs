@@ -112,7 +112,12 @@ async fn host_flag_session_and_mfa_boundaries() {
     )
     .await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
-    let response = request(app(pool.clone(), None, true), "/admin", "staff.test").await;
+    let response = request(
+        app(pool.clone(), None, true).layer(Extension(AccountReadStatus { configured: true })),
+        "/admin",
+        "staff.test",
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     assert_eq!(response.headers()[header::LOCATION], "/login");
     let response = request(
@@ -150,6 +155,10 @@ fn localized_responsive_labelled_template() {
             mail_link: None,
             native_login_link: None,
             pages_link: Some(text(lang, "pages-link")),
+            account_reads: Some(AccountReadStatus {
+                configured: lang == "en",
+            }),
+            optional_consents: lang == "pl",
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -188,6 +197,25 @@ fn localized_responsive_labelled_template() {
         } else {
             "href=\"/admin/pages\">Pages"
         }));
+        for key in [
+            "account-read-status-heading",
+            "account-read-journal-pending",
+            "account-read-coins-off",
+            if lang == "en" {
+                "account-read-configured"
+            } else {
+                "account-read-unconfigured"
+            },
+            if lang == "pl" {
+                "account-read-consents-enabled"
+            } else {
+                "account-read-consents-disabled"
+            },
+        ] {
+            let value = text(lang, key);
+            assert!(!value.is_empty());
+            assert!(html.contains(&value));
+        }
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));

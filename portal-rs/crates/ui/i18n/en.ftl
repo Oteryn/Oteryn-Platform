@@ -429,3 +429,6 @@ world-uptime-older = Older incident notices
 world-uptime-operator = Manage world incidents
 world-uptime-public-view = View public status
 world-uptime-qualification = Public Game health, population and uptime are awaiting qualification.
+shell-account-dashboard = Account dashboard
+account-dashboard-unavailable = Journal data is unavailable.
+shell-account-consents = Optional consents

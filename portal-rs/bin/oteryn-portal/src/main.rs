@@ -380,7 +380,17 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 closure.terminations.clone(),
             ));
             let app = app.merge(shop_web::router(db.clone()));
-            let app = app.merge(oteryn_player_api::account_feed::configured_router());
+            let account_oauth = oteryn_gameauth::oauth::Config::from_env();
+            let account_reads = oteryn_admin::web::AccountReadStatus {
+                configured: account_oauth.has_registered_client(),
+            };
+            let app = app
+                .merge(oteryn_player_api::account_feed::configured_router(
+                    db.clone(),
+                    account_oauth,
+                ))
+                .merge(oteryn_playerdata::dashboard::configured_router(db.clone()))
+                .layer(axum::Extension(account_reads));
             let app = app.merge(oteryn_support::tickets::configured_staff_router(
                 db.clone(),
             )?);
@@ -396,7 +406,6 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             };
             let app = app.merge(oteryn_playerdata::hunts::web::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::items::configured_router(db.clone()));
-            let app = app.merge(oteryn_playerdata::dashboard::configured_router());
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 db.clone(),
             ));

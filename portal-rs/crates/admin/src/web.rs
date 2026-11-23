@@ -650,6 +650,12 @@ pub(crate) fn locale_source(lang: &str) -> &'static str {
     }
 }
 
+/// Account-read composition status supplied by portal startup.
+#[derive(Debug, Clone, Copy)]
+pub struct AccountReadStatus {
+    pub configured: bool,
+}
+
 #[derive(Template)]
 #[template(path = "admin/roles.html", config = "src/web_askama.toml")]
 struct Page {
@@ -661,6 +667,8 @@ struct Page {
     mail_link: Option<String>,
     native_login_link: Option<String>,
     pages_link: Option<String>,
+    account_reads: Option<AccountReadStatus>,
+    optional_consents: bool,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -683,6 +691,10 @@ struct Page {
     next: Option<Uuid>,
 }
 impl Page {
+    fn text(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+
     fn permission_catalog(&self) -> &'static [Permission] {
         Permission::ALL
     }
@@ -719,8 +731,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     reports_navigation: Option<Extension<ReportsNavigation>>,
-    headers: axum::http::HeaderMap,
+    account_reads: Option<Extension<AccountReadStatus>>,
     Query(query): Query<RolePageQuery>,
+    request: Request,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {
         Ok(()) => true,
@@ -835,6 +848,10 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         moderate_reports,
         mail_link,
         native_login_link,
+        account_reads: account_reads
+            .filter(|_| request.uri().path() == "/admin")
+            .map(|Extension(status)| status),
+        optional_consents: oteryn_identity::consents::OptionalConfig::configured().enabled,
         players_label: text(lang, "players"),
         players,
         errors_label: s

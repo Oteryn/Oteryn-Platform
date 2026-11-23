@@ -429,3 +429,6 @@ world-uptime-older = Starsze komunikaty o incydentach
 world-uptime-operator = Zarządzaj incydentami świata
 world-uptime-public-view = Wyświetl status publiczny
 world-uptime-qualification = Publiczne dane o stanie gry, liczbie graczy i dostępności czekają na kwalifikację.
+shell-account-dashboard = Pulpit konta
+account-dashboard-unavailable = Dane dziennika są niedostępne.
+shell-account-consents = Zgody dobrowolne

@@ -4,11 +4,11 @@ T79 consumes G-9 closed-session summaries and G-11 timer observations. G-10 is
 not a timer authority. Bazaar deadlines come from Bazaar, premium reminders also
 require independently current commercial authority. No game command is introduced.
 
-The registered `/pl/account/dashboard` and `/en/account/dashboard` routes return
-empty 503 responses by default. The injected router requires a session-derived
-`Actor`; no browser account selector or header can supply it. Staff access is
-refused. The HTML uses the existing surface stylesheet, semantic headings/lists,
-escaped text, Polish/English Fluent messages, and the responsive viewport.
+The Account menu links to `/pl/account/dashboard` and `/en/account/dashboard`.
+The deployed routes use the existing browser session, verify active account
+state, and render a localized no-store 503 page in the shared shell while
+Game data is unavailable. The injected router requires a session-derived
+`Actor` and refuses staff access to journal data.
 
 ## Dependency seams and activation blockers
 

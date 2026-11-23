@@ -60,9 +60,9 @@ until G-1.
 
 - `GET /api/v1/account/summary`: `{account_id, locale, coins}`. Only a verified,
   active owner is admitted. Credentials and email are never returned.
-  `coins: null` means the separate money flag is off. When enabled, the
-  `CoinBalance` adapter reads the public wallet `Ledger::balance` API; missing
-  wiring or a failed read returns 503. Zero is never inferred from missing data.
+  `coins: null` means the deployed composition has no balance source. The
+  separately gated `CoinBalance` seam uses the public wallet `Ledger::balance`
+  API when a host explicitly enables and supplies it.
 - `GET /api/v1/feed?limit=20&unread_only=false`:
   `{items:[{id,subject,body,read}]}`. The private notification feed uses T36's
   public `Notifications::list` API and its deterministic newest-first ordering.
@@ -70,18 +70,16 @@ until G-1.
   acknowledgement mutations. Public news remains served by T11's `/news`;
   its crate currently exposes no typed read API to compose into this feed.
 - Invalid query fields/values return 400. Missing, malformed, duplicate or
-  invalid bearer credentials return 401. Inactive/unverified/unknown account
-  state returns 403. Disabled features and backend failures return 503.
+  invalid bearer credentials return 401. The OAuth authority refuses inactive,
+  unverified or unknown accounts. Disabled OAuth and backend failures return 503.
 - All responses are private and no-store, including errors. Cookies and
   caller-selected account IDs are never used for authentication.
 
-`Api` is the composition seam. Its `enabled` field must be explicitly enabled
-and `BearerAuthority` must verify access-token expiry, revocation and scope.
-The binary mounts `configured_router()` with the feature off and a deny-all
-bearer authority. This base has no public player OAuth verifier, so production
-wiring cannot safely enable these routes yet. `PrivateReads` rechecks Identity
-state on every read and calls Notify through its public API. No migration is
-added.
+The binary uses the existing `PORTAL_OAUTH_CONFIG` client registration and the
+single `account:read` grant. The OAuth authority verifies current account,
+client, expiry, revocation and scope. `PrivateReads` rechecks Identity state
+and uses Notify's read interface independently of email configuration.
+See [GAP-08 account data qualification](../../../docs/product/GAP-08_ACCOUNT_DATA.md).
 
 Tests cover HTTP success/refusal/input validation and PostgreSQL owner
 isolation, account state and unavailable balance behavior. Set

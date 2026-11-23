@@ -300,3 +300,14 @@ native-login-off = Off
 native-login-invalid = Invalid configuration
 
 pages-link = Pages
+account-read-status-heading = Account data integrations
+account-read-api = Account summary and notification feed
+account-read-configured = OAuth client registration configured
+account-read-unconfigured = Unavailable. Enable OAuth and configure a valid client registration.
+account-read-journal = Journal dashboard
+account-read-journal-pending = Unavailable pending Game source qualification
+account-read-coins = Coin balance in the summary
+account-read-coins-off = Unavailable
+account-read-consents = Optional browser consents
+account-read-consents-enabled = Collection enabled; client contract proposed
+account-read-consents-disabled = Collection disabled; client contract proposed
