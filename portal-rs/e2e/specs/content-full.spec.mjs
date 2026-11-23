@@ -1,4 +1,5 @@
 import { escapeRegex } from '../regex.mjs';
+import { query } from '../staff-rbac-helpers.mjs';
 import {
  test, expect, editPath, formFor, key, labels, link, locales, localized as t,
  mainForm, refuse, request, send, stamp, submitForm, title, visit,
@@ -83,7 +84,9 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
  const lang = project.metadata.locale;
  const slug = key('event');
  const create = '/admin/events';
+ const reason = 'Exercise the editorial event workflow';
  const values = {
+  reason,
   starts_at: stamp(60).slice(0, 16), ends_at: stamp(120).slice(0, 16),
   en_title: `Event ${slug}`, en_slug: slug, en_summary: 'English summary.', en_body: 'English event details.',
   pl_title: `Wydarzenie ${slug}`, pl_slug: `pl-${slug}`, pl_summary: 'Polskie streszczenie.', pl_body: 'Polskie szczegóły.',
@@ -98,6 +101,7 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
   ['starts_at', 'Początek (UTC)', 'Starts at (UTC)'],
   ['ends_at', 'Koniec (UTC)', 'Ends at (UTC)'],
   ['featured', 'Wyróżnione', 'Featured'],
+  ['reason', 'Powód zmiany', 'Reason for change'],
  ]);
  for (const locale of locales) {
   await labels(mainForm(page).getByRole('group', {name: t(locale, 'Polski', 'English')}), lang, [
@@ -106,6 +110,7 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
   ]);
  }
  await expect(mainForm(page).getByRole('button')).toHaveText(t(lang, 'Zapisz szkic', 'Save draft'));
+ await send(mainForm(page), { ...values, reason: '' }, 422);
  await send(mainForm(page), { ...values, starts_at: values.ends_at }, 422);
  await submitForm(mainForm(page), values);
  await expect(page).toHaveURL(/\/admin\/events\/[a-f0-9-]+\/edit$/);
@@ -114,16 +119,16 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
  await refuse(content, edit);
  for (const method of ['POST', 'PUT']) {
   await refuse(content, row, method, values);
-  await refuse(content, `${row}/status`, method, { lock_version: '1', status: 'published' });
+  await refuse(content, `${row}/status`, method, { lock_version: '1', status: 'published', reason });
  }
  await visit(page, create);
  await link(page, edit);
- await send(mainForm(page), { ends_at: 'bad date' }, 422);
- await submitForm(mainForm(page), { featured: true });
+ await send(mainForm(page), { ends_at: 'bad date', reason }, 422);
+ await submitForm(mainForm(page), { featured: true, reason });
  await expect(mainForm(page).getByLabel(t(lang, 'Wyróżnione', 'Featured'))).toBeChecked();
  await request(page, row, 'PUT', 403, { form: {} });
- await send(mainForm(page), { ends_at: 'bad date' }, 422, 'PUT');
- await send(mainForm(page), { en_summary: 'Revised English summary.' }, 303, 'PUT');
+ await send(mainForm(page), { ends_at: 'bad date', reason }, 422, 'PUT');
+ await send(mainForm(page), { en_summary: 'Revised English summary.', reason }, 303, 'PUT');
  await page.reload();
  await expect(mainForm(page).locator('[name="en_summary"]')).toHaveValue('Revised English summary.');
  const status = formFor(page, '/status');
@@ -133,20 +138,20 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
    t(lang, 'Opublikowane', 'Published'), t(lang, 'Zarchiwizowane', 'Archived'),
   ]);
  await expect(status.getByRole('button')).toHaveText(t(lang, 'Zmień status', 'Change status'));
- await send(status, { status: 'unknown' }, 422);
+ await send(status, { status: 'unknown', reason }, 422);
  await request(page, `${row}/status`, 'PUT', 403, { form: {} });
- await send(status, { status: 'unknown' }, 422, 'PUT');
- await send(status, { status: 'draft' }, 303, 'PUT');
+ await send(status, { status: 'unknown', reason }, 422, 'PUT');
+ await send(status, { status: 'draft', reason }, 303, 'PUT');
  await page.reload();
- await submitForm(status, { status: 'scheduled' });
+ await submitForm(status, { status: 'scheduled', reason });
  await expect(page.locator('main > p').first()).toHaveText(t(lang, 'Zaplanowane', 'Scheduled'));
- await submitForm(status, { status: 'draft' });
+ await submitForm(status, { status: 'draft', reason });
  await expect(page.locator('main > p').first()).toHaveText(t(lang, 'Szkic', 'Draft'));
- await submitForm(mainForm(page), { starts_at: stamp(-60).slice(0, 16) });
- await send(status, { status: 'scheduled' }, 409);
- await send(status, { status: 'published', lock_version: '1' }, 409);
+ await submitForm(mainForm(page), { starts_at: stamp(-60).slice(0, 16), reason });
+ await send(status, { status: 'scheduled', reason }, 409);
+ await send(status, { status: 'published', lock_version: '1', reason }, 409);
  for (const locale of locales) await visit(anonymous.page, `/${locale}/events/${values[`${locale}_slug`]}`, 404);
- await submitForm(status, { status: 'published' });
+ await submitForm(status, { status: 'published', reason });
  for (const locale of locales) {
   await visit(anonymous.page, `/${locale}/events`);
   await link(anonymous.page, `/${locale}/events/${values[`${locale}_slug`]}`, values[`${locale}_title`]);
@@ -163,7 +168,7 @@ test('events draft, featured edit, schedule, publish and archive', async ({conte
   await visit(anonymous.page, response.headers().location);
  }
  await visit(anonymous.page, '/events/INVALID', 404);
- await submitForm(status, { status: 'archived' });
+ await submitForm(status, { status: 'archived', reason });
  for (const locale of locales) await visit(anonymous.page, `/${locale}/events/${values[`${locale}_slug`]}`, 404);
 });
 
@@ -172,7 +177,29 @@ const legalPages = [
 ];
 
 for (const [slug, route] of legalPages) {
- test(`legal ${route}: immutable versions, stale translation refusal and reapproval`, async ({content}, {project}) => {
+ const legalTest = test.extend({
+  restorePublishedEditions: [async ({}, use) => {
+   const [{ editions }] = await query(`SELECT jsonb_agg(to_jsonb(e) ORDER BY e.locale) AS editions
+    FROM editorial_pages e JOIN pages p ON p.id=e.page_id WHERE p.slug=$1`, [slug]);
+   expect(editions?.map(({locale}) => locale)).toEqual(['en', 'pl']);
+   try {
+    await use();
+   } finally {
+    // Signup and the default-page checks use the original live editions.
+    // Restore their editable rows and preserve all immutable publication history.
+    const restored = await query(`INSERT INTO editorial_pages
+     SELECT * FROM jsonb_populate_recordset(NULL::editorial_pages, $1::jsonb)
+     ON CONFLICT (page_id, locale) DO UPDATE SET
+      title=EXCLUDED.title, body=EXCLUDED.body, published_at=EXCLUDED.published_at,
+      source_revision=EXCLUDED.source_revision, revision=EXCLUDED.revision,
+      legal_version=EXCLUDED.legal_version, legal_effective_date=EXCLUDED.legal_effective_date,
+      updated_at=EXCLUDED.updated_at
+     RETURNING locale`, [JSON.stringify(editions)]);
+    expect(restored.map(({locale}) => locale).sort()).toEqual(['en', 'pl']);
+   }
+  }, {auto: true}],
+ });
+ legalTest(`legal ${route}: immutable versions, stale translation refusal and reapproval`, async ({content}, {project}) => {
   const { anonymous, editor, admin } = content;
   const page = editor.page;
   const lang = project.metadata.locale;
@@ -282,14 +309,27 @@ test('custom page requires an English source and can be deleted through the form
   await expect(anonymous.page.locator('main h1')).toHaveText(t(locale,
    'Ta strona jest obecnie niedostępna.', 'This page is currently unavailable.'));
  }
- for (const [route, reserved] of [
-  ['rules', 'rules'], ['help', 'support'], ['support', 'support'],
-  ['server-information', 'server-information'], ['support/report-a-bug', 'report-a-bug'],
+ for (const [route, reserved, helpTitle] of [
+  ['rules', 'rules'],
+  ['help', 'support', ['Pomoc dla graczy', 'Player support']],
+  ['support', 'support', ['Pomoc dla graczy', 'Player support']],
+  ['server-information', 'server-information'],
+  ['support/report-a-bug', 'report-a-bug', ['Zgłoś błąd', 'Report a bug']],
  ]) {
   for (const locale of locales) {
    await visit(anonymous.page, `/${locale}/${route}`);
-   await title(anonymous.page, t(locale, 'Ta strona nie została jeszcze opublikowana.',
-    'This page has not been published yet.'), locale);
+   const heading = helpTitle ? t(locale, ...helpTitle) : t(locale,
+    'Ta strona nie została jeszcze opublikowana.', 'This page has not been published yet.');
+   await title(anonymous.page, heading, locale);
+   if (helpTitle) {
+    for (const [path, pl, en] of [
+     ['support/tickets/create', 'Wyślij zgłoszenie do pomocy', 'Submit a support ticket'],
+     ['forgot-password', 'Odzyskaj dostęp do konta', 'Recover access to your account'],
+    ]) {
+     await expect(anonymous.page.getByRole('link', {name: t(locale, pl, en), exact: true}))
+      .toHaveAttribute('href', `/${locale}/${path}`);
+    }
+   }
    await visit(anonymous.page, `/${locale}/pages/${reserved}`, 404);
   }
  }
