@@ -265,27 +265,36 @@ async fn run_until(
     pool: PgPool,
     registry: Registry,
     shutdown: impl Future<Output = ()>,
+    heartbeat_interval: Duration,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    tokio::pin!(shutdown);
-    let mut next_heartbeat = tokio::time::Instant::now();
-    loop {
-        if tokio::time::Instant::now() >= next_heartbeat {
-            let heartbeat = tokio::select! {
-                biased;
-                () = &mut shutdown => return Ok(()),
-                result = oteryn_admin::system::record_worker_heartbeat(&pool) => result,
-            };
-            if let Err(error) = heartbeat {
+    let heartbeats = async {
+        loop {
+            if let Err(error) = oteryn_admin::system::record_worker_heartbeat(&pool).await {
                 tracing::warn!(%error, "worker heartbeat could not be recorded");
             }
-            next_heartbeat = tokio::time::Instant::now() + Duration::from_secs(15);
+            tokio::time::sleep(heartbeat_interval).await;
         }
+    };
+    tokio::select! {
+        biased;
+        result = process_jobs(&pool, registry, shutdown) => result,
+        () = heartbeats => Ok(()),
+    }
+}
+
+async fn process_jobs(
+    pool: &PgPool,
+    registry: Registry,
+    shutdown: impl Future<Output = ()>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tokio::pin!(shutdown);
+    loop {
         tokio::select! {
             biased;
             () = &mut shutdown => return Ok(()),
-            result = registry.schedule(&pool) => result?,
+            result = registry.schedule(pool) => result?,
         }
-        let batch = registry.batch(&pool);
+        let batch = registry.batch(pool);
         tokio::pin!(batch);
         let count = tokio::select! {
             biased;
@@ -528,7 +537,7 @@ pub async fn run(pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
         let _ = tokio::signal::ctrl_c().await;
     };
     tracing::info!("outbox worker started");
-    run_until(pool, registry, shutdown).await
+    run_until(pool, registry, shutdown, Duration::from_secs(15)).await
 }
 impl Handler for oteryn_notify::Delivery {
     fn run<'a>(&'a self, job: &'a Job) -> HandlerFuture<'a> {

@@ -6,6 +6,25 @@ use uuid::Uuid;
 use super::*;
 
 #[test]
+fn system_language_honors_preference_order_and_cookie() {
+    use axum::http::{HeaderValue, header};
+    let mut headers = HeaderMap::new();
+    for (value, expected) in [
+        ("de-DE, pl;q=0.3, EN-GB;q=0.8", "en"),
+        ("pl;q=0.9, en;q=0.9", "pl"),
+        ("en;q=0, de", "pl"),
+    ] {
+        headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static(value));
+        assert_eq!(language(&headers, None), expected);
+    }
+    headers.insert(
+        header::COOKIE,
+        HeaderValue::from_static("portal_language=en"),
+    );
+    assert_eq!(language(&headers, None), "en");
+}
+
+#[test]
 fn flags_are_strict_booleans_and_labels_exist_in_both_locales() {
     for lang in ["en", "pl"] {
         let locale = Locale::new(lang);
@@ -25,6 +44,28 @@ fn flags_are_strict_booleans_and_labels_exist_in_both_locales() {
             .collect();
         assert_eq!(enabled, ["OTERYN_ADMIN_PANEL"]);
         assert!(flags.windows(2).all(|pair| pair[0].name < pair[1].name));
+    }
+}
+
+#[test]
+fn flag_values_account_for_legacy_aliases() {
+    let locale = Locale::new("en");
+    let flags = registry::flags(&locale, |name| match name {
+        "PORTAL_ATLAS_DELIVERY_ENABLED" | "PORTAL_WORLD_ENABLED" => Some("1".into()),
+        "OTERYN_WORLD_ENABLED" => Some("false".into()),
+        _ => None,
+    });
+    for (name, enabled) in [
+        ("OTERYN_ATLAS_DELIVERY_ENABLED", true),
+        ("OTERYN_WORLD_ENABLED", false),
+    ] {
+        assert_eq!(
+            flags
+                .iter()
+                .find(|flag| flag.name == name)
+                .map(|flag| flag.enabled),
+            Some(enabled)
+        );
     }
 }
 
@@ -97,6 +138,15 @@ async fn database_probes_cover_fresh_stale_absent_and_timed_out_reads()
     assert!(matches!(probes::worker(&pool).await, Probe::Ok(0..=5)));
 
     sqlx::query(
+        "UPDATE portal_worker_heartbeat SET seen_at = clock_timestamp() + interval '1 minute'",
+    )
+    .execute(&pool)
+    .await?;
+    assert!(matches!(probes::worker(&pool).await, Probe::Stale(..=-1)));
+    probes::record_worker_heartbeat(&pool).await?;
+    assert!(matches!(probes::worker(&pool).await, Probe::Ok(0..=5)));
+
+    sqlx::query(
         "INSERT INTO native_admissions
          (attempt_ref, ticket_hash, request_digest, account_id, response_body, expires_at_ms, created_at)
          VALUES ($1, $2, $2, $3, $4, 0, $5::timestamptz)",
@@ -126,12 +176,43 @@ async fn database_probes_cover_fresh_stale_absent_and_timed_out_reads()
         Probe::Observed(stamp) if stamp == "2026-11-23T12:35:00Z"
     ));
 
+    sqlx::query(
+        "WITH mail AS (
+             INSERT INTO email_outbox(account_id, category, recipient, subject, text_body, html_body)
+             SELECT uuidv7(), 'security', state || '@example.invalid', 'Status', 'Status', 'Status'
+             FROM unnest(ARRAY['pending', 'dead', 'orphan']) AS state
+             RETURNING id, recipient
+         )
+         INSERT INTO outbox(kind, payload, idempotency_key, state)
+         SELECT 'notify.email', to_jsonb(id::text), id::text, split_part(recipient, '@', 1)
+         FROM mail WHERE recipient <> 'orphan@example.invalid'",
+    )
+    .execute(&pool)
+    .await?;
+    assert!(matches!(probes::mail_outbox(&pool).await, Probe::Ok(1)));
+    sqlx::query("DELETE FROM outbox WHERE kind='notify.email'")
+        .execute(&pool)
+        .await?;
+
+    let status = Status {
+        db: pool.clone(),
+        observations: Mutex::new(None),
+        started_at: Instant::now(),
+        environment: None,
+    };
+    let (first, second) = tokio::join!(status.observations(), status.observations());
+    assert!(Arc::ptr_eq(&first, &second));
+    *status.observations.lock().await =
+        Some((Instant::now() - PROBE_REFRESH_INTERVAL, first.clone()));
+    assert!(!Arc::ptr_eq(&first, &status.observations().await));
+
+    assert!(matches!(probes::mail_outbox(&pool).await, Probe::Ok(0)));
     let mut writer = pool.begin().await?;
     sqlx::query("LOCK TABLE outbox IN ACCESS EXCLUSIVE MODE")
         .execute(&mut *writer)
         .await?;
     assert!(matches!(probes::outbox(&pool).await, Probe::Unavailable));
-    assert!(matches!(probes::mail_outbox(&pool).await, Probe::Ok(0)));
+    assert!(matches!(probes::postgres(&pool).await, Probe::Ok(_)));
     writer.rollback().await?;
 
     pool.close().await;

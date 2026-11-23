@@ -6,21 +6,20 @@
   <title>{{ self.text("system-title") }}</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/css/admin-system.css">
 </head>
 <body class="op-theme">
-<main class="op-stack system-status">
+<main class="op-stack">
   <h1>{{ self.text("system-title") }}</h1>
   <nav class="op-tabs" aria-label="{{ self.text("system-title") }}">
     <a href="/admin">{{ self.text("system-back") }}</a>
     <a href="/admin/system/data">{{ self.text("system-json") }}</a>
   </nav>
 
-  <section class="op-card op-stack">
+  <section class="op-panel op-stack">
     <h2>{{ self.text("system-runtime") }}</h2>
     <dl>
       <dt>{{ self.text("system-environment") }}</dt>
-      <dd>{% if !self.environment().is_empty() %}{{ self.environment() }}{% else %}{{ self.text("system-unknown") }}{% endif %}</dd>
+      <dd>{{ self.text(self.environment()) }}</dd>
       <dt>{{ self.text("system-build-version") }}</dt>
       <dd>{{ snapshot.build_version }}</dd>
       <dt>{{ self.text("system-build-commit") }}</dt>
@@ -32,18 +31,18 @@
 
   <section class="op-stack">
     <h2>{{ self.text("system-dependencies") }}</h2>
-    <div class="system-dependencies">
-      <article class="op-card">
+    <div class="op-bento">
+      <article class="op-panel">
         <h3>{{ self.text("system-postgres") }}</h3>
-        <p>{{ self.text(snapshot.postgres.key()) }}</p>
-        {% if let Some(version) = snapshot.postgres.value() %}
+        <p>{{ self.text(snapshot.observations.postgres.key()) }}</p>
+        {% if let Some(version) = snapshot.observations.postgres.value() %}
         <dl><dt>{{ self.text("system-postgres-version") }}</dt><dd>{{ version }}</dd></dl>
         {% endif %}
       </article>
-      <article class="op-card">
+      <article class="op-panel">
         <h3>{{ self.text("system-migrations") }}</h3>
-        <p>{{ self.text(snapshot.migrations.key()) }}</p>
-        {% if let Some(versions) = snapshot.migrations.value() %}
+        <p>{{ self.text(snapshot.observations.migrations.key()) }}</p>
+        {% if let Some(versions) = snapshot.observations.migrations.value() %}
         <dl>
           <dt>{{ self.text("system-applied") }}</dt>
           <dd>{% if let Some(version) = versions.applied %}{{ version }}{% else %}{{ self.text("system-unknown") }}{% endif %}</dd>
@@ -52,17 +51,17 @@
         </dl>
         {% endif %}
       </article>
-      <article class="op-card">
+      <article class="op-panel">
         <h3>{{ self.text("system-worker") }}</h3>
-        <p>{{ self.text(snapshot.worker.key()) }}</p>
-        {% if let Some(age) = snapshot.worker.value() %}
+        <p>{{ self.text(snapshot.observations.worker.key()) }}</p>
+        {% if let Some(age) = snapshot.observations.worker.value() %}
         <dl><dt>{{ self.text("system-worker-age") }}</dt><dd>{{ age }}</dd></dl>
         {% endif %}
       </article>
-      <article class="op-card">
+      <article class="op-panel">
         <h3>{{ self.text("system-outbox") }}</h3>
-        <p>{{ self.text(snapshot.outbox.key()) }}</p>
-        {% if let Some(outbox) = snapshot.outbox.value() %}
+        <p>{{ self.text(snapshot.observations.outbox.key()) }}</p>
+        {% if let Some(outbox) = snapshot.observations.outbox.value() %}
         <dl>
           <dt>{{ self.text("system-backlog") }}</dt><dd>{{ outbox.backlog }}</dd>
           {% if let Some(age) = outbox.oldest_age_seconds %}
@@ -71,55 +70,48 @@
         </dl>
         {% endif %}
       </article>
-      <article class="op-card">
+      <article class="op-panel">
         <h3>{{ self.text("system-mail-outbox") }}</h3>
-        <p>{{ self.text(snapshot.mail_outbox.key()) }}</p>
-        {% if let Some(count) = snapshot.mail_outbox.value() %}
+        <p>{{ self.text(snapshot.observations.mail_outbox.key()) }}</p>
+        {% if let Some(count) = snapshot.observations.mail_outbox.value() %}
         <dl><dt>{{ self.text("system-backlog") }}</dt><dd>{{ count }}</dd></dl>
         {% endif %}
       </article>
-      <article class="op-card">
+      <article class="op-panel">
         <h3>{{ self.text("system-gateway") }}</h3>
-        <p>{{ self.text(snapshot.gateway.key()) }}</p>
-        {% if let Some(seen) = snapshot.gateway.value() %}
+        <p>{{ self.text(snapshot.observations.gateway.key()) }}</p>
+        {% if let Some(seen) = snapshot.observations.gateway.value() %}
         <dl><dt>{{ self.text("system-last-seen") }}</dt><dd><time datetime="{{ seen }}">{{ seen }}</time></dd></dl>
         {% endif %}
       </article>
-      <article class="op-card">
+      <article class="op-panel">
         <h3>{{ self.text("system-game-link") }}</h3>
-        <p>{{ self.text(snapshot.game_link.key()) }}</p>
-        {% if let Some(seen) = snapshot.game_link.value() %}
+        <p>{{ self.text(snapshot.observations.game_link.key()) }}</p>
+        {% if let Some(seen) = snapshot.observations.game_link.value() %}
         <dl><dt>{{ self.text("system-last-seen") }}</dt><dd><time datetime="{{ seen }}">{{ seen }}</time></dd></dl>
         {% endif %}
       </article>
     </div>
   </section>
 
-  <section class="op-stack" aria-labelledby="system-flags">
+  <section class="op-panel op-stack" aria-labelledby="system-flags">
     <h2 id="system-flags">{{ self.text("system-flags") }}</h2>
-    <table class="op-table system-table" aria-labelledby="system-flags">
-      <thead><tr><th scope="col">{{ self.text("system-flag") }}</th><th scope="col">{{ self.text("system-state") }}</th></tr></thead>
-      <tbody>
+    <dl>
       {% for flag in snapshot.flags %}
-        <tr>
-          <td><code>{{ flag.name }}</code><p>{{ flag.description }}</p></td>
-          <td>{% if flag.enabled %}{{ self.text("system-on") }}{% else %}{{ self.text("system-off") }}{% endif %}</td>
-        </tr>
+        <dt><code>{{ flag.name }}</code><p>{{ flag.description }}</p></dt>
+        <dd>{% if flag.enabled %}{{ self.text("system-on") }}{% else %}{{ self.text("system-off") }}{% endif %}</dd>
       {% endfor %}
-      </tbody>
-    </table>
+    </dl>
   </section>
 
-  <details class="op-card">
+  <details class="op-panel">
     <summary id="system-configuration">{{ self.text("system-configuration") }}</summary>
-    <table class="op-table system-table" aria-labelledby="system-configuration">
-      <thead><tr><th scope="col">{{ self.text("system-setting") }}</th><th scope="col">{{ self.text("system-state") }}</th></tr></thead>
-      <tbody>
+    <dl>
       {% for setting in snapshot.configuration %}
-        <tr><td><code>{{ setting.name }}</code></td><td>{{ self.text(setting.state.key()) }}</td></tr>
+        <dt><code>{{ setting.name }}</code></dt>
+        <dd>{{ self.text(setting.state.key()) }}</dd>
       {% endfor %}
-      </tbody>
-    </table>
+    </dl>
   </details>
 </main>
 </body>

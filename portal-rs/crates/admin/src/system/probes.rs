@@ -80,35 +80,43 @@ pub(super) struct MigrationStatus {
 }
 
 pub(super) async fn migrations(pool: &PgPool) -> Probe<MigrationStatus> {
-    let expected: Vec<i64> = oteryn_db::MIGRATOR
+    let expected: Vec<_> = oteryn_db::MIGRATOR
         .iter()
         .filter(|migration| !migration.migration_type.is_down_migration())
-        .map(|migration| migration.version)
+        .map(|migration| (migration.version, migration.checksum.as_ref()))
         .collect();
-    let result = query::<(Vec<i64>, bool)>(
+    let result = query::<(Vec<i64>, Vec<Vec<u8>>, bool)>(
         pool,
         "SELECT coalesce(array_agg(version ORDER BY version) FILTER (WHERE success), '{}'),
+                coalesce(array_agg(checksum ORDER BY version) FILTER (WHERE success), '{}'),
                 coalesce(bool_and(success), true)
          FROM _sqlx_migrations",
     )
     .await;
     match result {
-        Ok((applied, all_succeeded)) => migration_status(&expected, &applied, all_succeeded),
-        Err(error) if table_absent(&error) => migration_status(&expected, &[], true),
+        Ok((versions, checksums, all_succeeded)) => {
+            migration_status(&expected, &versions, &checksums, all_succeeded)
+        }
+        Err(error) if table_absent(&error) => migration_status(&expected, &[], &[], true),
         Err(_) => Probe::Unavailable,
     }
 }
 
 fn migration_status(
-    expected: &[i64],
+    expected: &[(i64, &[u8])],
     applied: &[i64],
+    checksums: &[Vec<u8>],
     all_succeeded: bool,
 ) -> Probe<MigrationStatus> {
     let status = MigrationStatus {
         applied: applied.last().copied(),
-        expected: expected.last().copied(),
+        expected: expected.last().map(|&(version, _)| version),
     };
-    if all_succeeded && applied == expected {
+    let installed = applied
+        .iter()
+        .copied()
+        .zip(checksums.iter().map(Vec::as_slice));
+    if all_succeeded && installed.eq(expected.iter().copied()) {
         Probe::Ok(status)
     } else {
         Probe::Mismatch(status)
@@ -134,7 +142,7 @@ where
 pub(super) async fn worker(pool: &PgPool) -> Probe<i64> {
     match observation(
         pool,
-        "SELECT floor(extract(epoch FROM statement_timestamp() - max(seen_at)))::bigint
+        "SELECT floor(extract(epoch FROM clock_timestamp() - max(seen_at)))::bigint
          FROM portal_worker_heartbeat",
     )
     .await
@@ -149,7 +157,7 @@ pub(crate) async fn record_worker_heartbeat(pool: &PgPool) -> Result<(), ProbeEr
     query::<(bool,)>(
         pool,
         "INSERT INTO portal_worker_heartbeat (singleton, seen_at) VALUES (true, clock_timestamp())
-         ON CONFLICT (singleton) DO UPDATE SET seen_at = greatest(portal_worker_heartbeat.seen_at, clock_timestamp())
+         ON CONFLICT (singleton) DO UPDATE SET seen_at = clock_timestamp()
          RETURNING singleton",
     )
     .await
@@ -181,7 +189,9 @@ pub(super) async fn outbox(pool: &PgPool) -> Probe<Backlog> {
 pub(super) async fn mail_outbox(pool: &PgPool) -> Probe<i64> {
     match query::<(i64,)>(
         pool,
-        "SELECT count(*) FROM email_outbox WHERE delivered_at IS NULL",
+        "SELECT count(*) FROM email_outbox AS mail
+         JOIN outbox AS job ON job.kind = 'notify.email' AND job.idempotency_key = mail.id::text
+         WHERE mail.delivered_at IS NULL AND job.state IN ('pending', 'running')",
     )
     .await
     {
@@ -216,13 +226,20 @@ mod tests {
 
     #[test]
     fn migration_status_checks_all_versions_and_failed_rows() {
+        let expected = [(1, &[1][..]), (2, &[2][..])];
+        let checksums = [vec![1], vec![2]];
         assert!(matches!(
-            migration_status(&[1, 2], &[1, 2], true),
+            migration_status(&expected, &[1, 2], &checksums, true),
             Probe::Ok(_)
         ));
-        for (applied, success) in [(&[2][..], true), (&[1, 2, 3], true), (&[1, 2], false)] {
+        for (applied, checksums, success) in [
+            (&[2][..], &[vec![2]][..], true),
+            (&[1, 2, 3], &[vec![1], vec![2], vec![3]], true),
+            (&[1, 2], &checksums, false),
+            (&[1, 2], &[vec![2], vec![1]], true),
+        ] {
             assert!(matches!(
-                migration_status(&[1, 2], applied, success),
+                migration_status(&expected, applied, checksums, success),
                 Probe::Mismatch(MigrationStatus {
                     applied: Some(_),
                     expected: Some(2)

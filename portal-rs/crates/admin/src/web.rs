@@ -427,15 +427,44 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     Ok(())
 }
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
+    for cookie in headers.get_all(header::COOKIE) {
+        if let Ok(cookie) = cookie.to_str() {
+            for part in cookie.split(';') {
+                match part.trim().split_once('=') {
+                    Some(("portal_language", "en")) => return "en",
+                    Some(("portal_language", "pl")) => return "pl",
+                    _ => {}
+                }
+            }
+        }
     }
+    let value = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    let mut preferred = ("pl", 0.0);
+    for item in value.split(',') {
+        let mut parts = item.trim().split(';');
+        let tag = parts.next().unwrap_or_default().trim();
+        let primary = tag.split('-').next().unwrap_or_default();
+        let lang = if primary.eq_ignore_ascii_case("en") {
+            "en"
+        } else if primary.eq_ignore_ascii_case("pl") {
+            "pl"
+        } else {
+            continue;
+        };
+        let quality = parts.next().map_or(1.0, |part| {
+            part.trim()
+                .strip_prefix("q=")
+                .and_then(|value| value.parse::<f32>().ok())
+                .unwrap_or(0.0)
+        });
+        if quality > preferred.1 && quality <= 1.0 {
+            preferred = (lang, quality);
+        }
+    }
+    preferred.0
 }
 fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {

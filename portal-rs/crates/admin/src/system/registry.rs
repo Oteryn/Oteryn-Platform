@@ -213,13 +213,29 @@ pub(super) fn flags(
         .iter()
         .map(|&name| Flag {
             name,
-            enabled: lookup(name).as_deref() == Some(OsStr::new("true")),
+            enabled: enabled(name, &lookup),
             description: locale.text(&format!(
                 "system-flag-{}",
                 name.to_ascii_lowercase().replace('_', "-")
             )),
         })
         .collect()
+}
+
+fn enabled(name: &str, lookup: &impl Fn(&str) -> Option<OsString>) -> bool {
+    let primary = lookup(name);
+    let legacy = match name {
+        "OTERYN_ATLAS_DELIVERY_ENABLED" => lookup("PORTAL_ATLAS_DELIVERY_ENABLED"),
+        "OTERYN_WORLD_ENABLED" => lookup("PORTAL_WORLD_ENABLED"),
+        _ => return primary.as_deref() == Some(OsStr::new("true")),
+    };
+
+    // The consumers treat non-Unicode values like absent environment variables.
+    let primary = primary.as_deref().and_then(OsStr::to_str);
+    let legacy = legacy.as_deref().and_then(OsStr::to_str);
+    (primary.is_some() || legacy.is_some())
+        && primary.is_none_or(|value| value == "true")
+        && legacy.is_none_or(|value| value == "1")
 }
 
 pub(super) fn configuration(is_set: impl Fn(&str) -> bool) -> Vec<Setting> {

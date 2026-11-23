@@ -2,7 +2,10 @@
 mod probes;
 mod registry;
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use askama::Template;
 use axum::{
@@ -13,11 +16,15 @@ use oteryn_core::Environment;
 use oteryn_web::Language;
 use serde::Serialize;
 use sqlx::PgPool;
+use tokio::sync::Mutex;
 
 use probes::{Backlog, MigrationStatus, Probe};
 
+const PROBE_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+
 pub(crate) struct Status {
     db: PgPool,
+    observations: Mutex<Option<(Instant, Arc<Observations>)>>,
     started_at: Instant,
     environment: Option<Environment>,
 }
@@ -28,6 +35,7 @@ pub(crate) fn routes<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> 
         .route("/admin/system/data", get(data))
         .with_state(Arc::new(Status {
             db,
+            observations: Mutex::new(None),
             started_at: Instant::now(),
             environment: std::env::var("OTERYN_ENV").map_or_else(
                 |error| match error {
@@ -49,6 +57,14 @@ struct Snapshot {
     build_version: &'static str,
     build_commit: Option<&'static str>,
     uptime_seconds: u64,
+    #[serde(flatten)]
+    observations: Arc<Observations>,
+    flags: Vec<registry::Flag>,
+    configuration: Vec<registry::Setting>,
+}
+
+#[derive(Serialize)]
+struct Observations {
     postgres: Probe<String>,
     migrations: Probe<MigrationStatus>,
     worker: Probe<i64>,
@@ -56,12 +72,17 @@ struct Snapshot {
     mail_outbox: Probe<i64>,
     gateway: Probe<String>,
     game_link: Probe<String>,
-    flags: Vec<registry::Flag>,
-    configuration: Vec<registry::Setting>,
 }
 
 impl Status {
-    async fn snapshot(&self, locale: &Locale) -> Snapshot {
+    async fn observations(&self) -> Arc<Observations> {
+        let mut cached = self.observations.lock().await;
+        if let Some((observed_at, observations)) = &*cached
+            && observed_at.elapsed() < PROBE_REFRESH_INTERVAL
+        {
+            return observations.clone();
+        }
+
         let (postgres, migrations, worker, outbox, mail_outbox, gateway, game_link) = tokio::join!(
             probes::postgres(&self.db),
             probes::migrations(&self.db),
@@ -71,11 +92,7 @@ impl Status {
             probes::gateway(&self.db),
             probes::game_link(&self.db),
         );
-        Snapshot {
-            environment: self.environment,
-            build_version: env!("CARGO_PKG_VERSION"),
-            build_commit: Some(env!("OTERYN_SYSTEM_COMMIT")).filter(|commit| !commit.is_empty()),
-            uptime_seconds: self.started_at.elapsed().as_secs(),
+        let observations = Arc::new(Observations {
             postgres,
             migrations,
             worker,
@@ -83,6 +100,18 @@ impl Status {
             mail_outbox,
             gateway,
             game_link,
+        });
+        *cached = Some((Instant::now(), observations.clone()));
+        observations
+    }
+
+    async fn snapshot(&self, locale: &Locale) -> Snapshot {
+        Snapshot {
+            environment: self.environment,
+            build_version: env!("CARGO_PKG_VERSION"),
+            build_commit: Some(env!("OTERYN_SYSTEM_COMMIT")).filter(|commit| !commit.is_empty()),
+            uptime_seconds: self.started_at.elapsed().as_secs(),
+            observations: self.observations().await,
             flags: registry::flags(locale, |name| std::env::var_os(name)),
             configuration: registry::configuration(|name| std::env::var_os(name).is_some()),
         }
@@ -128,11 +157,11 @@ impl Page {
 
     fn environment(&self) -> &str {
         match self.snapshot.environment {
-            Some(Environment::Local) => "local",
-            Some(Environment::Testing) => "testing",
-            Some(Environment::Preprod) => "preprod",
-            Some(Environment::Production) => "production",
-            None => "",
+            Some(Environment::Local) => "system-env-local",
+            Some(Environment::Testing) => "system-env-testing",
+            Some(Environment::Preprod) => "system-env-preprod",
+            Some(Environment::Production) => "system-env-production",
+            None => "system-unknown",
         }
     }
 }

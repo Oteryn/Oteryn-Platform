@@ -6,6 +6,11 @@ import {query, seededStaff} from '../staff-rbac-helpers.mjs';
 
 test('staff opens System and reads live portal status', async ({page}, info) => {
   const lang = info.project.metadata.locale;
+  for (const path of ['/admin/system', '/admin/system/data']) {
+    const response = await page.request.get(path, {maxRedirects: 0});
+    expect(response.status()).toBe(303);
+    expect(response.headers().location).toBe('/login');
+  }
   const actor = await seededStaff(page, lang, 'platform_admin');
   expect((await page.goto('/admin')).status()).toBe(200);
   await page.getByRole('link', {name: 'System', exact: true}).click();
@@ -13,6 +18,16 @@ test('staff opens System and reads live portal status', async ({page}, info) => 
   await expect(page.getByRole('heading', {name: 'System', level: 1})).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   await assertShell(page);
+  await expect(page.getByText(lang === 'pl' ? 'Testowe' : 'Testing', {exact: true})).toBeVisible();
+  expect((await page.request.get('/admin/system/unknown', {maxRedirects: 0})).status()).toBe(404);
+  expect((await page.request.fetch('/admin/system/data', {method: 'OPTIONS'})).status()).toBe(405);
+
+  const otherLang = lang === 'pl' ? 'en' : 'pl';
+  await page.context().addCookies([{name: 'portal_language', value: otherLang, url: page.url()}]);
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('lang', otherLang);
+  await expect(page.getByText(otherLang === 'pl' ? 'Testowe' : 'Testing', {exact: true})).toBeVisible();
+  await page.context().clearCookies({name: 'portal_language'});
 
   const key = randomUUID();
   const [{id: job}] = await query(
@@ -25,18 +40,28 @@ test('staff opens System and reads live portal status', async ({page}, info) => 
       [actor],
     );
     try {
+      await query(
+        "INSERT INTO outbox(kind,payload,idempotency_key,run_after) VALUES('notify.email',to_jsonb($1::text),$1,now()+interval '1 day')",
+        [mail],
+      );
       await page.reload();
-      await expect(page.getByRole('row', {name: /OTERYN_ADMIN_PANEL/})).toContainText(
+      await expect(page.locator('dt:has(code:text-is("OTERYN_ADMIN_PANEL")) + dd')).toContainText(
         lang === 'pl' ? 'Włączona' : 'On',
       );
       await page.locator('summary#system-configuration').click();
-      await expect(page.getByRole('row', {name: /OTERYN_DATABASE_URL/})).toContainText(
+      await expect(page.locator('dt:has(code:text-is("OTERYN_DATABASE_URL")) + dd')).toContainText(
         lang === 'pl' ? 'Ustawiono' : 'Set',
       );
-      const response = await page.request.get('/admin/system/data', {headers: {'accept-language': lang}});
-      expect(response.status()).toBe(200);
-      expect(response.headers()['cache-control']).toContain('no-store');
-      const data = await response.json();
+      let data;
+      await expect.poll(async () => {
+        const response = await page.request.get('/admin/system/data', {headers: {'accept-language': lang}});
+        expect(response.status()).toBe(200);
+        expect(response.headers()['cache-control']).toContain('no-store');
+        const body = await response.text();
+        expect(/postgres(?:ql)?:\/\//.test(body)).toBe(false);
+        data = JSON.parse(body);
+        return data.outbox.value?.oldest_age_seconds >= 300 && data.mail_outbox.value >= 1;
+      }, {intervals: [250, 500, 1000]}).toBe(true);
       expect(data.environment).toBe('testing');
       expect(data.build_version).toMatch(/^\d+\.\d+\.\d+/);
       expect(data.build_commit).toMatch(/^[a-f0-9]{40}$/);
@@ -60,9 +85,10 @@ test('staff opens System and reads live portal status', async ({page}, info) => 
         name: 'OTERYN_ADMIN_PANEL', enabled: true,
         description: lang === 'pl' ? 'Udostępnia panel zespołu.' : 'Enables the staff panel.',
       });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(data.configuration).toContainEqual({name: 'OTERYN_DATABASE_URL', state: 'set'});
-      expect(await response.text()).not.toMatch(/postgres(?:ql)?:\/\//);
     } finally {
+      await query("DELETE FROM outbox WHERE kind='notify.email' AND idempotency_key=$1", [mail]);
       await query('DELETE FROM email_outbox WHERE id=$1', [mail]);
     }
   } finally {
