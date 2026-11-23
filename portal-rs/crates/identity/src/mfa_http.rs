@@ -99,7 +99,7 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
     }
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
-        .fallback_service(app)
+        .fallback_service(oteryn_web::observability::carry_matched_path(app))
         .layer(axum::middleware::from_fn(rewrite_login))
 }
 async fn mfa_session(

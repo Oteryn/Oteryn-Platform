@@ -412,7 +412,7 @@ impl<A: AccountStateReader> Authorizer<A> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 #[cfg(test)]
 mod panel_tests;

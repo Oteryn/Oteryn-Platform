@@ -743,19 +743,31 @@ async fn postgres_host_gate_refuses_before_session_and_audit() {
         0
     );
     let support = staff(&pool, "support").await;
+    let request_id = Uuid::now_v7();
+    let response = get(
+        panel(pool.clone(), Some(support), true).layer(axum::Extension(
+            oteryn_web::observability::RequestId(request_id),
+        )),
+        "/admin/analytics",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(
-        get(panel(pool.clone(), Some(support), true), "/admin/analytics")
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
+        response.headers()["x-request-id"].to_str().unwrap(),
+        request_id.to_string()
     );
-    let denied: (Option<Uuid>, String) = sqlx::query_as("SELECT actor,action FROM audit_log")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let denied: (Option<Uuid>, String, Uuid) =
+        sqlx::query_as("SELECT actor,action,request_id FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         denied,
-        (Some(support.account), "admin.analytics.denied".into())
+        (
+            Some(support.account),
+            "admin.analytics.denied".into(),
+            request_id
+        )
     );
     clean(pool, root, name).await;
 }
@@ -860,7 +872,7 @@ async fn postgres_reversible_analytics_migration_preserves_role_catalog() {
     };
     // The historical down migration predates later permissions; remove their
     // grants first so the head schema returns to the analytics-era catalog.
-    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick', 'payments.coin_hold.release', 'store.catalog.import', 'store.catalog.activate', 'store.codes.generate', 'admin.staff_invites.list', 'admin.staff_invites.create', 'admin.staff_invites.revoke', 'registration.policy.view', 'registration.policy.manage') OR permission LIKE 'mail.outbox.%'")
+    sqlx::query("DELETE FROM role_permissions WHERE permission IN ('account.security.kick', 'payments.coin_hold.release', 'store.catalog.import', 'store.catalog.activate', 'store.codes.generate', 'admin.staff_invites.list', 'admin.staff_invites.create', 'admin.staff_invites.revoke', 'registration.policy.view', 'registration.policy.manage', 'admin.errors.view', 'admin.errors.resolve', 'admin.errors.ignore') OR permission LIKE 'mail.outbox.%'")
         .execute(&pool)
         .await
         .unwrap();

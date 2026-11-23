@@ -144,7 +144,7 @@ impl PanelConfig {
 pub(crate) struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
-    required: Option<Permission>,
+    required: Vec<Permission>,
     identity: I,
     pub(crate) auth: Arc<Authorizer<A>>,
     pub(crate) pool: PgPool,
@@ -185,7 +185,8 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool.clone()),
     );
-    let router = router.merge(invitations::acceptance_router(pool));
+    let router = router.merge(invitations::acceptance_router(pool.clone()));
+    let router = router.merge(crate::errors::configured_router(pool)?);
     Ok(if reports_enabled {
         router.layer(Extension(ReportsNavigation))
     } else {
@@ -210,14 +211,31 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
+    configured_guard_with_permissions(routes, pool, &[permission], lookup)
+}
+
+fn configured_guard_with_permissions(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded_with_permissions(
         routes,
         pool.clone(),
         config_from(lookup)?,
         PortalIdentity::configured_from(pool.clone(), lookup),
         PortalIdentity::configured_from(pool, lookup),
-        permission,
+        permissions,
     ))
+}
+
+pub(super) fn configured_guard_all(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_guard_with_permissions(routes, pool, permissions, &|key| std::env::var(key).ok())
 }
 
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
@@ -233,12 +251,23 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permission: Permission,
 ) -> Router {
+    guarded_with_permissions(routes, pool, config, identity, accounts, &[permission])
+}
+
+fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: Some(permission),
+        required: permissions.to_vec(),
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -267,7 +296,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: None,
+        required: Vec::new(),
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -549,6 +578,7 @@ struct Page {
     moderate_reports: bool,
     mail_link: Option<String>,
     registration_policy_label: Option<String>,
+    errors_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -664,6 +694,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        errors_label: s
+            .auth
+            .check(context, Permission::ViewPortalErrors)
+            .await
+            .ok()
+            .map(|()| text(lang, "errors-title")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

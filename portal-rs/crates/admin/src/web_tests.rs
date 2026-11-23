@@ -139,6 +139,7 @@ fn localized_responsive_labelled_template() {
             moderate_reports: true,
             mail_link: None,
             registration_policy_label: Some(text(lang, "registration-title")),
+            errors_label: None,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -250,6 +251,37 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .await
     .unwrap();
     assert_eq!(count, 1);
+    let review = guarded_with_permissions(
+        Router::new().route("/admin/feature", get(|| async { "feature" })),
+        pool.clone(),
+        PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Identity(identity),
+        Identity(identity),
+        &[
+            Permission::ViewPortalErrors,
+            Permission::ResolvePortalErrors,
+        ],
+    );
+    for (permission, expected) in [
+        (Permission::ResolvePortalErrors, StatusCode::FORBIDDEN),
+        (Permission::ViewPortalErrors, StatusCode::OK),
+    ] {
+        sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,$2)")
+            .bind(role)
+            .bind(permission.as_str())
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            request(review.clone(), "/admin/feature", "staff.test")
+                .await
+                .status(),
+            expected
+        );
+    }
     // Feature routes require their own permission on top of panel access.
     assert_eq!(
         request(
@@ -431,7 +463,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     };
     let panel = Panel {
         config: PanelConfig::default(),
-        required: None,
+        required: Vec::new(),
         identity: Identity(identity),
         auth: Arc::new(Authorizer::new(pool.clone(), Identity(identity))),
         pool: pool.clone(),
