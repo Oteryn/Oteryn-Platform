@@ -543,7 +543,7 @@ mod response_tests {
                     registry: Registry::default(),
                     sessions: SessionLayer::new(pool),
                 },
-                |State(shell): State<Shell>, request: Request, next: Next| async move {
+                |State(shell): State<Shell>, request: Request<Body>, next: Next| async move {
                     with_chrome(shell, request, next, None, |chrome| {
                         chrome.alternate_url = format!("/feature?lang={}", chrome.alternate_lang);
                     })
