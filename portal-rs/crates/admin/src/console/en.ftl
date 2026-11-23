@@ -82,3 +82,9 @@ creation-pending = Requests awaiting a receipt
 creation-expired = Awaiting a receipt after intent expiry
 creation-committed = Committed receipts in the last 24 hours
 creation-rejected = Rejected receipts in the last 24 hours
+invalid-form = Check the values in the form.
+access-denied = Access denied
+seconds-ago = { $count ->
+    [one] One second ago
+   *[other] { $number } seconds ago
+    }

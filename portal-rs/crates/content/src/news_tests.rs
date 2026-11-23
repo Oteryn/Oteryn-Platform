@@ -2,7 +2,7 @@
 use super::*;
 use axum::{
     body::{Body, to_bytes},
-    http::Request,
+    http::{Request, header},
 };
 use tower::ServiceExt;
 #[test]
@@ -516,7 +516,10 @@ async fn postgres_news_lifecycle() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    let _ = to_bytes(response.into_body(), 1024).await.unwrap();
+    assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(r#"role="alert">Choose a valid result page.</p>"#));
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(context.account)
@@ -880,13 +883,13 @@ async fn postgres_pagination_language_and_caps() {
             page: Some(number),
             ..Options::default()
         };
-        assert!(
-            !public::listing(&pool, "en", &q)
-                .await
-                .unwrap()
-                .0
-                .contains(r#"rel="next""#)
-        );
+        let peer = ([127, 0, 0, 2], 12345).into();
+        let archive = public_router(pool.clone()).layer(Extension(axum::extract::ConnectInfo::<
+            std::net::SocketAddr,
+        >(peer)));
+        let (status, html) = get_public(&archive, &format!("/en/news?page={number}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!html.contains(r#"rel="next""#));
         assert!(
             !public::listing(&pool, "en", &q)
                 .await

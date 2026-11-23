@@ -374,3 +374,4 @@ character-case-conflict = Wniosek lub zgłoszenie uległo zmianie. Otwórz ponow
 character-case-storage = Rejestr spraw postaci jest tymczasowo niedostępny.
 character-case-ticket-closed = To zgłoszenie jest zamknięte lub rozwiązane. Dotychczasowe sprawy są dostępne poniżej.
 character-case-limited = Zbyt wiele zgłoszeń lub ocen spraw. Odczekaj chwilę i spróbuj ponownie.
+audit-link = Audyt

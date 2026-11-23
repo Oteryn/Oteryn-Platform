@@ -577,44 +577,7 @@ fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'s
 }
 
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    for cookie in headers.get_all(header::COOKIE) {
-        if let Ok(cookie) = cookie.to_str() {
-            for part in cookie.split(';') {
-                match part.trim().split_once('=') {
-                    Some(("portal_language", "en")) => return "en",
-                    Some(("portal_language", "pl")) => return "pl",
-                    _ => {}
-                }
-            }
-        }
-    }
-    let value = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
-    let mut preferred = ("pl", 0.0);
-    for item in value.split(',') {
-        let mut parts = item.trim().split(';');
-        let tag = parts.next().unwrap_or_default().trim();
-        let primary = tag.split('-').next().unwrap_or_default();
-        let lang = if primary.eq_ignore_ascii_case("en") {
-            "en"
-        } else if primary.eq_ignore_ascii_case("pl") {
-            "pl"
-        } else {
-            continue;
-        };
-        let quality = parts.next().map_or(1.0, |part| {
-            part.trim()
-                .strip_prefix("q=")
-                .and_then(|value| value.parse::<f32>().ok())
-                .unwrap_or(0.0)
-        });
-        if quality > preferred.1 && quality <= 1.0 {
-            preferred = (lang, quality);
-        }
-    }
-    preferred.0
+    oteryn_web::Language::negotiate(headers).code()
 }
 pub(crate) fn messages(
     lang: &str,
@@ -673,6 +636,7 @@ struct Page {
     forum_label: Option<String>,
     editorial_links: Vec<(&'static str, String)>,
     enforcement_link: Option<String>,
+    audit_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -835,6 +799,13 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let audit_link = if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true")
+        && s.auth.check_console_audit(context).await.is_ok()
+    {
+        Some(text(lang, "audit-link"))
+    } else {
+        None
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -881,6 +852,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .ok()
             .map(|()| text(lang, "forum")),
         enforcement_link,
+        audit_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

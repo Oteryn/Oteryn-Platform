@@ -2,6 +2,7 @@
 #[path = "../../../../test-support/clock.rs"]
 mod test_clock;
 use super::*;
+use axum::http::header;
 use axum::{
     body::{Body, to_bytes},
     http::Request,
@@ -424,8 +425,9 @@ async fn postgres_query_csrf_permission_and_local_polling() {
     ] {
         let response = app(db.pool.clone(), actor, fixture.clone(), allowed, true)
             .oneshot(
-                Request::post("/console/worlds")
+                Request::post("/console/worlds?lang=en")
                     .header("host", "staff.test")
+                    .header(header::ACCEPT_LANGUAGE, "pl")
                     .header("cookie", &cookie)
                     .header("origin", "https://staff.test")
                     .header("content-type", "application/x-www-form-urlencoded")
@@ -437,6 +439,7 @@ async fn postgres_query_csrf_permission_and_local_polling() {
             .await
             .unwrap();
         assert_eq!(response.status(), status);
+        assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
         if status == StatusCode::SEE_OTHER {
             let location = response.headers()[header::LOCATION].to_str().unwrap();
             assert!(location.contains("request="));
@@ -445,6 +448,13 @@ async fn postgres_query_csrf_permission_and_local_polling() {
                     .await
                     .contains("fixture-healthy")
             );
+        } else {
+            let message = if status == StatusCode::FORBIDDEN {
+                "Access denied"
+            } else {
+                "Check the values in the form."
+            };
+            assert!(body(response).await.contains(message));
         }
     }
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);

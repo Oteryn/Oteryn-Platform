@@ -82,3 +82,11 @@ creation-pending = Prośby oczekujące na potwierdzenie
 creation-expired = Oczekujące na potwierdzenie po upływie ważności polecenia
 creation-committed = Potwierdzenia utworzenia z ostatnich 24 godzin
 creation-rejected = Potwierdzenia odrzucenia z ostatnich 24 godzin
+invalid-form = Sprawdź wartości w formularzu.
+access-denied = Brak dostępu
+seconds-ago = { $count ->
+    [one] Sekundę temu
+    [few] { $number } sekundy temu
+    [many] { $number } sekund temu
+   *[other] { $number } sekundy temu
+    }

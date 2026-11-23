@@ -61,3 +61,15 @@ discussion-error-forbidden = This account cannot make that discussion change.
 discussion-error-invalid = Check the reply or moderation reason and try again.
 discussion-error-conflict = The reply or article has changed. Reload the page before trying again.
 discussion-error-limit = You can post up to five replies per hour. Try again later.
+archive-count = { $count ->
+    [0] { no-results }
+    [one] One entry on this page
+   *[other] { $count } entries on this page
+    }
+invalid-year = Enter a year from 1 to 9999.
+invalid-month = Enter a month from 1 to 12.
+invalid-tag = Enter a tag of up to 48 lowercase letters, digits or single hyphens.
+invalid-search = Enter up to 120 characters without control characters.
+invalid-page = Choose a valid result page.
+invalid-archive-query = Check the values in the form.
+archive-unavailable = The archive is currently unavailable.

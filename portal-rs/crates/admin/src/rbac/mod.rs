@@ -307,9 +307,34 @@ impl<A: AccountStateReader> Authorizer<A> {
 
     /// Checks one explicit permission. Missing roles and unknown account state deny.
     pub async fn check(&self, context: CheckContext, permission: Permission) -> Result<(), Error> {
+        self.check_with_game_flags(context, permission, self.game_flags)
+            .await
+    }
+
+    pub(crate) async fn check_console_audit(&self, context: CheckContext) -> Result<(), Error> {
+        if self.check(context, Permission::ViewAudit).await.is_ok() {
+            return Ok(());
+        }
+        self.check_with_game_flags(
+            context,
+            Permission::GameAuditRead,
+            GamePermissionFlags {
+                enabled: true,
+                deploy: false,
+            },
+        )
+        .await
+    }
+
+    async fn check_with_game_flags(
+        &self,
+        context: CheckContext,
+        permission: Permission,
+        game_flags: GamePermissionFlags,
+    ) -> Result<(), Error> {
         if permission.as_str().starts_with("game.")
-            && (!self.game_flags.enabled
-                || (permission == Permission::GameNodeDeploy && !self.game_flags.deploy))
+            && (!game_flags.enabled
+                || (permission == Permission::GameNodeDeploy && !game_flags.deploy))
         {
             return Err(Error::Denied);
         }

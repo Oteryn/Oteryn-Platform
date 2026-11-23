@@ -61,3 +61,17 @@ discussion-error-forbidden = To konto nie może wprowadzić tej zmiany w dyskusj
 discussion-error-invalid = Sprawdź odpowiedź lub uzasadnienie decyzji i spróbuj ponownie.
 discussion-error-conflict = Odpowiedź lub artykuł uległy zmianie. Odśwież stronę przed ponowną próbą.
 discussion-error-limit = Możesz wysłać do pięciu odpowiedzi w ciągu godziny. Spróbuj później.
+archive-count = { $count ->
+    [0] { no-results }
+    [one] Jeden wpis na tej stronie
+    [few] { $count } wpisy na tej stronie
+    [many] { $count } wpisów na tej stronie
+   *[other] { $count } wpisu na tej stronie
+    }
+invalid-year = Wpisz rok od 1 do 9999.
+invalid-month = Wpisz miesiąc od 1 do 12.
+invalid-tag = Wpisz tag o długości do 48 znaków, używając małych liter a–z, cyfr lub pojedynczych myślników.
+invalid-search = Wpisz do 120 znaków bez znaków sterujących.
+invalid-page = Wybierz prawidłową stronę wyników.
+invalid-archive-query = Sprawdź wartości w formularzu.
+archive-unavailable = Archiwum jest obecnie niedostępne.

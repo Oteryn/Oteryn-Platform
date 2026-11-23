@@ -374,3 +374,4 @@ character-case-conflict = The request or ticket has changed. Reopen the case que
 character-case-storage = Character case storage is temporarily unavailable.
 character-case-ticket-closed = This ticket is closed or resolved. Existing cases remain available below.
 character-case-limited = Too many case submissions or reviews. Wait a moment and try again.
+audit-link = Audit

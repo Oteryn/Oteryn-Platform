@@ -1,13 +1,15 @@
 use super::{
-    MAX_PAGE, Options, display_date, escape, excerpt, label, language, tag_valid, unavailable,
+    MAX_PAGE, Options, display_date, escape, excerpt, label, language, tag_valid, translation,
+    unavailable,
 };
 use askama::Template;
 use axum::{
     Extension,
-    extract::{Path, Query, State},
-    http::{StatusCode, header},
+    extract::{Path, Query, State, rejection::QueryRejection},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Response},
 };
+use oteryn_web::Language;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
@@ -41,29 +43,29 @@ struct Filters<'a> {
 }
 
 impl Options {
-    fn filters(&self, section: Section) -> Result<Filters<'_>, StatusCode> {
-        fn number(value: &str, max: i32) -> Result<Option<i32>, StatusCode> {
+    fn filters(&self, section: Section) -> Result<Filters<'_>, &'static str> {
+        fn number(value: &str, max: i32) -> Option<Option<i32>> {
             if value.is_empty() {
-                return Ok(None);
+                return Some(None);
             }
             if value.len() <= 4
                 && value.bytes().all(|byte| byte.is_ascii_digit())
                 && let Ok(n) = value.parse::<i32>()
                 && (1..=max).contains(&n)
             {
-                return Ok(Some(n));
+                return Some(Some(n));
             }
-            Err(StatusCode::UNPROCESSABLE_ENTITY)
+            None
         }
 
         match section {
             Section::News => {
                 if !self.tag.is_empty() && !tag_valid(&self.tag) {
-                    return Err(StatusCode::UNPROCESSABLE_ENTITY);
+                    return Err("invalid-tag");
                 }
                 Ok(Filters {
-                    year: number(&self.year, 9999)?,
-                    month: number(&self.month, 12)?,
+                    year: number(&self.year, 9999).ok_or("invalid-year")?,
+                    month: number(&self.month, 12).ok_or("invalid-month")?,
                     tag: &self.tag,
                     ..Filters::default()
                 })
@@ -71,7 +73,7 @@ impl Options {
             Section::Changelog => {
                 let search = self.q.trim();
                 if search.chars().count() > 120 || search.chars().any(char::is_control) {
-                    return Err(StatusCode::UNPROCESSABLE_ENTITY);
+                    return Err("invalid-search");
                 }
                 Ok(Filters {
                     search,
@@ -153,7 +155,9 @@ struct Archive<'a> {
     lang: &'a str,
     section: &'static str,
     title: String,
-    filters: Filters<'a>,
+    options: &'a Options,
+    error: Option<String>,
+    count: String,
     entries: Vec<Entry>,
     previous: Option<String>,
     next: Option<String>,
@@ -165,37 +169,43 @@ impl Archive<'_> {
     }
 }
 
-async fn list(
+async fn list<'a>(
     pool: &PgPool,
-    lang: &str,
-    options: &Options,
+    lang: &'a str,
+    options: &'a Options,
     section: Section,
-) -> Result<Html<String>, StatusCode> {
-    let filters = options.filters(section)?;
+) -> Result<Archive<'a>, ArchiveError> {
+    let filters = options.filters(section).map_err(ArchiveError::input)?;
     let entries = entries(
         pool,
         lang,
         section,
         &filters,
         PAGE_SIZE + 1,
-        options.offset(PAGE_SIZE)?,
+        options
+            .offset(PAGE_SIZE)
+            .map_err(|_| ArchiveError::input("invalid-page"))?,
     )
     .await
-    .map_err(unavailable)?;
+    .map_err(|err| ArchiveError::new(unavailable(err), "archive-unavailable"))?;
     let current = options.page.unwrap_or(1);
     let next = (entries.len() as i64 > PAGE_SIZE && current < MAX_PAGE)
         .then(|| page_query(lang, &filters, current + 1));
     let previous = (current > 1).then(|| page_query(lang, &filters, current - 1));
-    let archive = Archive {
+    let entries: Vec<_> = entries.into_iter().take(PAGE_SIZE as usize).collect();
+    Ok(Archive {
         lang,
         section: section.key(),
         title: label(lang, section.key()),
-        filters,
-        entries: entries.into_iter().take(PAGE_SIZE as usize).collect(),
+        options,
+        error: None,
+        count: count(lang, entries.len()).ok_or_else(|| {
+            ArchiveError::new(StatusCode::SERVICE_UNAVAILABLE, "archive-unavailable")
+        })?,
+        entries,
         previous,
         next,
-    };
-    archive.render().map(Html).map_err(unavailable)
+    })
 }
 
 fn page_query(lang: &str, filters: &Filters<'_>, page: i64) -> String {
@@ -235,37 +245,107 @@ fn page_query(lang: &str, filters: &Filters<'_>, page: i64) -> String {
     query
 }
 
+fn count(lang: &str, count: usize) -> Option<String> {
+    let mut args = fluent_bundle::FluentArgs::new();
+    args.set("count", count);
+    translation(lang, "archive-count", Some(&args))
+}
+
+#[derive(Debug)]
+struct ArchiveError {
+    status: StatusCode,
+    key: &'static str,
+}
+
+impl ArchiveError {
+    fn new(status: StatusCode, key: &'static str) -> Self {
+        Self { status, key }
+    }
+
+    fn input(key: &'static str) -> Self {
+        Self::new(StatusCode::UNPROCESSABLE_ENTITY, key)
+    }
+}
+
+async fn archive_response(
+    lang: &str,
+    section: Section,
+    query: Result<Query<Options>, QueryRejection>,
+    pool: &PgPool,
+) -> Response {
+    let options = query.as_ref().map(|Query(options)| options);
+    let default = Options::default();
+    let result = match options {
+        Ok(options) if options.lang.as_deref().is_none_or(|v| language(v).is_ok()) => {
+            list(pool, lang, options, section).await
+        }
+        _ => Err(ArchiveError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid-archive-query",
+        )),
+    };
+    let (status, archive) = match result {
+        Ok(archive) => (StatusCode::OK, archive),
+        Err(error) => {
+            let archive = Archive {
+                lang,
+                section: section.key(),
+                title: label(lang, section.key()),
+                options: options.unwrap_or(&default),
+                error: Some(label(lang, error.key)),
+                count: String::new(),
+                entries: Vec::new(),
+                previous: None,
+                next: None,
+            };
+            (error.status, archive)
+        }
+    };
+    let Ok(html) = archive.render() else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let mut response = (status, Html(html)).into_response();
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_LANGUAGE,
+        HeaderValue::from_static(if lang == "en" { "en" } else { "pl" }),
+    );
+    headers.append(
+        header::VARY,
+        HeaderValue::from_static("Accept-Language, Cookie"),
+    );
+    response
+}
+
 pub(super) async fn index(
     State(pool): State<PgPool>,
-    Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(), &q).await
+    headers: HeaderMap,
+    query: Result<Query<Options>, QueryRejection>,
+) -> Response {
+    let lang = match query.as_ref().ok().and_then(|q| q.lang.as_deref()) {
+        Some("en") => "en",
+        Some("pl") => "pl",
+        _ => Language::negotiate(&headers).code(),
+    };
+    archive_response(lang, Section::News, query, &pool).await
 }
 
 pub(super) async fn local_index(
     State(pool): State<PgPool>,
     Path(lang): Path<String>,
-    Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+    query: Result<Query<Options>, QueryRejection>,
+) -> Result<Response, StatusCode> {
     language(&lang)?;
-    listing(&pool, &lang, &q).await
-}
-
-pub(super) async fn listing(
-    pool: &PgPool,
-    lang: &str,
-    q: &Options,
-) -> Result<Html<String>, StatusCode> {
-    list(pool, lang, q, Section::News).await
+    Ok(archive_response(&lang, Section::News, query, &pool).await)
 }
 
 pub(super) async fn changelog(
     State(pool): State<PgPool>,
     Path(lang): Path<String>,
-    Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+    query: Result<Query<Options>, QueryRejection>,
+) -> Result<Response, StatusCode> {
     language(&lang)?;
-    list(&pool, &lang, &q, Section::Changelog).await
+    Ok(archive_response(&lang, Section::Changelog, query, &pool).await)
 }
 
 fn xml(value: &str) -> String {
@@ -323,4 +403,66 @@ pub(super) async fn rss(
         feed,
     )
         .into_response())
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn archive_count_and_filter_messages_are_localized() {
+        assert_eq!(count("en", 1).as_deref(), Some("One entry on this page"));
+        assert_eq!(count("en", 2).as_deref(), Some("2 entries on this page"));
+        assert_eq!(count("pl", 2).as_deref(), Some("2 wpisy na tej stronie"));
+        assert_eq!(count("pl", 5).as_deref(), Some("5 wpisów na tej stronie"));
+        assert_eq!(translation("pl", "missing-key", None), None);
+
+        let input = Options {
+            month: "13".into(),
+            ..Options::default()
+        };
+        assert_eq!(input.filters(Section::News).err(), Some("invalid-month"));
+        let input = Options {
+            q: "a\u{0000}b".into(),
+            ..Options::default()
+        };
+        assert_eq!(
+            input.filters(Section::Changelog).err(),
+            Some("invalid-search")
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_locale_and_result_page_do_not_query_storage() {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://localhost/unused")
+            .unwrap();
+        for (input, status, message) in [
+            (
+                Options {
+                    lang: Some("fr".into()),
+                    ..Options::default()
+                },
+                StatusCode::BAD_REQUEST,
+                "Check the values in the form.",
+            ),
+            (
+                Options {
+                    page: Some(MAX_PAGE + 1),
+                    ..Options::default()
+                },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Choose a valid result page.",
+            ),
+        ] {
+            let response = archive_response("en", Section::News, Ok(Query(input)), &pool).await;
+            assert_eq!(response.status(), status);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+            let body = axum::body::to_bytes(response.into_body(), 100_000)
+                .await
+                .unwrap();
+            assert!(String::from_utf8_lossy(&body).contains(message));
+        }
+    }
 }
