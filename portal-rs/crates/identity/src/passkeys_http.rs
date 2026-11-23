@@ -2,7 +2,7 @@
 use axum::{
     Extension, Form, Json, Router,
     extract::{ConnectInfo, FromRequest, Path, Request, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, StatusCode, Uri, header, uri::Authority},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
@@ -17,8 +17,37 @@ use sqlx::PgPool;
 use std::net::SocketAddr;
 use uuid::Uuid;
 
+fn enabled() -> bool {
+    std::env::var("OTERYN_ACCOUNT_PASSKEYS").as_deref() == Ok("true")
+}
+
+pub(crate) fn sign_in_available(uri: &Uri, headers: &HeaderMap) -> bool {
+    if !enabled() {
+        return false;
+    }
+    let Some(origin) = std::env::var("OTERYN_PUBLIC_ORIGIN")
+        .ok()
+        .and_then(|value| value.parse::<Uri>().ok())
+    else {
+        return false;
+    };
+    let mut hosts = headers.get_all(header::HOST).iter();
+    let host = match (hosts.next(), hosts.next()) {
+        (None, _) => uri.authority().cloned(),
+        (Some(value), None) => value
+            .to_str()
+            .ok()
+            .and_then(|value| value.parse::<Authority>().ok()),
+        _ => None,
+    };
+    host.zip(origin.authority()).is_some_and(|(host, public)| {
+        host.host().eq_ignore_ascii_case(public.host())
+            && host.port_u16().unwrap_or(443) == public.port_u16().unwrap_or(443)
+    })
+}
+
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    if !std::env::var("OTERYN_ACCOUNT_PASSKEYS").is_ok_and(|v| v == "true") {
+    if !enabled() {
         return Ok(Router::new());
     }
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;

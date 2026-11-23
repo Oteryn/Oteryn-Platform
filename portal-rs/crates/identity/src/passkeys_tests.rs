@@ -119,6 +119,14 @@ async fn registered(service: &Passkeys, account: Uuid, auth: &mut SoftPasskey) -
     value
 }
 async fn assertion(service: &Passkeys, account: Uuid, auth: &mut SoftPasskey) -> Completion {
+    assertion_at_origin(service, account, auth, "https://example.test").await
+}
+async fn assertion_at_origin(
+    service: &Passkeys,
+    account: Uuid,
+    auth: &mut SoftPasskey,
+    origin: &str,
+) -> Completion {
     let start = service.begin_authentication(BINDING).await.unwrap();
     let key: Value =
         sqlx::query_scalar("SELECT credential FROM account_passkeys WHERE account_id=$1 ORDER BY created_at,id LIMIT 1")
@@ -133,10 +141,7 @@ async fn assertion(service: &Passkeys, account: Uuid, auth: &mut SoftPasskey) ->
         serde_json::json!([{"type":"public-key","id":URL_SAFE_NO_PAD.encode(key.cred_id())}]);
     options.as_object_mut().unwrap().remove("mediation");
     let response = auth
-        .do_authentication(
-            Url::parse("https://example.test").unwrap(),
-            decode(options).unwrap(),
-        )
+        .do_authentication(Url::parse(origin).unwrap(), decode(options).unwrap())
         .unwrap();
     let mut credential = encode(&response).unwrap();
     credential["response"]["userHandle"] = URL_SAFE_NO_PAD.encode(account.as_bytes()).into();
@@ -448,6 +453,12 @@ async fn postgres_bad_signature_origin_and_unverified_authenticator() {
     let id = account(&db.pool).await;
     let mut auth = SoftPasskey::new(true);
     registered(&service, id, &mut auth).await;
+    let other_origin =
+        assertion_at_origin(&service, id, &mut auth, "https://example.test:444").await;
+    assert!(matches!(
+        service.finish_authentication(BINDING, other_origin).await,
+        Err(Error::Refused)
+    ));
     for field in [
         "signature",
         "authenticatorData",
@@ -458,6 +469,11 @@ async fn postgres_bad_signature_origin_and_unverified_authenticator() {
         input.credential["response"][field] = "AAAA".into();
         assert!(service.finish_authentication(BINDING, input).await.is_err());
     }
+    let input = assertion(&service, id, &mut auth).await;
+    assert_eq!(
+        service.finish_authentication(BINDING, input).await.unwrap(),
+        id
+    );
     let start = service.begin_registration(BINDING, id).await.unwrap();
     let mut options = start.options;
     options["publicKey"]["authenticatorSelection"]["residentKey"] = "discouraged".into();

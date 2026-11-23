@@ -1,7 +1,10 @@
 mfa-title = Bezpieczeństwo konta
 mfa-error = Nie udało się zweryfikować żądania. Sprawdź dane i spróbuj ponownie.
 mfa-password = Obecne hasło
+mfa-login = Zaloguj się
+mfa-passkey = Zaloguj kluczem dostępu
 mfa-code = Kod z aplikacji, odzyskiwania lub e-maila
+mfa-code-error = Nie udało się potwierdzić kodu. Użyj aktualnego kodu z aplikacji, nieużytego kodu odzyskiwania albo poproś o kod e-mailem.
 mfa-remember = Zaufaj temu urządzeniu na 30 dni
 mfa-verify = Potwierdź kod
 mfa-send-email = Wyślij kod zapasowy e-mailem

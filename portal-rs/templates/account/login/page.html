@@ -10,5 +10,6 @@
 <div class="op-field"><label for="password">{{ self.text("login-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024"{% if failed %} aria-describedby="login-error" aria-invalid="true"{% endif %}></div>
 <button class="op-button op-button--primary" type="submit">{{ self.text("shell-login") }}</button>
 </form>
+{% if passkeys_enabled %}<p><a class="op-button" href="/{{ lang }}/account/passkeys">{{ self.text("login-passkey") }}</a></p>{% endif %}
 <p>{{ self.text("login-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("register-title") }}</a></p>
 {% endblock %}
