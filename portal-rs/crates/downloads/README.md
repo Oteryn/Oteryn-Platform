@@ -7,8 +7,8 @@ No private keys, package upload, network fetch, signing or staff HTTP mutation
 exists in this crate. The operator adapter reads account status and RBAC.
 An account must be positively active and its channel publication permission must be `Some(true)`.
 
-All operations require `FeatureFlags { downloads: true }`. The binary mounts
-GET routes with the flag off unless `OTERYN_DOWNLOADS_ENABLED=true` is set.
+Publication and updater data require `FeatureFlags { downloads: true }`. The
+binary enables it only when `OTERYN_DOWNLOADS_ENABLED=true`.
 The `downloads-publish` operator command supplies channel public Roots from
 `OTERYN_DOWNLOADS_ROOT_STABLE` / `OTERYN_DOWNLOADS_ROOT_BETA` file paths, requires
 an active actor with `downloads.manage`, and calls the same Rust API. Setting
@@ -51,6 +51,14 @@ changes in the same transaction.
 
 ## GET surface
 
+- `/{pl|en}/download` lists packages from the current verified stable release
+  by default. `?channel=beta` selects beta independently. The page stays
+  available when there is no current release.
+- `/{pl|en}/download/<channel>/<build>/<platform>/<architecture>` checks the
+  active publication and redirects to the contracted, hash-addressed package
+  URL. A stale or absent build returns 404.
+- `/{pl|en}/start` covers package selection, installation, first sign-in,
+  updates and account recovery.
 - `/updates/<channel>/metadata/<filename>` serves exact uploaded metadata.
   Current unversioned aliases (`root.json`, `targets.json`, `snapshot.json`,
   `<channel>.json`, `timestamp.json`) resolve through the active publication.
@@ -77,7 +85,7 @@ The policy fixture therefore checks Platform's documented schema v1 (ADR 0035),
 not an asserted launcher contract. See `tests/fixtures/SOURCE.md`.
 The origin contract fixes the distribution profile and paths. Actual launcher
 policy parser compatibility still requires client evidence before activation.
-No production activation or client compatibility is claimed. No player/staff pages are included.
+Production activation and client compatibility remain separate release gates.
 
 ## Tests
 

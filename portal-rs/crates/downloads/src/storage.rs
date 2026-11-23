@@ -2,15 +2,64 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use sqlx::{PgPool, Row, types::Json};
 use time::OffsetDateTime;
+use tough::schema::Target;
 use uuid::Uuid;
 
 use crate::{
-    AccountState, Channel, Error, FeatureFlags, PublishAccess, RollbackAuthorization,
+    AccountState, Artifact, Channel, Error, FeatureFlags, PublishAccess, RollbackAuthorization,
     UpdaterPolicy, Upload, Versions, domain::safe_path, verification,
 };
 
 type Metadata = BTreeMap<String, Vec<u8>>;
 type Artifacts = BTreeMap<String, serde_json::Value>;
+
+pub(crate) struct Release {
+    pub id: String,
+    pub version: String,
+    pub packages: Vec<Package>,
+}
+
+pub(crate) struct Package {
+    pub platform: String,
+    pub architecture: String,
+    pub length: u64,
+    pub sha256: String,
+    pub url: String,
+}
+
+impl Package {
+    pub fn platform_name(&self) -> &str {
+        match self.platform.as_str() {
+            "windows" => "Windows",
+            "macos" => "macOS",
+            "linux" => "Linux",
+            other => other,
+        }
+    }
+
+    fn from_target(channel: Channel, artifact: Artifact, target: Target) -> Result<Self, Error> {
+        let (directory, filename) = artifact
+            .target_path
+            .rsplit_once('/')
+            .ok_or(Error::Verification)?;
+        let hash: &[u8] = target.hashes.sha256.as_ref();
+        if hash.len() != 32 || target.length == 0 {
+            return Err(Error::Verification);
+        }
+        let sha256 = hex::encode(hash);
+        let url = format!(
+            "https://downloads.oteryn.com/updates/{}/targets/{directory}/{sha256}.{filename}",
+            channel.as_str(),
+        );
+        Ok(Self {
+            platform: artifact.platform,
+            architecture: artifact.architecture,
+            length: target.length,
+            sha256,
+            url,
+        })
+    }
+}
 
 /// Public roots are deployment configuration, never accepted from the upload as trust anchors.
 #[derive(Debug, Clone)]
@@ -195,6 +244,38 @@ impl Downloads {
                 .bind(channel.as_str()).fetch_optional(&self.pool).await?
         };
         bytes.ok_or(Error::NotFound)
+    }
+
+    pub(crate) async fn active_release(&self, channel: Channel) -> Result<Release, Error> {
+        self.enabled()?;
+        let (policy, Json(mut targets)): (Vec<u8>, Json<BTreeMap<String, Target>>) =
+            sqlx::query_as(
+                "SELECT r.policy, r.artifacts FROM client_channels c
+                 JOIN client_releases r ON r.channel_id = c.id AND r.id = c.active_publication_id
+                 WHERE c.name = $1 AND r.expires_at > now()",
+            )
+            .bind(channel.as_str())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or(Error::NotFound)?;
+        let policy: UpdaterPolicy =
+            serde_json::from_slice(&policy).map_err(|_| Error::Verification)?;
+        policy.validate(channel).map_err(|_| Error::Verification)?;
+        let packages = policy
+            .artifacts
+            .into_iter()
+            .map(|artifact| {
+                let target = targets
+                    .remove(&artifact.target_path)
+                    .ok_or(Error::Verification)?;
+                Package::from_target(channel, artifact, target)
+            })
+            .collect::<Result<_, Error>>()?;
+        Ok(Release {
+            id: policy.current_release_id,
+            version: policy.current_version_display,
+            packages,
+        })
     }
 }
 
