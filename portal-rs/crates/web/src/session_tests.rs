@@ -533,6 +533,26 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
     let render = |staff_host: Option<String>, host: &'static str, cookie: String| {
         let pool = db.pool.clone();
         async move {
+            let dashboard = staff_host.as_ref().map(|host| {
+                let pool = pool.clone();
+                crate::chrome::StaffDashboard {
+                    url: format!("https://{host}/admin"),
+                    allows: std::sync::Arc::new(move |account| {
+                        let pool = pool.clone();
+                        Box::pin(async move {
+                            sqlx::query_scalar::<_, bool>(
+                                "SELECT EXISTS(SELECT 1 FROM account_roles ar
+                                 JOIN role_permissions rp USING(role_id)
+                                 WHERE ar.account_id=$1 AND rp.permission='admin.access')",
+                            )
+                            .bind(account)
+                            .fetch_one(&pool)
+                            .await
+                            .unwrap_or(false)
+                        })
+                    }),
+                }
+            });
             let mut registry = oteryn_ui::Registry::default();
             registry.account = true;
             registry.staff_host = staff_host;
@@ -552,8 +572,14 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
                     },
                     crate::chrome::middleware,
                 ));
+            let app = if let Some(dashboard) = dashboard {
+                app.layer(Extension(dashboard))
+            } else {
+                app
+            };
             let request = HttpRequest::get("/en/")
                 .header(header::HOST, host)
+                .header(header::ACCEPT, "text/html")
                 .header(header::COOKIE, format!("{COOKIE_NAME}={cookie}"))
                 .body(Body::empty())?;
             let response = app.oneshot(request).await?;
@@ -577,9 +603,11 @@ async fn chrome_staff_dashboard_requires_staff_access_and_an_enabled_panel() -> 
     };
     let session_before = snapshot().await?;
     let same_host = render(panel.clone(), "staff.test", id.clone()).await?;
-    assert!(same_host.contains(r#"href="/admin">Staff dashboard</a>"#));
+    assert!(same_host.contains(r#"href="/admin" data-staff-dashboard>Staff dashboard</a>"#));
     let public_host = render(panel.clone(), "public.test", id.clone()).await?;
-    assert!(public_host.contains(r#"href="https://staff.test/admin">Staff dashboard</a>"#));
+    assert!(
+        public_host.contains(r#"href="https://staff.test/admin" data-staff-dashboard>Staff dashboard</a>"#)
+    );
     assert!(
         !render(None, "staff.test", id)
             .await?
