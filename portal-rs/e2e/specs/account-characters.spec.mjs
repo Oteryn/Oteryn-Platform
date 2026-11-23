@@ -183,7 +183,7 @@ test('public character search validates names and follows the localized result r
   await strings(main, catalog, ['unavailable']);
 });
 
-test('character services validate form actions and refuse without their Game authority', async ({page}, info) => {
+test('character services stay closed until the Game contract is accepted', async ({page}, info) => {
   const {locale: lang} = info.project.metadata;
   const character = '019a541b-a000-7000-8000-000000000001';
   const request = '019a541b-a000-7000-8000-000000000002';
@@ -191,15 +191,16 @@ test('character services validate form actions and refuse without their Game aut
   await refusesAnonymous(page, target, 303, `/${lang}/login`);
   const player = seedPlayer(lang);
   await signIn(page, lang, player);
-  await privatePage(page, target, 503);
-  await expect(page.locator('main h1')).toHaveText(lang === 'pl'
-    ? 'Usługa chwilowo niedostępna' : 'Temporarily unavailable');
+  await privatePage(page, target, 404);
+  await expect(page.locator('html')).toHaveAttribute('lang', lang);
+  await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Nie znaleziono strony' : 'Page not found');
+  await expect(page.locator('main form')).toHaveCount(0);
 
   const tokenPage = `/${lang}/account/notifications`;
   await privatePage(page, tokenPage);
   const schedule = {action: 'schedule', confirm: 'yes', request_id: request};
   await csrfRejected(page, target, schedule);
-  expect((await post(page, target, schedule)).status()).toBe(403);
+  expect((await post(page, target, schedule)).status()).toBe(404);
 
   await sudo(page, lang, player);
   await privatePage(page, tokenPage);
@@ -208,7 +209,16 @@ test('character services validate form actions and refuse without their Game aut
     {...schedule, action: 'cancel', deletion_operation_id: request},
     {...schedule, action: 'rename', accepted_price: '0', requested_name: 'Local Hero'},
   ]) {
-    expect((await post(page, target, {...fields, confirm: 'no'})).status()).toBe(400);
-    expect((await post(page, target, fields)).status()).toBe(503);
+    expect((await post(page, target, {...fields, confirm: 'no'})).status()).toBe(404);
+    expect((await post(page, target, fields)).status()).toBe(404);
+  }
+
+  // Game pulls browser service requests from the durable character command queue.
+  const db = pool();
+  try {
+    expect((await db.query('SELECT id FROM character_commands WHERE account_id=$1', [player.id])).rows).toEqual([]);
+    expect((await db.query('SELECT operation_id FROM character_service_orders WHERE account_id=$1', [player.id])).rows).toEqual([]);
+  } finally {
+    await db.end();
   }
 });
