@@ -855,7 +855,7 @@ async fn postgres_pagination_language_and_caps() {
     );
     sqlx::query(
         "INSERT INTO news(slug,title,body,published_at)
-         VALUES('long-horizon','Long horizon','English body','12000-01-01T00:00:00Z')",
+         VALUES('long-horizon','Long horizon','English body','9999-01-01T00:00:00Z')",
     )
     .execute(&pool)
     .await

@@ -66,7 +66,11 @@ async fn postgres_a3_staff_libraries_reach_records_beyond_each_cap()
     let actor = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'library-password','active','en',now())").bind(actor).bind(format!("{actor}@example.invalid")).execute(&pool).await?;
     sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'").bind(actor).execute(&pool).await?;
-    sqlx::query("WITH created AS (INSERT INTO pages(id,slug) SELECT uuidv7(),'archive-'||n FROM generate_series(1,501) n RETURNING id,slug) INSERT INTO editorial_pages(page_id,locale,title,body) SELECT id,'en',slug,'Editorial library content' FROM created").execute(&pool).await?;
+    let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM editorial_pages")
+        .fetch_one(&pool)
+        .await?;
+    assert!(existing < 501);
+    sqlx::query("WITH created AS (INSERT INTO pages(id,slug) SELECT uuidv7(),'archive-'||n FROM generate_series($1,501::bigint) n RETURNING id,slug) INSERT INTO editorial_pages(page_id,locale,title,body) SELECT id,'en',slug,'Editorial library content' FROM created").bind(existing + 1).execute(&pool).await?;
     sqlx::query("INSERT INTO announcements(severity,starts_at,title,body,created_by,updated_by) SELECT 'info',now(),'Library announcement '||n,'Editorial announcement body',$1,$1 FROM generate_series(1,501) n").bind(actor).execute(&pool).await?;
     let image = image::DynamicImage::new_rgb8(1, 1);
     let mut bytes = std::io::Cursor::new(Vec::new());
