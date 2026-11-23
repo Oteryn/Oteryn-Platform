@@ -66,6 +66,14 @@ impl Battle {
         if self.ruleset != 1 || self.outcome != Outcome::Active || expected != self.turn {
             return Err(Error::Conflict);
         }
+        self.resolve_round(action, Action::Strike)?;
+        self.last_action = Some(action);
+        Ok(())
+    }
+    pub(crate) fn resolve_round(&mut self, player: Action, enemy: Action) -> Result<()> {
+        if self.ruleset != 1 || self.outcome != Outcome::Active || self.turn >= 100 {
+            return Err(Error::Conflict);
+        }
         let p = self
             .player
             .iter()
@@ -76,17 +84,22 @@ impl Battle {
             .iter()
             .position(|f| f.health > 0)
             .ok_or(Error::Unavailable)?;
-        let strike = self.roll();
-        let retaliation = self.roll();
-        let (outgoing, incoming) = match action {
-            Action::Strike => (strike, retaliation),
-            Action::Guard => (3, retaliation.saturating_sub(6)),
+        let damage = |action, defense, roll| {
+            let attack: u16 = match action {
+                Action::Strike => roll,
+                Action::Guard => 3,
+            };
+            match defense {
+                Action::Strike => attack,
+                Action::Guard => attack.saturating_sub(6),
+            }
         };
+        let outgoing = damage(player, enemy, self.roll());
+        let incoming = damage(enemy, player, self.roll());
         // Simultaneous strikes prevent first-player advantage; reserves enter next turn.
         self.enemy[e].health = self.enemy[e].health.saturating_sub(outgoing);
         self.player[p].health = self.player[p].health.saturating_sub(incoming);
         self.turn += 1;
-        self.last_action = Some(action);
         let alive = (
             self.player.iter().any(|f| f.health > 0),
             self.enemy.iter().any(|f| f.health > 0),

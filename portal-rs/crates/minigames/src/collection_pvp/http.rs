@@ -2,7 +2,7 @@ use super::*;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{DefaultBodyLimit, Path, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
@@ -12,15 +12,46 @@ use oteryn_web::{
     csrf::CsrfConfig,
     session::{BrowserSession, SessionLayer},
 };
-use std::sync::Arc;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
-/// No routes are exposed unless explicitly enabled. The default adapter denies
-/// gameplay and purchasing until authoritative T90 and wallet wiring is supplied.
-pub fn configured_router(pool: PgPool) -> Router {
-    let flags = Flags {
+pub(crate) fn configured_flags() -> Flags {
+    Flags {
         pvp: std::env::var("OTERYN_COLLECTION_PVP_ENABLED").as_deref() == Ok("true"),
         sets: std::env::var("OTERYN_COLLECTION_SETS_ENABLED").as_deref() == Ok("true"),
-    };
+    }
+}
+
+/// Every effect is behind the existing opt-in switches.
+pub fn configured_router(pool: PgPool) -> Router {
+    use crate::collection;
+    use oteryn_world::{WorldOptions, WorldStore};
+
+    let flags = configured_flags();
+    let world_enabled = oteryn_world::configured_world_enabled();
+    let world = WorldStore::new(
+        pool.clone(),
+        WorldOptions {
+            enabled: world_enabled,
+        },
+    );
+    let progress = oteryn_playerdata::progress::ProgressStore::new(
+        pool.clone(),
+        Default::default(),
+        Vec::new(),
+    );
+    let catalogue = collection::Collection::new(
+        pool.clone(),
+        world,
+        progress,
+        collection::Flags {
+            collection: world_enabled,
+        },
+    );
+    let collection = PlatformCollection::new(catalogue, world_enabled);
+    let payment = platform::payment(pool.clone(), flags.sets);
     let csrf = CsrfConfig {
         trusted_origins: std::env::var("OTERYN_PUBLIC_ORIGIN")
             .ok()
@@ -28,7 +59,7 @@ pub fn configured_router(pool: PgPool) -> Router {
             .collect(),
         ..CsrfConfig::default()
     };
-    router(Service::new(pool, flags, Unavailable, Unavailable), csrf)
+    router(Service::new(pool, flags, collection, payment), csrf)
 }
 pub fn router<C: Collection + 'static, P: SetPayment + 'static>(
     service: Service<C, P>,
@@ -78,41 +109,91 @@ fn text(lang: &str, key: &str) -> String {
         .unwrap_or_default()
 }
 #[derive(Template)]
-#[template(
-    source = r##"<!doctype html>
-<html lang="{{ lang }}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"><link rel="stylesheet" href="/static/css/app.css"></head>
-<body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1><p>{{ notice }}</p>
-<h2>{{ rankings_label }}</h2><ol>{% for row in rankings %}<li>{{ loop.index }}: {{ row.points }} / {{ row.played }}</li>{% endfor %}</ol>
-<h2>{{ sets_label }}</h2>{% for set in sets %}<section class="op-panel op-stack"><h2>{{ set.id }}</h2><p>{{ set.version }} / {{ set.price }}</p><p>{{ set.cards }}</p></section>{% endfor %}
-<h2>{{ tournaments_label }}</h2>{% for tournament in tournaments %}<section class="op-panel op-stack"><h3>{{ tournament.id }}</h3><p>{{ tournament.entrants }} / {{ tournament.capacity }}</p></section>{% endfor %}<h2>{{ battles_label }}</h2>{% for battle in battles %}<section class="op-panel op-stack"><h2>{{ battle.id }}</h2><p>{{ battle.revision }}</p></section>{% endfor %}
-{% if available %}<form method="post" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><label for="op">{{ operation }}</label><select class="op-input" id="op" name="op">{% for option in options %}<option value="{{ option.0 }}">{{ option.1 }}</option>{% endfor %}</select>
-{% for field in fields %}<div class="op-field"><label for="{{ field.0 }}">{{ field.1 }}</label><input class="op-input" id="{{ field.0 }}" name="{{ field.0 }}" maxlength="4096"></div>{% endfor %}
-<button class="op-button" type="submit">{{ submit }}</button></form>{% endif %}</main></body></html>
-"##,
-    ext = "html"
-)]
+#[template(path = "collection/pvp.html", config = "src/collection/askama.toml")]
 struct Page<'a> {
     lang: &'a str,
+    actor: Uuid,
     available: bool,
+    journal_available: bool,
+    collection_home: bool,
+    pvp: bool,
+    sets: bool,
     csrf: String,
-    title: String,
-    notice: String,
-    submit: String,
-    operation: String,
-    options: Vec<(&'static str, String)>,
-    fields: Vec<(&'static str, String)>,
-    rankings_label: String,
-    sets_label: String,
-    tournaments_label: String,
-    battles_label: String,
-    tournaments: Vec<Tournament>,
+    standings: Option<Uuid>,
+    tournaments: Vec<TournamentView>,
     rankings: Vec<Ranking>,
-    sets: Vec<PublishedSet>,
-    battles: Vec<Battle>,
+    offers: Vec<OfferView>,
+    receipts: BTreeSet<Uuid>,
+    battles: Vec<BattleView>,
+    decks: Vec<DeckView>,
+    cards: Vec<CardView>,
 }
+
+impl Page<'_> {
+    fn label(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+}
+
+#[derive(sqlx::FromRow)]
+struct DeckView {
+    id: Uuid,
+    name: String,
+    removable: bool,
+}
+
+struct CardView {
+    id: Uuid,
+    name: String,
+    quantity: u64,
+}
+
+struct OfferView {
+    id: Uuid,
+    version: i64,
+    price: i64,
+    request: Uuid,
+    owned: bool,
+    cards: Vec<CardView>,
+}
+
+struct TournamentView {
+    id: Uuid,
+    status: String,
+    capacity: i32,
+    entrants: i64,
+    joined: bool,
+    can_join: bool,
+    can_start: bool,
+}
+
+struct BattleView {
+    id: Uuid,
+    opponent: Uuid,
+    status: &'static str,
+    incoming: bool,
+    revision: i64,
+    tournament: Option<Uuid>,
+    turn: Option<TurnView>,
+}
+
+#[derive(Deserialize)]
+struct TurnView {
+    round: u32,
+    your_health: u16,
+    opponent_health: u16,
+    waiting: bool,
+}
+
+#[derive(Deserialize)]
+struct Standings {
+    standings: Option<Uuid>,
+}
+
 async fn page<C: Collection, P: SetPayment>(
     State(s): State<Arc<Service<C, P>>>,
     Path(lang): Path<String>,
+    Query(query): Query<Standings>,
     Extension(session): Extension<BrowserSession>,
 ) -> Response {
     if !matches!(lang.as_str(), "pl" | "en") {
@@ -122,45 +203,143 @@ async fn page<C: Collection, P: SetPayment>(
         return Redirect::to(&format!("/{lang}/login")).into_response();
     };
     let result = async {
-        let mut tx = s.pool.begin().await?;
-        Service::<C,P>::active(&mut tx,actor).await?;
+        let mut tx = crate::browser::begin(&s.pool).await?;
+        if !oteryn_wallet::value_eligible_snapshot_in(&mut tx, actor).await? {
+            return Err(Error::Refused);
+        }
+        let catalogue = if s.collection.available() {
+            card_names(&mut tx, &lang).await?
+        } else {
+            BTreeMap::new()
+        };
+        let available = s.collection.available()
+            && (!s.collection.catalogue_required() || !catalogue.is_empty());
+        let journal_available = s.collection.journal_available();
+        let purchases: Vec<(Uuid, Value)> = if s.flags.sets || (s.flags.pvp && available) {
+            sqlx::query_as("SELECT set_id,cards FROM collection_pvp_purchases WHERE account_id=$1")
+                .bind(actor)
+                .fetch_all(&mut *tx)
+                .await?
+        } else {
+            Vec::new()
+        };
+        let receipts = purchases.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>();
+        let owned_cards = purchases.iter()
+            .flat_map(|(_, cards)| cards.as_object().into_iter().flat_map(|cards| cards.keys()))
+            .filter_map(|key| key.parse::<Uuid>().ok())
+            .collect::<BTreeSet<_>>();
+        let cards = owned_cards.into_iter().filter_map(|id| Some(CardView {
+            id,
+            name: catalogue.get(&id)?.clone(),
+            quantity: 1,
+        })).collect();
+        let decks = if s.flags.pvp && available {
+            sqlx::query_as("SELECT id,name,true AS removable FROM collection_pvp_owned_decks WHERE account_id=$1
+                UNION ALL SELECT id,name,false AS removable FROM collection_decks WHERE account_id=$1 AND $2
+                ORDER BY name,id")
+                .bind(actor)
+                .bind(journal_available)
+                .fetch_all(&mut *tx).await?
+        } else {
+            Vec::new()
+        };
         tx.commit().await?;
-        let rankings = if s.flags.pvp && s.collection.available() {
-            s.rankings(None).await?
-        } else { vec![] };
-        let sets = if s.flags.sets { s.sets().await? } else { vec![] };
-        let battles = if s.flags.pvp {
-            sqlx::query_as("SELECT id,left_account,right_account,status,revision,state,winner,tournament_id FROM collection_pvp_battles WHERE $1 IN(left_account,right_account) ORDER BY created_at DESC LIMIT 50")
-                .bind(actor).fetch_all(&s.pool).await?
-        } else { vec![] };
-        let tournaments=if s.flags.pvp && s.collection.available(){s.tournaments(actor).await?}else{vec![]};
-        let csrf = session.csrf_token().await?;
-        let options = ["challenge","accept","decline","play","create","join","start","buy"]
-            .into_iter()
-            .filter(|op| if *op=="buy" {s.flags.sets} else {s.flags.pvp})
-            .map(|op|(op,text(&lang,op))).collect();
-        let fields = ["id","opponent","deck","revision","action","capacity","version","price","request"]
-            .into_iter().map(|key|(key,text(&lang,key))).collect();
+        let mut rankings = Vec::new();
+        let mut tournaments = Vec::new();
+        let mut battles = Vec::new();
+        if s.flags.pvp && available {
+            tournaments = s.tournaments(actor).await?.into_iter().map(|row| TournamentView {
+                id: row.id,
+                can_join: row.status == "registration" && !row.joined && row.entrants < i64::from(row.capacity),
+                can_start: row.status == "registration" && row.organizer == actor && row.entrants >= 2,
+                status: row.status,
+                entrants: row.entrants,
+                capacity: row.capacity,
+                joined: row.joined,
+            }).collect();
+            if query.standings.is_some_and(|id| !tournaments.iter().any(|row| row.id == id)) {
+                return Err(Error::Refused);
+            }
+            rankings = s.rankings(query.standings).await?;
+            let rows: Vec<Battle> = sqlx::query_as("SELECT id,left_account,right_account,status,revision,state,winner,tournament_id
+                FROM collection_pvp_battles WHERE $1 IN(left_account,right_account)
+                ORDER BY (status='active') DESC,created_at DESC LIMIT 50")
+                .bind(actor).fetch_all(&s.pool).await?;
+            battles = rows.into_iter().map(|row| {
+                let left = actor == row.left_account;
+                let turn = if matches!(row.status.as_str(), "active" | "completed") {
+                    s.collection.view(&row.state, if left { Side::Left } else { Side::Right })
+                        .ok()
+                        .and_then(|view| serde_json::from_value(view).ok())
+                } else {
+                    None
+                };
+                BattleView {
+                    id: row.id,
+                    opponent: if left { row.right_account } else { row.left_account },
+                    incoming: !left && row.status == "pending",
+                    status: match row.status.as_str() {
+                        "pending" => "pending",
+                        "declined" => "declined",
+                        "active" => "active",
+                        "completed" if row.winner == Some(actor) => "won",
+                        "completed" if row.winner.is_some() => "lost",
+                        "completed" => "draw",
+                        _ => "unavailable",
+                    },
+                    revision: row.revision,
+                    tournament: row.tournament_id,
+                    turn,
+                }
+            }).collect();
+        }
+        let offers = if s.flags.sets && available {
+            s.sets().await?.into_iter().filter_map(|row| {
+                let cards = row.cards.as_object()?.iter().map(|(key, quantity)| {
+                    let id: Uuid = key.parse().ok()?;
+                    Some(CardView { id, name: catalogue.get(&id)?.clone(), quantity: quantity.as_u64()? })
+                }).collect::<Option<Vec<_>>>()?;
+                Some(OfferView {
+                    id: row.id, version: row.version, price: row.price, request: Uuid::now_v7(),
+                    owned: receipts.contains(&row.id), cards,
+                })
+            }).collect()
+        } else {
+            Vec::new()
+        };
         Page {
-            lang: &lang,
-            available: s.collection.available(),
-            csrf,
-            title: text(&lang,"title"),
-            notice: if s.collection.available() {text(&lang,"notice")} else {text(&lang,"unavailable")},
-            submit: text(&lang,"submit"),
-            operation: text(&lang,"operation"),
-            rankings_label: text(&lang,"rankings"),
-            sets_label: text(&lang,"sets"),
-            tournaments_label: text(&lang,"tournaments"),
-            battles_label: text(&lang,"battles"),
-            tournaments, options, fields, rankings, sets, battles,
-        }.render().map_err(|_|Error::Unavailable)
+            lang: &lang, actor, available, pvp: s.flags.pvp, sets: s.flags.sets,
+            journal_available, collection_home: std::env::var("OTERYN_COLLECTION_ENABLED").as_deref() == Ok("true"), csrf: session.csrf_token().await?, standings: query.standings,
+            tournaments, rankings, offers, receipts, battles, decks, cards,
+        }.render().map_err(|_| Error::Unavailable)
     }.await;
     match result {
-        Ok(html) => ([("cache-control", "private, no-store")], Html(html)).into_response(),
+        Ok(html) => Html(html).into_response(),
         Err(error) => failure(&lang, error),
     }
 }
+
+async fn card_names(
+    tx: &mut Transaction<'_, Postgres>,
+    lang: &str,
+) -> Result<BTreeMap<Uuid, String>> {
+    let rows = sqlx::query_as(
+        "SELECT c.id,c.definition->'name'->>$1 AS name FROM collection_cards c
+         JOIN world_active_version a ON a.version_id::text=c.definition->>'world_version'
+         JOIN world_entities e ON e.version_id=a.version_id AND e.kind=c.definition->>'kind'
+             AND e.key=c.definition->>'key' AND e.publishable
+         JOIN world_visibility v ON v.kind=e.kind AND v.key=e.key AND v.allowed
+         WHERE c.definition->'name'->>$1 IS NOT NULL ORDER BY c.id LIMIT 1001",
+    )
+    .bind(lang)
+    .fetch_all(&mut **tx)
+    .await?;
+    if rows.len() > 1000 {
+        return Err(Error::Unavailable);
+    }
+    Ok(rows.into_iter().collect())
+}
+
 #[derive(Deserialize)]
 struct Command {
     op: String,
@@ -173,6 +352,10 @@ struct Command {
     version: Option<String>,
     price: Option<String>,
     request: Option<String>,
+    name: Option<String>,
+    card1: Option<String>,
+    card2: Option<String>,
+    card3: Option<String>,
 }
 fn parse<T: std::str::FromStr>(value: &Option<String>) -> Result<T> {
     value
@@ -217,6 +400,17 @@ async fn action<C: Collection, P: SetPayment>(
             }
             "join" => s.join(actor, parse(&c.id)?, parse(&c.deck)?).await?,
             "start" => s.start(actor, parse(&c.id)?).await?,
+            "save-deck" => {
+                let cards = [c.card1, c.card2, c.card3]
+                    .into_iter()
+                    .flatten()
+                    .filter(|value| !value.is_empty())
+                    .map(|value| value.parse().map_err(|_| Error::Invalid))
+                    .collect::<Result<Vec<_>>>()?;
+                s.save_deck(actor, c.name.as_deref().ok_or(Error::Invalid)?, &cards)
+                    .await?;
+            }
+            "delete-deck" => s.delete_deck(actor, parse(&c.id)?).await?,
             "buy" => {
                 s.buy_set(
                     actor,
@@ -262,7 +456,12 @@ async fn response_policy(
     };
     let mut response = next.run(request).await;
     if response.status().is_client_error() || response.status().is_server_error() {
-        response = (response.status(), text(lang, "error")).into_response();
+        let key = if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+            "unavailable"
+        } else {
+            "error"
+        };
+        response = (response.status(), text(lang, key)).into_response();
     }
     for (name, value) in [
         ("cache-control", "private, no-store"),

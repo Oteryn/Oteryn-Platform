@@ -1,0 +1,200 @@
+{% macro auth(op) %}
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="op" value="{{ op }}">
+{% endmacro %}
+{% macro deck_picker() %}
+<label class="op-field">{{ self.label("deck-select") }}
+  <select class="op-input" name="deck" required>
+    {% for deck in decks %}<option value="{{ deck.id }}">{{ deck.name }}</option>{% endfor %}
+  </select>
+</label>
+{% endmacro %}
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.label("title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+<h1>{{ self.label("title") }}</h1>
+{% if collection_home %}<a href="/{{ lang }}/collection">{{ self.label("collection-home") }}</a>{% endif %}
+{% if !available %}<p>{{ self.label("unavailable") }}</p>{% else if pvp && !journal_available %}<p>{{ self.label("journal-unavailable") }}</p>{% endif %}
+{% if available %}<p>{{ self.label("notice") }}</p>{% endif %}
+{% if pvp && available %}
+<section class="op-stack" aria-labelledby="decks">
+  <h2 id="decks">{{ self.label("decks") }}</h2>
+  <p>{{ self.label("account-code") }} <code>{{ actor }}</code></p>
+  {% if decks.is_empty() %}<p>{{ self.label("no-decks") }}</p>{% endif %}
+  {% for deck in decks %}
+  <article class="op-panel op-stack">
+    <h3>{{ deck.name }}</h3>
+    {% if deck.removable %}
+    <form method="post">
+      {% call auth("delete-deck") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ deck.id }}">
+      <button class="op-button" type="submit">{{ self.label("delete-deck") }}</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+  {% if !cards.is_empty() %}
+  <form method="post" class="op-panel op-stack">
+    {% call auth("save-deck") %}{% endcall %}
+    <h3>{{ self.label("save-deck") }}</h3>
+    <label class="op-field">{{ self.label("deck-name") }} <input class="op-input" name="name" maxlength="40" required></label>
+    {% for i in 1..4 %}
+    <label class="op-field">{{ self.label("deck-card") }} {{ i }}
+      <select class="op-input" name="card{{ i }}"{% if i == 1 %} required{% endif %}>
+        <option value="">—</option>
+        {% for card in cards %}<option value="{{ card.id }}">{{ card.name }}</option>{% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+    <button class="op-button" type="submit">{{ self.label("save-deck") }}</button>
+  </form>
+  {% endif %}
+  {% if !decks.is_empty() %}
+  <form method="post" class="op-panel op-stack">
+    {% call auth("challenge") %}{% endcall %}
+    <h3>{{ self.label("challenge") }}</h3>
+    <label class="op-field">{{ self.label("opponent") }} <input class="op-input" name="opponent" maxlength="36" required></label>
+    {% call deck_picker() %}{% endcall %}
+    <button class="op-button" type="submit">{{ self.label("challenge") }}</button>
+  </form>
+  {% endif %}
+</section>
+<section class="op-stack" aria-labelledby="battles">
+  <h2 id="battles">{{ self.label("battles") }}</h2>
+  {% if battles.is_empty() %}<p>{{ self.label("no-battles") }}</p>{% endif %}
+  {% for battle in battles %}
+  <article class="op-panel op-stack" data-battle="{{ battle.id }}">
+    <h3>{{ self.label("opponent") }} <code>{{ battle.opponent }}</code></h3>
+    <p>{{ self.label(battle.status) }}</p>
+    {% if let Some(tournament) = battle.tournament %}<p>{{ self.label("tournament-id") }} <code>{{ tournament }}</code></p>{% endif %}
+    {% if battle.incoming %}
+    {% if !decks.is_empty() %}
+    <form method="post" class="op-stack">
+      {% call auth("accept") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ battle.id }}">
+      {% call deck_picker() %}{% endcall %}
+      <button class="op-button" type="submit">{{ self.label("accept") }}</button>
+    </form>
+    {% endif %}
+    <form method="post">
+      {% call auth("decline") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ battle.id }}">
+      <button class="op-button" type="submit">{{ self.label("decline") }}</button>
+    </form>
+    {% endif %}
+    {% if let Some(turn) = battle.turn %}
+    <p>{{ self.label("round") }} {{ turn.round }} · {{ self.label("your-health") }} {{ turn.your_health }} · {{ self.label("opponent-health") }} {{ turn.opponent_health }}</p>
+    {% if battle.status == "active" %}
+    {% if turn.waiting %}
+    <p>{{ self.label("waiting") }}</p>
+    {% else %}
+    <form method="post" class="op-stack">
+      {% call auth("play") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ battle.id }}">
+      <input type="hidden" name="revision" value="{{ battle.revision }}">
+      <label class="op-field">{{ self.label("action") }}
+        <select class="op-input" name="action">
+          <option value='"strike"'>{{ self.label("strike") }}</option>
+          <option value='"guard"'>{{ self.label("guard") }}</option>
+        </select>
+      </label>
+      <button class="op-button" type="submit">{{ self.label("play") }}</button>
+    </form>
+    {% endif %}
+    {% endif %}
+    {% else if battle.status == "active" %}
+    <p>{{ self.label("unavailable") }}</p>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+<section class="op-stack" aria-labelledby="tournaments">
+  <h2 id="tournaments">{{ self.label("tournaments") }}</h2>
+    <form method="post" class="op-panel op-stack">
+    {% call auth("create") %}{% endcall %}
+    <label class="op-field">{{ self.label("capacity") }}
+      <input class="op-input" name="capacity" type="number" min="2" max="16" value="2" required>
+    </label>
+    <button class="op-button" type="submit">{{ self.label("create") }}</button>
+  </form>
+  {% if tournaments.is_empty() %}<p>{{ self.label("no-tournaments") }}</p>{% endif %}
+  {% for tournament in tournaments %}
+  <article class="op-panel op-stack" data-tournament="{{ tournament.id }}">
+    <h3>{{ self.label("tournament-id") }} <code>{{ tournament.id }}</code></h3>
+    <p>{{ self.label(tournament.status) }} · {{ tournament.entrants }} / {{ tournament.capacity }}</p>
+    {% if tournament.joined %}<p>{{ self.label("joined") }}</p>{% endif %}
+    {% if tournament.can_join && !decks.is_empty() %}
+    <form method="post" class="op-stack">
+      {% call auth("join") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ tournament.id }}">
+      {% call deck_picker() %}{% endcall %}
+      <button class="op-button" type="submit">{{ self.label("join") }}</button>
+    </form>
+    {% endif %}
+    {% if tournament.can_start %}
+    <form method="post">
+      {% call auth("start") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ tournament.id }}">
+      <button class="op-button" type="submit">{{ self.label("start") }}</button>
+    </form>
+    {% endif %}
+    {% if tournament.status != "registration" %}
+    <a href="?standings={{ tournament.id }}#rankings">{{ self.label("tournament-rankings") }}</a>
+    {% endif %}
+  </article>
+  {% endfor %}
+</section>
+<section class="op-stack" aria-labelledby="rankings">
+  <h2 id="rankings">{{ self.label("rankings") }}</h2>
+  {% if let Some(tournament) = standings %}
+  <p>{{ self.label("tournament-id") }} <code>{{ tournament }}</code></p>
+  <a href="/{{ lang }}/collection-pvp#rankings">{{ self.label("all-rankings") }}</a>
+  {% endif %}
+  {% if rankings.is_empty() %}<p>{{ self.label("no-rankings") }}</p>{% endif %}
+  <ol>
+    {% for row in rankings %}
+    <li>{{ self.label("points") }} {{ row.points }} · {{ self.label("played") }} {{ row.played }}{% if row.account_id == actor %} ({{ self.label("you") }}){% endif %}</li>
+    {% endfor %}
+  </ol>
+</section>
+{% endif %}
+{% if sets %}
+<section class="op-stack" aria-labelledby="sets">
+  <h2 id="sets">{{ self.label("sets") }}</h2>
+  {% if offers.is_empty() %}<p>{{ self.label("no-sets") }}</p>{% endif %}
+  {% for offer in offers %}
+  <article class="op-panel op-stack" data-set="{{ offer.id }}">
+    <h3>{{ self.label("set-id") }} <code>{{ offer.id }}</code></h3>
+    <p>{{ self.label("price") }} {{ offer.price }}</p>
+    <ul>{% for card in offer.cards %}<li>{{ card.name }} × {{ card.quantity }}</li>{% endfor %}</ul>
+    {% if offer.owned %}
+    <p>{{ self.label("purchased") }}</p>
+    {% else if available %}
+    <form method="post">
+      {% call auth("buy") %}{% endcall %}
+      <input type="hidden" name="id" value="{{ offer.id }}">
+      <input type="hidden" name="version" value="{{ offer.version }}">
+      <input type="hidden" name="price" value="{{ offer.price }}">
+      <input type="hidden" name="request" value="{{ offer.request }}">
+      <button class="op-button" type="submit">{{ self.label("buy") }}</button>
+    </form>
+    {% endif %}
+  </article>
+  {% endfor %}
+  <h2>{{ self.label("owned-sets") }}</h2>
+  {% if receipts.is_empty() %}<p>{{ self.label("no-purchases") }}</p>{% endif %}
+  <ul>{% for id in receipts %}<li><code>{{ id }}</code></li>{% endfor %}</ul>
+</section>
+{% endif %}
+</main>
+</body>
+</html>
