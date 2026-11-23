@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, FromRequest, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
@@ -11,7 +11,8 @@ use axum::{
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
     login::Credentials,
-    mfa::{Authenticated, Mfa},
+    mfa::{Authenticated, ManagementOperation, ManagementOutcome, Mfa},
+    sessions::Actor,
 };
 use oteryn_web::{
     Language,
@@ -43,10 +44,7 @@ pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
     mfa.satisfied(id, &grant).await.unwrap_or(false)
 }
 pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
-    if !std::env::var("OTERYN_ACCOUNT_MFA").is_ok_and(|v| v == "true") {
-        return Ok(app);
-    }
-    if !std::env::var("OTERYN_ACCOUNT_LOGIN").is_ok_and(|v| v == "true") {
+    if !oteryn_identity::navigation::mfa_enabled() {
         return Ok(app);
     }
     let mfa = Mfa::configured(pool.clone())?;
@@ -74,7 +72,24 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
             .route(&format!("{prefix}/mfa"), get(settings))
             .route(&format!("{prefix}/mfa/enroll"), post(enroll))
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
-            .route(&format!("{prefix}/mfa/devices"), post(remove_device));
+            .route(&format!("{prefix}/mfa/devices"), post(remove_device))
+            .route(
+                &format!("{prefix}/mfa/replace"),
+                get(show_replacement)
+                    .merge(post(manage).layer(Extension(ManagementOperation::Replace))),
+            )
+            .route(
+                &format!("{prefix}/mfa/replace/confirm"),
+                post(manage).layer(Extension(ManagementOperation::ConfirmReplacement)),
+            )
+            .route(
+                &format!("{prefix}/mfa/rotate"),
+                post(manage).layer(Extension(ManagementOperation::Rotate)),
+            )
+            .route(
+                &format!("{prefix}/mfa/disable"),
+                post(manage).layer(Extension(ManagementOperation::Disable)),
+            );
     }
     let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok().filter(|host| {
         std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true")
@@ -735,10 +750,22 @@ async fn settings(
     } else {
         vec![]
     };
+    let mut mode = settings_mode(&context.mfa, id).await?;
+    if mode == "enabled"
+        && let Some(actor) = browser_actor(&session).await
+        && context
+            .mfa
+            .replacement_secret(&actor)
+            .await
+            .map_err(unavailable)?
+            .is_some()
+    {
+        mode = "enabled-pending";
+    }
     page(
         language,
         &session,
-        settings_mode(&context.mfa, id).await?,
+        mode,
         false,
         String::new(),
         vec![],
@@ -746,6 +773,111 @@ async fn settings(
     )
     .await
 }
+async fn browser_actor(session: &BrowserSession) -> Option<Actor> {
+    Some(Actor {
+        account: session.account_id().await?,
+        hash: session.identity_hash().await?,
+    })
+}
+
+async fn show_replacement(
+    State(context): State<Context>,
+    Extension(language): Extension<Language>,
+    Extension(session): Extension<BrowserSession>,
+) -> Result<Response, StatusCode> {
+    let Some(actor) = browser_actor(&session).await else {
+        return Ok(redirect(language, "/login"));
+    };
+    let Some(secret) = context
+        .mfa
+        .replacement_secret(&actor)
+        .await
+        .map_err(unavailable)?
+    else {
+        return refusal(language, &session, "/mfa").await;
+    };
+    page(
+        language,
+        &session,
+        "replacement",
+        false,
+        secret,
+        vec![],
+        vec![],
+    )
+    .await
+}
+
+async fn manage(
+    State(context): State<Context>,
+    supplied: Option<Extension<RateLimiter>>,
+    Extension(language): Extension<Language>,
+    Extension(session): Extension<BrowserSession>,
+    Extension(operation): Extension<ManagementOperation>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    request: Request,
+) -> Result<Response, StatusCode> {
+    let Some(actor) = browser_actor(&session).await else {
+        return Ok(redirect(language, "/login"));
+    };
+    let limiter = supplied
+        .map(|v| v.0)
+        .unwrap_or_else(|| context.limiter.clone());
+    let policy = if operation == ManagementOperation::Disable {
+        NamedPolicy::IdentityMfaDisable
+    } else {
+        NamedPolicy::IdentitySecurityMutation
+    };
+    if let Err(response) = charge(
+        &limiter,
+        peer,
+        request.headers(),
+        language,
+        (Some(actor.account.to_string()), None, None),
+        &[policy],
+    )
+    .await
+    {
+        return Ok(response);
+    }
+    let retry_path = if operation == ManagementOperation::ConfirmReplacement {
+        "/mfa/replace"
+    } else {
+        "/mfa"
+    };
+    let Ok(Form(input)) = Form::<Input>::from_request(request, &context).await else {
+        return refusal(language, &session, retry_path).await;
+    };
+    let outcome = context
+        .mfa
+        .manage(&actor, operation, &input.password, &input.code)
+        .await
+        .map_err(unavailable)?;
+    match outcome {
+        Some(ManagementOutcome::ReplacementStarted) => Ok(redirect(language, "/mfa/replace")),
+        Some(ManagementOutcome::Codes(codes)) => {
+            // The transaction already deleted the session. Clear the browser cookie
+            // even if the redundant delete cannot reach the database.
+            let _ = session::rotate(&session, PrivilegeChange::Logout).await;
+            page(
+                language,
+                &session,
+                "codes",
+                false,
+                String::new(),
+                codes,
+                vec![],
+            )
+            .await
+        }
+        Some(ManagementOutcome::Disabled) => {
+            let _ = session::rotate(&session, PrivilegeChange::Logout).await;
+            Ok(redirect(language, "/login"))
+        }
+        None => refusal(language, &session, retry_path).await,
+    }
+}
+
 async fn enroll(
     State(context): State<Context>,
     supplied: Option<Extension<RateLimiter>>,

@@ -3,3 +3,7 @@ device-login = Device login
 password-changed = Password changed
 password-body = Your account password has been changed.
 support = Oteryn support
+mfa-subject = Oteryn 2FA
+mfa-replaced = The authenticator on your account was replaced. Contact support immediately if you did not make this change.
+mfa-disabled = Two-factor authentication was turned off on your account. Contact support immediately if you did not make this change.
+mfa-recovery-codes-rotated = New two-factor recovery codes were generated for your account. Contact support immediately if you did not make this change.

@@ -3,3 +3,7 @@ device-login = Logowanie z urządzenia
 password-changed = Zmieniono hasło
 password-body = Hasło Twojego konta zostało zmienione.
 support = Pomoc Oteryn
+mfa-subject = Oteryn 2FA
+mfa-replaced = Zmieniono aplikację uwierzytelniającą na Twoim koncie. Jeśli to nie Ty, niezwłocznie skontaktuj się z pomocą techniczną.
+mfa-disabled = Wyłączono uwierzytelnianie dwuskładnikowe na Twoim koncie. Jeśli to nie Ty, niezwłocznie skontaktuj się z pomocą techniczną.
+mfa-recovery-codes-rotated = Wygenerowano nowe kody odzyskiwania na Twoim koncie. Jeśli to nie Ty, niezwłocznie skontaktuj się z pomocą techniczną.

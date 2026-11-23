@@ -551,3 +551,146 @@ async fn audit02_mfa_password_snapshot_refuses_email_security_generation_change(
     assert!(!proof.current(&mfa).await?);
     db.close().await
 }
+
+async fn browser(pool: &PgPool, account: AccountId) -> Result<crate::sessions::Actor, sqlx::Error> {
+    let hash = digest(&random_token()?);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,idle_expires_at,absolute_expires_at,user_agent_summary,csrf_token) VALUES($1,$2,now()+interval '1 hour',now()+interval '1 day','test',$3)")
+        .bind(&hash).bind(account).bind(random_token()?).execute(pool).await?;
+    Ok(crate::sessions::Actor { account, hash })
+}
+
+#[tokio::test]
+async fn postgres_mfa_management_proofs_and_credential_changes()
+-> Result<(), Box<dyn std::error::Error>> {
+    use ManagementOperation::*;
+    let Some(db) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id = account(&db.pool, "manage@example.test").await?;
+    let password = "test password";
+    let initial = ready(&mfa, id).await?;
+    let actor = browser(&db.pool, id).await?;
+    let other = browser(&db.pool, id).await?;
+    let foreign = account(&db.pool, "other@example.test").await?;
+    let foreign_session = browser(&db.pool, foreign).await?;
+    let foreign_owner = crate::sessions::Actor {
+        account: id,
+        hash: foreign_session.hash,
+    };
+
+    assert!(
+        mfa.manage(&foreign_owner, Disable, password, &initial[0])
+            .await?
+            .is_none()
+    );
+    assert!(
+        mfa.manage(&actor, Rotate, "wrong password", &initial[0])
+            .await?
+            .is_none()
+    );
+    assert!(
+        mfa.manage(&actor, Rotate, password, "１２３４５６")
+            .await?
+            .is_none()
+    );
+    assert!(matches!(
+        mfa.manage(&actor, Replace, password, &initial[0]).await?,
+        Some(ManagementOutcome::ReplacementStarted)
+    ));
+    assert!(
+        mfa.manage(&actor, Disable, password, &initial[0])
+            .await?
+            .is_none()
+    );
+    assert!(mfa.replacement_secret(&other).await?.is_none());
+    let secret = mfa
+        .replacement_secret(&actor)
+        .await?
+        .ok_or("pending factor")?;
+    let totp = code(&secret, 0)?;
+    assert!(
+        mfa.manage(&other, ConfirmReplacement, "", &totp)
+            .await?
+            .is_none()
+    );
+    assert!(
+        mfa.manage(&actor, ConfirmReplacement, "", "malformed")
+            .await?
+            .is_none()
+    );
+    sqlx::query(
+        "UPDATE account_mfa_replacements SET expires_at=clock_timestamp()-interval '1 second'",
+    )
+    .execute(&db.pool)
+    .await?;
+    assert!(
+        mfa.manage(&actor, ConfirmReplacement, "", &totp)
+            .await?
+            .is_none()
+    );
+    assert!(mfa.replacement_secret(&actor).await?.is_none());
+    assert!(mfa.enrolled(id).await?);
+    assert!(matches!(
+        mfa.manage(&actor, Replace, password, &initial[1]).await?,
+        Some(ManagementOutcome::ReplacementStarted)
+    ));
+    let secret = mfa
+        .replacement_secret(&actor)
+        .await?
+        .ok_or("pending factor")?;
+    let Some(ManagementOutcome::Codes(replaced)) = mfa
+        .manage(&actor, ConfirmReplacement, "", &code(&secret, 0)?)
+        .await?
+    else {
+        return Err("replacement refused".into());
+    };
+    assert_eq!(replaced.len(), 8);
+    assert!(
+        mfa.manage(&other, Rotate, password, &replaced[0])
+            .await?
+            .is_none()
+    );
+    assert!(mfa.replacement_secret(&actor).await?.is_none());
+
+    let actor = browser(&db.pool, id).await?;
+    assert!(
+        mfa.manage(&actor, Rotate, password, &initial[2])
+            .await?
+            .is_none()
+    );
+    let Some(ManagementOutcome::Codes(rotated)) =
+        mfa.manage(&actor, Rotate, password, &replaced[0]).await?
+    else {
+        return Err("rotation refused".into());
+    };
+    assert_eq!(rotated.len(), 8);
+    let actor = browser(&db.pool, id).await?;
+    assert!(
+        mfa.manage(&actor, Disable, password, &replaced[1])
+            .await?
+            .is_none()
+    );
+    assert!(matches!(
+        mfa.manage(&actor, Disable, password, &rotated[0]).await?,
+        Some(ManagementOutcome::Disabled)
+    ));
+    assert!(!mfa.enrolled(id).await?);
+    assert!(
+        mfa.password_session(credentials("manage@example.test", password))
+            .await?
+            .is_some()
+    );
+    let codes: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_recovery_codes WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(codes, 0);
+    let (mail, different_bodies, mandatory): (i64, i64, bool) = sqlx::query_as(
+        "SELECT count(*),count(DISTINCT text_body),bool_and(category='security' AND unsubscribe_url IS NULL) FROM email_outbox WHERE account_id=$1",
+    ).bind(id).fetch_one(&db.pool).await?;
+    assert_eq!((mail, different_bodies, mandatory), (3, 3, true));
+    db.close().await?;
+    Ok(())
+}

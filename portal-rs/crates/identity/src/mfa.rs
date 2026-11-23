@@ -11,6 +11,10 @@ use subtle::ConstantTimeEq;
 use totp_rs::{Algorithm, TOTP};
 use uuid::Uuid;
 
+#[path = "mfa_management.rs"]
+mod management;
+pub use management::{ManagementOperation, ManagementOutcome};
+
 type Tx<'a> = Transaction<'a, Postgres>;
 /// Session adapters use this key with their typed server-side session API.
 pub const SESSION_GRANT_KEY: &str = "mfa_grant";
@@ -248,6 +252,11 @@ impl Mfa {
             .await
             .map_err(|_| error())
     }
+    fn new_secret() -> Result<[u8; 20], sqlx::Error> {
+        let mut secret = [0; 20];
+        getrandom::fill(&mut secret).map_err(|_| error())?;
+        Ok(secret)
+    }
     /// Starts enrollment only for active verified accounts after current-password confirmation.
     pub async fn enroll(
         &self,
@@ -270,9 +279,8 @@ impl Mfa {
             Self::refuse(tx, Some(id)).await?;
             return Ok(None);
         }
-        let mut secret = vec![0; 20];
-        getrandom::fill(&mut secret).map_err(|_| error())?;
-        let encoded = totp_rs::Secret::Raw(secret.clone())
+        let secret = Self::new_secret()?;
+        let encoded = totp_rs::Secret::Raw(secret.to_vec())
             .to_encoded()
             .to_string();
         let encrypted = self.encrypt(id, &secret)?;
@@ -341,24 +349,31 @@ impl Mfa {
             .bind(id)
             .execute(&mut *tx)
             .await?;
-        let mut codes = Vec::new();
+        let codes = Self::replace_recovery_codes(&mut tx, id).await?;
+        Self::revoke(&mut tx, id).await?;
+        Self::audit(&mut tx, Some(id), "mfa.enrolled").await?;
+        tx.commit().await?;
+        Ok(Some(codes))
+    }
+    async fn replace_recovery_codes(
+        tx: &mut Tx<'_>,
+        id: AccountId,
+    ) -> Result<Vec<String>, sqlx::Error> {
+        let mut codes = Vec::with_capacity(8);
         sqlx::query("DELETE FROM account_recovery_codes WHERE account_id=$1")
             .bind(id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
         for _ in 0..8 {
             let code = random_token()?;
             sqlx::query("INSERT INTO account_recovery_codes(account_id,code_hash) VALUES($1,$2)")
                 .bind(id)
                 .bind(digest(&code))
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
             codes.push(code);
         }
-        Self::revoke(&mut tx, id).await?;
-        Self::audit(&mut tx, Some(id), "mfa.enrolled").await?;
-        tx.commit().await?;
-        Ok(Some(codes))
+        Ok(codes)
     }
     async fn revoke(tx: &mut Tx<'_>, id: AccountId) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM account_mfa_tokens WHERE account_id=$1")
@@ -492,6 +507,24 @@ impl Mfa {
         tx.commit().await?;
         Ok(Some((email, token)))
     }
+    async fn consume_recovery(
+        tx: &mut Tx<'_>,
+        id: AccountId,
+        code: &str,
+    ) -> Result<bool, sqlx::Error> {
+        if !valid_token(code) {
+            return Ok(false);
+        }
+        Ok(
+            sqlx::query("DELETE FROM account_recovery_codes WHERE account_id=$1 AND code_hash=$2")
+                .bind(id)
+                .bind(digest(&code.to_ascii_lowercase()))
+                .execute(&mut **tx)
+                .await?
+                .rows_affected()
+                == 1,
+        )
+    }
     pub async fn complete(
         &self,
         challenge: &str,
@@ -514,22 +547,12 @@ impl Mfa {
             .execute(&mut *tx)
             .await?;
             true
+        } else if Self::consume_recovery(&mut tx, id, code).await? {
+            factor = "recovery";
+            true
         } else if valid_token(code) {
-            let used = sqlx::query(
-                "DELETE FROM account_recovery_codes WHERE account_id=$1 AND code_hash=$2",
-            )
-            .bind(id)
-            .bind(digest(&code.to_ascii_lowercase()))
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-            if used == 1 {
-                factor = "recovery";
-                true
-            } else {
-                factor = "email";
-                sqlx::query("DELETE FROM account_mfa_tokens WHERE token_hash=$1 AND parent_hash=$2 AND purpose='email' AND account_id=$3 AND generation=$4 AND credential_hash=$5 AND expires_at>clock_timestamp()").bind(digest(code)).bind(digest(challenge)).bind(id).bind(state.generation).bind(digest(&hash)).execute(&mut *tx).await?.rows_affected()==1
-            }
+            factor = "email";
+            sqlx::query("DELETE FROM account_mfa_tokens WHERE token_hash=$1 AND parent_hash=$2 AND purpose='email' AND account_id=$3 AND generation=$4 AND credential_hash=$5 AND expires_at>clock_timestamp()").bind(digest(code)).bind(digest(challenge)).bind(id).bind(state.generation).bind(digest(&hash)).execute(&mut *tx).await?.rows_affected()==1
         } else {
             false
         };
@@ -731,7 +754,8 @@ redacted_debug!(
     Enrollment,
     Challenge,
     Authenticated,
-    SessionAuthorization
+    SessionAuthorization,
+    ManagementOutcome
 );
 
 /// Bounded expiry cleanup, safe to schedule while account features are disabled.
@@ -743,6 +767,8 @@ impl oteryn_db::outbox::Cleanup for MfaCleanup {
     fn clean(&self) -> oteryn_db::outbox::CleanupFuture<'_> {
         Box::pin(async move {
             sqlx::query("DELETE FROM account_mfa_tokens WHERE token_hash IN (SELECT token_hash FROM account_mfa_tokens WHERE expires_at<=now() LIMIT 1000 FOR UPDATE SKIP LOCKED)")
+                .execute(&self.pool).await.map_err(|e| e.to_string())?;
+            sqlx::query("DELETE FROM account_mfa_replacements WHERE session_id IN (SELECT session_id FROM account_mfa_replacements WHERE expires_at<=clock_timestamp() LIMIT 1000 FOR UPDATE SKIP LOCKED)")
                 .execute(&self.pool).await.map_err(|e| e.to_string())?;
             Ok(())
         })

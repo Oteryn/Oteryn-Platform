@@ -1,5 +1,10 @@
 //! Account section navigation, using existing feature flags.
 use oteryn_ui::{Group, Registry};
+pub fn mfa_enabled() -> bool {
+    std::env::var("OTERYN_ACCOUNT_MFA").as_deref() == Ok("true")
+        && std::env::var("OTERYN_ACCOUNT_LOGIN").as_deref() == Ok("true")
+}
+
 /// Register enabled account sections; no route or authentication behavior changes.
 pub fn register(registry: &mut Registry) {
     registry.section(

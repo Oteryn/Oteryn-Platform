@@ -65,6 +65,14 @@ impl oteryn_notify::AccountState for AccountState {
 }
 pub fn configured_router(pool: sqlx::PgPool) -> Router {
     if !std::env::var("OTERYN_ACCOUNT_CREDENTIALS").is_ok_and(|v| v == "true") {
+        // The account overview's Security shortcut also works in MFA-only deployments.
+        if oteryn_identity::navigation::mfa_enabled() {
+            let mut routes = Router::new();
+            for prefix in ["", "/pl", "/en"] {
+                routes = routes.route(&format!("{prefix}/account/security"), get(mfa_landing));
+            }
+            return oteryn_web::ratelimit::finish_routes(routes);
+        }
         return Router::new();
     }
     // Security messages never use unsubscribe links. Keep the optional service
@@ -120,13 +128,17 @@ pub fn router(service: Credentials) -> Router {
         .with_state(service);
     oteryn_web::ratelimit::finish_routes(routes)
 }
+async fn mfa_landing(Extension(lang): Extension<Language>) -> Redirect {
+    Redirect::to(&format!("/{}/mfa", lang.code()))
+}
+
 async fn security_landing(Extension(lang): Extension<Language>) -> Redirect {
     Redirect::to(&format!("/{}/password/change", lang.code()))
 }
 
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form></main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form>{% if mfa %}<p><a href=\"/{{ lang }}/mfa\">{{ mfa_label }}</a></p>{% endif %}</main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -140,6 +152,8 @@ struct Page {
     change: bool,
     failed: bool,
     error: String,
+    mfa: bool,
+    mfa_label: String,
 }
 fn text(lang: Language, key: &str) -> String {
     let source = if lang == Language::En {
@@ -201,6 +215,8 @@ async fn page(
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .unwrap_or(false),
         error: text(lang, if breached { "breached" } else { "refused" }),
+        mfa: change && oteryn_identity::navigation::mfa_enabled(),
+        mfa_label: text(lang, "mfa"),
     };
     session
         .set(FAILED, &false)

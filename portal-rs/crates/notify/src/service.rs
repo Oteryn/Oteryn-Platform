@@ -78,6 +78,9 @@ impl AccountState for DenyAccounts {
 pub enum EmailTemplate {
     NewDevice { device: String },
     PasswordChanged,
+    MfaReplaced,
+    MfaDisabled,
+    MfaRecoveryCodesRotated,
     News { title: String, body: String },
     Support { body: String },
 }
@@ -106,7 +109,11 @@ struct Text<'a> {
 impl EmailTemplate {
     pub fn category(&self) -> Category {
         match self {
-            Self::NewDevice { .. } | Self::PasswordChanged => Category::Security,
+            Self::NewDevice { .. }
+            | Self::PasswordChanged
+            | Self::MfaReplaced
+            | Self::MfaDisabled
+            | Self::MfaRecoveryCodesRotated => Category::Security,
             Self::News { .. } => Category::News,
             Self::Support { .. } => Category::Support,
         }
@@ -120,6 +127,11 @@ impl EmailTemplate {
                 format!("{}: {device}", tr("device-login")?),
             ),
             Self::PasswordChanged => (tr("password-changed")?, tr("password-body")?),
+            Self::MfaReplaced => (tr("mfa-subject")?, tr("mfa-replaced")?),
+            Self::MfaDisabled => (tr("mfa-subject")?, tr("mfa-disabled")?),
+            Self::MfaRecoveryCodesRotated => {
+                (tr("mfa-subject")?, tr("mfa-recovery-codes-rotated")?)
+            }
             Self::News { title, body } => (title.clone(), body.clone()),
             Self::Support { body } => (tr("support")?, body.clone()),
         };

@@ -24,6 +24,15 @@
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
 <div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
+{% else if mode == "replacement" %}
+<p>{{ self.text("mfa-replacement-deadline") }}</p>
+<p>{{ self.text("mfa-provision") }}</p>
+<p class="op-prose">{{ secret }}</p>
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/replace/confirm">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="replacement-code">{{ self.text("mfa-new-code") }}</label><input class="op-input" id="replacement-code" name="code" autocomplete="one-time-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></div>
+<button class="op-button op-button--primary">{{ self.text("mfa-replace") }}</button></form>
+<p><a href="/{{ lang }}/mfa">{{ self.text("mfa-back") }}</a></p>
 {% else if mode == "codes" %}
 <p>{{ self.text("mfa-save") }}</p>
 {% for code in codes %}<p><textarea class="op-input" readonly aria-label="{{ self.text("mfa-recovery") }}" rows="2">{{ code }}</textarea></p>{% endfor %}
@@ -33,6 +42,26 @@
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/enroll"><input type="hidden" name="_csrf" value="{{ csrf }}">
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-enroll") }}</button></form>
+{% else %}
+<h2>{{ self.text("mfa-enabled") }}</h2>
+<p>{{ self.text("mfa-manage-proof") }}</p>
+{% if mode == "enabled-pending" %}<p><a href="/{{ lang }}/mfa/replace">{{ self.text("mfa-resume-replacement") }}</a></p>{% endif %}
+{% for (operation, title, instructions, button) in [
+    ("replace", "mfa-replace", "mfa-replace-help", "mfa-replace-start"),
+    ("rotate", "mfa-rotate", "mfa-rotate-help", "mfa-rotate"),
+    ("disable", "mfa-disable", "mfa-disable-help", "mfa-disable")
+] %}
+<details>
+<summary>{{ self.text(title) }}</summary>
+<p>{{ self.text(instructions) }}</p>
+<form class="op-stack" method="post" action="/{{ lang }}/mfa/{{ operation }}">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="{{ operation }}-password">{{ self.text("mfa-password") }}</label><input class="op-input" id="{{ operation }}-password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<div class="op-field"><label for="{{ operation }}-code">{{ self.text("mfa-management-code") }}</label><input class="op-input" id="{{ operation }}-code" name="code" autocomplete="one-time-code" maxlength="64" required></div>
+<button class="op-button op-button--primary">{{ self.text(button) }}</button>
+</form>
+</details>
+{% endfor %}
 {% endif %}
 <h2>{{ self.text("mfa-devices") }}</h2>
 {% for device in devices %}<form method="post" action="/{{ lang }}/mfa/devices"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="device" value="{{ device }}"><button class="op-button">{{ self.text("mfa-remove") }} {{ loop.index }}</button></form>{% endfor %}

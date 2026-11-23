@@ -289,6 +289,14 @@ pub async fn staff_revoke_all(
     if found != 1 {
         return Err(sqlx::Error::RowNotFound);
     }
+    revoke_all_authorizations(connection, account).await
+}
+
+/// Revoke issued authorizations after the caller fences the account's credentials.
+pub(crate) async fn revoke_all_authorizations(
+    connection: &mut sqlx::PgConnection,
+    account: AccountId,
+) -> std::result::Result<(), sqlx::Error> {
     crate::recovery_key::revoke_authorizations(connection, account).await?;
     sqlx::query("DELETE FROM web_sessions WHERE account_id=$1")
         .bind(account)
