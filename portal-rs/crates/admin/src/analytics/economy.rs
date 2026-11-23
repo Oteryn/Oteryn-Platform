@@ -256,7 +256,7 @@ mod presentation_tests {
         for (lang, state, revision, explanation) in [
             (
                 "pl",
-                "Dostępne",
+                "Dostępny",
                 "Epoka / rewizja",
                 "Zestaw wierszy jest kompletny i pusty. Brak wiersza nie oznacza wartości zero.",
             ),

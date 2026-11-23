@@ -1,8 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import https from 'node:https';
-import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { actorDefinitions, csrfPage, openActor, sessionHash as hashSession } from './actors.mjs';
@@ -212,31 +210,15 @@ async function assertServiceTokenRefused(request, harness, route) {
 const privateCases = JSON.parse(readFileSync(new URL('./private-http.json', import.meta.url), 'utf8'));
 
 async function assertAdminControlPeers(harness, wrongPeer, db) {
-  const directory = mkdtempSync(join(tmpdir(), 'portal-e2e-authz-agent-'));
-  try {
-    const key = join(directory, 'agent.key');
-    const cert = join(directory, 'agent.pem');
-    const request = join(directory, 'agent.csr');
-    // Match the disposable agent binding in the browser launcher.
-    execFileSync('openssl', ['req', '-new', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
-      '-nodes', '-keyout', key, '-out', request, '-subj', '/CN=oteryn-admin-agent\\/e2e-local',
-      '-addext', 'subjectAltName=DNS:spiffe://local.test/admin/e2e',
-      '-addext', 'extendedKeyUsage=clientAuth'], { stdio: 'ignore' });
-    execFileSync('openssl', ['x509', '-req', '-in', request, '-CA', harness.caFile,
-      '-CAkey', join(dirname(harness.caFile), 'ca-key.pem'), '-days', '1',
-      '-set_serial', `0x${randomUUID().replaceAll('-', '')}`,
-      '-copy_extensions', 'copy', '-out', cert], { stdio: 'ignore' });
-    for (const row of privateCases.filter(({ path }) => path.startsWith('/internal/v1/admin-control/'))) {
-      await test.step(`${row.method} ${row.path} with a CA-valid agent peer`, async () => {
-        const before = await db.snapshot();
-        expect(await internalRequest(harness, row, wrongPeer), row.limitSource).toBe(403);
-        assertRefusalState(before, await db.snapshot());
-        const expected = row.path.endsWith('/{endpoint}') ? 404 : 400;
-        expect(await internalRequest(harness, row, { key, cert }), row.source).toBe(expected);
-      });
-    }
-  } finally {
-    rmSync(directory, { recursive: true });
+  const { key, cert } = JSON.parse(process.env.PORTAL_E2E_ADMIN_CONTROL_AGENT);
+  for (const row of privateCases.filter(({ path }) => path.startsWith('/internal/v1/admin-control/'))) {
+    await test.step(`${row.method} ${row.path} with a CA-valid agent peer`, async () => {
+      const before = await db.snapshot();
+      expect(await internalRequest(harness, row, wrongPeer), row.limitSource).toBe(403);
+      assertRefusalState(before, await db.snapshot());
+      const expected = row.path.endsWith('/{endpoint}') ? 404 : 400;
+      expect(await internalRequest(harness, row, { key, cert }), row.source).toBe(expected);
+    });
   }
 }
 

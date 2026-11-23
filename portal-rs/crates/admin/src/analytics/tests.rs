@@ -1254,7 +1254,7 @@ async fn postgres_economy_members_panel_and_refusal_fence() {
         "48210377",
         "Key / item / currency",
         "Source",
-        "State",
+        "<th scope=\"col\">Status</th>",
         "Epoch / revision",
         "low-n (below five)",
         "depot source coverage not yet delivered by Game",
