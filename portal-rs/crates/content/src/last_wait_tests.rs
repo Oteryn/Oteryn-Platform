@@ -1,16 +1,16 @@
 use oteryn_admin::rbac::{Authorizer, CheckContext};
 use sqlx::PgPool;
 use uuid::Uuid;
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+pub(crate) type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 
-struct TestDb {
-    pool: PgPool,
+pub(crate) struct TestDb {
+    pub(crate) pool: PgPool,
     root: PgPool,
     schema: String,
-    context: CheckContext,
+    pub(crate) context: CheckContext,
 }
 impl TestDb {
-    async fn open() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    pub(crate) async fn open() -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
         let root = PgPool::connect(&url).await?;
         let schema = format!("last_wait_{}", Uuid::now_v7().simple());
@@ -49,7 +49,7 @@ impl TestDb {
             context,
         })
     }
-    async fn close(self) -> TestResult {
+    pub(crate) async fn close(self) -> TestResult {
         self.pool.close().await;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "DROP SCHEMA {} CASCADE",

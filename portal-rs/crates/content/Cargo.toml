@@ -48,4 +48,4 @@ version = "0.10"
 
 [dependencies.tokio]
 version = "1.54.1"
-features = ["rt", "sync"]
+features = ["rt", "sync", "time"]

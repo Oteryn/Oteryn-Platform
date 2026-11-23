@@ -17,13 +17,14 @@ use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(
-        router(pool.clone()).merge(oteryn_admin::web::configured_guard(
+    let discovery = crate::discovery::configured_router(pool.clone())?;
+    Ok(router(pool.clone())
+        .merge(oteryn_admin::web::configured_guard(
             admin_routes(pool.clone()),
             pool,
             Permission::ManagePages,
-        )?),
-    )
+        )?)
+        .merge(discovery))
 }
 /// Test and authentication-adapter composition through the shared T10B staff guard.
 pub fn staff_router<I: StaffSession, A: AccountStateReader + 'static>(
@@ -67,6 +68,7 @@ struct Editor {
     form: PageForm,
     labels: Vec<String>,
     legal: bool,
+    document_id: Option<Uuid>,
     links: Vec<(String, String, String)>,
     history: String,
     history_label: String,
@@ -269,7 +271,7 @@ async fn edit(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let row = sqlx::query(
-        "SELECT e.title,e.body,e.legal_version,e.legal_effective_date,
+        "SELECT p.id AS document_id,e.title,e.body,e.legal_version,e.legal_effective_date,
                 COALESCE(to_jsonb(e.published_at)#>>'{}','') AS publication_timestamp,
                 COALESCE(to_jsonb(e.expires_at)#>>'{}','') AS expiry_timestamp,
                 e.updated_at::text AS expected_revision,
@@ -284,6 +286,7 @@ async fn edit(
     .bind(&locale)
     .fetch_optional(&pool)
     .await;
+    let document_id = row.as_ref().ok().and_then(Option::as_ref).map(|row| row.get("document_id"));
     let (mut form, schedule_until) = match row {
         Ok(Some(row)) => (
             PageForm {
@@ -367,6 +370,7 @@ async fn edit(
         history,
         history_label: revisions::history_label(lang),
         title: text(lang, "pages"),
+        document_id,
         labels: [
             "title",
             "body",

@@ -17,6 +17,9 @@
 
 {% if !history.is_empty() %}<a href="{{ history }}">{{ history_label }}</a>{% endif %}
 {% include "content/preview_links.html" %}
+{% if let Some(id) = discovery_id %}
+<p><a href="/admin/discovery/announcements/{{ id }}">{{ oteryn_ui::text("en", "discovery-title") }} / {{ oteryn_ui::text("pl", "discovery-title") }}</a></p>
+{% endif %}
 {% if !action.is_empty() %}<form method="post" action="{{ action }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="lock_version" value="{{ version }}">

@@ -320,7 +320,10 @@ fn render_markdown(markdown: &str) -> String {
     ammonia::clean(&html)
 }
 
-async fn public_headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+pub(crate) async fn public_headers(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
     let lang = if request.uri().path().starts_with("/en/") {
         "en"
     } else {

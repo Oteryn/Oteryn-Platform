@@ -316,7 +316,10 @@ async fn postgres_announcements_and_today() {
         .await
         .unwrap();
     assert!(service.active("en", at, 5).await.unwrap().is_empty());
-    sqlx::query("DROP TABLE news").execute(&pool).await.unwrap();
+    sqlx::query("ALTER TABLE news RENAME TO unavailable_news")
+        .execute(&pool)
+        .await
+        .unwrap();
     let cards = crate::today::cards(&pool, "en", at).await;
     assert_eq!(cards[1].state, crate::today::SourceState::Empty);
     assert_eq!(cards[3].state, crate::today::SourceState::Unavailable);

@@ -228,6 +228,7 @@ impl Registry {
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
+            editorial_menu: EditorialMenu::default(),
         }
     }
 }
@@ -263,6 +264,20 @@ impl NavGroup {
         self.links.iter().any(|link| link.current)
     }
 }
+/// Localized links supplied by the editorial publication projection.
+#[derive(Clone, Debug)]
+pub struct EditorialLink {
+    pub label: String,
+    pub url: String,
+    pub current: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct EditorialMenu {
+    pub world: Vec<EditorialLink>,
+    pub community: Vec<EditorialLink>,
+}
+
 /// Request extension and template field. Default renders a usable anonymous shell.
 #[derive(Clone, Debug)]
 pub struct Chrome {
@@ -281,6 +296,7 @@ pub struct Chrome {
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
+    pub editorial_menu: EditorialMenu,
 }
 impl Default for Chrome {
     fn default() -> Self {

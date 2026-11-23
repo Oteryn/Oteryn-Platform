@@ -513,7 +513,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                     registry: navigation,
                     sessions: oteryn_web::session::SessionLayer::new(db.clone()),
                 },
-                oteryn_web::chrome::middleware,
+                oteryn_content::discovery::shell,
             ));
             // Internal-only exports stay off the public and native listeners.
             // Apply browser configuration after all public modules are merged.

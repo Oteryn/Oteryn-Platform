@@ -14,6 +14,7 @@
   <p>{{ slug }} / {{ locale }}</p>
   {% if !history.is_empty() %}<a href="{{ history }}">{{ history_label }}</a>{% endif %}
   {% include "content/preview_links.html" %}
+  {% if slug != "getting-started" %}{% if let Some(id) = document_id %}<p><a href="/admin/discovery/pages/{{ id }}?lang={{ lang }}">{{ oteryn_ui::text(lang, "discovery-title") }}</a></p>{% endif %}{% endif %}
   <form method="post" class="op-stack">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <input type="hidden" name="expected_revision" value="{{ form.expected_revision }}">
