@@ -348,13 +348,6 @@ async fn render_record(
             text(lang, "target"), details.target, text(lang, "category"), text(lang, &details.category),
             text(lang, "effective_at"), details.effective_at, text(lang, "expires_at"), expiry,
         ));
-        if let Some(appeal_status) = &details.appeal_status {
-            body.push_str(&format!(
-                "<p>{}: {}</p>",
-                text(lang, "appeal_status"),
-                text(lang, &format!("appeal-{appeal_status}"))
-            ));
-        }
     }
     if area == Area::Tickets {
         body.push_str(&format!(
@@ -372,7 +365,8 @@ async fn render_record(
     }
     if let Some(status) = &record.appeal_status {
         body.push_str(&format!(
-            "<p>{}</p>",
+            "<p>{}: {}</p>",
+            text(lang, "appeal_status"),
             text(lang, &format!("appeal-{status}"))
         ));
     }
@@ -421,9 +415,8 @@ async fn render_record(
                 actions.push(("sanction", SANCTION_FIELDS));
             }
             if record
-                .enforcement
-                .as_ref()
-                .and_then(|details| details.appeal_status.as_deref())
+                .appeal_status
+                .as_deref()
                 .is_some_and(|status| matches!(status, "requested" | "reviewing"))
             {
                 actions.push(("appeal", &["appeal_status", "appeal_outcome"]));

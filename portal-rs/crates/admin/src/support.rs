@@ -201,7 +201,6 @@ pub struct EnforcementDetails {
     pub category: String,
     pub effective_at: i64,
     pub expires_at: Option<i64>,
-    pub appeal_status: Option<String>,
 }
 #[derive(Debug, Clone)]
 pub struct Message {

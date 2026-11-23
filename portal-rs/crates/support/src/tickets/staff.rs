@@ -346,7 +346,6 @@ impl Backend for StaffSupport {
                     category: row.try_get("category")?,
                     effective_at: row.try_get("effective_at")?,
                     expires_at: row.try_get("expires_at")?,
-                    appeal_status: row.try_get("appeal_status")?,
                 })
             } else {
                 None
