@@ -152,14 +152,20 @@ async fn postgres_publication_translation_and_full_text() -> TestResult {
             .map_err(|_| "world search failed")?
             .is_empty()
     );
-    sqlx::raw_sql("INSERT INTO pages(id,slug) VALUES (uuidv7(),'dragon-page'); INSERT INTO editorial_pages(page_id,locale,title,body,published_at) SELECT id,'en','Dragon page','page body',now() FROM pages").execute(&db.pool).await?;
+    sqlx::query(
+        "WITH fixture AS (INSERT INTO pages(id,slug) VALUES (uuidv7(),'dragon-page') RETURNING id)
+         INSERT INTO editorial_pages(page_id,locale,title,body,published_at)
+         SELECT id,'en','Dragon page','page body',now() FROM fixture",
+    )
+    .execute(&db.pool)
+    .await?;
     sqlx::raw_sql("INSERT INTO events(id,status,starts_at,ends_at,created_by,updated_by,published_by) VALUES ('00000000-0000-0000-0000-000000000048','published',now(),now()+interval '1 hour',uuidv7(),uuidv7(),uuidv7()); INSERT INTO event_translations(event_id,locale,title,slug,summary,body) VALUES ('00000000-0000-0000-0000-000000000048','en','Dragon event','dragon-event','summary','body')").execute(&db.pool).await?;
     sqlx::raw_sql("INSERT INTO wiki_guides(id,status,published_at) VALUES ('00000000-0000-0000-0000-000000000048','published',now()); INSERT INTO wiki_revisions(id,guide_id,version,locale,title,slug,summary,markdown,editor,change_note) VALUES (uuidv7(),'00000000-0000-0000-0000-000000000048',1,'en','Dragon guide','dragon-guide','summary','body',uuidv7(),'created')").execute(&db.pool).await?;
     assert_eq!(
         editorial(&db.pool, "en", &filters("dragon")).await?.len(),
         4
     );
-    sqlx::raw_sql("UPDATE events SET status='archived'; UPDATE editorial_pages SET published_at=NULL; UPDATE wiki_guides SET status='archived',published_at=NULL").execute(&db.pool).await?;
+    sqlx::raw_sql("UPDATE events SET status='archived'; UPDATE editorial_pages SET published_at=NULL WHERE page_id=(SELECT id FROM pages WHERE slug='dragon-page'); UPDATE wiki_guides SET status='archived',published_at=NULL").execute(&db.pool).await?;
     assert_eq!(
         editorial(&db.pool, "en", &filters("dragon")).await?.len(),
         1
@@ -481,7 +487,14 @@ async fn postgres_reserved_page_destinations() -> TestResult {
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
-    sqlx::raw_sql("INSERT INTO pages(id,slug) VALUES(uuidv7(),'support'),(uuidv7(),'getting-started'); INSERT INTO editorial_pages(page_id,locale,title,body,published_at) SELECT id,'en','Dragon help','help body',now() FROM pages").execute(&db.pool).await?;
+    let edits = sqlx::query(
+        "UPDATE editorial_pages e SET title='Dragon help',body='help body',published_at=now()
+         FROM pages p WHERE e.page_id=p.id AND e.locale='en'
+           AND p.slug IN ('support','getting-started')",
+    )
+    .execute(&db.pool)
+    .await?;
+    assert_eq!(edits.rows_affected(), 2);
     let hits = editorial(&db.pool, "en", &filters("dragon")).await?;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].href, "/en/support");
