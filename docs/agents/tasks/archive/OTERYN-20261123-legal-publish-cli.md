@@ -113,6 +113,6 @@ next_action: none; delivered by PR #2051 and archived
 
 ```yaml
 source_branch_disposition: auto_delete_after_merge
-source_branch_reason: Branch requested for owner review under issue 2002.
-source_branch_evidence: pending
+source_branch_reason: ordinary same-repository feature branch with no retention purpose after merge
+source_branch_evidence: same-repository PR #2051 from this branch; delete_branch_on_merge is true; confirm the ref is absent after merge
 ```
