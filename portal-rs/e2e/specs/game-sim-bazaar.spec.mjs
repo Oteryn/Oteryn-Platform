@@ -64,7 +64,7 @@ test('staff suspension persists and removes an active listing from player views'
   const lot=await listing(seller,viewer,lang);
   await viewer.page.goto(lot.url);
   expect((await post(viewer.page,`/admin/${lang}/bazaar`,{action:'suspend',listing:lot.id,reason:'Synthetic moderation evidence'})).status(),'ordinary player cannot moderate').toBe(403);
-  await staff.page.goto(`/admin/${lang}/bazaar`);
+  expect((await staff.page.goto(`/admin/${lang}/bazaar`)).status()).toBe(200);
   await submit(staff.page,'main form:has([name=action][value=suspend])',{listing:lot.id,reason:'Synthetic moderation evidence'});
   await expect(staff.page,'successful moderation returns to queue').toHaveURL(new RegExp(`/admin/${lang}/bazaar$`));
   const db=pool();try{

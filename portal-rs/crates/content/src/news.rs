@@ -1,7 +1,7 @@
 //! News storage and public and staff routes.
 use axum::{
     Extension, Form, Router,
-    extract::{Path, Query, State},
+    extract::{OriginalUri, Path, Query, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
     routing::{get, post},
@@ -70,20 +70,23 @@ struct Options {
     page: Option<i64>,
 }
 impl Options {
-    fn lang(&self) -> &str {
-        if self.lang.as_deref() == Some("en") {
-            "en"
-        } else {
-            "pl"
+    fn lang(&self, headers: &axum::http::HeaderMap) -> &str {
+        match self.lang.as_deref() {
+            Some("en") => "en",
+            Some(_) => "pl",
+            None => oteryn_ui::preferred_language(headers),
         }
     }
-    fn offset(&self, size: i64) -> Result<i64, StatusCode> {
-        let n = self.page.unwrap_or(1);
-        if !(1..=MAX_PAGE).contains(&n) {
-            Err(StatusCode::UNPROCESSABLE_ENTITY)
+    fn staff_lang(&self, headers: &axum::http::HeaderMap) -> &str {
+        if self.lang.is_some() {
+            self.lang(headers)
         } else {
-            Ok((n - 1) * size)
+            crate::staff_language(headers)
         }
+    }
+    fn offset(&self, size: i64) -> Option<i64> {
+        let n = self.page.unwrap_or(1);
+        (1..=MAX_PAGE).contains(&n).then(|| (n - 1) * size)
     }
 }
 #[derive(Debug, Default, Deserialize)]
@@ -163,16 +166,24 @@ fn language(lang: &str) -> Result<(), StatusCode> {
 async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    listing(&pool, q.lang(), &q).await
+    OriginalUri(uri): OriginalUri,
+    headers: axum::http::HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let lang = oteryn_web::document_language(&uri, &headers).code();
+    let html = listing(&pool, lang, &q).await?;
+    Ok((
+        [(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())],
+        html,
+    ))
 }
 async fn local_index(
     State(pool): State<PgPool>,
     Path(lang): Path<String>,
     Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     language(&lang)?;
-    listing(&pool, &lang, &q).await
+    let html = listing(&pool, &lang, &q).await?;
+    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang)], html))
 }
 /// Newest published entries for the home page, under the same language rule
 /// as the public listing. The excerpt is plain text; templates escape it.
@@ -218,7 +229,8 @@ fn excerpt(body: &str, limit: usize) -> String {
     format!("{}…", cut.trim_end_matches([',', '.', ';', ':', '-', '–']))
 }
 async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>, StatusCode> {
-    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(q.offset(10)?).fetch_all(pool).await.map_err(unavailable)?;
+    let offset = q.offset(10).ok_or(StatusCode::BAD_REQUEST)?;
+    let rows=sqlx::query("SELECT slug,CASE WHEN $1='pl' THEN title_pl ELSE title END AS title FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) ORDER BY published_at DESC,id DESC LIMIT 11 OFFSET $2").bind(lang).bind(offset).fetch_all(pool).await.map_err(unavailable)?;
     let mut html = String::new();
     let has_next = rows.len() > 10 && q.page.unwrap_or(1) < MAX_PAGE;
     if rows.is_empty() {
@@ -243,16 +255,24 @@ async fn listing(pool: &PgPool, lang: &str, q: &Options) -> Result<Html<String>,
 async fn show(
     State(pool): State<PgPool>,
     Path(slug): Path<String>,
-    Query(q): Query<Options>,
-) -> Result<Html<String>, StatusCode> {
-    article(&pool, q.lang(), &slug).await
+    Query(_): Query<Options>,
+    OriginalUri(uri): OriginalUri,
+    headers: axum::http::HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let lang = oteryn_web::document_language(&uri, &headers).code();
+    let html = article(&pool, lang, &slug).await?;
+    Ok((
+        [(axum::http::header::CONTENT_LANGUAGE, lang.to_owned())],
+        html,
+    ))
 }
 async fn local_show(
     State(pool): State<PgPool>,
     Path((lang, slug)): Path<(String, String)>,
-) -> Result<Html<String>, StatusCode> {
+) -> Result<impl IntoResponse, StatusCode> {
     language(&lang)?;
-    article(&pool, &lang, &slug).await
+    let html = article(&pool, &lang, &slug).await?;
+    Ok(([(axum::http::header::CONTENT_LANGUAGE, lang)], html))
 }
 async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, StatusCode> {
     if !slug_valid(slug) {
@@ -271,16 +291,17 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
 async fn admin_index(
     State(pool): State<PgPool>,
     Extension(_): Extension<CheckContext>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     let rows = sqlx::query(
         "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
-    .bind(q.offset(25)?)
+    .bind(q.offset(25).ok_or(StatusCode::UNPROCESSABLE_ENTITY)?)
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.lang();
+    let lang = q.staff_lang(&headers);
     let mut html = format!(
         "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
         label(lang, "new")
@@ -305,10 +326,11 @@ async fn admin_index(
 async fn new(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
-        q.lang(),
+        q.staff_lang(&headers),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -319,11 +341,12 @@ async fn edit(
     Extension(_): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
+    headers: axum::http::HeaderMap,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
     let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     Ok(form(
-        q.lang(),
+        q.staff_lang(&headers),
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),
@@ -488,6 +511,11 @@ async fn save(
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
+    let after = sqlx::query_scalar("SELECT to_jsonb(news) FROM news WHERE id=$1")
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(storage)?;
     audit::append(
         &mut tx,
         Entry {
@@ -498,7 +526,7 @@ async fn save(
             action,
             target: &id.to_string(),
             before,
-            after: json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at}),
+            after,
         },
     )
     .await

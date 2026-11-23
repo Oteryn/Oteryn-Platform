@@ -51,6 +51,12 @@ impl Database {
             include_str!("../../../../migrations/20261105190100_t19_native_admissions.sql"),
             include_str!("../../../../migrations/20261105220235_t34_sanctions.sql"),
             include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
+            include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
+            include_str!("../../../../migrations/20261105220236_t34b_appeals.sql"),
+            include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
+            include_str!("../../../../migrations/20261115100001_support_enforcement_commands.sql"),
+            include_str!("../../../../migrations/20261122170100_support_enforcement_decisions.sql"),
+            include_str!("../../../../migrations/20261122170600_enforcement_expiry_block.sql"),
             include_str!("../../../../migrations/20261105144852_t02_web_sessions.sql"),
             include_str!("../../../../migrations/20261105220221_t08_sessions.sql"),
             include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
@@ -664,7 +670,7 @@ async fn db_unknown_sanction_state_and_unavailable_storage_never_authorize() -> 
         .execute(&db.pool)
         .await?;
     assert!(matches!(db.ticket().await, Err(Error::Denied)));
-    sqlx::raw_sql("DROP TABLE sanctions")
+    sqlx::raw_sql("ALTER TABLE sanctions RENAME TO unavailable_sanctions")
         .execute(&db.pool)
         .await?;
     assert!(matches!(db.ticket().await, Err(Error::Storage(_))));

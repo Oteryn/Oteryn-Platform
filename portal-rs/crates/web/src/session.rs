@@ -163,13 +163,13 @@ impl BrowserSession {
             .map(|r| r.csrf.clone())
             .ok_or(sqlx::Error::RowNotFound)
     }
-    pub(crate) async fn existing_csrf_token(&self) -> Option<String> {
+    pub(crate) async fn csrf_proof(&self) -> Option<(String, [u8; 32])> {
         self.inner
             .lock()
             .await
             .record
             .as_ref()
-            .map(|r| r.csrf.clone())
+            .map(|r| (r.csrf.clone(), Sha256::digest(r.id.as_bytes()).into()))
     }
     pub async fn account_id(&self) -> Option<Uuid> {
         self.inner
@@ -256,25 +256,44 @@ pub struct CommittedRotation {
 pub async fn rotate_in_transaction(
     session: &BrowserSession,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    until: OffsetDateTime,
+    until: impl Into<Option<OffsetDateTime>>,
 ) -> Result<CommittedRotation, sqlx::Error> {
     let inner = session.inner.lock().await;
     let record = inner.record.as_ref().ok_or(sqlx::Error::RowNotFound)?;
     let account = record.account_id.ok_or(sqlx::Error::RowNotFound)?;
+    reissue_in_transaction(tx, account, &hash(&record.id), until.into()).await
+}
+
+/// Reissue a locked authenticated session and retain its validated session data.
+/// A missing sudo deadline clears prior step-up authority.
+pub async fn reissue_in_transaction(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    account: Uuid,
+    previous_hash: &[u8],
+    sudo_until: Option<OffsetDateTime>,
+) -> Result<CommittedRotation, sqlx::Error> {
     let id = random_token()?;
     let csrf = random_token()?;
-    let changed = sqlx::query("UPDATE web_sessions SET id_hash=$2,csrf_token=$3,sudo_until=$4,updated_at=clock_timestamp() WHERE id_hash=$1 AND account_id=$5 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp()")
-        .bind(hash(&record.id)).bind(hash(&id)).bind(&csrf).bind(until).bind(account).execute(&mut **tx).await?;
-    if changed.rows_affected() != 1 {
-        return Err(sqlx::Error::RowNotFound);
-    }
+    let session_id = sqlx::query_scalar(
+        "UPDATE web_sessions SET id_hash=$2,csrf_token=$3,sudo_until=$4,updated_at=clock_timestamp()
+         WHERE id_hash=$1 AND account_id=$5 AND idle_expires_at>clock_timestamp()
+         AND absolute_expires_at>clock_timestamp() RETURNING session_id",
+    )
+    .bind(previous_hash)
+    .bind(hash(&id))
+    .bind(&csrf)
+    .bind(sudo_until)
+    .bind(account)
+    .fetch_one(&mut **tx)
+    .await?;
     Ok(CommittedRotation {
-        session_id: record.session_id,
+        session_id,
         id,
         csrf,
         account: Some(account),
     })
 }
+
 pub async fn apply_rotation(session: &BrowserSession, rotation: CommittedRotation) {
     let mut inner = session.inner.lock().await;
     inner.cookie = Some(cookie(&rotation.id));
@@ -296,15 +315,18 @@ impl BrowserSession {
             .map(|record| hash(&record.id))
     }
 }
+/// Clear request-local identity after the caller has durably revoked its session.
+pub async fn clear_revoked_session(session: &BrowserSession) {
+    let mut inner = session.inner.lock().await;
+    expire_cookie(&mut inner);
+}
+
 pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result<(), sqlx::Error> {
     let mut inner = session.inner.lock().await;
     if matches!(change, PrivilegeChange::Logout) {
         let previous = inner.record.as_ref().map(|record| record.session_id);
-        // Withhold any newly rotated identity even when durable deletion is unavailable.
-        inner.record = None;
-        inner.cookie = Some(format!(
-            "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
-        ));
+        // Withhold the identity even when durable deletion is unavailable.
+        expire_cookie(&mut inner);
         if let Some(previous) = previous {
             sqlx::query("DELETE FROM web_sessions WHERE session_id=$1")
                 .bind(previous)
@@ -369,6 +391,13 @@ pub async fn rotate(session: &BrowserSession, change: PrivilegeChange) -> Result
     });
     Ok(())
 }
+fn expire_cookie(inner: &mut Inner) {
+    inner.record = None;
+    inner.cookie = Some(format!(
+        "{COOKIE_NAME}=; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+    ));
+}
+
 fn cookie(id: &str) -> String {
     format!("{COOKIE_NAME}={id}; Secure; HttpOnly; SameSite=Lax; Path=/")
 }
@@ -400,11 +429,16 @@ pub async fn middleware(
         .get::<crate::csrf::CsrfConfig>()
         .cloned()
         .unwrap_or_else(|| layer.csrf.clone());
-    // The login router knows both deployment origins. Bind logout to the
-    // configured origin matching this host, including the dedicated staff host.
+    // Logout and password confirmation are available on the staff host.
+    // Use the configured origin matching the request host for those routes.
     if matches!(
         request.uri().path(),
-        "/logout" | "/en/logout" | "/pl/logout"
+        "/logout"
+            | "/en/logout"
+            | "/pl/logout"
+            | "/account/sudo"
+            | "/en/account/sudo"
+            | "/pl/account/sudo"
     ) {
         let mut hosts = request.headers().get_all(header::HOST).iter();
         if let Some(host) = hosts.next().and_then(|value| value.to_str().ok())
@@ -430,10 +464,32 @@ pub async fn middleware(
         csrf,
         pool: layer.pool,
     };
+    let bounded_read = request
+        .extensions()
+        .get::<crate::BoundedBrowserRead>()
+        .is_some();
     match run(&layer, &mut request).await {
         Ok(session) => {
             request.extensions_mut().insert(session.clone());
             if let Err(status) = crate::csrf::verify(&layer.csrf, &session, &mut request).await {
+                if status == StatusCode::FORBIDDEN
+                    && request
+                        .extensions()
+                        .get::<crate::csrf::LocalizedRefusal>()
+                        .is_some()
+                {
+                    let lang = crate::surface::request_language(&request).code();
+                    let fallback = oteryn_ui::Registry::default().chrome(
+                        lang,
+                        request.uri().path(),
+                        oteryn_ui::Account::Anonymous,
+                    );
+                    let chrome = request
+                        .extensions()
+                        .get::<oteryn_ui::Chrome>()
+                        .unwrap_or(&fallback);
+                    return oteryn_ui::error(chrome, status);
+                }
                 return status.into_response();
             }
             let mut response = next.run(request).await;
@@ -447,6 +503,7 @@ pub async fn middleware(
         Err(sqlx::Error::Protocol(message)) if message == "invalid session cookie" => {
             StatusCode::BAD_REQUEST.into_response()
         }
+        Err(_) if bounded_read => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -474,7 +531,13 @@ async fn run(layer: &SessionLayer, request: &mut Request) -> Result<BrowserSessi
         )
         .bind(hash(id))
         .bind(f64::from(layer.config.idle_seconds))
-        .fetch_optional(&layer.pool)
+        .fetch_for_browser(
+            layer,
+            request
+                .extensions()
+                .get::<crate::BoundedBrowserRead>()
+                .copied(),
+        )
         .await?;
         if let Some((session_id, csrf, account_id)) = row {
             session.inner.lock().await.record = Some(Record {
@@ -502,6 +565,38 @@ fn cookie_id(headers: &HeaderMap) -> Result<Option<&str>, sqlx::Error> {
         return Err(sqlx::Error::Protocol("invalid session cookie".into()));
     }
     Ok(id)
+}
+
+/// Load an existing signed-in session for a preflight check without extending
+/// its expiry or setting a cookie. The normal request guard still runs later.
+pub async fn signed_in_session(
+    layer: &SessionLayer,
+    connection: &mut sqlx::PgConnection,
+    headers: &axum::http::HeaderMap,
+) -> Result<Option<BrowserSession>, sqlx::Error> {
+    let Some(id) = cookie_id(headers)? else {
+        return Ok(None);
+    };
+    let row: Option<(Uuid, String, Uuid)> = sqlx::query_as(
+        "SELECT s.session_id, s.csrf_token, s.account_id FROM web_sessions s
+         JOIN accounts a ON a.id=s.account_id AND a.native_security_generation=s.authorization_generation
+         WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp()
+         AND s.absolute_expires_at>clock_timestamp()",
+    )
+    .bind(hash(id))
+    .fetch_optional(connection)
+    .await?;
+    let Some((session_id, csrf, account_id)) = row else {
+        return Ok(None);
+    };
+    let session = BrowserSession::new(layer.pool.clone(), layer.config, None, "");
+    session.inner.lock().await.record = Some(Record {
+        session_id,
+        csrf,
+        id: id.into(),
+        account_id: Some(account_id),
+    });
+    Ok(Some(session))
 }
 
 /// Existing authenticated session data for a read-only page.
@@ -564,9 +659,9 @@ pub async fn read_only_middleware(
 pub(crate) async fn chrome_account(
     layer: &SessionLayer,
     request: &mut Request,
-) -> oteryn_ui::Account {
+) -> (oteryn_ui::Account, Option<Uuid>) {
     let Ok(Some(session)) = read_signed_in(layer, request).await else {
-        return oteryn_ui::Account::Anonymous;
+        return (oteryn_ui::Account::Anonymous, None);
     };
     let policy: Result<Option<(String, bool, bool)>, _> = sqlx::query_as(
         "SELECT status, email_verified_at IS NOT NULL, COALESCE(login_mfa_required, true)
@@ -580,10 +675,13 @@ pub(crate) async fn chrome_account(
         Ok(Some((status, verified, mfa_required)))
             if oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
     );
-    oteryn_ui::Account::SignedIn {
-        csrf: session.csrf,
-        passkeys_eligible,
-    }
+    (
+        oteryn_ui::Account::SignedIn {
+            csrf: session.csrf,
+            passkeys_eligible,
+        },
+        Some(session.account_id),
+    )
 }
 
 /// Bounded cleanup batches can be called repeatedly by the worker.
@@ -615,5 +713,78 @@ impl oteryn_db::outbox::Cleanup for SessionCleanup {
 impl std::fmt::Debug for CommittedRotation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CommittedRotation([redacted])")
+    }
+}
+
+/// Load presentation state for an admitted landing request in one bounded query.
+pub(crate) async fn bounded_chrome_account(
+    layer: &SessionLayer,
+    request: &mut Request,
+    deadline: crate::BoundedBrowserRead,
+) -> Result<(oteryn_ui::Account, Option<Uuid>), sqlx::Error> {
+    let config = request
+        .extensions()
+        .get::<SessionConfig>()
+        .copied()
+        .unwrap_or(layer.config);
+    let Ok(Some(id)) = cookie_id(request.headers()) else {
+        return Ok((oteryn_ui::Account::Anonymous, None));
+    };
+    if config.validate().is_err() {
+        return Ok((oteryn_ui::Account::Anonymous, None));
+    }
+    let row = crate::bounded_browser_query(&layer.pool, deadline, async |connection| {
+        sqlx::query_as::<_, (Uuid, String, Option<String>, bool, bool)>(
+            "SELECT s.account_id, s.csrf_token, a.status, a.email_verified_at IS NOT NULL,
+                    COALESCE(a.login_mfa_required, true)
+             FROM web_sessions s LEFT JOIN accounts a ON a.id=s.account_id
+             WHERE s.id_hash=$1 AND s.account_id IS NOT NULL
+               AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()",
+        )
+        .bind(hash(id))
+        .fetch_optional(connection)
+        .await
+    })
+    .await?;
+    Ok(match row {
+        Some((account, csrf, status, verified, mfa_required)) => (
+            oteryn_ui::Account::SignedIn {
+                csrf,
+                passkeys_eligible: status.is_some_and(|status| {
+                    oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required)
+                }),
+            },
+            Some(account),
+        ),
+        None => (oteryn_ui::Account::Anonymous, None),
+    })
+}
+
+type SessionRow = (Uuid, String, Option<Uuid>);
+
+trait FetchSession {
+    async fn fetch_for_browser(
+        self,
+        layer: &SessionLayer,
+        deadline: Option<crate::BoundedBrowserRead>,
+    ) -> Result<Option<SessionRow>, sqlx::Error>;
+}
+
+impl FetchSession
+    for sqlx::query::QueryAs<'_, sqlx::Postgres, SessionRow, sqlx::postgres::PgArguments>
+{
+    async fn fetch_for_browser(
+        self,
+        layer: &SessionLayer,
+        deadline: Option<crate::BoundedBrowserRead>,
+    ) -> Result<Option<SessionRow>, sqlx::Error> {
+        if let Some(deadline) = deadline {
+            crate::bounded_browser_query(&layer.pool, deadline, async |connection| {
+                self.fetch_optional(connection).await
+            })
+            .await
+        } else {
+            self.fetch_optional(&layer.pool).await
+        }
     }
 }

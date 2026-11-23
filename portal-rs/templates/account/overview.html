@@ -14,21 +14,27 @@
 <section class="op-stack" aria-labelledby="characters">
 <h2 id="characters">{{ characters_label }}</h2>
 <p role="status">{{ state }}</p>
+{% if let Some(notice) = roster_notice %}<p>{{ notice }}</p>{% endif %}
+{% if create %}<a class="op-button op-button--secondary" href="/{{ lang }}/account/characters/new">{{ self.label("shell-create-character") }}</a>{% endif %}
 <ul class="op-stack">
 {% for character in characters %}
 <li class="op-panel op-stack">
-<a class="op-button op-button--secondary" href="/characters/{{ character.0 }}">{{ character.1 }}</a>
-{% if character.4 %}<span data-main-character>{{ main_label }}</span>{% endif %}
-<a href="/{{ lang }}/account/characters/{{ character.0 }}/profile">{{ preferences_label }}</a>
+<a class="op-button op-button--secondary" href="/{{ lang }}/characters/{{ character.segment }}">{{ character.name }}</a>
+{% if character.main %}<span data-main-character>{{ main_label }}</span>{% endif %}
+<a href="/{{ lang }}/account/characters/{{ character.segment }}/profile">{{ preferences_label }}</a>
+{% if outfit %}<a href="/{{ lang }}/account/characters/{{ character.segment }}/outfit">{{ self.label("panel-characters-outfit") }}</a>{% endif %}
 <dl>
-<dt>{{ availability }}</dt><dd>{{ character.3 }}</dd>
-<dt>{{ world }}</dt><dd>{{ character.2 }}</dd>
-<dt>{{ level }}</dt><dd>{{ unavailable }}</dd>
-<dt>{{ profession }}</dt><dd>{{ unavailable }}</dd>
+<dt>{{ availability }}</dt><dd>{{ character.availability }}</dd>
+<dt>{{ world }}</dt><dd>{{ character.world }}</dd>
+<dt>{{ level }}</dt><dd>{{ character.level }}</dd>
+<dt>{{ profession }}</dt><dd>{{ character.profession }}</dd>
 </dl>
 </li>
 {% endfor %}
 </ul>
+<h3>{{ self.label("panel-characters-services") }}</h3>
+<p>{{ self.label("panel-characters-updated") }} <span>{{ updated }}</span></p>
+<dl>{% for action in lifecycle %}<dt>{{ action }}</dt><dd>{{ unavailable }}</dd>{% endfor %}</dl>
 </section>
 <nav aria-label="{{ shortcuts }}"><ul class="op-row">
 <li><a class="op-button op-button--secondary" href="/account/security">{{ security }}</a></li>

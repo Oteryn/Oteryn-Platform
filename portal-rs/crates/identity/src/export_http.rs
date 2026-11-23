@@ -1,13 +1,15 @@
 //! Browser adapter for personal-data exports.
-use crate::export::{ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until};
+use crate::export::{
+    ExportConfig, PRODUCER_DEADLINE, export_account, needs_password_confirmation,
+    stream_download_until,
+};
 use askama::Template;
 use axum::{
     Extension, Router,
     extract::{ConnectInfo, State},
     http::{HeaderMap, StatusCode, header},
     middleware,
-    response::{IntoResponse, Response},
-    routing::get,
+    response::{IntoResponse, Redirect, Response},
 };
 use oteryn_web::{
     Language,
@@ -21,6 +23,7 @@ use std::net::SocketAddr;
 struct ExportState {
     pool: PgPool,
     config: ExportConfig,
+    password_confirmation: bool,
     limiter: RateLimiter,
 }
 
@@ -58,7 +61,20 @@ async fn confirmation(
 ) -> Response {
     let session = session_cookie(&headers).unwrap_or_default();
     let result = async {
-        export_account(&state.pool, &state.config, session).await?;
+        match export_account(&state.pool, &state.config, session).await {
+            Ok(_) => {}
+            Err(StatusCode::FORBIDDEN)
+                if state.password_confirmation
+                    && needs_password_confirmation(&state.pool, &state.config, session).await? =>
+            {
+                return Ok(Redirect::to(&format!(
+                    "/{}/account/sudo?return_to=export",
+                    language.code(),
+                ))
+                .into_response());
+            }
+            Err(status) => return Err(status),
+        }
         let csrf = browser
             .csrf_token()
             .await
@@ -145,7 +161,21 @@ fn private_response(mut response: Response) -> Response {
     response
 }
 
-pub(super) fn router(pool: PgPool, config: ExportConfig) -> Router {
+pub(super) fn configured_router(
+    pool: PgPool,
+    config: ExportConfig,
+    password_confirmation: bool,
+) -> Router {
+    if !password_confirmation {
+        return Router::new();
+    }
+    router(pool, config, password_confirmation)
+}
+
+pub(super) fn router(pool: PgPool, config: ExportConfig, password_confirmation: bool) -> Router {
+    if !config.enabled {
+        return Router::new();
+    }
     let mut sessions = SessionLayer::new(pool.clone());
     if let Ok(origin) = std::env::var("OTERYN_PUBLIC_ORIGIN") {
         sessions.csrf.trusted_origins.push(origin);
@@ -153,13 +183,13 @@ pub(super) fn router(pool: PgPool, config: ExportConfig) -> Router {
     Router::new()
         .route(
             "/pl/account/privacy/export",
-            get(confirmation)
+            oteryn_web::html::get(confirmation)
                 .post(handler)
                 .layer(Extension(Language::Pl)),
         )
         .route(
             "/en/account/privacy/export",
-            get(confirmation)
+            oteryn_web::html::get(confirmation)
                 .post(handler)
                 .layer(Extension(Language::En)),
         )
@@ -171,5 +201,6 @@ pub(super) fn router(pool: PgPool, config: ExportConfig) -> Router {
             limiter: RateLimiter::new(pool.clone()),
             pool,
             config,
+            password_confirmation,
         })
 }

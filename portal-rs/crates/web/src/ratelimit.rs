@@ -54,6 +54,11 @@ macro_rules! policies {
 }
 policies! {
     PublicGameData, "public-game-data", 120, 60, Source;
+    StaffInviteManageAccount, "staff-invite-manage-account", 12, 60, Account;
+    StaffInviteAcceptAccount, "staff-invite-accept-account", 12, 60, Account;
+    StaffInviteManage, "staff-invite-manage", 12, 60, AccountSource;
+    StaffInviteLink, "staff-invite-link", 60, 60, Source;
+    StaffInviteAccept, "staff-invite-accept", 12, 60, AccountSource;
     IdentityRegistration, "identity-registration", 5, 60, Source;
     IdentityLogin, "identity-login", 5, 60, EmailSource;
     IdentityLoginSource, "identity-login-source", 20, 60, Source;
@@ -153,7 +158,7 @@ impl Keys {
         }
         if !matches!(
             policy.scope(),
-            Scope::Account | Scope::Pending | Scope::Credential
+            Scope::Pending | Scope::Credential | Scope::Account
         ) {
             part(&mut digest, &self.source.to_string());
         }
@@ -541,6 +546,32 @@ pub async fn supply(
         request.extensions_mut().insert(default);
     }
     next.run(request).await
+}
+
+impl RateLimiter {
+    /// Charge a League browser request within its existing admission deadline.
+    pub async fn check_public_game_data(
+        &self,
+        key: Keys,
+        deadline: crate::BoundedBrowserRead,
+    ) -> Result<(), Denial> {
+        if !self.configuration_valid {
+            return Err(Denial::Unavailable);
+        }
+        let policy = NamedPolicy::PublicGameData;
+        let hash = key.hash(policy)?;
+        let (count, retry_after) =
+            crate::bounded_browser_query(&self.pool, deadline, async |connection| {
+                charge(connection, policy, hash, None).await
+            })
+            .await
+            .map_err(|_| self.unavailable(policy))?;
+        if count > policy.limit() {
+            Err(Denial::Limited { retry_after })
+        } else {
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]

@@ -21,6 +21,9 @@ pub struct Flags {
 pub enum Error {
     Denied,
     BadInput,
+    Conflict,
+    Terminal(uuid::Uuid, super::QueryStatus),
+    SanctionsUnavailable,
     Unavailable,
 }
 impl IntoResponse for Error {
@@ -28,7 +31,10 @@ impl IntoResponse for Error {
         match self {
             Self::Denied => StatusCode::FORBIDDEN,
             Self::BadInput => StatusCode::BAD_REQUEST,
-            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Conflict => StatusCode::CONFLICT,
+            Self::Unavailable | Self::SanctionsUnavailable | Self::Terminal(..) => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
         }
         .into_response()
     }
@@ -109,6 +115,15 @@ pub trait Backend: Clone + Send + Sync + 'static {
         input: &super::players::Input,
         operation: &'static str,
     ) -> impl Future<Output = Result<Option<super::players::Snapshot>, Error>> + Send;
+    fn retry_player_query(
+        &self,
+        _: CheckContext,
+        _: &super::players::Input,
+        _: &'static str,
+        _: uuid::Uuid,
+    ) -> impl Future<Output = Result<(), Error>> + Send {
+        async { Err(Error::Denied) }
+    }
     fn ledger(
         &self,
         actor: CheckContext,
@@ -168,6 +183,7 @@ pub struct StoredMetadata<A> {
     auth: crate::rbac::Authorizer<A>,
     store: crate::control::Store,
     channel: Option<super::StoredChannel>,
+    character_projection: oteryn_characters::lcfa::Projection,
     session: Option<oteryn_web::session::BrowserSession>,
 }
 impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
@@ -185,44 +201,24 @@ impl<A: crate::rbac::AccountStateReader> StoredMetadata<A> {
                     deploy: false,
                 },
             ),
+            character_projection: oteryn_characters::lcfa::Projection::new(
+                pool.clone(),
+                oteryn_characters::overview::configured_projection(),
+                Arc::new(oteryn_characters::overview::Accounts(pool.clone())),
+            ),
             store: crate::control::Store::new(pool, config),
             channel: None,
             session: None,
         }
     }
 }
-impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMetadata<A> {
-    fn for_session(&self, session: oteryn_web::session::BrowserSession) -> Self {
-        let mut backend = self.clone();
-        backend.session = Some(session);
-        backend
-    }
-    async fn permitted(&self, actor: CheckContext, permission: &'static str) -> bool {
-        let Ok(permission) = permission.parse::<Permission>() else {
-            return false;
-        };
-        self.auth.check(actor, permission).await.is_ok()
-    }
-    async fn advertised(&self, operation: &str) -> bool {
-        let Ok(agents) = self.store.agents().await else {
-            return false;
-        };
-        // Without a target-specific query adapter, multiple live owners are ambiguous.
-        let mut live = agents.into_iter().filter(|a| a.connected);
-        let Some(agent) = live.next() else {
-            return false;
-        };
-        live.next().is_none()
-            && agent
-                .advertised_operations
-                .iter()
-                .any(|op| op.operation == operation && op.operation_version == 1)
-    }
-    async fn players(
+impl<A: crate::rbac::AccountStateReader + Clone + 'static> StoredMetadata<A> {
+    async fn player_query(
         &self,
         actor: CheckContext,
         input: &super::players::Input,
         operation: &'static str,
+        retry: Option<uuid::Uuid>,
     ) -> Result<Option<super::players::Snapshot>, Error> {
         input.validate()?;
         match operation {
@@ -250,7 +246,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some((request_id, observed_at, value)) = channel
             .snapshot(
                 actor,
-                self.session.as_ref(),
+                super::stored::SnapshotAdmission {
+                    session: self.session.as_ref(),
+                    retry,
+                },
                 operation,
                 permission,
                 input.character.as_deref(),
@@ -260,13 +259,68 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         else {
             return Ok(None);
         };
-        Ok(Some(super::projection::snapshot(
+        let snapshot = super::projection::snapshot(
             operation,
             request_id,
             observed_at,
+            input.character.as_deref(),
             &value,
-        )?))
+        )?;
+        if operation == "sanction.list" {
+            super::projection::verify_sanction_account(
+                &self.character_projection,
+                input.character.as_deref().ok_or(Error::BadInput)?,
+                &snapshot.observed_at,
+                &value,
+            )
+            .await?;
+        }
+        Ok(Some(snapshot))
     }
+}
+impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMetadata<A> {
+    fn for_session(&self, session: oteryn_web::session::BrowserSession) -> Self {
+        let mut backend = self.clone();
+        backend.session = Some(session);
+        backend
+    }
+    async fn permitted(&self, actor: CheckContext, permission: &'static str) -> bool {
+        let Ok(permission) = permission.parse::<Permission>() else {
+            return false;
+        };
+        self.auth.check(actor, permission).await.is_ok()
+    }
+    async fn advertised(&self, operation: &str) -> bool {
+        let Ok(mut conn) = self.pool.acquire().await else {
+            return false;
+        };
+        self.store
+            .sole_live_query_agent(&mut conn, operation)
+            .await
+            .is_ok_and(|agent| agent.is_some())
+    }
+
+    async fn players(
+        &self,
+        actor: CheckContext,
+        input: &super::players::Input,
+        operation: &'static str,
+    ) -> Result<Option<super::players::Snapshot>, Error> {
+        self.player_query(actor, input, operation, None).await
+    }
+
+    async fn retry_player_query(
+        &self,
+        actor: CheckContext,
+        input: &super::players::Input,
+        operation: &'static str,
+        request: uuid::Uuid,
+    ) -> Result<(), Error> {
+        self.player_query(actor, input, operation, Some(request))
+            .await?;
+        Ok(())
+    }
+
     async fn ledger(
         &self,
         actor: CheckContext,
@@ -282,7 +336,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some((query_id, _, value)) = channel
             .snapshot(
                 actor,
-                self.session.as_ref(),
+                super::stored::SnapshotAdmission {
+                    session: self.session.as_ref(),
+                    retry: None,
+                },
                 "admin.ledger.query",
                 "game.audit.read",
                 None,
@@ -340,7 +397,10 @@ impl<A: crate::rbac::AccountStateReader + Clone + 'static> Backend for StoredMet
         let Some((_, _, value)) = channel
             .snapshot(
                 actor,
-                self.session.as_ref(),
+                super::stored::SnapshotAdmission {
+                    session: self.session.as_ref(),
+                    retry: None,
+                },
                 "admin.policy.get",
                 "game.ops.read",
                 None,
@@ -438,10 +498,15 @@ where
         ),
     ] {
         let page = match area {
-            "players" => Router::new().route(
-                path,
-                get(super::players::page::<B>).post(super::players::search::<B>),
-            ),
+            "players" => Router::new()
+                .route(
+                    path,
+                    get(super::players::page::<B>).post(super::players::search::<B>),
+                )
+                .route(
+                    "/admin/console/players/retry",
+                    axum::routing::post(super::players::retry::<B>),
+                ),
             "audit" => Router::new().route(path, get(super::audit::page::<B>)),
             "approvals" => Router::new().route(path, get(super::approvals::page::<B>)),
             _ => Router::new().route(path, get(page::<B>)),
@@ -466,15 +531,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
     if !flags.console {
         return Ok(Router::new());
     }
-    let panel = crate::web::PanelConfig {
-        admin_panel: std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|v| v == "true"),
-        host: std::env::var("OTERYN_ADMIN_HOST").unwrap_or_default(),
-    };
-    if panel.admin_panel
-        && (panel.host.is_empty() || panel.host.parse::<axum::http::uri::Authority>().is_err())
-    {
-        return Err("invalid admin host".into());
-    }
+    let panel = crate::web::config_from_env()?;
     let backend = StoredMetadata::new(
         pool.clone(),
         flags,
@@ -503,6 +560,16 @@ pub(crate) fn language(value: Option<&str>) -> Result<&'static str, Error> {
         _ => Err(Error::BadInput),
     }
 }
+pub(super) fn request_language(
+    value: Option<&str>,
+    headers: &axum::http::HeaderMap,
+) -> Result<&'static str, Error> {
+    match value {
+        Some(value) => language(Some(value)),
+        None => Ok(oteryn_web::negotiate(headers).code()),
+    }
+}
+
 pub(crate) fn tr(lang: &str, key: &str) -> String {
     let locale = if lang == "en" { "en" } else { "pl" };
     let Ok(id) = locale.parse::<unic_langid::LanguageIdentifier>() else {
@@ -534,13 +601,18 @@ pub(crate) struct Page {
     pub title: String,
     pub source: String,
     pub sections: Vec<Section>,
+    pub audit_diff: Option<super::audit::DiffLabels>,
     pub players: String,
     pub audit: String,
     pub access: String,
     pub approvals: String,
+    pub invitations: Option<String>,
     pub search: bool,
     pub csrf: String,
     pub filters: bool,
+    pub retries: Vec<super::players::Retry>,
+    pub retry_csrf: String,
+    pub retry_label: String,
     pub submit: String,
     pub query_label: String,
     pub character_label: String,
@@ -552,7 +624,13 @@ pub(crate) struct Page {
 #[derive(Debug)]
 pub(crate) struct Section {
     pub title: String,
-    pub lines: Vec<String>,
+    pub lines: Vec<SectionLine>,
+}
+
+#[derive(Debug)]
+pub(crate) struct SectionLine {
+    pub text: String,
+    pub changes: Vec<super::audit::Change>,
 }
 impl Page {
     pub fn new(lang: &'static str, title: &str) -> Self {
@@ -561,13 +639,18 @@ impl Page {
             title: tr(lang, title),
             source: tr(lang, "source"),
             sections: vec![],
+            audit_diff: None,
             players: tr(lang, "players"),
             audit: tr(lang, "audit"),
             access: tr(lang, "access"),
             approvals: tr(lang, "approvals"),
+            invitations: None,
             search: false,
             csrf: String::new(),
             filters: false,
+            retries: vec![],
+            retry_csrf: String::new(),
+            retry_label: tr(lang, "retry-query"),
             submit: tr(lang, "submit"),
             query_label: tr(lang, "query"),
             character_label: tr(lang, "character"),
@@ -578,22 +661,49 @@ impl Page {
         }
     }
     pub fn section(&mut self, title: &str, lines: Option<Vec<String>>) {
+        let lines = lines.map(|lines| {
+            lines
+                .into_iter()
+                .map(|text| SectionLine {
+                    text,
+                    changes: vec![],
+                })
+                .collect()
+        });
+        self.section_with_lines(title, lines);
+    }
+    pub fn section_with_lines(&mut self, title: &str, lines: Option<Vec<SectionLine>>) {
         self.sections.push(Section {
             title: tr(self.lang, title),
             lines: match lines {
-                None => vec![tr(self.lang, "unavailable")],
-                Some(lines) if lines.is_empty() => vec![tr(self.lang, "empty")],
-                Some(lines) => lines,
+                Some(lines) if !lines.is_empty() => lines,
+                other => vec![SectionLine {
+                    text: tr(
+                        self.lang,
+                        if other.is_none() {
+                            "unavailable"
+                        } else {
+                            "empty"
+                        },
+                    ),
+                    changes: vec![],
+                }],
             },
         });
     }
     pub fn response(self) -> Result<Response, Error> {
+        // Native forms must keep their same-origin Origin header for CSRF checks.
+        let referrer = if (self.search && !self.csrf.is_empty()) || !self.retries.is_empty() {
+            "same-origin"
+        } else {
+            "no-referrer"
+        };
         let html = self.render().map_err(|_| Error::Unavailable)?;
         Ok((
             [
                 (header::CONTENT_TYPE, "text/html; charset=utf-8"),
                 (header::CACHE_CONTROL, "no-store"),
-                (header::REFERRER_POLICY, "no-referrer"),
+                (header::REFERRER_POLICY, referrer),
             ],
             html,
         )
@@ -608,10 +718,11 @@ pub(crate) async fn page<B: Backend>(
     Query(input): Query<Locale>,
 ) -> Result<Response, Error> {
     state.check(actor, "admin.roles.manage").await?;
-    let lang = language(input.lang.as_deref())?;
+    let lang = request_language(input.lang.as_deref(), &headers)?;
     let roles: Vec<(String,String)> = sqlx::query_as("SELECT r.key, COALESCE(rp.permission,'') FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id ORDER BY r.key, rp.permission LIMIT 1000").fetch_all(&state.pool).await?;
     let metadata = state.backend.access().await?;
     let mut page = Page::new(lang, "access");
+    page.invitations = Some(crate::web::text(lang, "invite-title"));
     page.section(
         "roles",
         Some(

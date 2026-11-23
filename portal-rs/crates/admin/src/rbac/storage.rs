@@ -1,6 +1,7 @@
 use super::{AccountState, AccountStateReader, Authorizer, CheckContext, Error, Permission};
 use crate::audit::{self, AuditContext, Entry};
 use serde_json::{Value, json};
+use sqlx::PgConnection;
 use uuid::Uuid;
 
 /// Changes require `admin.roles.manage`. Business workflows must additionally enforce
@@ -55,7 +56,8 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, false).await
+        self.change_impl(context, request_id, change, false, true, "role_maintenance")
+            .await
     }
 
     /// Browser role edits cannot bypass privileged-grant approval or alter the
@@ -66,7 +68,53 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
     ) -> Result<Option<Uuid>, Error> {
-        self.change_impl(context, request_id, change, true).await
+        self.change_from_panel_with_reason(
+            context,
+            request_id,
+            change,
+            crate::staff_actions::ROLE_REASON,
+            false,
+        )
+        .await
+    }
+
+    pub(crate) async fn change_from_panel_with_reason(
+        &self,
+        context: CheckContext,
+        request_id: Uuid,
+        change: Change<'_>,
+        reason: &'static str,
+        grant_confirmation: bool,
+    ) -> Result<Option<Uuid>, Error> {
+        self.change_impl(
+            context,
+            request_id,
+            change,
+            true,
+            grant_confirmation,
+            reason,
+        )
+        .await
+    }
+
+    /// Grant an ordinary role under the staff-action transaction's existing locks.
+    pub(crate) async fn grant_from_staff_action(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        context: CheckContext,
+        account: Uuid,
+        role: Uuid,
+    ) -> Result<bool, Error> {
+        self.check_in(connection, context, Permission::ManageRoles)
+            .await?;
+        ensure_panel_role_grant(connection, role).await?;
+        if !grant_membership(connection, &self.accounts, context.account, account, role).await? {
+            return Ok(false);
+        }
+        Change::Grant { account, role }
+            .revoke_browser_credentials(connection, context)
+            .await?;
+        Ok(true)
     }
 
     async fn change_impl(
@@ -75,6 +123,8 @@ impl<A: AccountStateReader> Authorizer<A> {
         request_id: Uuid,
         change: Change<'_>,
         panel: bool,
+        grant_confirmation: bool,
+        reason: &'static str,
     ) -> Result<Option<Uuid>, Error> {
         if request_id.is_nil() {
             return Err(Error::InvalidInput);
@@ -112,25 +162,34 @@ impl<A: AccountStateReader> Authorizer<A> {
                 _ => None,
             };
             if let Some(role) = protected_role {
-                let protected: bool = sqlx::query_scalar(
-                    "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=$1 AND (r.key IN ('owner','platform_admin') OR EXISTS(SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission='admin.roles.manage')))",
-                ).bind(role).fetch_one(&mut *tx).await?;
-                if protected {
+                ensure_panel_role_grant(&mut tx, role).await?;
+            }
+            match &change {
+                Change::CreateRole { permissions, .. }
+                    if permissions.contains(&Permission::GrantRoles) && !grant_confirmation =>
+                {
                     return Err(Error::Denied);
                 }
+                Change::Grant { role, .. } => {
+                    let delegates_grants: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM role_permissions WHERE role_id=$1 AND permission=$2)",
+                    ).bind(role).bind(Permission::GrantRoles.as_str()).fetch_one(&mut *tx).await?;
+                    if delegates_grants {
+                        return Err(Error::Denied);
+                    }
+                }
+                _ => {}
             }
         }
+        let mut require_recent = false;
         let (action, target, before, after, result) = match change {
             Change::CreateRole { key, permissions } => {
-                validate_key(key)?;
-                validate_permissions(permissions)?;
-                restrict_analytics(key, false, permissions)?;
-                let role: Uuid =
-                    sqlx::query_scalar("INSERT INTO roles (key) VALUES ($1) RETURNING id")
-                        .bind(key)
-                        .fetch_one(&mut *tx)
+                if panel && permissions.contains(&Permission::GrantRoles) {
+                    self.check_in(&mut tx, context, Permission::GrantRoles)
                         .await?;
-                write_permissions(&mut tx, role, permissions).await?;
+                    require_recent = true;
+                }
+                let role = create_role::<A>(&mut tx, context.account, key, permissions).await?;
                 (
                     "rbac.role.created",
                     role.to_string(),
@@ -140,32 +199,15 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
             Change::SetPermissions { role, permissions } => {
-                validate_permissions(permissions)?;
-                require_role(&mut tx, role).await?;
-                let (key, built_in): (String, bool) =
-                    sqlx::query_as("SELECT key,built_in FROM roles WHERE id=$1")
-                        .bind(role)
-                        .fetch_one(&mut *tx)
-                        .await?;
-                restrict_analytics(&key, built_in, permissions)?;
-                let before: Vec<String> = sqlx::query_scalar(
-                    "SELECT permission FROM role_permissions WHERE role_id = $1 ORDER BY permission")
-                    .bind(role).fetch_all(&mut *tx).await?;
-                let after = permission_ids(permissions);
-                // Nobody widens a role they hold themselves; narrowing stays allowed.
-                if after.iter().any(|p| !before.iter().any(|b| b == p)) {
-                    let held: bool = sqlx::query_scalar(
-                        "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
-                    )
-                    .bind(context.account)
-                    .bind(role)
-                    .fetch_one(&mut *tx)
-                    .await?;
-                    if held {
-                        return Err(Error::Denied);
-                    }
-                }
-                if before == after {
+                let Some((before, escalates_grant)) = set_role_permissions::<A>(
+                    &mut tx,
+                    context,
+                    role,
+                    permissions,
+                    grant_confirmation,
+                )
+                .await?
+                else {
                     self.check_in(&mut tx, context, Permission::ManageRoles)
                         .await?;
                     if panel {
@@ -173,16 +215,13 @@ impl<A: AccountStateReader> Authorizer<A> {
                     }
                     tx.commit().await?;
                     return Ok(None);
+                };
+                if escalates_grant {
+                    self.check_in(&mut tx, context, Permission::GrantRoles)
+                        .await?;
                 }
-                sqlx::query("DELETE FROM role_permissions WHERE role_id = $1")
-                    .bind(role)
-                    .execute(&mut *tx)
-                    .await?;
-                write_permissions(&mut tx, role, permissions).await?;
-                sqlx::query("UPDATE roles SET updated_at = now() WHERE id = $1")
-                    .bind(role)
-                    .execute(&mut *tx)
-                    .await?;
+                require_recent = escalates_grant;
+                let after = permission_ids(permissions);
                 (
                     "rbac.role.permissions_changed",
                     role.to_string(),
@@ -195,30 +234,17 @@ impl<A: AccountStateReader> Authorizer<A> {
                 if account.is_nil() {
                     return Err(Error::InvalidInput);
                 }
-                require_role(&mut tx, role).await?;
                 let grant = matches!(change, Change::Grant { .. });
-                // Nobody grants a role to themselves; another manager must.
-                if grant && account == context.account {
-                    return Err(Error::Denied);
-                }
-                // Revocation must remain possible even for a disabled or deleted account.
-                if grant
-                    && !matches!(
-                        self.accounts.state_in(&mut tx, account).await,
-                        Ok(AccountState::Active)
-                    )
-                {
-                    return Err(Error::Denied);
-                }
-                if !grant
-                    && !oteryn_db::protected_role_survives(&mut tx, account, Some(role)).await?
-                {
-                    return Err(Error::Denied);
-                }
                 let affected = if grant {
-                    sqlx::query("INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-                        .bind(account).bind(role).execute(&mut *tx).await?.rows_affected()
+                    u64::from(
+                        grant_membership(&mut tx, &self.accounts, context.account, account, role)
+                            .await?,
+                    )
                 } else {
+                    require_role(&mut tx, role).await?;
+                    if !oteryn_db::protected_role_survives(&mut tx, account, Some(role)).await? {
+                        return Err(Error::Denied);
+                    }
                     sqlx::query("DELETE FROM account_roles WHERE account_id = $1 AND role_id = $2")
                         .bind(account)
                         .bind(role)
@@ -248,7 +274,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 )
             }
         };
-        audit::append(
+        audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
@@ -260,6 +286,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 before,
                 after,
             },
+            Some(reason),
         )
         .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
@@ -267,10 +294,126 @@ impl<A: AccountStateReader> Authorizer<A> {
         if panel {
             self.check_in(&mut tx, context, Permission::Access).await?;
         }
+        if require_recent {
+            self.check_in(&mut tx, context, Permission::GrantRoles)
+                .await?;
+            if !crate::staff_actions::recent_password_in(&mut tx, context).await? {
+                return Err(Error::Denied);
+            }
+        }
         change.revoke_browser_credentials(&mut tx, context).await?;
         tx.commit().await?;
         Ok(Some(result))
     }
+}
+
+// SQL predicate on a roles row aliased as r. Keep invitation reads and RBAC
+// mutations on the same definition of a protected grant.
+macro_rules! protected_role_sql {
+    () => { "(r.key IN ('owner','platform_admin') OR EXISTS(
+    SELECT 1 FROM role_permissions rp WHERE rp.role_id=r.id AND rp.permission IN ('admin.roles.manage','admin.roles.grant')
+))" };
+}
+pub(crate) use protected_role_sql;
+
+pub(crate) async fn requires_grant_approval(
+    connection: &mut sqlx::PgConnection,
+    roles: &[Uuid],
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(concat!(
+        "SELECT EXISTS(SELECT 1 FROM roles r WHERE r.id=ANY($1) AND ",
+        protected_role_sql!(),
+        ")"
+    ))
+    .bind(roles)
+    .fetch_one(connection)
+    .await
+}
+
+async fn create_role<A: AccountStateReader>(
+    connection: &mut PgConnection,
+    actor: Uuid,
+    key: &str,
+    permissions: &[Permission],
+) -> Result<Uuid, Error> {
+    validate_key(key)?;
+    validate_permissions(permissions)?;
+    for &permission in permissions {
+        Authorizer::<A>::check_permission(connection, actor, permission).await?;
+    }
+    restrict_analytics(key, false, permissions)?;
+    let role: Uuid = sqlx::query_scalar("INSERT INTO roles (key) VALUES ($1) RETURNING id")
+        .bind(key)
+        .fetch_one(&mut *connection)
+        .await?;
+    write_permissions(connection, role, permissions).await?;
+    Ok(role)
+}
+
+/// Call with the role-writer fence held. Widening an assigned role confers
+/// permissions on its holders, so it requires the same controls as a grant.
+async fn set_role_permissions<A: AccountStateReader>(
+    connection: &mut PgConnection,
+    actor: CheckContext,
+    role: Uuid,
+    permissions: &[Permission],
+    may_grant_permissions: bool,
+) -> Result<Option<(Vec<String>, bool)>, Error> {
+    validate_permissions(permissions)?;
+    require_role(connection, role).await?;
+    let (key, built_in): (String, bool) =
+        sqlx::query_as("SELECT key,built_in FROM roles WHERE id=$1")
+            .bind(role)
+            .fetch_one(&mut *connection)
+            .await?;
+    restrict_analytics(&key, built_in, permissions)?;
+    let before: Vec<String> = sqlx::query_scalar(
+        "SELECT permission FROM role_permissions WHERE role_id = $1 ORDER BY permission",
+    )
+    .bind(role)
+    .fetch_all(&mut *connection)
+    .await?;
+    let after = permission_ids(permissions);
+    if before == after {
+        return Ok(None);
+    }
+    let mut changes_grants = false;
+    let mut adds_grant_permission = false;
+    for &permission in permissions {
+        if !before
+            .iter()
+            .any(|existing| existing == permission.as_str())
+        {
+            Authorizer::<A>::check_permission(connection, actor.account, permission).await?;
+            changes_grants = true;
+            adds_grant_permission |= permission == Permission::GrantRoles;
+        }
+    }
+    let mut escalates_grant = adds_grant_permission;
+    if changes_grants {
+        let (assigned, held): (bool, bool) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1),
+                    EXISTS(SELECT 1 FROM account_roles WHERE role_id=$1 AND account_id=$2)",
+        )
+        .bind(role)
+        .bind(actor.account)
+        .fetch_one(&mut *connection)
+        .await?;
+        escalates_grant |= assigned;
+        if held || (!may_grant_permissions && escalates_grant) {
+            return Err(Error::Denied);
+        }
+    }
+    sqlx::query("DELETE FROM role_permissions WHERE role_id = $1")
+        .bind(role)
+        .execute(&mut *connection)
+        .await?;
+    write_permissions(connection, role, permissions).await?;
+    sqlx::query("UPDATE roles SET updated_at = now() WHERE id = $1")
+        .bind(role)
+        .execute(connection)
+        .await?;
+    Ok(Some((before, escalates_grant)))
 }
 
 fn validate_key(key: &str) -> Result<(), Error> {
@@ -301,16 +444,13 @@ fn permission_ids(permissions: &[Permission]) -> Vec<&'static str> {
     ids
 }
 
-async fn require_role(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    role: Uuid,
-) -> Result<(), Error> {
+async fn require_role(connection: &mut sqlx::PgConnection, role: Uuid) -> Result<(), Error> {
     if role.is_nil() {
         return Err(Error::InvalidInput);
     }
     let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM roles WHERE id = $1)")
         .bind(role)
-        .fetch_one(&mut **tx)
+        .fetch_one(connection)
         .await?;
     if !exists {
         return Err(Error::RoleNotFound);
@@ -319,7 +459,7 @@ async fn require_role(
 }
 
 async fn write_permissions(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    connection: &mut PgConnection,
     role: Uuid,
     permissions: &[Permission],
 ) -> Result<(), Error> {
@@ -327,7 +467,7 @@ async fn write_permissions(
         sqlx::query("INSERT INTO role_permissions (role_id, permission) VALUES ($1, $2)")
             .bind(role)
             .bind(permission.as_str())
-            .execute(&mut **tx)
+            .execute(&mut *connection)
             .await?;
     }
     Ok(())
@@ -345,4 +485,63 @@ fn restrict_analytics(key: &str, built_in: bool, permissions: &[Permission]) -> 
         return Err(Error::Denied);
     }
     Ok(())
+}
+
+/// Restricted roles remain subject to the existing four-eyes workflow.
+async fn ensure_panel_role_grant(
+    connection: &mut sqlx::PgConnection,
+    role: Uuid,
+) -> Result<(), Error> {
+    if requires_grant_approval(connection, &[role]).await? {
+        Err(Error::Denied)
+    } else {
+        Ok(())
+    }
+}
+
+async fn grant_membership<A: AccountStateReader>(
+    connection: &mut sqlx::PgConnection,
+    accounts: &A,
+    actor: Uuid,
+    account: Uuid,
+    role: Uuid,
+) -> Result<bool, Error> {
+    require_role(connection, role).await?;
+    // A different manager must make the grant, and the recipient must be active.
+    if account == actor
+        || !matches!(
+            accounts.state_in(connection, account).await,
+            Ok(AccountState::Active)
+        )
+    {
+        return Err(Error::Denied);
+    }
+    let permissions: Vec<String> =
+        sqlx::query_scalar("SELECT permission FROM role_permissions WHERE role_id=$1")
+            .bind(role)
+            .fetch_all(&mut *connection)
+            .await?;
+    for permission in permissions {
+        let permission = permission.parse().map_err(|_| Error::Denied)?;
+        Authorizer::<A>::check_permission(connection, actor, permission).await?;
+    }
+    let result = sqlx::query(
+        "INSERT INTO account_roles (account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(account)
+    .bind(role)
+    .execute(connection)
+    .await
+    .map_err(|error| {
+        if error
+            .as_database_error()
+            .and_then(|error| error.constraint())
+            == Some("role_grant_assisted_email_reversible")
+        {
+            Error::Denied
+        } else {
+            error.into()
+        }
+    })?;
+    Ok(result.rows_affected() == 1)
 }

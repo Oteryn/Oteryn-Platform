@@ -1,4 +1,4 @@
-title = Support i moderacja
+title = Pomoc i moderacja
 next = Następna strona
 internal = Wewnętrzna notatka zespołu
 public = Wiadomość publiczna
@@ -35,3 +35,49 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
+tickets-title = Kolejka spraw pomocy
+reports-title = Zgłoszenia graczy
+sanctions-title = Kary platformy
+previous = Poprzednia strona
+filter = Filtruj sprawy
+all = Wszystkie
+account = Konto
+character = Postać
+technical = Techniczne
+payment = Płatność
+other = Inne
+assigned-to = Osoba przypisana
+unassigned = Nie przypisano
+assign_ticket = Przypisz sprawę
+assignee = UUID konta członka zespołu (pozostaw puste, aby przypisać do siebie)
+reason = Powód decyzji (do 500 znaków)
+private-reason = Prywatny powód decyzji
+link_sanction = Powiąż karę platformy
+verify_report_target = Zweryfikuj zgłoszone konto
+verified-target = Zweryfikowane zgłoszone konto
+report-target-account = UUID zweryfikowanego konta platformy
+linked-sanction = Powiązana kara platformy
+sanction-id = UUID kary platformy
+apply_sanction = Nałóż karę platformy
+revoke_sanction = Cofnij karę platformy
+revocation-reason = Publiczny powód cofnięcia kary
+duration_hours = Czas trwania w godzinach (1–8760)
+error-conflict = Rekord się zmienił lub ta czynność jest już niedostępna. Odśwież stronę i spróbuj ponownie.
+error-queue-query = Sprawdź numer strony i filtry spraw.
+error-invalid = Sprawdź przesłane dane i podaj powód.
+error-not-found = Nie znaleziono rekordu pomocy.
+error-denied = Nie masz uprawnień do wykonania tej czynności.
+error-unavailable = Pomoc jest chwilowo niedostępna.
+report-evidence = Dowody w zgłoszeniu
+escalate-report = Przekaż do weryfikacji
+dismiss-report = Odrzuć zgłoszenie
+
+tickets = Zgłoszenia pomocy
+
+moderator_reason = Prywatne uzasadnienie
+
+
+enforcement-profile = Sankcja postaci
+platform-decision = Decyzja Platformy
+game-request = Ostatnie żądanie do gry
+game-confirmed = Ostatni potwierdzony stan w grze

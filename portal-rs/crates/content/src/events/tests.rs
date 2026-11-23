@@ -213,11 +213,19 @@ async fn postgres_publication_versions_validation_and_refusals() {
         .unwrap();
     assert_eq!(events.public("en", Some("event")).await.unwrap().len(), 1);
     assert!(events.public("pl", Some("event")).await.unwrap().is_empty());
+    assert_eq!(
+        events.public_destination("event", "pl").await.unwrap(),
+        Some(("en".into(), "event".into()))
+    );
     events
         .transition(&auth, c, id, 3, "archived", "Editorial test change")
         .await
         .unwrap();
     assert!(events.public("en", None).await.unwrap().is_empty());
+    assert_eq!(
+        events.public_destination("event", "pl").await.unwrap(),
+        None
+    );
     events
         .transition(&auth, c, id, 4, "published", "Editorial test change")
         .await

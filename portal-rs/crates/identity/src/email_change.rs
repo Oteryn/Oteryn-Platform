@@ -84,7 +84,7 @@ impl Security for TransactionalSecurity {
 /// Cancels every unapplied email change. Password reset and recovery call this
 /// with the account row locked, so a confirmation link issued before the owner
 /// recovered the account cannot install the requested address afterwards.
-pub(crate) async fn cancel_pending(
+pub async fn cancel_pending(
     conn: &mut PgConnection,
     account: AccountId,
 ) -> Result<(), sqlx::Error> {
@@ -155,6 +155,8 @@ struct Change {
     old_email: String,
     new_email: String,
     confirmed_at: Option<OffsetDateTime>,
+    initiated_by_staff: bool,
+    owner_approved_at: Option<OffsetDateTime>,
     applied_at: Option<OffsetDateTime>,
     cancelled_at: Option<OffsetDateTime>,
     reverted_at: Option<OffsetDateTime>,
@@ -224,12 +226,27 @@ impl Service {
         {
             return Ok(Outcome::Refused);
         }
+        // Carry staff provenance only when the authenticated owner explicitly
+        // requests the same address with their password and independent proof.
+        let assisted: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_email_changes
+                WHERE account_id=$1 AND kind='primary' AND old_email=$2 AND new_email=$3
+                  AND initiated_by_staff AND applied_at IS NULL AND cancelled_at IS NULL
+                  AND reverted_at IS NULL AND expires_at>clock_timestamp())",
+        )
+        .bind(account)
+        .bind(&old)
+        .bind(&new)
+        .fetch_one(&mut *tx)
+        .await?;
+        let assisted = assisted && !input.backup;
+        let immediate = !assisted && (input.recovery || input.backup);
         sqlx::query("UPDATE account_email_changes SET cancelled_at=now(),updated_at=now() WHERE account_id=$1 AND kind=$2 AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL").bind(account).bind(kind).execute(&mut *tx).await?;
         let confirmation = random_token()?;
         let revert = random_token()?;
         let id = Uuid::now_v7();
-        sqlx::query("INSERT INTO account_email_changes(id,account_id,kind,old_email,new_email,confirmation_hash,revert_hash,immediate,apply_after,expires_at,revert_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+CASE WHEN $8 THEN interval '0' ELSE interval '7 days' END,now()+interval '8 days',now()+interval '30 days')")
-            .bind(id).bind(account).bind(kind).bind(&old).bind(&new).bind(token_hash(&confirmation)).bind(token_hash(&revert)).bind(input.recovery || input.backup).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO account_email_changes(id,account_id,kind,old_email,new_email,confirmation_hash,revert_hash,immediate,apply_after,expires_at,revert_until,initiated_by_staff,owner_approved_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+CASE WHEN $8 THEN interval '0' ELSE interval '7 days' END,now()+interval '8 days',now()+interval '30 days',$9,CASE WHEN $9 THEN now() END)")
+            .bind(id).bind(account).bind(kind).bind(&old).bind(&new).bind(token_hash(&confirmation)).bind(token_hash(&revert)).bind(immediate).bind(assisted).execute(&mut *tx).await?;
         mail::enqueue(
             &mut tx,
             id,
@@ -304,7 +321,8 @@ impl Service {
                 Outcome::Reverted
             }
         } else {
-            if change.confirmed_at.is_some()
+            if (change.initiated_by_staff && change.owner_approved_at.is_none())
+                || change.confirmed_at.is_some()
                 || change.applied_at.is_some()
                 || change.expires_at <= now
                 || current != change.old_email
@@ -360,6 +378,19 @@ impl Service {
         if !live {
             return Ok(false);
         }
+        if c.initiated_by_staff {
+            // Both direct confirmation and the worker use this final check.
+            // The role membership trigger serializes on the same account row.
+            let has_role: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1)",
+            )
+            .bind(c.account_id)
+            .fetch_one(&mut **tx)
+            .await?;
+            if has_role || (!revert && c.owner_approved_at.is_none()) {
+                return Ok(false);
+            }
+        }
         if !available(tx, c.account_id, email).await?
             || !self.security.revoke(tx, c.account_id).await?
         {
@@ -393,7 +424,7 @@ impl Service {
         if !self.ready() {
             return Ok(0);
         }
-        let ids: Vec<(Uuid,Uuid,String)> = sqlx::query_as("SELECT c.id,c.account_id,c.new_email FROM account_email_changes c JOIN accounts a ON a.id=c.account_id WHERE a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() AND a.email=c.old_email AND kind='primary' AND confirmed_at IS NOT NULL AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,c.id LIMIT 100").fetch_all(&self.pool).await?;
+        let ids: Vec<(Uuid,Uuid,String)> = sqlx::query_as("SELECT c.id,c.account_id,c.new_email FROM account_email_changes c JOIN accounts a ON a.id=c.account_id WHERE a.status='active' AND a.email_verified_at IS NOT NULL AND a.email_change_blocked_until<=clock_timestamp() AND a.email=c.old_email AND kind='primary' AND confirmed_at IS NOT NULL AND (NOT initiated_by_staff OR owner_approved_at IS NOT NULL) AND applied_at IS NULL AND cancelled_at IS NULL AND reverted_at IS NULL AND apply_after<=clock_timestamp() AND expires_at>clock_timestamp() ORDER BY next_attempt_at,apply_after,c.id LIMIT 100").fetch_all(&self.pool).await?;
         let mut count = 0;
         for (id, account, address) in ids {
             let mut tx = self.pool.begin().await?;
@@ -416,6 +447,7 @@ impl Service {
                 .await?;
             if current.as_deref() != Some(&c.old_email)
                 || c.confirmed_at.is_none()
+                || (c.initiated_by_staff && c.owner_approved_at.is_none())
                 || c.applied_at.is_some()
                 || c.cancelled_at.is_some()
                 || c.reverted_at.is_some()

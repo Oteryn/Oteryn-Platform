@@ -33,6 +33,11 @@ pub enum Error {
     Conflict,
     Unavailable,
 }
+impl From<oteryn_characters::ownership::Unavailable> for Error {
+    fn from(_: oteryn_characters::ownership::Unavailable) -> Self {
+        Self::Unavailable
+    }
+}
 impl From<sqlx::Error> for Error {
     fn from(_: sqlx::Error) -> Self {
         Self::Unavailable

@@ -234,8 +234,10 @@ pub fn router(pool: PgPool) -> Router {
 async fn index(
     State(pool): State<PgPool>,
     Query(q): Query<Options>,
+    headers: axum::http::HeaderMap,
 ) -> Result<Response, StatusCode> {
-    digest(&pool, language(q.lang.as_deref().unwrap_or("pl"))?).await
+    let fallback = oteryn_ui::preferred_language(&headers);
+    digest(&pool, language(q.lang.as_deref().unwrap_or(fallback))?).await
 }
 async fn local(
     State(pool): State<PgPool>,

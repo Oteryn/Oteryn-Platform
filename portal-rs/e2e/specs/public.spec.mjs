@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures.mjs';
+import { seedPasswordRange } from '../helpers.mjs';
 import {isHome} from '../shell.mjs';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -11,8 +12,10 @@ function consoleError(message, errors, diagnostics) {
   errors.push(message.text());
 }
 
-test('all public header and footer links: shell, links, keyboard, accessibility and mobile', async ({ page: homePage }, info) => {
-  test.setTimeout(240_000); // Every HTML refusal receives the full accessibility and link sweep.
+const publicLinkGroups = 4;
+
+async function sweepPublicLinks(homePage, info, group) {
+  await seedPasswordRange();
   const page = homePage;
   const lang = info.project.metadata.locale;
   const errors = [];
@@ -21,7 +24,10 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
   page.on('console', message => consoleError(message, errors, diagnostics));
   const home = await page.goto(`/${lang}/`);
   expect(home.status()).toBe(200);
-  const links = await page.locator('header a[href], footer a[href]').evaluateAll(nodes => [...new Set(nodes.map(n => n.getAttribute('href')))]);
+  const allLinks = await page.locator('header a[href], footer a[href]').evaluateAll(
+    nodes => [...new Set(nodes.map(node => node.getAttribute('href')))],
+  );
+  const links = allLinks.filter((_, index) => index % publicLinkGroups === group);
   const failures = [];
   for (const href of links) {
     if (!href.startsWith('/') || href.startsWith('//')) continue;
@@ -65,7 +71,14 @@ test('all public header and footer links: shell, links, keyboard, accessibility 
   await info.attach('public-findings', { body: JSON.stringify({ links, failures, errors, expectedRefusalDiagnostics:diagnostics }, null, 2), contentType: 'application/json' });
   expect(failures).toEqual([]);
   expect(errors).toEqual([]);
-});
+}
+
+for (let group = 0; group < publicLinkGroups; group += 1) {
+  test(`public header and footer links: shell, keyboard, accessibility and mobile (group ${group + 1})`, async ({ page }, info) => {
+    test.setTimeout(240_000);
+    await sweepPublicLinks(page, info, group);
+  });
+}
 
 test('Thais homepage opens the world menu and selects a profession', async ({page}, info) => {
   const lang = info.project.metadata.locale;

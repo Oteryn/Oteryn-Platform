@@ -1,20 +1,26 @@
 //! Staff surface. Authentication adapters are trusted server configuration, never request data.
+use crate::staff_actions;
 use crate::{
     audit::{self, AuditContext, Entry},
     rbac::{
         AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, Change,
         CheckContext, Error, Permission,
     },
+    support::{
+        Area,
+        web::{REPORTS_FLAG, REPORTS_PATH},
+    },
 };
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Query, Request, State},
+    extract::{Query, Request, State, rejection::FormRejection},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
+use oteryn_ui::panels::{self, Panel as PanelKind};
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
 use serde_json::json;
@@ -130,15 +136,25 @@ pub struct PanelConfig {
     pub host: String,
 }
 impl PanelConfig {
+    fn landing_url(&self) -> Option<String> {
+        self.admin_panel
+            .then(|| format!("{}/admin", self.csrf_origin()))
+    }
+
     pub(crate) fn csrf_origin(&self) -> String {
-        format!("https://{}", self.host.to_ascii_lowercase())
+        format!(
+            "https://{}",
+            oteryn_web::staff_host::canonical_authority(&self.host).unwrap_or_default()
+        )
     }
 }
 
 struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
-    required: Option<Permission>,
+    required: Option<Vec<Permission>>,
+    reports_enabled: bool,
+    grant_confirmation: bool,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -152,22 +168,35 @@ pub(crate) fn config_from(
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<PanelConfig, Box<dyn std::error::Error>> {
     let enabled = lookup("OTERYN_ADMIN_PANEL").is_some_and(|v| v == "true");
-    let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
-    if enabled && (host.is_empty() || host.parse::<axum::http::uri::Authority>().is_err()) {
-        return Err("invalid admin host".into());
-    }
+    let host = if enabled {
+        let host = lookup("OTERYN_ADMIN_HOST").unwrap_or_default();
+        oteryn_web::staff_host::canonical_authority(&host).ok_or("invalid admin host")?
+    } else {
+        String::new()
+    };
     Ok(PanelConfig {
         admin_panel: enabled,
         host,
     })
 }
 
-pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+/// Register the dashboard destination from the same host and flag as the panel.
+pub fn configured_dashboard_host() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    let config = config_from_env()?;
+    Ok(config.admin_panel.then_some(config.host))
+}
+
+pub fn configured_router(
+    pool: PgPool,
+    grant_confirmation: bool,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(router_with_reports(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
+        std::env::var(REPORTS_FLAG).is_ok_and(|value| value == "true"),
+        grant_confirmation,
     ))
 }
 
@@ -188,14 +217,175 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
+    configured_guard_any_from(routes, pool, &[permission], lookup)
+}
+
+pub(crate) fn configured_guard_any_from(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded_any(
         routes,
         pool.clone(),
         config_from(lookup)?,
         PortalIdentity::configured_from(pool.clone(), lookup),
         PortalIdentity::configured_from(pool, lookup),
-        permission,
+        permissions,
     ))
+}
+
+/// Check the staff identity and permissions before an upload body is read.
+#[derive(Clone)]
+pub struct StaffPreflight {
+    state: Arc<Panel<PortalIdentity, PortalIdentity>>,
+    sessions: SessionLayer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UploadPreflight {
+    Short,
+    Long,
+    Denied,
+}
+
+#[derive(Debug)]
+pub enum StaffGuardError {
+    Status(StatusCode),
+    Login,
+    Mfa(&'static str),
+}
+
+impl From<StatusCode> for StaffGuardError {
+    fn from(status: StatusCode) -> Self {
+        Self::Status(status)
+    }
+}
+
+impl IntoResponse for StaffGuardError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::Status(status) => status.into_response(),
+            Self::Login => Redirect::to("/login").into_response(),
+            Self::Mfa(lang) => mfa_refusal(lang),
+        }
+    }
+}
+
+impl std::fmt::Debug for StaffPreflight {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StaffPreflight").finish_non_exhaustive()
+    }
+}
+
+pub fn configured_staff_preflight_from(
+    pool: PgPool,
+    permission: Permission,
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<StaffPreflight, Box<dyn std::error::Error>> {
+    let config = config_from(lookup)?;
+    let mut sessions = SessionLayer::new(pool.clone());
+    sessions.csrf.trusted_origins = vec![config.csrf_origin()];
+    let identity = PortalIdentity::configured_from(pool.clone(), lookup);
+    let state = Arc::new(Panel {
+        config,
+        required: Some(vec![permission]),
+        reports_enabled: false,
+        grant_confirmation: false,
+        auth: Arc::new(Authorizer::new(pool.clone(), identity.clone())),
+        identity,
+        pool,
+    });
+    Ok(StaffPreflight { state, sessions })
+}
+
+impl StaffPreflight {
+    pub fn wrap(&self, routes: Router) -> Router {
+        guard_routes(routes, self.sessions.clone(), self.state.clone())
+    }
+
+    /// A matching Origin and a live authorized staff session qualify for a
+    /// longer body deadline. The full guard still checks CSRF after the read.
+    pub async fn upload_body_access(
+        &self,
+        headers: &axum::http::HeaderMap,
+        path: &str,
+        locale: Option<oteryn_web::Language>,
+    ) -> Result<UploadPreflight, StaffGuardError> {
+        oteryn_web::csrf::verify_origin(headers, &self.sessions.csrf.trusted_origins)?;
+        if !headers.contains_key(header::ORIGIN) || !headers.contains_key(header::COOKIE) {
+            return Ok(UploadPreflight::Short);
+        }
+        let mut tx = self.state.pool.begin().await.map_err(preflight_error)?;
+        // Let PostgreSQL finish or cancel its work before the HTTP preflight
+        // deadline. These limits stay on this transaction when the pool reuses it.
+        sqlx::raw_sql("SET TRANSACTION READ ONLY; SET LOCAL lock_timeout='1s'; SET LOCAL statement_timeout='2s'")
+            .execute(&mut *tx)
+            .await
+            .map_err(preflight_error)?;
+        let session = oteryn_web::session::signed_in_session(&self.sessions, &mut tx, headers)
+            .await
+            .map_err(preflight_error)?;
+        let Some(session) = session else {
+            return Ok(UploadPreflight::Short);
+        };
+        let Some(account) = session.account_id().await else {
+            return Ok(UploadPreflight::Short);
+        };
+        let lang = locale.map_or_else(|| language(headers), oteryn_web::Language::code);
+        let grant = session
+            .get_in(&mut tx, mfa_grant_key())
+            .await
+            .map_err(preflight_error)?;
+        let Some(proof) = session_proof(&session, grant).await else {
+            return Err(StaffGuardError::Mfa(lang));
+        };
+        if self.state.identity.mfa.is_none()
+            || !crate::rbac::valid_durable_session_in(&mut tx, account, proof, None)
+                .await
+                .map_err(preflight_error)?
+        {
+            return Err(StaffGuardError::Mfa(lang));
+        }
+        for &required in [Permission::Access]
+            .iter()
+            .chain(staff_permissions(&self.state, path))
+        {
+            let check = match self.state.auth.check_permission_flag(required) {
+                Ok(()) => {
+                    Authorizer::<PortalIdentity>::check_permission(&mut tx, account, required).await
+                }
+                Err(error) => Err(error),
+            };
+            match check {
+                Ok(()) => {}
+                Err(Error::Storage(error)) => return Err(preflight_error(error)),
+                Err(_) => {
+                    tx.commit().await.map_err(preflight_error)?;
+                    // The normal guard audits a denied actor only after CSRF verification.
+                    return Ok(UploadPreflight::Denied);
+                }
+            }
+        }
+        tx.commit().await.map_err(preflight_error)?;
+        Ok(UploadPreflight::Long)
+    }
+}
+
+fn preflight_error(error: sqlx::Error) -> StaffGuardError {
+    let status = match error {
+        sqlx::Error::Protocol(message) if message == "invalid session cookie" => {
+            StatusCode::BAD_REQUEST
+        }
+        sqlx::Error::Database(error)
+            if matches!(error.code().as_deref(), Some("55P03" | "57014")) =>
+        {
+            StatusCode::REQUEST_TIMEOUT
+        }
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    };
+    status.into()
 }
 
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
@@ -211,16 +401,37 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permission: Permission,
 ) -> Router {
+    guarded_any(routes, pool, config, identity, accounts, &[permission])
+}
+
+pub(crate) fn guarded_any<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
-    let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: Some(permission),
+        required: Some(permissions.to_vec()),
+        reports_enabled: false,
+        grant_confirmation: false,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
     });
+    guard_routes(routes, session, state)
+}
+
+fn guard_routes<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    session: SessionLayer,
+    state: Arc<Panel<I, A>>,
+) -> Router {
+    let admin_csrf = session.csrf.clone();
     routes
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -240,12 +451,25 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     identity: I,
     accounts: A,
 ) -> Router {
+    router_with_reports(pool, config, identity, accounts, false, true)
+}
+
+fn router_with_reports<I: StaffSession, A: AccountStateReader + 'static>(
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    reports_enabled: bool,
+    grant_confirmation: bool,
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
         required: None,
+        reports_enabled,
+        grant_confirmation,
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -261,6 +485,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             session,
             oteryn_web::session::middleware,
         ))
+        .route_layer(Extension(oteryn_web::csrf::LocalizedRefusal))
         .route_layer(axum::Extension(admin_csrf))
         .route_layer(middleware::from_fn_with_state(state.clone(), host::<I, A>))
         .with_state(state)
@@ -296,16 +521,7 @@ pub(crate) async fn host_guard(
     request: Request,
     next: Next,
 ) -> Response {
-    let hosts = request.headers().get_all(header::HOST);
-    if !config.admin_panel
-        || config.host.is_empty()
-        || hosts.iter().count() != 1
-        || !hosts
-            .iter()
-            .next()
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&config.host))
-    {
+    if !config.admin_panel || !oteryn_web::staff_host::matches(request.headers(), &config.host) {
         return StatusCode::NOT_FOUND.into_response();
     }
     let mut response = next.run(request).await;
@@ -319,7 +535,6 @@ pub(crate) async fn host_guard(
             "max-age=63072000; includeSubDomains",
         ),
         ("x-content-type-options", "nosniff"),
-        ("referrer-policy", "strict-origin-when-cross-origin"),
         (
             "permissions-policy",
             "camera=(), microphone=(), geolocation=()",
@@ -337,6 +552,16 @@ pub(crate) async fn host_guard(
             .headers_mut()
             .insert(name, axum::http::HeaderValue::from_static(value));
     }
+    let headers = response.headers_mut();
+    if headers
+        .get(header::REFERRER_POLICY)
+        .is_none_or(|policy| policy != "no-referrer" && policy != "same-origin")
+    {
+        headers.insert(
+            header::REFERRER_POLICY,
+            axum::http::HeaderValue::from_static("strict-origin-when-cross-origin"),
+        );
+    }
     if private {
         response.headers_mut().insert(
             header::PRAGMA,
@@ -353,61 +578,167 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let Some(session) = request.extensions().get::<BrowserSession>() else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let Some(identity) = s.identity.resolve(session).await else {
-        return Redirect::to("/login").into_response();
-    };
-    if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
-    }
-    let proof = match (
-        session.identity_hash().await,
-        session
-            .get(oteryn_web::session::SessionKey::<String>::new(
-                oteryn_identity::mfa::SESSION_GRANT_KEY,
-            ))
-            .await,
-    ) {
-        (Some(hash), Ok(Some(grant))) => {
-            use sha2::{Digest, Sha256};
-            hash.try_into()
-                .ok()
-                .map(|session_hash| crate::rbac::SessionProof {
-                    session_hash,
-                    grant_hash: Sha256::digest(grant.as_bytes()).into(),
-                })
+    let lang = request
+        .extensions()
+        .get::<oteryn_web::Language>()
+        .copied()
+        .map_or_else(|| language(request.headers()), oteryn_web::Language::code);
+    let context = match request_staff_context(&s, session, lang, request.uri().path()).await {
+        Ok(context) => context,
+        Err(StaffGuardError::Login)
+            if request.method() == axum::http::Method::GET && request.uri().path() == "/admin" =>
+        {
+            return Redirect::to(oteryn_web::staff_host::DASHBOARD_LOGIN_PATH).into_response();
         }
-        _ => None,
-    };
-    let context = CheckContext {
-        account: identity.account,
-        require_staff_mfa: true,
-        mfa_verified: true,
-        session_proof: proof,
-    };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
-    for required in [Permission::Access, permission] {
-        if let Err(error) = s.auth.check(context, required).await {
-            if matches!(error, Error::Storage(_)) {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
-            return match refusal(&s.pool, context.account, request.uri().path()).await {
-                Ok(()) => StatusCode::FORBIDDEN.into_response(),
-                Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
-            };
+        Err(StaffGuardError::Status(StatusCode::FORBIDDEN)) => {
+            let fallback = oteryn_ui::Registry::default().chrome(
+                lang,
+                request.uri().path(),
+                oteryn_ui::Account::Anonymous,
+            );
+            return oteryn_ui::error(
+                request
+                    .extensions()
+                    .get::<oteryn_ui::Chrome>()
+                    .unwrap_or(&fallback),
+                StatusCode::FORBIDDEN,
+            );
         }
-    }
+        Err(error) => return error.into_response(),
+    };
     request.extensions_mut().insert(context);
     request
         .extensions_mut()
         .insert(crate::rbac::MutationAuthorization::new(s.auth.clone()));
     next.run(request).await
 }
+async fn request_staff_context<I: StaffSession, A: AccountStateReader + 'static>(
+    s: &Panel<I, A>,
+    session: &BrowserSession,
+    lang: &'static str,
+    path: &str,
+) -> Result<CheckContext, StaffGuardError> {
+    let Some(identity) = s.identity.resolve(session).await else {
+        return Err(StaffGuardError::Login);
+    };
+    if !identity.mfa_satisfied {
+        return Err(StaffGuardError::Mfa(lang));
+    }
+    let context = staff_context(session, identity).await;
+    let required = staff_permissions(s, path);
+    let authorized = match s.auth.check(context, Permission::Access).await {
+        Ok(()) if !required.is_empty() => s.auth.check_any(context, required).await,
+        result => result,
+    };
+    if let Err(error) = authorized {
+        if matches!(error, Error::Storage(_)) {
+            return Err(StatusCode::SERVICE_UNAVAILABLE.into());
+        }
+        let target = if path.starts_with(audit::EDITORIAL_PAGE_PATH_PREFIX) {
+            audit::EDITORIAL_PAGE_ROUTE
+        } else {
+            path
+        };
+        return Err(match refusal(&s.pool, context.account, target).await {
+            Ok(()) => StatusCode::FORBIDDEN,
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+        }
+        .into());
+    }
+    Ok(context)
+}
+
+pub(crate) async fn staff_context(
+    session: &BrowserSession,
+    identity: StaffIdentity,
+) -> CheckContext {
+    let grant = session.get(mfa_grant_key()).await.ok().flatten();
+    CheckContext {
+        account: identity.account,
+        require_staff_mfa: true,
+        mfa_verified: identity.mfa_satisfied,
+        session_proof: session_proof(session, grant).await,
+    }
+}
+
+fn mfa_grant_key() -> oteryn_web::session::SessionKey<String> {
+    oteryn_web::session::SessionKey::new(oteryn_identity::mfa::SESSION_GRANT_KEY)
+}
+
+async fn session_proof(
+    session: &BrowserSession,
+    grant: Option<String>,
+) -> Option<crate::rbac::SessionProof> {
+    use sha2::{Digest, Sha256};
+    let grant = grant?;
+    Some(crate::rbac::SessionProof {
+        session_hash: session.identity_hash().await?.try_into().ok()?,
+        grant_hash: Sha256::digest(grant.as_bytes()).into(),
+    })
+}
+
+fn staff_permissions<'a, I, A>(s: &'a Panel<I, A>, path: &str) -> &'a [Permission] {
+    s.required.as_deref().unwrap_or_else(|| {
+        if path == "/admin/roles" {
+            &[Permission::ManageRoles]
+        } else {
+            &[]
+        }
+    })
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"<html lang="{{ lang }}"><meta name="viewport" content="width=device-width, initial-scale=1"><main><h1>{{ message }}</h1></main></html>"#,
+    ext = "html"
+)]
+struct MfaRefusal<'a> {
+    lang: &'a str,
+    message: String,
+}
+
+fn mfa_refusal(lang: &str) -> Response {
+    match (MfaRefusal {
+        lang,
+        message: text(lang, "mfa"),
+    })
+    .render()
+    {
+        Ok(html) => (StatusCode::FORBIDDEN, axum::response::Html(html)).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+/// Presentation check for the shared account menu.
+pub fn configured_dashboard_link(
+    pool: PgPool,
+) -> Result<Option<oteryn_web::chrome::StaffDashboard>, Box<dyn std::error::Error>> {
+    let Some(url) = config_from_env()?.landing_url() else {
+        return Ok(None);
+    };
+    let auth = Arc::new(Authorizer::new(
+        pool.clone(),
+        PortalIdentity::configured(pool),
+    ));
+    Ok(Some(oteryn_web::chrome::StaffDashboard {
+        url,
+        allows: Arc::new(move |account| {
+            let auth = auth.clone();
+            Box::pin(async move {
+                auth.check(
+                    CheckContext {
+                        require_staff_mfa: false,
+                        ..CheckContext::new(account)
+                    },
+                    Permission::Access,
+                )
+                .await
+                .is_ok()
+            })
+        }),
+    }))
+}
+
 async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     audit::append(
@@ -427,37 +758,64 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
+    oteryn_web::negotiate(headers).code()
+}
+pub(crate) fn selected_language(
+    headers: &axum::http::HeaderMap,
+    lang: Option<&str>,
+) -> &'static str {
+    match lang {
+        Some("pl") => "pl",
+        Some("en") => "en",
+        _ => language(headers),
     }
 }
-fn text(lang: &str, key: &str) -> String {
-    let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
-        return String::new();
-    };
+pub(crate) fn text(lang: &str, key: &str) -> String {
+    text_with_args(lang, key, None)
+}
+pub(crate) fn text_with_args(
+    lang: &str,
+    key: &str,
+    args: Option<&fluent_bundle::FluentArgs<'_>>,
+) -> String {
+    translated_with_args(translations(lang).as_ref(), key, args)
+}
+pub(crate) fn translations(
+    lang: &str,
+) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
+    let locale = lang.parse().ok()?;
     let mut bundle = fluent_bundle::FluentBundle::new(vec![locale]);
     let source = if lang == "en" {
         include_str!("../../../templates/admin/en.ftl")
     } else {
         include_str!("../../../templates/admin/pl.ftl")
     };
-    let Ok(resource) = fluent_bundle::FluentResource::try_new(source.to_owned()) else {
-        return String::new();
-    };
-    if bundle.add_resource(resource).is_err() {
-        return String::new();
-    }
+    let resource = fluent_bundle::FluentResource::try_new(source.to_owned()).ok()?;
+    bundle.add_resource(resource).ok()?;
+    Some(bundle)
+}
+pub(crate) fn translated(
+    bundle: Option<&fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>,
+    key: &str,
+) -> String {
+    translated_with_args(bundle, key, None)
+}
+
+fn translated_with_args(
+    bundle: Option<&fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>,
+    key: &str,
+    args: Option<&fluent_bundle::FluentArgs<'_>>,
+) -> String {
     bundle
-        .get_message(key)
-        .and_then(|m| m.value())
-        .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
+        .and_then(|bundle| {
+            let pattern = bundle.get_message(key)?.value()?;
+            Some(
+                bundle
+                    .format_pattern(pattern, args, &mut vec![])
+                    .into_owned(),
+            )
+        })
         .unwrap_or_default()
 }
 #[derive(Template)]
@@ -466,9 +824,17 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    invites_label: String,
+    reports_label: String,
+    reports_url: Option<&'static str>,
     account_label: String,
     role_label: String,
     grant: String,
+    can_grant: bool,
+    reason_label: String,
+    reason_assignment: String,
+    step_up_label: String,
+    navigation: Vec<panels::Link>,
     revoke: String,
     csrf: String,
     roles: Vec<(Uuid, String)>,
@@ -484,6 +850,7 @@ const ROLE_PAGE_SIZE: i64 = 50;
 #[derive(Deserialize, Default)]
 struct RolePageQuery {
     after: Option<Uuid>,
+    lang: Option<String>,
 }
 pub(crate) async fn role_page(
     pool: &PgPool,
@@ -518,6 +885,15 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let reports_url = if s.reports_enabled {
+        match s.auth.check_any(context, Area::Reports.permissions()).await {
+            Ok(()) => Some(REPORTS_PATH),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        None
+    };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
             Ok(v) => v,
@@ -534,14 +910,58 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = selected_language(&headers, query.lang.as_deref());
+    let mut registry = panels::Registry::default();
+    for &(route, label, permission, flag) in crate::rbac::ADMIN_PANEL_SECTIONS {
+        registry.register(
+            flag.is_none_or(|key| std::env::var(key).as_deref() == Ok("true"))
+                && s.auth.check(context, permission).await.is_ok(),
+            panels::Entry {
+                panel: PanelKind::Admin,
+                route,
+                label,
+                permission: panels::Permission::Staff(permission.as_str()),
+            },
+        );
+    }
+    if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true") {
+        let game_auth = Authorizer::new(s.pool.clone(), PortalIdentity::configured(s.pool.clone()))
+            .with_game_flags(crate::rbac::GamePermissionFlags {
+                enabled: true,
+                deploy: false,
+            });
+        for &(_, _, permission) in crate::rbac::GM_PANEL_SECTIONS {
+            if game_auth.check(context, permission).await.is_ok() {
+                registry.register(
+                    true,
+                    panels::Entry {
+                        panel: PanelKind::Admin,
+                        route: PanelKind::Gm.root(),
+                        label: PanelKind::Gm.label(),
+                        permission: panels::Permission::Staff(permission.as_str()),
+                    },
+                );
+                break;
+            }
+        }
+    }
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        invites_label: text(lang, "invite-title"),
+        reports_label: text(lang, "player-reports"),
+        reports_url,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
+        can_grant: manage
+            && s.grant_confirmation
+            && s.auth.check(context, Permission::GrantRoles).await.is_ok(),
+        reason_label: oteryn_ui::text(lang, "staff-action-reason"),
+        reason_assignment: oteryn_ui::text(lang, "staff-action-role-assignment"),
+        step_up_label: oteryn_ui::text(lang, "staff-action-step-up"),
+        navigation: registry.links(PanelKind::Admin, lang, |_| true),
         revoke: text(lang, "revoke"),
         csrf,
         next: (roles.len() == ROLE_PAGE_SIZE as usize)
@@ -562,12 +982,52 @@ struct RoleForm {
     key: String,
     #[serde(default)]
     permissions: String,
+    #[serde(default)]
+    reason: String,
 }
-async fn change<I: StaffSession, A: AccountStateReader>(
+async fn change<I: StaffSession, A: AccountStateReader + 'static>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
-    Form(form): Form<RoleForm>,
+    Extension(authority): Extension<crate::rbac::MutationAuthorization>,
+    csrf: Option<Extension<oteryn_web::csrf::Verified>>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+    headers: axum::http::HeaderMap,
+    form: Result<Form<RoleForm>, FormRejection>,
 ) -> Response {
+    let fallback = oteryn_ui::Registry::default().chrome(
+        language(&headers),
+        "/admin/roles",
+        oteryn_ui::Account::Anonymous,
+    );
+    let chrome = chrome
+        .as_ref()
+        .map_or(&fallback, |Extension(chrome)| chrome);
+    let Form(form) = match form {
+        Ok(form) => form,
+        Err(error) if error.status() == StatusCode::UNPROCESSABLE_ENTITY => {
+            return staff_actions::Error::Invalid.response(chrome);
+        }
+        Err(error) => return error.into_response(),
+    };
+    let csrf = csrf.map(|Extension(proof)| proof);
+    if let Err(error) = staff_actions::verify_session(context, csrf) {
+        return error.response(chrome);
+    }
+    let reason = match staff_actions::validated_code(&form.reason, &[staff_actions::ROLE_REASON]) {
+        Ok(reason) => reason,
+        Err(error) => return error.response(chrome),
+    };
+    let guard = staff_actions::Guard {
+        actor: context,
+        authority: &authority,
+        csrf,
+    };
+    let grant_action = staff_actions::Action {
+        permission: Permission::GrantRoles,
+        reason,
+        reason_codes: &[staff_actions::ROLE_REASON],
+        step_up: staff_actions::StepUp::RecentPassword,
+    };
     let result = match form.action.as_str() {
         "create" | "set-permissions" => {
             let permissions: Result<Vec<Permission>, _> = form
@@ -591,23 +1051,54 @@ async fn change<I: StaffSession, A: AccountStateReader>(
                 }
             };
             s.auth
-                .change_from_panel(context, Uuid::now_v7(), change)
+                .change_from_panel_with_reason(
+                    context,
+                    Uuid::now_v7(),
+                    change,
+                    reason,
+                    s.grant_confirmation,
+                )
                 .await
                 .map(|_| ())
         }
-        "grant" if !form.account.is_nil() && !form.role.is_nil() => s
-            .auth
-            .change_from_panel(
-                context,
-                Uuid::now_v7(),
-                Change::Grant {
-                    account: form.account,
-                    role: form.role,
+        "grant" => {
+            if !s.grant_confirmation {
+                return staff_actions::Error::Forbidden.response(chrome);
+            }
+            use staff_actions::AuditChange;
+            let auth = s.auth.clone();
+            let result = staff_actions::run(
+                &s.pool,
+                guard,
+                grant_action,
+                || {
+                    if form.account.is_nil() || form.role.is_nil() {
+                        return Err(staff_actions::Error::Invalid);
+                    }
+                    Ok((vec![form.account], (form.account, form.role)))
+                },
+                move |connection, (account, role)| {
+                    Box::pin(async move {
+                        let granted = auth
+                            .grant_from_staff_action(connection, context, account, role)
+                            .await?;
+                        Ok(granted.then_some(AuditChange::RoleGrant { account, role }))
+                    })
                 },
             )
-            .await
-            .map(|_| ()),
-        "revoke" => revoke(&s, context, form.account, form.role).await,
+            .await;
+            return match result {
+                Ok(()) => Redirect::to("/admin/roles").into_response(),
+                Err(staff_actions::Error::Forbidden) => {
+                    match refusal(&s.pool, context.account, "/admin/roles").await {
+                        Ok(()) => staff_actions::Error::Forbidden.response(chrome),
+                        Err(_) => staff_actions::Error::Unavailable.response(chrome),
+                    }
+                }
+                result => staff_action_response(result, chrome),
+            };
+        }
+        "revoke" => revoke(&s, context, form.account, form.role, reason).await,
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
     match result {
@@ -620,6 +1111,16 @@ async fn change<I: StaffSession, A: AccountStateReader>(
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+fn staff_action_response(
+    result: Result<(), staff_actions::Error>,
+    chrome: &oteryn_ui::Chrome,
+) -> Response {
+    match result {
+        Ok(()) => Redirect::to("/admin/roles").into_response(),
+        Err(error) => error.response(chrome),
+    }
+}
+
 /// Serialize with every T10 role writer and recheck authorization under that lock.
 /// T10 has no owner key: its full-access platform administrator is also protected.
 async fn revoke<I: StaffSession, A: AccountStateReader>(
@@ -627,6 +1128,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     context: CheckContext,
     account: Uuid,
     role: Uuid,
+    reason: &'static str,
 ) -> Result<(), Error> {
     if account.is_nil() || role.is_nil() {
         return Err(Error::InvalidInput);
@@ -689,7 +1191,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
             .bind(role)
             .execute(&mut *tx)
             .await?;
-        audit::append(
+        audit::append_with_reason(
             &mut tx,
             Entry {
                 context: AuditContext {
@@ -701,6 +1203,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
                 before: json!({"role":role,"assigned":true}),
                 after: json!({"role":role,"assigned":false}),
             },
+            Some(reason),
         )
         .await?;
     }
@@ -720,6 +1223,28 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
     }
     tx.commit().await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod landing_tests {
+    use super::*;
+
+    #[test]
+    fn staff_landing_uses_configured_admin_origin_only_when_enabled()
+    -> Result<(), Box<dyn std::error::Error>> {
+        for enabled in [false, true] {
+            let config = config_from(&|name| match name {
+                "OTERYN_ADMIN_PANEL" => Some(enabled.to_string()),
+                "OTERYN_ADMIN_HOST" => Some("Staff.Example.test:8443".into()),
+                _ => None,
+            })?;
+            assert_eq!(
+                config.landing_url().as_deref(),
+                enabled.then_some("https://staff.example.test:8443/admin")
+            );
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

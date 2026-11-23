@@ -1,22 +1,53 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
-import path from 'node:path';
 import {register,login,csrfRejected,pool,waitForWikiBudget} from '../helpers.mjs';
 import {assertShell} from '../shell.mjs';
+import {isolatedStaff,seededLogin} from '../staff-rbac-helpers.mjs';
+import {seedAccount} from '../security/auth-fixtures.mjs';
+import {uuid7} from '../support/bazaar-game.mjs';
 const rows=JSON.parse(fs.readFileSync(new URL('../route-expectations.json',import.meta.url),'utf8'));
 export const sample=(route,lang)=>route.replaceAll('{lang}',lang).replaceAll('{kind}',route.includes('stats/rankings')?'yesterday':route.includes('rankings')?'experience':'items').replaceAll('{tab}','experience').replaceAll('{slug}',route.startsWith('/admin/pages/')?'rules':'missing-e2e').replaceAll('{action}','approve').replace(/\{(?:floor|zoom|x|y)\}/g,'0').replace(/\{(?:name|slug|key|family|channel|filename|\*target|\*rest)\}/g,'missing-e2e').replace(/\{[^}]+\}/g,'019a541b-a000-7000-8000-000000000001');
-let cookies,account;
+let cookies,account,gameMasterCookies,platformAdminCookies;
+async function staffCookies(browser,info,role){
+ const account=await seedAccount(info.project.metadata.locale);
+ const staff=await isolatedStaff(browser,info,role,account);
+ try{return await staff.context.cookies();}finally{await staff.context.close();}
+}
 test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
  const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
-for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context},info)=>{
+for(const row of rows)test(row.case??`route ${row.crate} ${row.route}`,async({page,context,browser},info)=>{
  const lang=info.project.metadata.locale;
- if(row.actor==='staff') {
-   const staff=JSON.parse(fs.readFileSync(path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),'utf8'));
-   await context.addCookies(staff.cookies);
+ const gmRoute=row.actor==='game_master_senior';
+ const target=sample(row.route,lang)+(gmRoute?`?lang=${lang}`:'');
+ if(gmRoute) {
+   platformAdminCookies??=await staffCookies(browser,info,'platform_admin');
+   await context.addCookies(platformAdminCookies);
+   const refused=await page.request.get(target,{maxRedirects:0,headers:{'accept-language':lang}});
+   expect(refused.status(),'platform administrator needs a Game read grant').toBe(row.staffRefusal);
+   await context.clearCookies();
+   gameMasterCookies??=await staffCookies(browser,info,row.actor);
+   await context.addCookies(gameMasterCookies);
+ }else if(row.actor==='staff') {
+   platformAdminCookies??=await staffCookies(browser,info,'platform_admin');
+   await context.addCookies(platformAdminCookies);
+ }else if(row.route.endsWith('/account/characters/{name}/profile')) {
+   const buyer=await seedAccount(lang);
+   const seller=await seedAccount(lang);
+   const sellerCharacter=uuid7();
+   const projection=await page.request.post('/__bazaar_game/seed',{data:{
+     kind:'character',seller:seller.id,buyer:buyer.id,asset_id:sellerCharacter,
+     seller_character_id:sellerCharacter,buyer_character_id:uuid7(),
+   }});
+   expect(projection.status(),'publish a healthy portfolio before probing a missing character').toBe(201);
+   await seededLogin(page,lang,buyer);
  }else await context.addCookies(cookies);
- const target=sample(row.route,lang);
+ if(row.redirect) {
+   const landing=await page.request.get(target,{maxRedirects:0});
+   expect(landing.status()).toBe(303);
+   expect(landing.headers().location).toBe(sample(row.redirect,lang));
+ }
  const errors=[];
  let documentPath=new URL(target,'https://localhost:18443').pathname;
  page.on('pageerror',e=>errors.push(e.message));
@@ -31,9 +62,13 @@ for(const row of rows)test(`route ${row.crate} ${row.route}`,async({page,context
  expect(response.status(),`${target}: ${row.reason}`).toBe(row.status);
  if(row.status===503)expect(response.headers()['cache-control']).toContain('no-store');
  documentPath=new URL(response.url()).pathname;
+ if (row.method === 'GET' && (row.exactPath || (row.actor === 'staff' || gmRoute))) {
+   expect(documentPath, 'terminal route').toBe(new URL(row.redirect ? sample(row.redirect, lang) : target, response.url()).pathname);
+ }
  const text=await response.text();
  if(row.method==='GET'&&response.headers()['content-type']?.startsWith('text/html')&&/<html[\s>]/i.test(text)) {
    expect((await page.goto(target)).status()).toBe(row.status);
+   if (row.route.endsWith('/privacy/export')) expect(new URL(page.url()).searchParams.get('return_to')).toBe('export');
    expect(new URL(page.url()).pathname).toBe(documentPath);
    await assertShell(page,{status:row.status});
  }

@@ -10,17 +10,17 @@ use axum::{
     routing::get,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use oteryn_web::ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter};
+use oteryn_web::{
+    BoundedBrowserRead,
+    ratelimit::{self, ClientSource, Keys, RateLimiter},
+};
 use sqlx::PgPool;
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 use tokio::sync::Semaphore;
-
-// The portal pool has 16 connections. Leave capacity for other routes.
-const MAX_CONCURRENT_READS: usize = 4;
 
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><style>body{margin:auto;padding:1rem;max-width:90rem;font:1rem/1.5 system-ui;color:#eee;background:#151b25}article{padding:1rem;border:1px solid #708090;border-radius:.5rem;overflow-wrap:anywhere}section{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(min(100%,22rem),1fr))}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.3rem}h1{font-size:clamp(1.5rem,4vw,2.5rem)}</style></head><body><main><h1>{{ title }}</h1><p role=\"status\">{{ message }}</p><h2>{{ outcomes }}</h2><section>{% for row in events %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><p>{{ result }}: {{ row.result }}</p></article>{% endfor %}</section><h2>{{ standings }}</h2><section>{% for row in seasons %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><table><thead><tr><th>{{ rank }}</th><th>{{ guild }}</th><th>{{ points }}</th></tr></thead><tbody>{% for g in row.guilds %}<tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>{% endfor %}</tbody></table></article>{% endfor %}</section></main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/league.css\"></head><body><main class=\"league-page\"><h1>{{ title }}</h1><p role=\"status\">{{ message }}</p><h2>{{ outcomes }}</h2><section>{% for row in events %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><p>{{ result }}: {{ row.result }}</p></article>{% endfor %}</section><h2>{{ standings }}</h2><section>{% for row in seasons %}<article><h3>{{ row.subject }}</h3><p>{{ world }}: {{ row.world }}</p><p>{{ row.state }}</p><table><thead><tr><th>{{ rank }}</th><th>{{ guild }}</th><th>{{ points }}</th></tr></thead><tbody>{% for g in row.guilds %}<tr><td>{{ g.rank }}</td><td>{{ g.guild_name }}</td><td>{{ g.total_score }}</td></tr>{% endfor %}</tbody></table></article>{% endfor %}</section></main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -149,15 +149,8 @@ impl Page {
 struct Surface<A> {
     league: League<A>,
     read_slots: Semaphore,
-    clock: fn() -> i64,
 }
 pub fn router<A: Authority + 'static>(league: League<A>) -> Router {
-    router_with_clock(league, || time::OffsetDateTime::now_utc().unix_timestamp())
-}
-pub(super) fn router_with_clock<A: Authority + 'static>(
-    league: League<A>,
-    clock: fn() -> i64,
-) -> Router {
     if !league.flags.enabled || !league.flags.public {
         return Router::new();
     }
@@ -167,10 +160,18 @@ pub(super) fn router_with_clock<A: Authority + 'static>(
         .layer(from_fn_with_state(limiter, ratelimit::supply))
         .with_state(Arc::new(Surface {
             league,
-            read_slots: Semaphore::new(MAX_CONCURRENT_READS),
-            clock,
+            read_slots: Semaphore::new(crate::browser::LEAGUE_READ_SLOTS),
         }))
 }
+#[cfg(test)]
+pub(super) fn router_with_clock<A: Authority + 'static>(
+    league: League<A>,
+    _request_clock: fn() -> i64,
+) -> Router {
+    // Compatibility for the projection-lock test: the store owns the read clock.
+    router(league)
+}
+
 pub fn configured_router(pool: PgPool) -> Router {
     let flags = super::config::owner_flags(super::config::enabled());
     let authority = super::runtime::GameAuthority::configured();
@@ -181,6 +182,7 @@ async fn page<A: Authority>(
     Path(lang): Path<String>,
     State(state): State<Arc<Surface<A>>>,
     Extension(limiter): Extension<RateLimiter>,
+    budget: Option<Extension<BoundedBrowserRead>>,
     source: std::result::Result<Option<ClientSource>, StatusCode>,
 ) -> Response {
     if !matches!(lang.as_str(), "pl" | "en") {
@@ -190,30 +192,31 @@ async fn page<A: Authority>(
         Ok(source) => source,
         Err(status) => return Page::new(&lang, None).response(status),
     };
-    let Ok(now) = u64::try_from((state.clock)()) else {
+    let deadline = budget
+        .map(|Extension(budget)| budget.0)
+        .unwrap_or_else(crate::browser::landing_deadline);
+    if oteryn_db::check_deadline(deadline).is_err() {
+        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    let Ok(Ok(slot)) = tokio::time::timeout_at(deadline, state.read_slots.acquire()).await else {
         return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
     };
     // Portal listeners supply ConnectInfo. Direct in-process callers may omit it.
-    if let Some(ClientSource(ip)) = source {
-        let keys = [Keys::source(ip)];
-        match tokio::time::timeout(
-            Duration::from_secs(1),
-            limiter.check(NamedPolicy::PublicGameData, &keys),
-        )
-        .await
-        {
-            Ok(Ok(())) => {}
-            Ok(Err(denial)) => return Page::new(&lang, None).response(denial.status()),
-            Err(_) => return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
-        }
+    if let Some(ClientSource(ip)) = source
+        && let Err(denial) = limiter
+            .check_public_game_data(Keys::source(ip), BoundedBrowserRead(deadline))
+            .await
+    {
+        return Page::new(&lang, None).response(denial.status());
     }
-    let Ok(slot) = state.read_slots.try_acquire() else {
-        return Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE);
-    };
-    let snapshots = state.league.read(now).await;
+
+    let snapshots = state.league.read_before(deadline).await;
     drop(slot);
     match snapshots {
         Ok(s) => Page::new(&lang, Some(s)).response(StatusCode::OK),
+        Err(super::Error::MissingGameData) => oteryn_ui::missing_game_data(
+            Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
+        ),
         Err(_) => Page::new(&lang, None).response(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
@@ -246,7 +249,10 @@ mod tests {
             assert!(!p.message.is_empty());
             let html = p.render()?;
             assert!(html.contains("width=device-width"));
-            assert!(html.contains("min(100%,22rem)"));
+            assert!(html.contains("/static/css/league.css"));
+            assert!(!html.contains("<style"));
+            let css = include_str!("../../../../static/css/league.css");
+            assert!(css.contains("min(100%,22rem)"));
             assert!(!html.contains("<form"));
         }
         Ok(())

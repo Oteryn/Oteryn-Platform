@@ -1,5 +1,5 @@
 import {test,expect} from '../fixtures.mjs';
-import {isolatedAdmin,expectLoginRedirect,loginWithRecoveryCode,role,membership,rolePage,audit,query} from '../staff-rbac-helpers.mjs';
+import {isolatedAdmin,confirmStaffPassword,expectLoginRedirect,loginWithRecoveryCode,role,membership,rolePage,audit,query} from '../staff-rbac-helpers.mjs';
 test('admin cannot grant itself a role and revokes its secondary role while retaining remaining permissions',async({browser},info)=>{
  test.setTimeout(300000);
  const s=await isolatedAdmin(browser,info);
@@ -7,10 +7,15 @@ test('admin cannot grant itself a role and revokes its secondary role while reta
   const id=await role(s.page);
   const actor=(await query("SELECT actor FROM audit_log WHERE action='rbac.role.created' AND target=$1",[id]))[0].actor;
   // Four eyes (plan §5.4): a role manager never grants a role to itself.
+  await confirmStaffPassword(s.page,info.project.metadata.locale,s.account.password);
   await rolePage(s.page,id);
   const token=await s.page.locator('form:has(input[name=account]) input[name=_csrf]').first().inputValue();
-  const refused=await s.page.request.post('/admin/roles',{form:{_csrf:token,account:actor,role:id,action:'grant'},headers:{origin:new URL(s.page.url()).origin},maxRedirects:0});
+  const refused=await s.page.request.post('/admin/roles',{form:{_csrf:token,account:actor,role:id,action:'grant',reason:'role_assignment'},headers:{origin:new URL(s.page.url()).origin},maxRedirects:0});
   expect(refused.status(),'self grant refused').toBe(403);
+  expect(await query(
+    "SELECT before,after FROM audit_log WHERE actor=$1 AND action='admin.access.denied' AND target='/admin/roles'",
+    [actor],
+  )).toEqual([{before:null,after:{allowed:false}}]);
   expect(Number((await query('SELECT count(*) n FROM account_roles WHERE account_id=$1 AND role_id=$2',[actor,id]))[0].n),'refused self grant persists nothing').toBe(0);
   // A membership granted by someone else is still revocable by its holder.
   await query('INSERT INTO account_roles(account_id,role_id) VALUES($1,$2)',[actor,id]);

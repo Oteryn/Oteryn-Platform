@@ -326,22 +326,39 @@ async fn postgres_pages_authentication_flags_and_pagination() -> TestResult {
             assert!(html.contains("width=device-width"));
         }
     }
-    for query in [
-        "before=bad",
-        "before=00000000-0000-0000-0000-000000000000",
-        "account=other",
+    let browser = app.layer(axum::middleware::from_fn_with_state(
+        oteryn_web::chrome::Shell {
+            registry: Default::default(),
+            sessions: oteryn_web::session::SessionLayer::new(db.pool.clone()),
+        },
+        oteryn_web::chrome::middleware,
+    ));
+    for (lang, message) in [
+        ("en", "Check the submitted values."),
+        ("pl", "Sprawdź przesłane wartości."),
     ] {
-        assert_eq!(
-            app.clone()
-                .oneshot(
-                    HttpRequest::get(format!("/en/shop/history?{query}"))
-                        .header(header::COOKIE, &cookie)
-                        .body(Body::empty())?
-                )
-                .await?
-                .status(),
-            StatusCode::UNPROCESSABLE_ENTITY
-        );
+        for query in [
+            "before=bad",
+            "before=00000000-0000-0000-0000-000000000000",
+            "before=019b0760-0000-7000-8000-000000000001&before=019b0760-0000-7000-8000-000000000002",
+            "account=other",
+        ] {
+            for accept in ["*/*", "text/html"] {
+                let response = browser
+                    .clone()
+                    .oneshot(
+                        HttpRequest::get(format!("/{lang}/shop/history?{query}"))
+                            .header(header::ACCEPT, accept)
+                            .header(header::COOKIE, &cookie)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+                let html = body(response).await?;
+                assert!(html.contains(&format!("lang=\"{lang}\"")));
+                assert!(html.contains(message));
+            }
+        }
     }
     db.close().await
 }
@@ -466,6 +483,78 @@ async fn postgres_purchase_uses_quote_ownership_and_domain_idempotency() -> Test
         ),
     )));
     let app = app(db.pool.clone(), Arc::new(d));
+    let malformed_buyer = Uuid::now_v7();
+    let wallet = domain(db.pool.clone()).wallet;
+    wallet
+        .adjust(
+            Uuid::now_v7(),
+            malformed_buyer,
+            1000,
+            Uuid::now_v7(),
+            "fixture",
+        )
+        .await?;
+    let (malformed_cookie, malformed_csrf) = session(&db.pool, malformed_buyer).await?;
+    let character_input = character.to_string();
+    let world_input = world.to_string();
+    let snapshot = || {
+        sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+            "SELECT (SELECT count(*) FROM store_purchase_requests),
+                    (SELECT count(*) FROM store_orders),
+                    (SELECT count(*) FROM wallet_operations),
+                    (SELECT count(*) FROM wallet_entries),
+                    (SELECT count(*) FROM store_fulfilment_units),
+                    (SELECT count(*) FROM store_operations)",
+        )
+        .fetch_one(&db.pool)
+    };
+    let baseline = snapshot().await?;
+    for (field, invalid_value) in [
+        ("operation", "invalid"),
+        ("character", "invalid"),
+        ("world", "invalid"),
+        ("revision", "invalid"),
+        ("offer", ""),
+        ("price", "-1"),
+        ("quantity", "invalid"),
+        ("quantity", "101"),
+    ] {
+        let operation = Uuid::now_v7().to_string();
+        let fields = [
+            ("_csrf", malformed_csrf.as_str()),
+            ("operation", operation.as_str()),
+            ("character", character_input.as_str()),
+            ("world", world_input.as_str()),
+            ("revision", revision.as_str()),
+            ("offer", "potion-pack-10"),
+            ("price", "250"),
+            ("quantity", "1"),
+        ];
+        let encoded = serde_urlencoded::to_string(
+            fields.map(|(name, value)| (name, if name == field { invalid_value } else { value })),
+        )?;
+        let response = app
+            .clone()
+            .oneshot(post_request("/en/shop", &malformed_cookie, encoded)?)
+            .await?;
+        assert_eq!(
+            response.status(),
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{field}"
+        );
+        assert!(
+            body(response)
+                .await?
+                .contains("Check the submitted values.")
+        );
+        assert_eq!(
+            snapshot().await?,
+            baseline,
+            "{field} changed purchase state"
+        );
+        assert_eq!(wallet.balance(malformed_buyer).await?.available, 1000);
+    }
+
     let (cookie, csrf) = session(&db.pool, buyer).await?;
     let key = Uuid::now_v7();
     let form = format!(

@@ -18,6 +18,27 @@ use tower_http::{
     trace::TraceLayer,
 };
 
+/// Shares the landing page's absolute deadline with its browser and SQL layers.
+#[derive(Clone, Copy, Debug)]
+pub struct BoundedBrowserRead(pub tokio::time::Instant);
+
+async fn bounded_browser_query<T>(
+    pool: &PgPool,
+    deadline: BoundedBrowserRead,
+    query: impl AsyncFnOnce(&mut sqlx::PgConnection) -> Result<T, sqlx::Error>,
+) -> Result<T, sqlx::Error> {
+    use std::time::Duration;
+    use tokio::time::Instant;
+    oteryn_db::with_transaction_deadline(
+        pool,
+        deadline.0.min(Instant::now() + Duration::from_secs(1)),
+        Duration::from_millis(400),
+        Duration::from_millis(750),
+        async |tx| query(tx).await,
+    )
+    .await
+}
+
 /// Largest request body accepted by the public surface.
 pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 
@@ -44,6 +65,19 @@ pub fn render(template: &impl Template) -> Response {
             StatusCode::INTERNAL_SERVER_ERROR.into_response()
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct RenderedFormRefusal;
+
+/// Render a form refusal with its localized retry path and original HTTP status.
+pub fn render_form_refusal(status: StatusCode, template: &impl Template) -> Response {
+    let mut response = render(template);
+    if response.extensions().get::<RenderedPage>().is_some() {
+        *response.status_mut() = status;
+        response.extensions_mut().insert(RenderedFormRefusal);
+    }
+    response
 }
 
 async fn home(request: axum::extract::Request) -> Response {
@@ -119,6 +153,15 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             let oauth_mfa = oauth_mfa.clone();
             async move {
                 use axum::response::IntoResponse;
+                // Authorize is a browser GET. Negotiate before replacing the
+                // session's post-login destination or preparing browser proof.
+                if matches!(
+                    *request.method(),
+                    axum::http::Method::GET | axum::http::Method::HEAD
+                ) && let Some(response) = public_http::html_refusal(&request)
+                {
+                    return response;
+                }
                 let Some(session) = request
                     .extensions()
                     .get::<session::BrowserSession>()
@@ -348,15 +391,16 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         .merge(surface::module_router())
         .merge(surface::module_routes())
         .merge(oteryn_identity::abuse::http::routes(state.db.clone()))
-        .route("/{lang}/account/consents", get(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>| async move {
+        .route("/{lang}/account/consents", get(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>, chrome: Option<axum::Extension<oteryn_ui::Chrome>>| async move {
             let mut config = config.map(|c| c.0).unwrap_or_else(oteryn_identity::consents::OptionalConfig::configured);
             config.enabled |= flags.is_some_and(|flags| flags.contains(oteryn_identity::consents::FEATURE));
             let account = session.account_id().await;
+            let chrome = chrome.as_ref().map(|axum::Extension(chrome)| chrome);
             if account.is_none() || !config.enabled {
-                return oteryn_identity::consents::http::show(&state.db, &config, account, &lang, "").await;
+                return oteryn_identity::consents::http::show(&state.db, &config, account, &lang, "", chrome).await;
             }
             match session.csrf_token().await {
-                Ok(csrf) => oteryn_identity::consents::http::show(&state.db, &config, session.account_id().await, &lang, &csrf).await,
+                Ok(csrf) => oteryn_identity::consents::http::show(&state.db, &config, session.account_id().await, &lang, &csrf, chrome).await,
                 Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
             }
         }).post(|State(state): State<AppState>, axum::extract::Path(lang): axum::extract::Path<String>, axum::Extension(session): axum::Extension<session::BrowserSession>, config: Option<axum::Extension<oteryn_identity::consents::OptionalConfig>>, flags: Option<axum::Extension<oteryn_identity::consents::FeatureFlags>>, axum::Form(input): axum::Form<oteryn_identity::consents::http::Input>| async move {
@@ -388,6 +432,11 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                             })
                         {
                             return StatusCode::NOT_FOUND.into_response();
+                        }
+                        if matches!(*request.method(), axum::http::Method::GET | axum::http::Method::HEAD)
+                            && let Some(response) = public_http::html_refusal(&request)
+                        {
+                            return response;
                         }
                         request
                             .extensions_mut()
@@ -731,10 +780,19 @@ mod tests {
     }
 }
 
+mod public_http;
+pub use public_http::secure_public;
+
+/// Route constructors for HTML handlers with one-time browser session state.
+pub mod html {
+    pub use super::public_http::html_get as get;
+}
+
 mod surface;
 
 pub use surface::{
-    CspNonce, HomeFeed, HomeFuture, Language, WebOptions, module_router, router_with_options,
+    CspNonce, HomeFeed, HomeFuture, Language, WebOptions, document_language, module_router,
+    negotiate, router_with_options,
 };
 
 /// Dedicated internal listener surface; the TLS adapter supplies verified peers.
@@ -747,6 +805,7 @@ pub fn internal_character_router(
 
 pub mod csrf;
 pub mod session;
+pub mod staff_host;
 
 pub mod ratelimit;
 pub mod redirects;

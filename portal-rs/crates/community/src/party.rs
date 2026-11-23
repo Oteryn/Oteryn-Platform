@@ -128,7 +128,7 @@ impl Authority for ProductionAuthority {
                 .execute(&mut *tx)
                 .await
                 .ok()?;
-            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.status='active' AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))")
+            let allowed: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts a WHERE a.id=$1 AND a.status='active' AND a.email_verified_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM sanctions s WHERE s.account_id=a.id AND s.enforcement_profile IS NULL AND s.status='active' AND s.category IN ('restriction','suspension') AND s.effective_at<=clock_timestamp() AND (s.expires_at IS NULL OR s.expires_at>clock_timestamp())))")
                 .bind(account).fetch_one(&mut *tx).await.ok()?;
             allowed.then_some(())
         })
@@ -412,6 +412,9 @@ async fn page(
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
 ) -> Result<Response, Error> {
     language(&lang)?;
+    if !filter.valid() {
+        return Ok(StatusCode::BAD_REQUEST.into_response());
+    }
     let rows = board.list(&filter).await?;
     let token = session.csrf_token().await?;
     party_view::page(
@@ -426,11 +429,19 @@ async fn create(
     State(board): State<Board>,
     Path(lang): Path<String>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Form(draft): Form<Draft>,
 ) -> Result<Response, Error> {
     language(&lang)?;
-    let owner = account(&board, &session).await?;
-    board.create(owner, draft).await?;
+    let result = async {
+        let owner = account(&board, &session).await?;
+        board.create(owner, draft).await
+    }
+    .await;
+    if let (Err(Error::Denied), Some(Extension(chrome))) = (&result, chrome) {
+        return Ok(oteryn_ui::error(&chrome, StatusCode::FORBIDDEN));
+    }
+    result?;
     Ok(Redirect::to(&format!("/{lang}/party")).into_response())
 }
 #[derive(Deserialize)]

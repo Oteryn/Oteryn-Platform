@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import https from 'node:https';
 import http from 'node:http';
 import dns from 'node:dns';
+import { mailSinkOptions } from './support/mail-sink.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
@@ -15,19 +16,26 @@ import { startLocalOutbox } from './support/local-outbox.mjs';
 import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
 import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
+import { prepareGameApi } from './gameapi-stack.mjs';
+import { executeFixtureDdl } from './support/harness-database.mjs';
+import { localPostgresUrl, withoutPostgresDefaults } from './postgres-url.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const scratch=process.env.PORTAL_E2E_SCRATCH || fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-'));
 fs.mkdirSync(scratch,{recursive:true,mode:0o700});
-const adminURL=process.env.PORTAL_E2E_ADMIN_DATABASE_URL;
-if(!adminURL) throw new Error('Set PORTAL_E2E_ADMIN_DATABASE_URL to a throwaway local PostgreSQL administrator URL');
-if(!['localhost','127.0.0.1','[::1]'].includes(new URL(adminURL).hostname)) throw new Error('Local PostgreSQL only');
+const adminURL=localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL).href;
 const dbName=`portal_e2e_${crypto.randomBytes(6).toString('hex')}`;
 const testName=`${dbName}_tests`;
+const queryName=`${dbName}_queries`;
+const databases=[dbName,testName,queryName];
+const nativePanelOffPort=18083;
+const nativePanelOffProxyPort=18448;
+const queryPort=18084;
+const queryProxyPort=18450;
 const admin=new pg.Client({connectionString:adminURL});await admin.connect();
-for(const name of [dbName,testName]) await admin.query(`CREATE DATABASE "${name}"`);
+for(const name of databases) await executeFixtureDdl(admin.query.bind(admin), 'createDatabase', name);
 const databaseURL=name=>{const url=new URL(adminURL);url.pathname=`/${name}`;return url.toString();};
-const env={...process.env};
+const env=withoutPostgresDefaults(process.env);
 function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(directory,e.name)):[path.join(directory,e.name)]);}
 for(const file of [...walk(path.join(root,'crates')),...walk(path.join(root,'bin'))].filter(p=>p.endsWith('.rs'))){
  for(const [,key] of fs.readFileSync(file,'utf8').matchAll(/"([A-Z][A-Z0-9_]+_ENABLED)"/g)) env[key]='true';
@@ -40,7 +48,6 @@ env.TRUSTED_PROXIES='127.0.0.1';
 Object.assign(env,{
  OTERYN_SHOP_TEST_PAYMENT_KEY:crypto.randomBytes(32).toString('hex'),OTERYN_SHOP_TOP_UP_PACKAGES:JSON.stringify([{key:'e2e-coins',coins:1234,minor_units:250,currency:'PLN'}]),
  OTERYN_ADMIN_ANALYTICS_INGEST:'true',OTERYN_ADMIN_ANALYTICS_PRESENT:'true',OTERYN_ADMIN_ANALYTICS_AUTHORITY:'e2e-local',OTERYN_ADMIN_ANALYTICS_PRIVACY:'e2e-local',
- PORTAL_OAUTH_CONFIG:process.env.PORTAL_OAUTH_CONFIG||JSON.stringify({enabled:true,clients:[{client_id:'e2e-local',redirect_uris:['https://localhost:18443/__oauth/callback']}]}),
  OTERYN_ENV:'testing',APP_ENV:'testing',PANEL_PREMIUM_PAYMENTS:'true',OTERYN_BIND:'127.0.0.1:18080',OTERYN_PUBLIC_ORIGIN:'https://localhost:18443',OTERYN_ADMIN_HOST:'localhost:18443',
  OTERYN_STATIC_DIR:path.join(root,'static'),OTERYN_DATABASE_URL:databaseURL(dbName),PORTAL_E2E_DATABASE_URL:databaseURL(dbName),PORTAL_TEST_DATABASE_URL:databaseURL(testName),
  OTERYN_SMTP_HOST:'localhost',OTERYN_SMTP_USERNAME:'local',OTERYN_SMTP_PASSWORD:crypto.randomBytes(24).toString('hex'),OTERYN_MAIL_FROM:'portal@local.test',OTERYN_SMTP_FROM:'portal@local.test',
@@ -50,28 +57,38 @@ Object.assign(env,{
  PORTAL_PUBLIC_PROJECTIONS_AUTHORITY:'e2e-local',PORTAL_PUBLIC_PROJECTIONS_SAN:'e2e-local',PORTAL_WORLD_DAILY_WORLDS:'019b0760-0000-7000-8000-000000000001',PORTAL_ATLAS_DELIVERY_ENABLED:'1',PORTAL_WORLD_ENABLED:'1',
  OTERYN_ATLAS_DIRECTORY:path.join(scratch,'atlas'),SSL_CERT_FILE:path.join(scratch,'ca.pem'),
 });
-// The pinned lane producer still emits an unsupported negative compatibility candidate.
-// Never read raw Game content or fabricate a Today producer/catalogue.
-const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
-if(!process.env.PORTAL_E2E_CATALOG_FILE){
- const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-669d5af5/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
- if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
-}
-if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');
-const catalog=JSON.parse(fs.readFileSync(catalogFile,'utf8'));
+const splitStaffOrigin = process.env.PORTAL_E2E_SPLIT_STAFF_ORIGIN === '1';
+if(splitStaffOrigin) env.OTERYN_ADMIN_HOST='127.0.0.1:443';
+const nativeDeviceClient = '019b0760-0000-7000-8000-000000000002';
 Object.assign(env,{
- OTERYN_WORLD_CATALOG_FILE:catalogFile,
- OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'true',
- OTERYN_WORLD_CATALOG_SHA256:process.env.OTERYN_WORLD_CATALOG_SHA256||'4fe8ce4488c21396b588dc6b04179cde93c7a9b22b87427b6e4af3cda6e60d7d',
- OTERYN_WORLD_CATALOG_SOURCE_REVISION:process.env.OTERYN_WORLD_CATALOG_SOURCE_REVISION||catalog.source_revision,
- OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH:process.env.OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH||catalog.authority_epoch,
- OTERYN_WORLD_CATALOG_RULESET_ID:process.env.OTERYN_WORLD_CATALOG_RULESET_ID||catalog.ruleset_id,
- OTERYN_WORLD_CATALOG_PROFILE_ID:process.env.OTERYN_WORLD_CATALOG_PROFILE_ID||catalog.content_profile_id,
- OTERYN_WORLD_CATALOG_SNAPSHOT_ID:process.env.OTERYN_WORLD_CATALOG_SNAPSHOT_ID||catalog.snapshot_id,
+ PORTAL_E2E_NATIVE_DEVICE_CLIENT:nativeDeviceClient,
+ PORTAL_E2E_NATIVE_DEVICE_ORIGIN:'https://localhost:18447',
+ PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN:'https://localhost:18448',
 });
-// A URL may be exercised against the same independently pinned negative fixture.
-// The server must remain ready while bounded background transport is pending.
-if(process.env.OTERYN_WORLD_CATALOG_URL){delete env.OTERYN_WORLD_CATALOG_FILE;env.OTERYN_WORLD_CATALOG_URL=process.env.OTERYN_WORLD_CATALOG_URL;}
+{
+ // The pinned lane producer still emits an unsupported negative compatibility candidate.
+ // Never read raw Game content or fabricate a Today producer/catalogue.
+ const catalogFile=process.env.PORTAL_E2E_CATALOG_FILE||path.join(scratch,'game-platform-catalog.json');
+ if(!process.env.PORTAL_E2E_CATALOG_FILE){
+  const generated=spawnSync('python3',[path.join(root,'e2e/support/catalog-producer.py'),'produce',path.join(root,'crates/world/tests/fixtures/catalog-669d5af5/unsupported-native-input.json'),catalogFile],{stdio:'ignore'});
+  if(generated.status!==0)throw new Error('Pinned negative catalog fixture generation failed');
+ }
+ if(process.env.PORTAL_E2E_CATALOG_FILE&&!process.env.OTERYN_WORLD_CATALOG_SHA256)throw new Error('External artifact requires independently configured OTERYN_WORLD_CATALOG_SHA256');
+ const catalog=JSON.parse(fs.readFileSync(catalogFile,'utf8'));
+ Object.assign(env,{
+  OTERYN_WORLD_CATALOG_FILE:catalogFile,
+  OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'true',
+  OTERYN_WORLD_CATALOG_SHA256:process.env.OTERYN_WORLD_CATALOG_SHA256||'4fe8ce4488c21396b588dc6b04179cde93c7a9b22b87427b6e4af3cda6e60d7d',
+  OTERYN_WORLD_CATALOG_SOURCE_REVISION:process.env.OTERYN_WORLD_CATALOG_SOURCE_REVISION||catalog.source_revision,
+  OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH:process.env.OTERYN_WORLD_CATALOG_AUTHORITY_EPOCH||catalog.authority_epoch,
+  OTERYN_WORLD_CATALOG_RULESET_ID:process.env.OTERYN_WORLD_CATALOG_RULESET_ID||catalog.ruleset_id,
+  OTERYN_WORLD_CATALOG_PROFILE_ID:process.env.OTERYN_WORLD_CATALOG_PROFILE_ID||catalog.content_profile_id,
+  OTERYN_WORLD_CATALOG_SNAPSHOT_ID:process.env.OTERYN_WORLD_CATALOG_SNAPSHOT_ID||catalog.snapshot_id,
+ });
+ // A URL may be exercised against the same independently pinned negative fixture.
+ // The server must remain ready while bounded background transport is pending.
+ if(process.env.OTERYN_WORLD_CATALOG_URL){delete env.OTERYN_WORLD_CATALOG_FILE;env.OTERYN_WORLD_CATALOG_URL=process.env.OTERYN_WORLD_CATALOG_URL;}
+}
 // Disposable test-provider material enables staff reconciliation without live payments.
 env.OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE=path.join(scratch,'commerce-test-provider.key');
 fs.writeFileSync(env.OTERYN_COMMERCE_TEST_PROVIDER_KEY_FILE,crypto.randomBytes(32),{mode:0o600});
@@ -83,6 +100,11 @@ openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/key.pem`,'-ou
 fs.writeFileSync(`${scratch}/extensions`,'subjectAltName=DNS:localhost,IP:127.0.0.1\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n');
 openssl(['x509','-req','-in',`${scratch}/leaf.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/cert.pem`,'-days','2','-extfile',`${scratch}/extensions`]);
 Object.assign(env,{
+ OTERYN_NATIVE_TLS_BIND:'127.0.0.1:18447',
+ OTERYN_NATIVE_TLS_CERT_FILE:`${scratch}/cert.pem`,
+ OTERYN_NATIVE_TLS_KEY_FILE:`${scratch}/key.pem`,
+});
+Object.assign(env,{
  OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18446',
  OTERYN_INTERNAL_TLS_CERT_FILE:`${scratch}/cert.pem`,
  OTERYN_INTERNAL_TLS_KEY_FILE:`${scratch}/key.pem`,
@@ -92,14 +114,21 @@ const internalOrigin=`https://${env.OTERYN_INTERNAL_TLS_BIND}`;
 Object.assign(env, prepareAdminControl(scratch, openssl, internalOrigin));
 const league=await leagueProducer({root,scratch,env,openssl,internalOrigin});
 const bazaarConfig=prepareBazaar(env,scratch,internalOrigin);
-// Dedicated Character/portfolio certificates; neither is a browser identity.
-function gameCertificate(name){
+// Give each test publisher a dedicated certificate for its private ingress purpose.
+function gameCertificate(name,san){
  openssl(['req','-newkey','rsa:2048','-nodes','-keyout',`${scratch}/${name}-key.pem`,'-out',`${scratch}/${name}.csr`,'-subj',`/CN=${name}`]);
- fs.writeFileSync(`${scratch}/${name}.ext`,'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n');
+ fs.writeFileSync(`${scratch}/${name}.ext`,'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth\n'+(san?`subjectAltName=DNS:${san}\n`:''));
  openssl(['x509','-req','-in',`${scratch}/${name}.csr`,'-CA',`${scratch}/ca.pem`,'-CAkey',`${scratch}/ca-key.pem`,'-CAcreateserial','-out',`${scratch}/${name}.pem`,'-days','2','-extfile',`${scratch}/${name}.ext`]);
  return {cert:fs.readFileSync(`${scratch}/${name}.pem`),key:fs.readFileSync(`${scratch}/${name}-key.pem`)};
 }
 const character=gameCertificate('closure-character'),portfolio=gameCertificate('closure-portfolio');
+const createPeer='panels-characters.e2e';
+gameCertificate('panel-character-commands',createPeer);
+gameCertificate('panel-public-projections',env.PORTAL_PUBLIC_PROJECTIONS_SAN);
+Object.assign(env,{
+ PORTAL_CHARACTER_COMMAND_IDENTITIES:JSON.stringify({[createPeer]:[]}),
+ PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY:characterSourceAuthority,
+});
 const gameProducer=createGameClosureProducer({baseURL:internalOrigin,ca:fs.readFileSync(`${scratch}/ca.pem`),character,portfolio});
 Object.assign(env,{
  PORTAL_ACCOUNT_CLOSURE_ENABLED:'true',PORTAL_ACCOUNT_CLOSURE_BASE_URL:internalOrigin,
@@ -118,8 +147,32 @@ if(!binary){
 }
 binary=path.resolve(root,binary);
 env.PORTAL_E2E_BINARY=binary;
+env.PORTAL_E2E_QUERY_ORIGIN=`https://localhost:${queryProxyPort}`;
+env.PORTAL_E2E_QUERY_DATABASE_URL=databaseURL(queryName);
+const queryEnv={
+ OTERYN_ENV:'testing',
+ OTERYN_DATABASE_URL:env.PORTAL_E2E_QUERY_DATABASE_URL,
+ OTERYN_STATIC_DIR:env.OTERYN_STATIC_DIR,
+ PORTAL_WIKI_ENTITIES_ENABLED:'true',
+ PORTAL_WORLD_ENABLED:'1',
+ PORTAL_ATLAS_DELIVERY_ENABLED:'1',
+ OTERYN_WORLD_CATALOG_PUBLICATION_ENABLED:'false',
+ OTERYN_BIND:`127.0.0.1:${queryPort}`,
+ OTERYN_PUBLIC_ORIGIN:env.PORTAL_E2E_QUERY_ORIGIN,
+ PORTAL_NATIVE_ADMISSION_BIND:'127.0.0.1:0',
+};
+
+const gatewayEnv=prepareGameApi(scratch,binary,env);
+if(!process.env.PORTAL_OAUTH_CONFIG){
+ const oauth = JSON.parse(env.PORTAL_OAUTH_CONFIG);
+ oauth.clients.push({client_id:nativeDeviceClient,redirect_uris:['http://127.0.0.1/callback']});
+ env.PORTAL_OAUTH_CONFIG=JSON.stringify(oauth);
+}
 command(binary,['migrate']);
 command(binary,['install-legal-pages']);
+command(binary,['migrate'],{env:queryEnv,stdio:'ignore'});
+command(binary,['install-legal-pages'],{env:queryEnv,stdio:'ignore'});
+command(binary,['seed','query-catalog','{}'],{env:queryEnv,stdio:'ignore'});
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
 const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();
@@ -129,33 +182,116 @@ await bazaarSeed.query("INSERT INTO accounts(id,email,email_verified_at,password
 // only in this disposable qualification database (the deployment flag is also required).
 await bazaarSeed.query("UPDATE referral_campaign_settings SET enabled=true WHERE singleton");
 await bazaarSeed.end();
-const bazaarGame=startBazaarProducer({...bazaarConfig,publishCharacter:gameProducer.publishCharacter});
+const bazaarGame=startBazaarProducer({...bazaarConfig,async publishCharacter(character){
+ await gameProducer.publishCharacter(character);
+ // This disposable Game fixture represents an existing character. Its accepted
+ // ownership baseline must accompany the mTLS portfolio for the player overview.
+ const client=new pg.Client({connectionString:databaseURL(dbName)});
+ await client.connect();
+ try{
+  const baseline=await client.query(
+   `INSERT INTO pd_ownership_baselines(character_id,account_id,world_id,character_revision,
+      from_projection_revision,to_projection_revision,projection_epoch,recovery_generation)
+    SELECT c.character_id,c.account_id,c.world_id,1,s.projection_revision::numeric,
+           s.projection_revision::numeric,s.projection_epoch::numeric,3
+    FROM account_characters c JOIN account_character_snapshots s USING(account_id)
+    WHERE c.character_id=$1 AND c.account_id=$2 AND c.world_id=$3 AND NOT s.invalid
+    ON CONFLICT(character_id) DO NOTHING`,
+   [character.character_id,character.account_id,character.world_id],
+  );
+  if(baseline.rowCount!==1){
+   const existing=await client.query(
+    'SELECT 1 FROM pd_ownership_baselines WHERE character_id=$1 AND account_id=$2 AND world_id=$3',
+    [character.character_id,character.account_id,character.world_id],
+   );
+   if(existing.rowCount!==1)throw new Error('Game fixture ownership baseline unavailable');
+  }
+ }finally{await client.end();}
+}});
 const tls={key:fs.readFileSync(`${scratch}/key.pem`),cert:fs.readFileSync(`${scratch}/cert.pem`)};
 const messages=[];
-const smtp=new SMTPServer({...tls,secure:true,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
+const mail={tls,username:env.OTERYN_SMTP_USERNAME,password:env.OTERYN_SMTP_PASSWORD,messages};
+const smtp=new SMTPServer(mailSinkOptions({...mail,secure:true}));
 smtp.on('error',error=>console.error('Local SMTP error:',error.code));
 smtp.listen(465,'127.0.0.1');
 // Notification delivery uses the existing authenticated STARTTLS adapter on port 587.
-const starttls=new SMTPServer({...tls,secure:false,onAuth(auth,session,callback){callback(null,{user:'local'});},onData(stream,session,callback){let raw='';stream.on('data',chunk=>raw+=chunk);stream.on('end',()=>{messages.push({to:session.envelope.rcptTo.map(r=>r.address),raw});callback();});}});
+const starttls=new SMTPServer(mailSinkOptions({...mail,secure:false}));
 starttls.on('error',error=>console.error('Local SMTP error:',error.code));
 starttls.listen(587,'127.0.0.1');
-const proxy=https.createServer(tls,(req,res)=>{
+function forward(req,res,port,headers=req.headers,localAddress='127.0.0.1'){
+ const upstream=http.request({hostname:'127.0.0.1',port,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
+ upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
+}
+function proxyRequest(req,res,port=18080) {
  // Browser fixture controls invoke the producer, which makes the mTLS exchanges.
  if(req.url.startsWith('/__bazaar_game/')){
   void bazaarGame.control(req,res,req.url.slice('/__bazaar_game'.length));
   return;
  }
+ // The disposable OAuth client accepts its real browser redirect without reflecting its query.
+ if(req.method==='GET'&&(req.url==='/__oauth/callback'||req.url.startsWith('/__oauth/callback?'))){
+  const params=new URL(req.url, 'https://localhost:18443').searchParams;
+  const accepted=Boolean(params.get('state'))&&(Boolean(params.get('code'))!==Boolean(params.get('error')));
+  res.writeHead(accepted?200:400,{
+   'content-type':'text/plain; charset=utf-8',
+   'cache-control':'no-store',
+   'referrer-policy':'no-referrer',
+  });
+  res.end(accepted?'OAuth callback received.':'Invalid OAuth callback.');
+  return;
+ }
  if(req.url==='/__mail'){res.setHeader('content-type','application/json');res.end(JSON.stringify(messages));return;}
- // Select actual loopback peers for source-limit checks on the local login route.
- const {'x-portal-e2e-login-peer':peer,...headers}=req.headers;
- const localAddress=req.method==='POST'&&/^\/(?:pl\/|en\/)?login$/.test(req.url)&&
-  ['127.0.0.2','127.0.0.3'].includes(peer)?peer:'127.0.0.1';
- const upstream=http.request({hostname:'127.0.0.1',port:18080,path:req.url,method:req.method,localAddress,headers},response=>{res.writeHead(response.statusCode,response.headers);response.pipe(res);});
- upstream.on('error',()=>{res.writeHead(502);res.end();});req.pipe(upstream);
-});
+ // Select actual loopback peers for source-limit checks on the local auth routes.
+ const {'x-portal-e2e-login-peer':loginPeer,'x-portal-e2e-invite-peer':invitePeer,...headers}=req.headers;
+ let localAddress='127.0.0.1';
+ if(req.method==='POST'){
+  if(/^\/(?:pl\/|en\/)?login$/.test(req.url)&&['127.0.0.2','127.0.0.3'].includes(loginPeer)){
+   localAddress=loginPeer;
+  }else if(/^\/(?:admin\/staff-invites|(?:pl|en)\/staff-invite)$/.test(req.url.split('?',1)[0])
+   && /^127\.0\.0\.(?:[2-9]\d|1\d{2}|2[0-4]\d)$/.test(invitePeer)){
+   localAddress=invitePeer;
+  }
+ }
+ forward(req,res,port,headers,localAddress);
+}
+// Playwright's API agent reuses idle sockets while the browser navigates.
+// Keep these disposable listeners open until the suite closes its contexts.
+const proxyTls={...tls,keepAliveTimeout:0};
+const proxy=https.createServer(proxyTls,proxyRequest);
+const nativePanelOffProxy=https.createServer(proxyTls,(req,res)=>proxyRequest(req,res,nativePanelOffPort));
+nativePanelOffProxy.listen(nativePanelOffProxyPort,'127.0.0.1');
 proxy.listen(18443,'127.0.0.1');
-const children=['serve','worker'].map(role=>spawn(binary,[role],{cwd:root,env,stdio:['ignore',fs.openSync(`${scratch}/${role}.log`,'a'),fs.openSync(`${scratch}/${role}.log`,'a')]}));
+const queryProxy=https.createServer(proxyTls,(req,res)=>forward(req,res,queryPort));
+queryProxy.listen(queryProxyPort,'127.0.0.1');
+function start(role,instanceEnv,log){
+ const fd=fs.openSync(path.join(scratch,`${log}.log`),'a',0o600);
+ try{return spawn(binary,[role],{cwd:root,env:instanceEnv,stdio:['ignore',fd,fd]});}
+ finally{fs.closeSync(fd);}
+}
+const children={
+ serve:start('serve',env,'serve'),
+ worker:start('worker',env,'worker'),
+ gateway:start('gateway',gatewayEnv,'gateway'),
+ 'query-serve':start('serve',queryEnv,'query-serve'),
+};
+// Use the same data with native panel routes disabled in a separate portal.
+const nativePanelOffEnv={
+ ...env,
+ OTERYN_PANEL_NATIVE_DEVICES_ENABLED:'false',
+ OTERYN_BIND:`127.0.0.1:${nativePanelOffPort}`,
+ OTERYN_PUBLIC_ORIGIN:env.PORTAL_E2E_NATIVE_PANEL_OFF_ORIGIN,
+ OTERYN_ADMIN_HOST:'localhost:18448',
+ OTERYN_INTERNAL_TLS_BIND:'127.0.0.1:18449',
+ PORTAL_NATIVE_ADMISSION_BIND:'127.0.0.1:18093',
+ OTERYN_NATIVE_TLS_BIND:'',OTERYN_NATIVE_TLS_CERT_FILE:'',OTERYN_NATIVE_TLS_KEY_FILE:'',
+};
+delete nativePanelOffEnv.PORTAL_E2E_ROUTE_REPORT;
+children['native-panel-off']=start('serve',nativePanelOffEnv,'native-panel-off');
 league.start();
+if(splitStaffOrigin){
+ const staffProxy=https.createServer(proxyTls,proxyRequest).listen(443,'127.0.0.1');
+ proxy.once('close',()=>staffProxy.close());
+}
 await gameProducer.start();
 const outbox = startLocalOutbox(scratch, binary);
 let closing=false;
@@ -166,7 +302,7 @@ async function close(code=0) {
  await league.close();
  await bazaarGame.close();
  await gameProducer.stop();
- await Promise.all(children.map(async child=>{
+ await Promise.all(Object.values(children).map(async child=>{
   if(child.exitCode!==null||child.signalCode!==null||child.pid===undefined)return;
   const stopped=new Promise(resolve=>child.once('exit',resolve));
   child.kill('SIGINT');
@@ -175,12 +311,25 @@ async function close(code=0) {
  smtp.close();
  starttls.close();
  proxy.close();
- for(const name of [dbName,testName])await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+ queryProxy.close();
+ nativePanelOffProxy.close();
+ for(const name of databases)await executeFixtureDdl(admin.query.bind(admin), 'dropDatabase', name);
  await admin.end();
  process.exit(code);
 }
 process.on('SIGINT',()=>void close());
 process.on('SIGTERM',()=>void close());
+for(const [role,child] of Object.entries(children)){
+ const failed=()=>{
+  if(closing)return;
+  console.error(`Local ${role} stopped. See its private log.`);
+  void close(1);
+ };
+ child.once('error',failed);
+ child.once('exit',failed);
+ // A service can exit while the producer is still opening its listener.
+ if(child.exitCode!==null||child.signalCode!==null)failed();
+}
 try {
  Object.assign(env,await outbox.ready);
  fs.writeFileSync(`${scratch}/env.json`,JSON.stringify(Object.fromEntries(Object.entries(env).filter(([key])=>(/^(OTERYN|PORTAL|GAME_AUTH|GATEWAY|PLAYERDATA|PRODUCTS)_/.test(key)&&key!=='PORTAL_E2E_ADMIN_DATABASE_URL')||['APP_ENV','SSL_CERT_FILE','PANEL_PREMIUM_PAYMENTS'].includes(key)))),{mode:0o600});

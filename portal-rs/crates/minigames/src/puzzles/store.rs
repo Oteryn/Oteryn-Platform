@@ -1,11 +1,13 @@
 use super::*;
-use oteryn_identity::accounts::Accounts;
+use oteryn_identity::accounts::{Account, Accounts};
 use oteryn_world::WorldStore;
-use sqlx::{PgPool, Row};
+use sqlx::{PgConnection, PgPool, Row, postgres::PgRow};
+use std::time::Duration;
+use tokio::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct Puzzles {
-    pool: PgPool,
+    pub(super) pool: PgPool,
     world: WorldStore,
     flags: Flags,
 }
@@ -13,7 +15,7 @@ impl Puzzles {
     pub fn new(pool: PgPool, world: WorldStore, flags: Flags) -> Self {
         Self { pool, world, flags }
     }
-    fn enabled(&self) -> Result<(), Error> {
+    pub(super) fn enabled(&self) -> Result<(), Error> {
         if self.flags.daily_puzzles {
             Ok(())
         } else {
@@ -27,6 +29,9 @@ impl Puzzles {
         }
         .find_by_id(account)
         .await?;
+        Self::check_account(account)
+    }
+    fn check_account(account: Option<Account>) -> Result<(), Error> {
         if account.is_some_and(|account| {
             account.status == "active" && account.email_verified_at.is_some()
         }) {
@@ -36,14 +41,23 @@ impl Puzzles {
         }
     }
     async fn visible(&self, definition: &Definition) -> Result<(), Error> {
+        self.visible_using(definition, None).await
+    }
+    async fn visible_using(
+        &self,
+        definition: &Definition,
+        mut connection: Option<&mut PgConnection>,
+    ) -> Result<(), Error> {
         definition.validate()?;
         for choice in &definition.choices {
-            let entity = self
-                .world
-                .get_entity(&choice.source.kind, &choice.source.key)
-                .await
-                .map_err(|_| Error::Unavailable)?
-                .ok_or(Error::Unavailable)?;
+            let kind = &choice.source.kind;
+            let key = &choice.source.key;
+            let entity = match connection.as_deref_mut() {
+                Some(connection) => self.world.get_entity_using(connection, kind, key).await,
+                None => self.world.get_entity(kind, key).await,
+            }
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Unavailable)?;
             if entity.version_id != definition.world_version {
                 return Err(Error::Unavailable);
             }
@@ -69,8 +83,8 @@ impl Puzzles {
         }
         Ok(())
     }
-    /// Caller is a trusted editorial service with publication authority. Definitions
-    /// cannot be replaced, including after a wrong answer or before their day.
+    /// Create a slot as a trusted editorial service with publication authority.
+    /// Staged replacement is handled by document publication.
     pub async fn publish(
         &self,
         day: Date,
@@ -78,51 +92,161 @@ impl Puzzles {
         media: Option<Media>,
     ) -> Result<Uuid, Error> {
         self.enabled()?;
+        definition.validate_publication()?;
         self.visible(&definition).await?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        self.lock_publication_day(&mut tx, day).await?;
+        let id = self
+            .insert_daily(&mut tx, day, &definition, media, None)
+            .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    pub(super) async fn lock_publication_day(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        day: Date,
+    ) -> Result<(), Error> {
+        // Match the operator path's lock order: active catalogue before day.
+        sqlx::query("SELECT version_id FROM world_active_version WHERE singleton FOR SHARE")
+            .execute(&mut **tx)
+            .await?;
+        // Lock the date even when it has no slots. The subsequent INSERT sees
+        // slots committed by the previous publisher before it released the lock.
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock('puzzles_daily'::regclass::oid::int, $1::date - DATE '2000-01-01')",
+        )
+        .bind(day)
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
+    }
+
+    // At midnight, wait for any in-flight replacement before reading this day.
+    // Release the date lock before taking world or account locks.
+    async fn read_day(&self) -> Result<(sqlx::Transaction<'_, sqlx::Postgres>, Date), Error> {
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        let day = Self::lock_read_day(&mut tx).await?;
+        Ok((tx, day))
+    }
+
+    async fn lock_read_day(connection: &mut PgConnection) -> Result<Date, Error> {
+        let day = sqlx::query_scalar("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date")
+            .fetch_one(&mut *connection)
+            .await?;
+        sqlx::query(
+            "SELECT pg_advisory_xact_lock_shared('puzzles_daily'::regclass::oid::int, $1::date - DATE '2000-01-01')",
+        )
+        .bind(day)
+        .execute(connection)
+        .await?;
+        Ok(day)
+    }
+
+    pub(super) async fn insert_daily(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        day: Date,
+        definition: &Definition,
+        media: Option<Media>,
+        publication_id: Option<Uuid>,
+    ) -> Result<Uuid, Error> {
+        self.visible_locked(tx, definition).await?;
         match (&media, definition.kind) {
             (None, Kind::Quiz) => {}
             (Some(media), Kind::Monster | Kind::Atlas) if media.kind == definition.kind => {
-                let report = self
+                // The public Atlas viewer and sprite builds use the source commit.
+                let expected = self
                     .world
-                    .import_report(definition.world_version)
+                    .import_report_on(&mut **tx, definition.world_version)
                     .await
                     .map_err(|_| Error::Unavailable)?
-                    .ok_or(Error::Unavailable)?;
-                let expected = if definition.kind == Kind::Monster {
-                    report.source_commit
-                } else {
-                    definition.world_version.to_string()
-                };
-                if media.version != expected
-                    || media.bytes.is_empty()
-                    || media.bytes.len() > 1_048_576
-                {
+                    .ok_or(Error::Unavailable)?
+                    .source_commit;
+                if media.version != expected || !(1..=1_048_576).contains(&media.bytes.len()) {
                     return Err(Error::Unavailable);
                 }
             }
             _ => return Err(Error::Invalid),
         }
-        let mut tx = crate::browser::begin(&self.pool).await?;
-        self.visible_locked(&mut tx, &definition).await?;
         let id = Uuid::now_v7();
-        let result = sqlx::query("INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image) SELECT $1,$2,$3,$4,$5,$6 WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date ON CONFLICT (day,kind) DO NOTHING")
-            .bind(id).bind(day).bind(definition.kind.key()).bind(definition.world_version)
-            .bind(sqlx::types::Json(&definition)).bind(media.map(|media| media.bytes))
-            .execute(&mut *tx).await?;
+        let result = sqlx::query(
+            "INSERT INTO puzzles_daily (id,day,kind,world_version,definition,image,publication_id)
+             SELECT $1,$2,$3,$4,$5,$6,$7
+             WHERE $2 >= (clock_timestamp() AT TIME ZONE 'UTC')::date
+               AND NOT EXISTS (SELECT 1 FROM puzzles_daily WHERE day=$2 AND world_version<>$4)
+             ON CONFLICT (day,kind) DO NOTHING",
+        )
+        .bind(id)
+        .bind(day)
+        .bind(definition.kind.key())
+        .bind(definition.world_version)
+        .bind(sqlx::types::Json(definition))
+        .bind(media.map(|media| media.bytes))
+        .bind(publication_id)
+        .execute(&mut **tx)
+        .await?;
         if result.rows_affected() == 0 {
             return Err(Error::Conflict);
         }
-        tx.commit().await?;
         Ok(id)
     }
     pub async fn today(&self, account: Uuid) -> Result<Vec<Daily>, Error> {
         self.eligible(account).await?;
-        let rows = sqlx::query("SELECT p.id,p.day,p.definition,p.image IS NOT NULL AS has_image,a.choice,a.correct FROM puzzles_daily p LEFT JOIN puzzles_answers a ON a.puzzle_id=p.id AND a.account_id=$1 WHERE p.day=(clock_timestamp() AT TIME ZONE 'UTC')::date ORDER BY p.kind")
-            .bind(account).fetch_all(&self.pool).await?;
+        let (mut tx, day) = self.read_day().await?;
+        let rows = Self::today_rows(&mut *tx, account, day).await?;
+        tx.commit().await?;
+        self.daily_cards(rows, None).await
+    }
+    pub(super) async fn landing(
+        &self,
+        account: Uuid,
+        deadline: Instant,
+    ) -> Result<(Vec<Daily>, Progress), Error> {
+        self.enabled()?;
+        oteryn_db::with_transaction_deadline(
+            &self.pool,
+            deadline,
+            Duration::from_millis(500),
+            Duration::from_secs(2),
+            async |tx| {
+                Self::check_account(Accounts::find_by_id_in(tx, account).await?)?;
+                oteryn_db::check_deadline(deadline)?;
+                // Take the same locks in the publisher's order before reading visible cards.
+                sqlx::query(
+                    "SELECT version_id FROM world_active_version WHERE singleton FOR SHARE",
+                )
+                .execute(&mut **tx)
+                .await?;
+                let day = Self::lock_read_day(tx).await?;
+                let rows = Self::today_rows(&mut **tx, account, day).await?;
+                let daily = self.daily_cards(rows, Some(tx)).await?;
+                oteryn_db::check_deadline(deadline)?;
+                let progress = Self::progress_in(&mut **tx, account).await?;
+                Ok((daily, progress))
+            },
+        )
+        .await
+    }
+    async fn today_rows<'e>(
+        executor: impl sqlx::PgExecutor<'e>,
+        account: Uuid,
+        day: Date,
+    ) -> Result<Vec<PgRow>, Error> {
+        Ok(sqlx::query("SELECT p.id,p.day,p.definition,p.image IS NOT NULL AS has_image,a.choice,a.correct FROM puzzles_daily p LEFT JOIN puzzles_answers a ON a.puzzle_id=p.id AND a.account_id=$1 WHERE p.day=$2 AND p.day=(clock_timestamp() AT TIME ZONE 'UTC')::date ORDER BY p.kind")
+            .bind(account).bind(day).fetch_all(executor).await?)
+    }
+    async fn daily_cards(
+        &self,
+        rows: Vec<PgRow>,
+        mut connection: Option<&mut PgConnection>,
+    ) -> Result<Vec<Daily>, Error> {
         let mut daily = Vec::new();
         for row in rows {
             let definition: sqlx::types::Json<Definition> = row.try_get("definition")?;
-            self.visible(&definition).await?;
+            self.visible_using(&definition, connection.as_deref_mut())
+                .await?;
             let choice: Option<i16> = row.try_get("choice")?;
             daily.push(Daily {
                 id: row.try_get("id")?,
@@ -151,8 +275,10 @@ impl Puzzles {
     }
     pub async fn image(&self, account: Uuid, id: Uuid) -> Result<Vec<u8>, Error> {
         self.eligible(account).await?;
-        let row = sqlx::query("SELECT definition,image FROM puzzles_daily WHERE id=$1 AND day=(clock_timestamp() AT TIME ZONE 'UTC')::date")
-            .bind(id).fetch_optional(&self.pool).await?.ok_or(Error::NotFound)?;
+        let (mut tx, day) = self.read_day().await?;
+        let row = sqlx::query("SELECT definition,image FROM puzzles_daily WHERE id=$1 AND day=$2 AND day=(clock_timestamp() AT TIME ZONE 'UTC')::date")
+            .bind(id).bind(day).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        tx.commit().await?;
         let definition: sqlx::types::Json<Definition> = row.try_get("definition")?;
         self.visible(&definition).await?;
         row.try_get::<Option<Vec<u8>>, _>("image")?
@@ -160,9 +286,11 @@ impl Puzzles {
     }
     pub async fn answer(&self, account: Uuid, id: Uuid, choice: u8) -> Result<Answer, Error> {
         self.eligible(account).await?;
+        let (mut tx, day) = self.read_day().await?;
         let definition: sqlx::types::Json<Definition> = sqlx::query_scalar(
-            "SELECT definition FROM puzzles_daily WHERE id=$1 AND day=(clock_timestamp() AT TIME ZONE 'UTC')::date",
-        ).bind(id).fetch_optional(&self.pool).await?.ok_or(Error::NotFound)?;
+            "SELECT definition FROM puzzles_daily WHERE id=$1 AND day=$2 AND day=(clock_timestamp() AT TIME ZONE 'UTC')::date",
+        ).bind(id).bind(day).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        tx.commit().await?;
         self.visible(&definition).await?;
         if usize::from(choice) >= definition.choices.len() {
             return Err(Error::Invalid);
@@ -251,8 +379,14 @@ impl Puzzles {
     }
     pub async fn progress(&self, account: Uuid) -> Result<Progress, Error> {
         self.eligible(account).await?;
+        Self::progress_in(&self.pool, account).await
+    }
+    async fn progress_in<'e>(
+        executor: impl sqlx::PgExecutor<'e>,
+        account: Uuid,
+    ) -> Result<Progress, Error> {
         let row: Option<(i32, i32)> = sqlx::query_as("SELECT CASE WHEN last_completed >= (clock_timestamp() AT TIME ZONE 'UTC')::date-1 THEN current_streak ELSE 0 END,best_streak FROM puzzles_streaks WHERE account_id=$1")
-            .bind(account).fetch_optional(&self.pool).await?;
+            .bind(account).fetch_optional(executor).await?;
         Ok(
             row.map_or_else(Progress::default, |(current, best)| Progress {
                 current,

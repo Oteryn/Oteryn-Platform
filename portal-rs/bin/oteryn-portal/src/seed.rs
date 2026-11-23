@@ -13,6 +13,7 @@
 //! | `oauth-native-client` | `oauth_native_clients` | `clientId` and its four flags |
 //! | `signing-trust` | `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, `issuerRevision` |
 //! | `bootstrap-intent` | `character_bootstrap_intents` | `operationId`, `issuerDecisionId`, `sourceRevision`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
+//! | `character-service-order` | `character_commands` and `character_service_orders` | `operationId` for a historical order pending Game reconciliation |
 //! | `account-mfa` | `account_mfa_totp` (via `oteryn_identity::mfa`) | `accountId`, `totpSecret`, `algorithm`, `digits`, `period`, `recoveryCodes` |
 //! | `channel` | `game_channels` (no route, login disabled) | the channel's current record |
 //! | `route` | `game_channels` route record (gateway contract §7.3, mode 34a) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision`, `nativeLoginEnabled` |
@@ -35,6 +36,8 @@
 //! step exists.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oteryn_characters::bootstrap::issue;
+use oteryn_characters::commands::Error as CharacterError;
+use oteryn_characters::services::{self, Action, Request, Services};
 #[cfg(test)]
 use oteryn_gameauth::evidence::{Witness, trust_state_namespace};
 use oteryn_gameauth::{
@@ -44,7 +47,11 @@ use oteryn_gameauth::{
 use oteryn_identity::mfa::Mfa;
 use serde_json::{Map, Value, json};
 use sqlx::{PgPool, Row};
-use std::{fmt, path::PathBuf, process::ExitCode};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 use uuid::Uuid;
 
 /// Witness directory shared with the native evidence producer.
@@ -175,10 +182,12 @@ pub async fn execute(
     match entity {
         "account" => account(pool, &args).await,
         "world" => world(pool, &args).await,
+        "query-catalog" => query_catalog(pool, &args).await,
         "oauth-native-client" => oauth_native_client(pool, &args).await,
         "signing-trust" => signing_trust(pool, settings, &args).await,
         "signing-custody" => signing_custody(pool, settings, &args).await,
         "bootstrap-intent" => bootstrap_intent(pool, &args).await,
+        "character-service-order" => character_service_order(pool, &args).await,
         "account-mfa" => account_mfa(settings, &args).await,
         "channel" => channel(pool, &args).await,
         "route" => route(pool, &args).await,
@@ -187,6 +196,124 @@ pub async fn execute(
         )),
         _ => Err(bad(format!("unknown entity {entity:?}"))),
     }
+}
+
+/// Create a historical order using the real service on the disposable outbox DB.
+async fn character_service_order(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await?;
+    if !database.starts_with("portal_e2e_") {
+        return Err(bad(
+            "character-service-order requires a disposable portal_e2e_ database",
+        ));
+    }
+    let id = |key: &str| {
+        args.uuid(key, true)?
+            .ok_or_else(|| bad(format!("{key} is required")))
+    };
+    let mut allowed = vec!["accountId", "characterId", "requestId", "action"];
+    let (action, accepted_price) = match args.required("action")? {
+        "schedule" => (Action::Schedule, None),
+        "cancel" => {
+            allowed.push("deletionOperationId");
+            (
+                Action::Cancel {
+                    deletion_operation_id: id("deletionOperationId")?,
+                },
+                None,
+            )
+        }
+        "rename" => {
+            allowed.extend(["name", "acceptedPrice"]);
+            let price = args
+                .required("acceptedPrice")?
+                .parse()
+                .map_err(|_| bad("acceptedPrice must be a decimal integer"))?;
+            (
+                Action::Rename {
+                    requested_name: args.required("name")?.to_owned(),
+                },
+                Some(price),
+            )
+        }
+        _ => return Err(bad("action must be schedule, cancel or rename")),
+    };
+    args.only(&allowed)?;
+    let request = Request {
+        accepted_price,
+        request_id: id("requestId")?,
+        character_id: id("characterId")?,
+        action,
+    };
+    let order = Services::new(pool.clone(), services::configured())
+        .request(id("accountId")?, request)
+        .await
+        .map_err(|error| match error {
+            CharacterError::BadInput => bad("invalid character service order"),
+            CharacterError::Conflict => {
+                SeedError::Conflict("character service order conflict".into())
+            }
+            _ => SeedError::Unavailable("character service order refused"),
+        })?;
+    Ok(json!({"operationId": order.operation_id}))
+}
+
+/// Import the existing schema-validated WorldStore fixture for browser queries.
+async fn query_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    args.only(&[])?;
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await?;
+    if !database.starts_with("portal_e2e_") {
+        return Err(bad(
+            "query-catalog requires a disposable portal_e2e_ database",
+        ));
+    }
+    let version = seed_query_catalog_fixture(pool, Path::new(QUERY_CATALOG_FIXTURE)).await?;
+    Ok(json!({"versionId": version}))
+}
+
+// Both E2E launchers set the seed command's working directory to portal-rs.
+const QUERY_CATALOG_FIXTURE: &str = "e2e/fixtures/query-catalog";
+
+async fn seed_query_catalog_fixture(pool: &PgPool, root: &Path) -> Result<Uuid, SeedError> {
+    use oteryn_world::{ImportMapping, SchemaScope, WorldError, WorldOptions, WorldStore};
+
+    WorldStore::new(pool.clone(), WorldOptions { enabled: true })
+        .ensure_directory_with_visibility(
+            root,
+            "0000000000000000000000000000000000000002",
+            [
+                ("items", "Item"),
+                ("creatures", "Creature"),
+                ("loot", "Loot"),
+            ]
+            .into_iter()
+            .map(|(file, kind)| ImportMapping {
+                path_glob: format!("content/{file}.json"),
+                schema_file: "tools/content-schema/envelope.schema.json".into(),
+                kind: kind.into(),
+                key_field: "code".into(),
+                records_pointer: "/payload".into(),
+                schema_scope: SchemaScope::Document,
+                hidden_when_true: Vec::new(),
+            })
+            .collect(),
+            &[
+                ("Item", "fixture.alpha"),
+                ("Item", "fixture.beta"),
+                ("Creature", "fixture.rat"),
+                ("Creature", "fixture.wolf"),
+                ("Loot", "fixture.rat-loot"),
+                ("Loot", "fixture.wolf-loot"),
+            ],
+        )
+        .await
+        .map_err(|error| match error {
+            WorldError::InvalidInput(message) => SeedError::Conflict(message),
+            _ => SeedError::Unavailable("query catalog import or publication"),
+        })
 }
 
 /// A JSON object whose keys are checked against each command's allow-list.
@@ -963,17 +1090,7 @@ async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, Seed
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
     let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| SeedError::Unavailable("clock"))?
-        .as_secs();
-    // Confirm with the previous step so the current step's code still logs in.
-    let recovery_codes = mfa
-        .confirm(id, password, &totp.generate(now.saturating_sub(30)))
-        .await?
-        .ok_or(SeedError::Unavailable(
-            "MFA confirmation was refused; retry",
-        ))?;
+    let recovery_codes = confirm_seed_mfa(mfa, id, password, &totp, unix_seconds()?).await?;
     Ok(json!({
         "entity": "account-mfa",
         "accountId": id.to_string(),
@@ -983,6 +1100,37 @@ async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, Seed
         "period": 30,
         "recoveryCodes": recovery_codes,
     }))
+}
+
+fn unix_seconds() -> Result<u64, SeedError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_secs())
+        .map_err(|_| SeedError::Unavailable("clock"))
+}
+
+async fn confirm_seed_mfa(
+    mfa: &Mfa,
+    id: Uuid,
+    password: &str,
+    totp: &totp_rs::TOTP,
+    started: u64,
+) -> Result<Vec<String>, SeedError> {
+    // Confirm with the previous step so the current step's code still logs in.
+    let previous_code = |now: u64| totp.generate(now.saturating_sub(totp.step));
+    if let Some(codes) = mfa.confirm(id, password, &previous_code(started)).await? {
+        return Ok(codes);
+    }
+    // The account lock can delay validation until the previous code expires.
+    let retry = unix_seconds()?;
+    if retry / totp.step > started / totp.step
+        && let Some(codes) = mfa.confirm(id, password, &previous_code(retry)).await?
+    {
+        return Ok(codes);
+    }
+    Err(SeedError::Unavailable(
+        "MFA confirmation was refused; retry",
+    ))
 }
 
 /// Seed argument names of the four interpretation revisions, in wire order.

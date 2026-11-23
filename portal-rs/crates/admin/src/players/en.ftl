@@ -28,3 +28,13 @@ coin-hold-none = No coin purchase hold.
 coin-hold-released = The coin purchase hold was released.
 coin-hold-absent = There was no coin purchase hold to release.
 coin-debt = Outstanding coin debt (paid first from every credit)
+audit = Audit
+
+new-email = New email address
+request-email = Request email change
+email-help = The account owner must approve the request with their password and security proof. The new address must then be verified. The change takes effect after the seven-day waiting period.
+email-pending = An email change is awaiting owner approval, address verification, or the end of the waiting period.
+review-flag = Needs staff review
+save-flag = Save review flag
+save-status = Save account status
+support-reason = Support case

@@ -1,8 +1,9 @@
 //! Delivery of registration verification jobs through the existing outbox worker.
 //! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
-use crate::worker::{Handler, HandlerFuture, Registry};
+use crate::worker::{DeliveryFuture, DeliveryOutcome, Handler, HandlerFuture, Registry};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
-use oteryn_identity::verify::token_hash;
+use oteryn_admin::staff_invites;
+use oteryn_identity::{reset::DeliveryKey, verify::token_hash};
 use sqlx::PgPool;
 use std::sync::Arc;
 
@@ -30,19 +31,31 @@ const MAIL_SETTINGS: [&str; 7] = [
     "OTERYN_SMTP_FROM",
     "OTERYN_MAIL_FROM",
 ];
-fn mail_configured() -> bool {
+struct MailTransport {
+    smtp: AsyncSmtpTransport<Tokio1Executor>,
+    from: lettre::message::Mailbox,
+    origin: String,
+}
+
+fn mail_settings_present() -> bool {
     MAIL_SETTINGS
         .iter()
         .any(|name| std::env::var_os(name).is_some())
 }
-pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
-    if !mail_configured() {
-        return Ok(());
+
+fn required_mail_env(name: &str) -> Result<String, String> {
+    std::env::var(name).map_err(|_| format!("{name} is required and must be valid UTF-8"))
+}
+
+fn mail_transport() -> Result<Option<MailTransport>, Box<dyn std::error::Error>> {
+    if !mail_settings_present() {
+        return Ok(None);
     }
-    let host =
-        std::env::var("OTERYN_SMTP_HOST").map_err(|_| "registration SMTP host is required")?;
-    let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
-    let uri: axum::http::Uri = origin.parse()?;
+    let host = required_mail_env("OTERYN_SMTP_HOST")?;
+    let origin = required_mail_env("OTERYN_PUBLIC_ORIGIN")?;
+    let uri: axum::http::Uri = origin
+        .parse()
+        .map_err(|_| "invalid registration mail origin")?;
     if uri.scheme_str() != Some("https")
         || uri.authority().is_none()
         || uri.path() != "/"
@@ -52,16 +65,119 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std
     }
     let smtp = oteryn_notify::smtp::transport(
         &host,
-        std::env::var("OTERYN_SMTP_USERNAME")?,
-        std::env::var("OTERYN_SMTP_PASSWORD")?,
+        required_mail_env("OTERYN_SMTP_USERNAME")?,
+        required_mail_env("OTERYN_SMTP_PASSWORD")?,
     )
     .map_err(|_| "SMTP configuration invalid")?;
+    let from = required_mail_env("OTERYN_MAIL_FROM")?
+        .parse()
+        .map_err(|_| "invalid registration sender address")?;
+    Ok(Some(MailTransport {
+        smtp,
+        from,
+        origin: origin.trim_end_matches('/').into(),
+    }))
+}
+
+pub fn staff_invite_key(pool: &PgPool) -> Option<DeliveryKey> {
+    let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
+    // The worker also initializes the shared security sender when SMTP is set.
+    let smtp_ready = panel_enabled
+        && mail_transport().is_ok_and(|transport| transport.is_some())
+        && crate::sessions_http::delivery(pool.clone()).is_ok_and(|delivery| delivery.is_some());
+    staff_invite_key_from(panel_enabled, smtp_ready, invite_key_env)
+}
+
+fn invite_key_env() -> Option<String> {
+    std::env::var("OTERYN_RESET_DELIVERY_KEY").ok()
+}
+
+fn staff_invite_key_from(
+    panel_enabled: bool,
+    mail_configured: bool,
+    key: impl FnOnce() -> Option<String>,
+) -> Option<DeliveryKey> {
+    if !panel_enabled || !mail_configured {
+        return None;
+    }
+    key().and_then(|value| DeliveryKey::parse(&value))
+}
+
+struct StaffInviteMailer {
+    mailer: Arc<Mailer>,
+    key: DeliveryKey,
+}
+
+impl std::fmt::Debug for StaffInviteMailer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("StaffInviteMailer([redacted])")
+    }
+}
+
+impl Handler for StaffInviteMailer {
+    fn run<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> HandlerFuture<'a> {
+        Box::pin(async move { self.deliver(job).await.map(|_| ()) })
+    }
+
+    fn deliver<'a>(&'a self, job: &'a oteryn_db::outbox::Job) -> DeliveryFuture<'a> {
+        Box::pin(async move {
+            use staff_invites::DeliveryDecision;
+            let (email, locale, token, expires_at) =
+                match staff_invites::delivery(&self.mailer.pool, &self.key, &job.payload).await? {
+                    DeliveryDecision::Send {
+                        email,
+                        locale,
+                        token,
+                        expires_at,
+                    } => (email, locale, token, expires_at),
+                    DeliveryDecision::AwaitingApproval
+                    | DeliveryDecision::AwaitingIssuerAuthority => {
+                        return Ok(DeliveryOutcome::Deferred);
+                    }
+                    DeliveryDecision::Closed => return Ok(DeliveryOutcome::Complete),
+                };
+            let (subject, body) = staff_invites::mail_text(&locale, expires_at);
+            let message = Message::builder()
+                .from(self.mailer.from.clone())
+                .to(email
+                    .parse()
+                    .map_err(|_| "invalid staff invite recipient")?)
+                .subject(subject)
+                .body(format!(
+                    "{body}\n\n{}/{locale}/staff-invite?token={token}",
+                    self.mailer.origin
+                ))
+                .map_err(|_| "invalid staff invite message")?;
+            self.mailer
+                .smtp
+                .send(message)
+                .await
+                .map_err(|_| "staff invite delivery failed")?;
+            Ok(DeliveryOutcome::Complete)
+        })
+    }
+}
+
+pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(MailTransport { smtp, from, origin }) = mail_transport()? else {
+        return Ok(());
+    };
     let mailer = Arc::new(Mailer {
         pool,
         smtp,
-        from: std::env::var("OTERYN_MAIL_FROM")?.parse()?,
-        origin: origin.trim_end_matches('/').into(),
+        from,
+        origin,
     });
+    let panel_enabled = std::env::var("OTERYN_ADMIN_PANEL").as_deref() == Ok("true");
+    if let Some(key) = staff_invite_key_from(panel_enabled, true, invite_key_env) {
+        registry.register(
+            staff_invites::MAIL_KIND,
+            Arc::new(StaffInviteMailer {
+                mailer: mailer.clone(),
+                key,
+            }),
+        )?;
+    }
     registry.register("email.verify", mailer.clone())?;
     registry.register("email.account_exists", mailer)?;
     Ok(())
@@ -319,8 +435,8 @@ mod account_exists_tests {
 
 /// Freeze delivery readiness at startup, before registration body/session work.
 /// Serve and worker use the identical validated configuration.
-pub fn admission(app: axum::Router, pool: PgPool) -> axum::Router {
-    let ready = mail_configured() && register(&mut Registry::default(), pool).is_ok();
+pub fn admission(app: axum::Router) -> axum::Router {
+    let ready = mail_transport().is_ok_and(|transport| transport.is_some());
     admission_with_readiness(app, ready)
 }
 fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
@@ -351,4 +467,15 @@ fn admission_with_readiness(app: axum::Router, ready: bool) -> axum::Router {
             next.run(request).await
         },
     ))
+}
+
+#[cfg(test)]
+#[test]
+fn staff_invite_delivery_requires_panel_mail_and_key() {
+    let configured_key = || Some("ab".repeat(32));
+    assert!(staff_invite_key_from(false, true, configured_key).is_none());
+    assert!(staff_invite_key_from(true, false, configured_key).is_none());
+    assert!(staff_invite_key_from(true, true, || None).is_none());
+    assert!(staff_invite_key_from(true, true, || Some("invalid".into())).is_none());
+    assert!(staff_invite_key_from(true, true, configured_key).is_some());
 }

@@ -4,7 +4,7 @@ use axum::{
     extract::{ConnectInfo, Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::post,
 };
 use oteryn_identity::passkeys::{Completion, Error, Passkeys};
 use oteryn_web::{
@@ -32,7 +32,11 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
 fn router(service: Passkeys, sessions: SessionLayer) -> Router {
     let limiter = RateLimiter::new(service.pool.clone());
     let routes = Router::new()
-        .route("/{lang}/account/passkeys", get(page))
+        .route("/{lang}/account/passkeys", oteryn_web::html::get(page))
+        .route(
+            "/{lang}/account/passkeys/manage",
+            oteryn_web::html::get(manage),
+        )
         .route(
             "/{lang}/account/passkeys/register/start",
             post(register_start),
@@ -114,6 +118,18 @@ impl Page {
             .into_owned()
     }
 }
+async fn manage(
+    state: State<Passkeys>,
+    lang: Path<String>,
+    Extension(session): Extension<BrowserSession>,
+) -> Result<Response, StatusCode> {
+    language(&lang)?;
+    if session.account_id().await.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    page(state, lang, Extension(session)).await
+}
+
 async fn page(
     State(service): State<Passkeys>,
     Path(lang): Path<String>,

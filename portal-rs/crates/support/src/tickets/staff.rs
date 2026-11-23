@@ -1,7 +1,8 @@
 //! Production staff queue adapter. Domain writes share the admin authorization/audit transaction.
 use super::*;
 use oteryn_admin::support::{
-    Area, Backend, Command, Error as StaffError, Message as StaffMessage, Record,
+    Area, Backend, Command, Details, Error as StaffError, Message as StaffMessage, Record,
+    TicketFilter,
 };
 use sqlx::Row;
 
@@ -99,6 +100,16 @@ pub fn configured_staff_router(
 ) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
     configured_staff_router_from(pool, &|key| std::env::var(key).ok())
 }
+/// Wire game-backed appeal decisions to the same validated exchange as the GM panel.
+pub fn configured_staff_router_with_game(
+    pool: PgPool,
+    profiles: crate::sanctions::enforcement::Profiles,
+) -> std::result::Result<axum::Router, Box<dyn std::error::Error>> {
+    let lookup = |key: &str| std::env::var(key).ok();
+    let mut backend = StaffSupport::configured_from(pool.clone(), &lookup)?;
+    backend.sanctions = backend.sanctions.with_game_enforcement(profiles);
+    oteryn_admin::support::web::configured_router_from(pool, backend, &lookup)
+}
 /// [`configured_staff_router`] reading its configuration through `lookup`.
 pub fn configured_staff_router_from(
     pool: PgPool,
@@ -121,7 +132,7 @@ impl Backend for StaffSupport {
         let actor = context.account;
         self.available(command.area())?;
         let owner: Uuid = match command {
-            Command::Reply { .. } | Command::TicketStatus { .. } => {
+            Command::Reply { .. } | Command::TicketStatus { .. } | Command::AssignTicket { .. } => {
                 sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1")
                     .bind(id)
                     .fetch_optional(&mut **tx)
@@ -129,7 +140,9 @@ impl Backend for StaffSupport {
                     .map_err(|_| StaffError::Unavailable)?
                     .ok_or(StaffError::NotFound)?
             }
-            Command::Moderate { .. } => {
+            Command::Moderate { .. }
+            | Command::VerifyReportTarget { .. }
+            | Command::LinkSanction { .. } => {
                 sqlx::query_scalar("SELECT reporter_account_id FROM player_reports WHERE id=$1")
                     .bind(id)
                     .fetch_optional(&mut **tx)
@@ -141,7 +154,8 @@ impl Backend for StaffSupport {
                 create: true,
                 target,
                 ..
-            } => *target,
+            }
+            | Command::ApplySanction { target, .. } => *target,
             _ => sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
                 .bind(id)
                 .fetch_optional(&mut **tx)
@@ -154,25 +168,54 @@ impl Backend for StaffSupport {
             oteryn_admin::web::PortalIdentity::configured(self.pool.clone()),
         );
         let resource_query = match command {
-            Command::Reply { .. } | Command::TicketStatus { .. } => {
+            Command::Reply { .. } | Command::TicketStatus { .. } | Command::AssignTicket { .. } => {
                 "SELECT id FROM tickets WHERE id=$1 FOR UPDATE"
             }
-            Command::Moderate { .. } => "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE",
-            Command::Sanction { create: true, .. } => {
-                "SELECT id FROM sanctions WHERE false AND id=$1 FOR UPDATE"
+            Command::Moderate { .. }
+            | Command::VerifyReportTarget { .. }
+            | Command::LinkSanction { .. } => {
+                "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE"
             }
             _ => "SELECT id FROM sanctions WHERE id=$1 FOR UPDATE",
         };
         let enforcement = matches!(command.area(), Area::Enforcement);
+        let mut accounts = vec![actor, owner];
+        if let Command::AssignTicket {
+            assignee: Some(assignee),
+        } = command
+        {
+            accounts.push(*assignee);
+        }
+        if let Command::VerifyReportTarget { target } = command {
+            accounts.push(*target);
+        }
+        let linked_sanction = if let Command::LinkSanction { sanction, .. } = command {
+            let target = sqlx::query_scalar("SELECT account_id FROM sanctions WHERE id=$1")
+                .bind(sanction)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?;
+            accounts.push(target);
+            Some(*sanction)
+        } else {
+            None
+        };
         oteryn_admin::rbac::authorize_mutation_with_resources(
             tx,
-            &[actor, owner],
+            &accounts,
             move |connection| {
                 Box::pin(async move {
                     sqlx::query(resource_query)
                         .bind(id)
                         .execute(&mut *connection)
                         .await?;
+                    if let Some(sanction) = linked_sanction {
+                        sqlx::query("SELECT id FROM sanctions WHERE id=$1 FOR SHARE")
+                            .bind(sanction)
+                            .execute(&mut *connection)
+                            .await?;
+                    }
                     if enforcement {
                         sqlx::query("SELECT sanction_id FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2 FOR UPDATE")
                             .bind(id).bind(owner).execute(connection).await?;
@@ -182,21 +225,19 @@ impl Backend for StaffSupport {
             },
             &auth,
             context,
-            &[
-                oteryn_admin::rbac::Permission::Access,
-                command.area().permission(),
-            ],
+            command.permissions(),
         )
         .await
         .map_err(|error| match error {
             oteryn_admin::rbac::Error::Storage(_) => StaffError::Unavailable,
             _ => StaffError::Denied,
         })?;
+        command.check_report_review_in(tx, &auth, context).await?;
         // Include implicit author FK locks and RBAC's actor SHARE lock. Every
         // domain uses the same UUID order before joining the role-writer fence.
         if matches!(
             command,
-            Command::Reply { .. } | Command::TicketStatus { .. }
+            Command::Reply { .. } | Command::TicketStatus { .. } | Command::AssignTicket { .. }
         ) {
             let tickets = self.tickets.as_ref().ok_or(StaffError::NotFound)?;
             for account in if actor < owner {
@@ -214,20 +255,39 @@ impl Backend for StaffSupport {
     }
 
     async fn list(&self, area: Area, page: u32) -> std::result::Result<Vec<Record>, StaffError> {
+        self.list_filtered(area, page, &TicketFilter::default())
+            .await
+    }
+
+    async fn list_filtered(
+        &self,
+        area: Area,
+        page: u32,
+        filter: &TicketFilter,
+    ) -> std::result::Result<Vec<Record>, StaffError> {
         self.available(area)?;
         let query = match area {
             Area::Tickets => {
-                "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,subject,status FROM tickets
+                 WHERE ($2 = '' OR status = $2) AND ($3 = '' OR category = $3)
+                 ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
                 "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,
+                 CASE WHEN status='active' AND expires_at<=statement_timestamp() THEN 'expired' ELSE status END
+                 FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
         };
-        let rows: Vec<(Uuid, i64, String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(query))
-            .bind(i64::from(page.saturating_sub(1)) * 30)
+        let query = sqlx::query_as(query).bind(i64::from(page.saturating_sub(1)) * 30);
+        let query = if area == Area::Tickets {
+            query.bind(&filter.status).bind(&filter.category)
+        } else {
+            query
+        };
+        let rows: Vec<(Uuid, i64, String, String)> = query
             .fetch_all(&self.pool)
             .await
             .map_err(|_| StaffError::Unavailable)?;
@@ -240,8 +300,46 @@ impl Backend for StaffSupport {
                 status,
                 messages: vec![],
                 next_message: None,
+                character_enforcement: None,
             })
             .collect())
+    }
+    async fn details(
+        &self,
+        area: Area,
+        record: &Record,
+    ) -> std::result::Result<Details, StaffError> {
+        self.available(area)?;
+        let query = match area {
+            Area::Tickets => {
+                "SELECT assigned_to,NULL::uuid,false FROM tickets WHERE id=$1 AND lock_version=$2"
+            }
+            Area::Reports => {
+                "SELECT sanction_id,verified_target_account_id,report_type='player'
+                 FROM player_reports WHERE id=$1 AND lock_version=$2"
+            }
+            Area::Enforcement => return Ok(Details::default()),
+        };
+        let (reference, verified_target, player_report): (Option<Uuid>, Option<Uuid>, bool) =
+            sqlx::query_as(query)
+                .bind(record.id)
+                .bind(record.version)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::Conflict)?;
+        Ok(match area {
+            Area::Tickets => Details {
+                assigned_to: reference,
+                ..Details::default()
+            },
+            _ => Details {
+                linked_sanction: reference,
+                verified_target,
+                player_report,
+                ..Details::default()
+            },
+        })
     }
     async fn load(
         &self,
@@ -261,6 +359,7 @@ impl Backend for StaffSupport {
                 .flatten();
             return Ok(Record {
                 next_message,
+                character_enforcement: None,
                 id: t.id,
                 version: t.lock_version,
                 title: t.subject,
@@ -280,7 +379,9 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,
+                 CASE WHEN status='active' AND expires_at<=statement_timestamp() THEN 'expired' ELSE status END AS status,enforcement_profile,
+                 (SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -289,6 +390,23 @@ impl Backend for StaffSupport {
             .await
             .map_err(|_| StaffError::Unavailable)?
             .ok_or(StaffError::NotFound)?;
+        let platform_status = row.try_get("status").map_err(|_| StaffError::Unavailable)?;
+        let character = if area == Area::Enforcement {
+            row.try_get::<Option<String>, _>("enforcement_profile")
+                .map_err(|_| StaffError::Unavailable)?
+        } else {
+            None
+        };
+        let (status, character_enforcement) = if let Some(profile) = character {
+            let (status, state) =
+                crate::sanctions::enforcement::moderation_state(&self.pool, id, &profile)
+                    .await
+                    .map_err(|_| StaffError::Unavailable)?
+                    .ok_or(StaffError::Unavailable)?;
+            (status, Some(state))
+        } else {
+            (platform_status, None)
+        };
         let decode = || -> std::result::Result<Record, sqlx::Error> {
             let mut messages = vec![];
             for (column, internal) in [("public_message", false), ("private_message", true)] {
@@ -304,7 +422,8 @@ impl Backend for StaffSupport {
                 id: row.try_get("id")?,
                 version: row.try_get("lock_version")?,
                 title: row.try_get("title")?,
-                status: row.try_get("status")?,
+                status,
+                character_enforcement,
                 messages,
                 next_message: None,
             })
@@ -323,6 +442,37 @@ impl Backend for StaffSupport {
         self.available(command.area())?;
         let notifications = self.notifications.as_ref().ok_or(StaffError::Unavailable)?;
         match command {
+            Command::AssignTicket { assignee } => {
+                let (status, current, before): (String, i64, Option<Uuid>) = sqlx::query_as(
+                    "SELECT status,lock_version,assigned_to FROM tickets WHERE id=$1 FOR UPDATE",
+                )
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?;
+                if current != version {
+                    return Err(StaffError::Conflict);
+                }
+                command.transition(&status)?;
+                let assignee = assignee.unwrap_or(actor);
+                if before == Some(assignee) {
+                    return Err(StaffError::Conflict);
+                }
+                let next: i64 = sqlx::query_scalar(
+                    "UPDATE tickets SET lock_version=lock_version+1,updated_at=clock_timestamp(),assigned_to=$2
+                     WHERE id=$1 RETURNING lock_version",
+                )
+                .bind(id)
+                .bind(assignee)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?;
+                Ok((
+                    serde_json::json!({"lock_version":version,"assigned_to":before}),
+                    serde_json::json!({"lock_version":next,"assigned_to":assignee}),
+                ))
+            }
             Command::Reply { body, .. } | Command::TicketStatus { status: body } => {
                 let tickets = self.tickets.as_ref().ok_or(StaffError::NotFound)?;
                 let change = match command {
@@ -332,16 +482,25 @@ impl Backend for StaffSupport {
                     },
                     _ => Change::Status(body),
                 };
-                let (ticket, before_status) = tickets
-                    .change_in(tx, actor, Some(context), (id, version), change, false)
+                let (ticket, before_status, message_id) = tickets
+                    .change_in(
+                        tx,
+                        actor,
+                        Some(context),
+                        (id, version),
+                        change,
+                        MutationSource::Queue,
+                    )
                     .await
                     .map_err(ticket_error)?;
                 Ok((
                     serde_json::json!({"lock_version":version,"status":before_status}),
-                    serde_json::json!({"lock_version":ticket.lock_version,"status":ticket.status}),
+                    ticket.audit_change(message_id),
                 ))
             }
-            Command::Moderate { .. } => {
+            Command::Moderate { .. }
+            | Command::VerifyReportTarget { .. }
+            | Command::LinkSanction { .. } => {
                 self.reports
                     .staff_apply(tx, actor, (id, version), command, notifications)
                     .await

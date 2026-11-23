@@ -3,10 +3,12 @@
 //! all three puzzles are answered correctly. Each puzzle permits one attempt.
 mod assets;
 mod http;
+mod publication;
 mod store;
 
 pub use assets::Media;
 pub use http::{configured_router, router};
+pub use publication::{PreparedPublication, Publication};
 pub use store::Puzzles;
 
 use serde::{Deserialize, Serialize};
@@ -134,6 +136,22 @@ impl Definition {
                         .en
                         .trim()
                         .eq_ignore_ascii_case(choice.label.en.trim())
+            }) {
+                return Err(Error::Invalid);
+            }
+        }
+        Ok(())
+    }
+
+    // Immutable rows can predate alias-aware validation. Apply this additional
+    // rule only to new publications so those rows remain playable.
+    fn validate_publication(&self) -> Result<(), Error> {
+        self.validate()?;
+        for (index, choice) in self.choices.iter().enumerate() {
+            if self.choices[..index].iter().any(|other| {
+                other.source.key == choice.source.key
+                    && oteryn_world::canonical_kind(&other.source.kind)
+                        == oteryn_world::canonical_kind(&choice.source.kind)
             }) {
                 return Err(Error::Invalid);
             }

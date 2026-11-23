@@ -22,6 +22,18 @@ impl MutationActor {
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM web_sessions WHERE account_id=$1 AND csrf_token=$2 AND idle_expires_at>clock_timestamp() AND absolute_expires_at>clock_timestamp())")
             .bind(self.account).bind(binding).fetch_one(conn).await
     }
+
+    /// Resolve the current browser identity and credential generation under the account lock.
+    pub(crate) async fn ceremony_identity(
+        &self,
+        conn: &mut PgConnection,
+    ) -> Result<Option<(Vec<u8>, i64)>, sqlx::Error> {
+        let Some(binding) = &self.binding else {
+            return Ok(None);
+        };
+        sqlx::query_as("SELECT s.id_hash,a.native_security_generation FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.account_id=$1 AND s.csrf_token=$2 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() FOR UPDATE OF s")
+            .bind(self.account).bind(binding).fetch_optional(conn).await
+    }
 }
 /// Account-only service calls are trusted internal operations, not browser entry points.
 impl From<AccountId> for MutationActor {

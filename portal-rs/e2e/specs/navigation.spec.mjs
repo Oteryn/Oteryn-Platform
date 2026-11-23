@@ -1,18 +1,25 @@
 import {test,expect} from '../fixtures.mjs';
 import fs from 'node:fs';
 import {register,login} from '../helpers.mjs';
+import {sudo} from '../account-helpers.mjs';
 import {assertShell} from '../shell.mjs';
 const inventory=JSON.parse(fs.readFileSync(new URL('../inventory.json',import.meta.url),'utf8'));
-let cookies;
+let account,cookies;
 test.beforeAll(async({browser},info)=>{
  const context=await browser.newContext({ignoreHTTPSErrors:true,baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:info.project.metadata.locale,viewport:info.project.use.viewport});
- const page=await context.newPage();const account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
+ const page=await context.newPage();account=await register(page,info.project.metadata.locale);await login(page,info.project.metadata.locale,account);cookies=await context.cookies();await context.close();
 });
 test.beforeEach(async({context})=>context.addCookies(cookies));
 const unavailable=new Set(['online','rankings','guilds','houses','deaths','wiki','creatures','atlas','delivery','guild-stats','growth-rankings','reports','logins','pass','places']);
 for(const section of inventory.sections) test(`registry ${section.section}: destination and shared shell`,async({page},info)=>{
  const lang=info.project.metadata.locale;
  const path=section.path.startsWith('/')?section.path:`/${lang}/${section.path}`;
+ if(['account-export','account-termination'].includes(section.section)) {
+   // Password confirmation rotates its session. Keep the shared sweep session reusable.
+   await page.context().clearCookies();
+   await login(page,lang,account);
+   await sudo(page,lang,account);
+ }
  const errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  page.on('console',m=>{if(m.type()==='error'&&!/^Failed to load resource: the server responded with a status of 503 \(Service Unavailable\)$/.test(m.text()))errors.push(m.text());});

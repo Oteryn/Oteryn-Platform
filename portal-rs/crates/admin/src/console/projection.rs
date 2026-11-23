@@ -201,10 +201,56 @@ fn character(v: &Value, dossier: bool) -> Result<players::Character, Error> {
         dossier: details,
     })
 }
+fn sanction_account(v: &Value) -> Result<Option<oteryn_characters::lcfa::AccountId>, Error> {
+    use oteryn_characters::lcfa::AccountId;
+    let mut account = None;
+    for row in array(v, "sanctions")? {
+        match row.get("account_ref") {
+            None | Some(Value::Null)
+                if row.get("character_id").and_then(Value::as_str).is_some() => {}
+            Some(Value::String(reference)) => {
+                let id = AccountId::parse(reference).map_err(|_| bad())?;
+                if account.replace(id).is_some_and(|previous| previous != id) {
+                    return Err(bad());
+                }
+            }
+            _ => return Err(bad()),
+        }
+    }
+    Ok(account)
+}
+
+pub(super) async fn verify_sanction_account(
+    projection: &oteryn_characters::lcfa::Projection,
+    character: &str,
+    completed_at: &str,
+    value: &Value,
+) -> Result<(), Error> {
+    use oteryn_characters::lcfa::CharacterId;
+    let unavailable = Error::SanctionsUnavailable;
+    let Some(account) = sanction_account(value).map_err(|_| unavailable)? else {
+        return Ok(());
+    };
+    let character = CharacterId::parse(character).map_err(|_| unavailable)?;
+    let completed =
+        time::OffsetDateTime::parse(completed_at, &time::format_description::well_known::Rfc3339)
+            .map_err(|_| unavailable)?;
+    let completed_at = completed.unix_timestamp() + i64::from(completed.nanosecond() != 0);
+    let owner = projection
+        .staff_character_owner(character, completed_at)
+        .await
+        .map_err(|_| unavailable)?;
+    if owner != Some(account) {
+        return Err(unavailable);
+    }
+    Ok(())
+}
+
 pub(super) fn snapshot(
     operation: &str,
     request_id: Uuid,
     observed_at: String,
+    target_character: Option<&str>,
     v: &Value,
 ) -> Result<players::Snapshot, Error> {
     let mut snapshot = players::Snapshot {
@@ -223,7 +269,13 @@ pub(super) fn snapshot(
                     .collect::<Result<_, _>>()?,
             )
         }
-        "player.character.get" => snapshot.characters = Some(vec![character(v, true)?]),
+        "player.character.get" => {
+            let dossier = character(v, true)?;
+            if target_character != Some(dossier.id.as_str()) {
+                return Err(bad());
+            }
+            snapshot.characters = Some(vec![dossier]);
+        }
         "player.inventory.get" => {
             snapshot.inventory = Some(
                 array(v, "items")?
@@ -244,10 +296,15 @@ pub(super) fn snapshot(
                 array(v, "sanctions")?
                     .iter()
                     .map(|s| {
+                        match s.get("character_id") {
+                            None | Some(Value::Null) => {}
+                            Some(Value::String(id)) if target_character == Some(id.as_str()) => {}
+                            _ => return Err(bad()),
+                        }
                         Ok(players::Sanction {
                             sanction_id: text(s, "sanction_id")?,
                             kind: text(s, "kind")?,
-                            status: boolean(s, "active")?.to_string(),
+                            active: boolean(s, "active")?,
                         })
                     })
                     .collect::<Result<_, Error>>()?,
@@ -308,4 +365,81 @@ pub(super) fn preview(v: &Value) -> Result<Vec<String>, Error> {
             ))
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn account_scoped_sanctions_need_one_valid_account_reference() {
+        let first = Uuid::now_v7();
+        let second = Uuid::now_v7();
+        assert!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":null}]}))
+                .is_err()
+        );
+        assert!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":"invalid"}]}))
+                .is_err()
+        );
+        assert!(matches!(
+            sanction_account(&json!({"sanctions":[{"character_id":null,"account_ref":first}]})),
+            Ok(Some(account)) if account.as_uuid() == first
+        ));
+        assert!(sanction_account(&json!({"sanctions":[
+            {"character_id":null,"account_ref":first}, {"character_id":null,"account_ref":second}
+        ]})).is_err());
+    }
+
+    #[test]
+    fn sanction_rows_must_match_the_target_when_an_id_is_present() {
+        let project = |id| {
+            snapshot(
+                "sanction.list",
+                Uuid::now_v7(),
+                String::new(),
+                Some("character-a"),
+                &json!({"sanctions":[{"sanction_id":"s1", "kind":"warning",
+                    "active":true, "character_id":id}]}),
+            )
+        };
+        assert!(project(json!("character-a")).is_ok());
+        assert!(project(Value::Null).is_ok());
+        assert!(matches!(
+            project(json!("character-b")),
+            Err(Error::Unavailable)
+        ));
+        assert!(matches!(project(json!(42)), Err(Error::Unavailable)));
+    }
+
+    #[test]
+    fn character_dossier_requires_an_exact_character_target() {
+        let result = json!({
+            "character_id": "character-a", "name": "Verified Knight", "world_id": "world-a",
+            "level": 42, "vocation": "knight", "skills": [],
+            "position": {"x": 1, "y": 2, "z": 3}, "online": true,
+            "premium": true, "bank_balance": "123", "last_logins": [], "sanctions": [],
+        });
+        let project = |target| {
+            snapshot(
+                "player.character.get",
+                Uuid::now_v7(),
+                "2026-11-22T15:00:00Z".into(),
+                target,
+                &result,
+            )
+        };
+        assert!(matches!(
+            project(Some("character-a")),
+            Ok(players::Snapshot { characters: Some(dossier), .. })
+                if dossier.first().is_some_and(|character| character.id == "character-a")
+        ));
+        assert!(matches!(
+            project(Some("character-b")),
+            Err(Error::Unavailable)
+        ));
+        assert!(matches!(project(None), Err(Error::Unavailable)));
+    }
 }

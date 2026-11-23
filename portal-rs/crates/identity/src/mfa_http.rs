@@ -2,16 +2,17 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, Request, State},
+    extract::{ConnectInfo, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::post,
 };
 use fluent_bundle::{FluentBundle, FluentResource};
 use oteryn_identity::{
     login::Credentials,
-    mfa::{Authenticated, Mfa},
+    mfa::{Authenticated, ManagementAction, ManagementResult, Mfa},
+    mutation_actor::MutationActor,
 };
 use oteryn_web::{
     Language,
@@ -19,9 +20,11 @@ use oteryn_web::{
     session::{self, BrowserSession, PrivilegeChange, SessionKey, SessionLayer},
 };
 use serde::Deserialize;
-use sqlx::PgPool;
+use sqlx::{PgPool, types::time::OffsetDateTime};
 use std::net::SocketAddr;
 pub(crate) const PENDING: SessionKey<String> = SessionKey::new("mfa_pending");
+const STAFF_DASHBOARD_CHALLENGE: SessionKey<Option<String>> =
+    SessionKey::new("mfa_staff_dashboard_challenge");
 const REFERRAL: SessionKey<String> = SessionKey::new("referral.code");
 const FAILED: SessionKey<bool> = SessionKey::new("mfa_failed");
 pub(crate) const GRANT: SessionKey<String> =
@@ -31,6 +34,7 @@ const TRUSTED: &str = "__Host-oteryn_mfa_device";
 struct Context {
     mfa: Mfa,
     limiter: RateLimiter,
+    native_enabled: bool,
 }
 /// Public adapter for future staff guards. Ambiguous state always denies.
 pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
@@ -42,7 +46,11 @@ pub async fn session_satisfied(mfa: &Mfa, session: &BrowserSession) -> bool {
     };
     mfa.satisfied(id, &grant).await.unwrap_or(false)
 }
-pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
+pub fn configured(
+    app: Router,
+    pool: PgPool,
+    fallback_routes: Option<&mut String>,
+) -> Result<Router, sqlx::Error> {
     if !std::env::var("OTERYN_ACCOUNT_MFA").is_ok_and(|v| v == "true") {
         return Ok(app);
     }
@@ -55,39 +63,73 @@ pub fn configured(app: Router, pool: PgPool) -> Result<Router, sqlx::Error> {
         .ok()
         .into_iter()
         .collect();
-    Ok(compose(app, pool, mfa, sessions))
+    let native_enabled = oteryn_gameauth::devices::owner_panel_enabled()
+        && std::env::var("OTERYN_ACCOUNT_CREDENTIALS").as_deref() == Ok("true");
+    Ok(compose_with_snapshot(
+        app,
+        pool,
+        mfa,
+        sessions,
+        native_enabled,
+        fallback_routes,
+    ))
 }
-fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Router {
+#[cfg(test)]
+fn compose(
+    app: Router,
+    pool: PgPool,
+    mfa: Mfa,
+    sessions: SessionLayer,
+    native_enabled: bool,
+) -> Router {
+    compose_with_snapshot(app, pool, mfa, sessions, native_enabled, None)
+}
+fn compose_with_snapshot(
+    app: Router,
+    pool: PgPool,
+    mfa: Mfa,
+    sessions: SessionLayer,
+    native_enabled: bool,
+    fallback_routes: Option<&mut String>,
+) -> Router {
     let context = Context {
         mfa,
         limiter: RateLimiter::new(pool),
+        native_enabled,
     };
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
         routes = routes
-            .route(&format!("{prefix}/mfa/login"), get(show_login).post(login))
+            .route(
+                &format!("{prefix}/mfa/login"),
+                oteryn_web::html::get(show_login).post(login),
+            )
             .route(
                 &format!("{prefix}/mfa/challenge"),
-                get(show_challenge).post(challenge),
+                oteryn_web::html::get(show_challenge).post(challenge),
             )
             .route(&format!("{prefix}/mfa/email"), post(email))
-            .route(&format!("{prefix}/mfa"), get(settings))
+            .route(&format!("{prefix}/mfa"), oteryn_web::html::get(settings))
             .route(&format!("{prefix}/mfa/enroll"), post(enroll))
             .route(&format!("{prefix}/mfa/confirm"), post(confirm))
-            .route(&format!("{prefix}/mfa/devices"), post(remove_device));
+            .route(&format!("{prefix}/mfa/devices"), post(remove_device))
+            .route(&format!("{prefix}/mfa/manage"), post(manage))
+            .route(
+                &format!("{prefix}/mfa/replace/confirm"),
+                post(confirm_replacement),
+            );
+        if context.native_enabled {
+            routes = routes.route(&format!("{prefix}/mfa/native-devices"), post(revoke_native));
+        }
     }
-    let admin_host = std::env::var("OTERYN_ADMIN_HOST").ok().filter(|host| {
-        std::env::var("OTERYN_ADMIN_PANEL").is_ok_and(|flag| flag == "true")
-            && host.parse::<axum::http::uri::Authority>().is_ok()
-    });
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
             context.mfa.clone(),
             audit_account_refusal,
         ))
         .route_layer(axum::middleware::from_fn_with_state(
-            (sessions, admin_host),
-            mfa_session,
+            (sessions, crate::login_http::configured_staff_authority()),
+            crate::login_http::staff_session,
         ))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024))
         .with_state(context);
@@ -97,30 +139,16 @@ fn compose(app: Router, pool: PgPool, mfa: Mfa, sessions: SessionLayer) -> Route
         let recorded = crate::record_route_registrations("mfa-fallback", &app);
         assert!(recorded.is_ok(), "MFA route registrations: {recorded:?}");
     }
+    let app = if let Some(snapshot) = fallback_routes {
+        *snapshot = format!("{app:?}");
+        crate::observe_route_matches(app)
+    } else {
+        app
+    };
     // The outer fallback dispatches after rewriting, avoiding duplicate /login route ownership.
     Router::new()
         .fallback_service(app)
         .layer(axum::middleware::from_fn(rewrite_login))
-}
-async fn mfa_session(
-    State((layer, admin_host)): State<(SessionLayer, Option<String>)>,
-    mut request: Request,
-    next: Next,
-) -> Response {
-    let mut hosts = request.headers().get_all(header::HOST).iter();
-    if let Some(host) = admin_host
-        && hosts
-            .next()
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.eq_ignore_ascii_case(&host))
-        && hosts.next().is_none()
-    {
-        // The outer router can supply its public CSRF policy via an extension.
-        // Keep its other settings while selecting the dedicated host's origin.
-        let csrf = request.extensions_mut().get_or_insert(layer.csrf.clone());
-        csrf.trusted_origins = vec![format!("https://{}", host.to_ascii_lowercase())];
-    }
-    session::middleware(State(layer), request, next).await
 }
 async fn audit_account_refusal(
     State(mfa): State<Mfa>,
@@ -145,7 +173,11 @@ async fn rewrite_login(mut request: Request, next: Next) -> Response {
         request.uri().path().contains("/mfa") || request.uri().path().ends_with("/login");
     let path = request.uri().path();
     if ["/login", "/pl/login", "/en/login"].contains(&path) {
-        let replacement = path.replace("/login", "/mfa/login");
+        let mut replacement = path.replace("/login", "/mfa/login");
+        if let Some(query) = request.uri().query() {
+            replacement.push('?');
+            replacement.push_str(query);
+        }
         if let Ok(uri) = replacement.parse() {
             *request.uri_mut() = uri;
         }
@@ -170,24 +202,6 @@ fn redirect(language: Language, path: &str) -> Response {
     *response.status_mut() = StatusCode::FOUND;
     response
 }
-/// After a completed login: the stored OAuth authorize or checkout target
-/// (consumed once), otherwise the home page.
-async fn home_or_return(
-    language: Language,
-    session: &BrowserSession,
-) -> Result<Response, StatusCode> {
-    match crate::login_http::take_return(session)
-        .await
-        .map_err(unavailable)?
-    {
-        Some(target) => {
-            let mut response = Redirect::to(&target).into_response();
-            *response.status_mut() = StatusCode::FOUND;
-            Ok(response)
-        }
-        None => Ok(redirect(language, "/")),
-    }
-}
 fn unavailable(_: sqlx::Error) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
 }
@@ -205,8 +219,15 @@ struct Page {
     secret: String,
     codes: Vec<String>,
     devices: Vec<String>,
+    remaining_codes: i64,
+    native_enabled: bool,
+    native_devices: Vec<oteryn_gameauth::devices::RememberedFamily>,
 }
 impl Page {
+    fn login_path(&self) -> &'static str {
+        crate::login_http::login_path(self.mode == "staff-login")
+    }
+
     fn text(&self, key: &str) -> String {
         let source = if self.language == Language::En {
             include_str!("../../../templates/account/mfa/en.ftl")
@@ -240,21 +261,36 @@ async fn page(
     codes: Vec<String>,
     devices: Vec<String>,
 ) -> Result<Response, StatusCode> {
-    let failed = failed
-        || session
+    Ok(oteryn_web::render(
+        &page_data(language, session, mode, failed, secret, codes, devices).await?,
+    ))
+}
+async fn page_data(
+    language: Language,
+    session: &BrowserSession,
+    mode: &'static str,
+    failed: bool,
+    secret: String,
+    codes: Vec<String>,
+    devices: Vec<String>,
+) -> Result<Page, StatusCode> {
+    let (failed, csrf) = if mode == "codes" {
+        (false, String::new())
+    } else {
+        let flash = session
             .get(FAILED)
             .await
             .map_err(unavailable)?
             .unwrap_or(false);
-    if failed {
-        session.set(FAILED, &false).await.map_err(unavailable)?;
-    }
-    let csrf = if mode == "codes" {
-        String::new()
-    } else {
-        session.csrf_token().await.map_err(unavailable)?
+        if flash {
+            session.set(FAILED, &false).await.map_err(unavailable)?;
+        }
+        (
+            failed || flash,
+            session.csrf_token().await.map_err(unavailable)?,
+        )
     };
-    Ok(oteryn_web::render(&Page {
+    Ok(Page {
         lang: language.code(),
         language,
         csrf,
@@ -263,16 +299,26 @@ async fn page(
         secret,
         codes,
         devices,
-    }))
+        remaining_codes: 0,
+        native_enabled: false,
+        native_devices: vec![],
+    })
 }
 async fn show_login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    let staff_dashboard = crate::login_http::staff_dashboard_requested(query.as_deref(), &headers);
     page(
         language,
         &session,
-        "login",
+        if staff_dashboard {
+            "staff-login"
+        } else {
+            "login"
+        },
         false,
         String::new(),
         vec![],
@@ -393,6 +439,7 @@ async fn establish(
     language: Language,
     session: &BrowserSession,
     auth: Authenticated,
+    challenge_token: &str,
 ) -> Result<Response, StatusCode> {
     let authorization = context
         .mfa
@@ -400,6 +447,19 @@ async fn establish(
         .await
         .map_err(unavailable)?
         .ok_or(StatusCode::UNAUTHORIZED)?;
+    let staff_dashboard = session
+        .get(STAFF_DASHBOARD_CHALLENGE)
+        .await
+        .map_err(unavailable)?
+        .flatten()
+        .as_deref()
+        == Some(challenge_token);
+    if staff_dashboard {
+        session
+            .set(STAFF_DASHBOARD_CHALLENGE, &None)
+            .await
+            .map_err(unavailable)?;
+    }
     session
         .set(PENDING, &String::new())
         .await
@@ -418,7 +478,8 @@ async fn establish(
     }
     validate_rotated_session(context, session, &authorization).await?;
     crate::sessions_http::complete_login(&context.mfa.pool(), session, auth.account).await?;
-    let mut response = home_or_return(language, session).await?;
+    let mut response =
+        crate::login_http::login_redirect(language, session, staff_dashboard).await?;
     if let Some(device) = auth.trusted {
         let value = HeaderValue::from_str(&format!(
             "{TRUSTED}={device}; Secure; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000"
@@ -434,7 +495,7 @@ async fn login(
     Extension(language): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
-    headers: HeaderMap,
+    (headers, RawQuery(query)): (HeaderMap, RawQuery),
     form: Result<Form<Credentials>, axum::extract::rejection::FormRejection>,
 ) -> Result<Response, StatusCode> {
     let limiter = supplied
@@ -455,11 +516,13 @@ async fn login(
     if session.account_id().await.is_some() {
         return Ok(redirect(language, "/"));
     }
+    let staff_dashboard = crate::login_http::staff_dashboard_requested(query.as_deref(), &headers);
+    let retry = crate::login_http::login_path(staff_dashboard);
     let Ok(Form(input)) = form else {
-        return refusal(language, &session, "/login").await;
+        return refusal(language, &session, retry).await;
     };
     if !input.valid() {
-        return refusal(language, &session, "/login").await;
+        return refusal(language, &session, retry).await;
     }
     if let Err(r) = charge(
         &limiter,
@@ -505,6 +568,13 @@ async fn login(
             .set(PENDING, &challenge.token)
             .await
             .map_err(unavailable)?;
+        if staff_dashboard {
+            // Only this MFA request may complete the dashboard login.
+            session
+                .set(STAFF_DASHBOARD_CHALLENGE, &Some(challenge.token.clone()))
+                .await
+                .map_err(unavailable)?;
+        }
         if let Some(device) = device_cookie(&headers)
             && let Some(auth) = context
                 .mfa
@@ -512,7 +582,7 @@ async fn login(
                 .await
                 .map_err(unavailable)?
         {
-            return establish(&context, language, &session, auth).await;
+            return establish(&context, language, &session, auth, &challenge.token).await;
         }
         return Ok(redirect(language, "/mfa/challenge"));
     }
@@ -539,9 +609,9 @@ async fn login(
         .map_err(unavailable)?;
         validate_rotated_session(&context, &session, &authorization).await?;
         crate::sessions_http::complete_login(&context.mfa.pool(), &session, account).await?;
-        return home_or_return(language, &session).await;
+        return crate::login_http::login_redirect(language, &session, staff_dashboard).await;
     }
-    refusal(language, &session, "/login").await
+    refusal(language, &session, retry).await
 }
 #[derive(Default, Deserialize)]
 #[serde(default)]
@@ -613,7 +683,7 @@ async fn challenge(
         .await
         .map_err(unavailable)?
     {
-        return establish(&context, language, &session, auth).await;
+        return establish(&context, language, &session, auth, &token).await;
     }
     refusal(language, &session, "/mfa/challenge").await
 }
@@ -682,6 +752,9 @@ async fn email(
         secret: String::new(),
         codes: vec![],
         devices: vec![],
+        remaining_codes: 0,
+        native_enabled: false,
+        native_devices: vec![],
     };
     let subject = text.text("mfa-email-subject");
     let body = format!("{}\n\n{code}", text.text("mfa-email-body"));
@@ -735,7 +808,7 @@ async fn settings(
     } else {
         vec![]
     };
-    page(
+    let mut page = page_data(
         language,
         &session,
         settings_mode(&context.mfa, id).await?,
@@ -744,8 +817,20 @@ async fn settings(
         vec![],
         devices,
     )
-    .await
+    .await?;
+    if page.mode == "enabled" {
+        page.remaining_codes = context.mfa.remaining_codes(id).await.map_err(unavailable)?;
+    }
+    if context.native_enabled {
+        page.native_enabled = true;
+        page.native_devices =
+            oteryn_gameauth::devices::remembered_for_owner(&context.mfa.pool(), id)
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    }
+    Ok(oteryn_web::render(&page))
 }
+
 async fn enroll(
     State(context): State<Context>,
     supplied: Option<Extension<RateLimiter>>,
@@ -846,9 +931,7 @@ async fn confirm(
         .await
         .map_err(unavailable)?
     {
-        session::rotate(&session, PrivilegeChange::Logout)
-            .await
-            .map_err(unavailable)?;
+        session::clear_revoked_session(&session).await;
         return page(
             language,
             &session,
@@ -893,31 +976,258 @@ async fn remove_device(
         return Err(StatusCode::FORBIDDEN);
     }
     let input = form.map(|v| v.0).unwrap_or_default();
+    let actor = MutationActor::browser(id, session.csrf_token().await.map_err(unavailable)?);
+    let mut tx = context.mfa.pool().begin().await.map_err(unavailable)?;
     let removed = context
         .mfa
-        .remove_device(
-            oteryn_identity::mutation_actor::MutationActor::browser(
-                id,
-                session
-                    .csrf_token()
-                    .await
-                    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
-            ),
-            &input.device,
-        )
+        .remove_device_in_transaction(&mut tx, actor, &input.device)
         .await
         .map_err(unavailable)?;
-    page(
-        language,
-        &session,
-        settings_mode(&context.mfa, id).await?,
-        !removed,
-        String::new(),
-        vec![],
-        context.mfa.devices(id).await.map_err(unavailable)?,
-    )
-    .await
+    if !removed {
+        tx.commit().await.map_err(unavailable)?;
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let rotation = session::rotate_in_transaction(&session, &mut tx, None)
+        .await
+        .map_err(unavailable)?;
+    tx.commit().await.map_err(unavailable)?;
+    session::apply_rotation(&session, rotation).await;
+    settings(State(context), Extension(language), Extension(session)).await
 }
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum Operation {
+    Replace,
+    Remove,
+    RotateCodes,
+}
+
+#[derive(Deserialize)]
+struct ManagementInput {
+    action: Operation,
+    password: String,
+    code: String,
+}
+
+#[derive(Deserialize)]
+struct ConfirmationInput {
+    password: String,
+    code: String,
+}
+
+struct SecurityRequest {
+    language: Language,
+    session: BrowserSession,
+    id: uuid::Uuid,
+}
+
+impl axum::extract::FromRequestParts<Context> for SecurityRequest {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        context: &Context,
+    ) -> Result<Self, Response> {
+        let language = *parts
+            .extensions
+            .get::<Language>()
+            .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+        let session = parts
+            .extensions
+            .get::<BrowserSession>()
+            .cloned()
+            .ok_or_else(|| StatusCode::FORBIDDEN.into_response())?;
+        let id = session
+            .account_id()
+            .await
+            .ok_or_else(|| StatusCode::FORBIDDEN.into_response())?;
+        let limiter = parts
+            .extensions
+            .get::<RateLimiter>()
+            .unwrap_or(&context.limiter);
+        charge(
+            limiter,
+            parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .copied()
+                .map(Extension),
+            &parts.headers,
+            language,
+            (Some(id.to_string()), None, None),
+            &[NamedPolicy::IdentitySecurityMutation],
+        )
+        .await?;
+        Ok(Self {
+            language,
+            session,
+            id,
+        })
+    }
+}
+
+impl SecurityRequest {
+    async fn actor(&self) -> Result<MutationActor, StatusCode> {
+        Ok(MutationActor::browser(
+            self.id,
+            self.session.csrf_token().await.map_err(unavailable)?,
+        ))
+    }
+
+    async fn proof_refusal(
+        &self,
+        status: StatusCode,
+        mode: &'static str,
+    ) -> Result<Response, StatusCode> {
+        let page = page_data(
+            self.language,
+            &self.session,
+            mode,
+            true,
+            String::new(),
+            vec![],
+            vec![],
+        )
+        .await?;
+        Ok(oteryn_web::render_form_refusal(status, &page))
+    }
+
+    async fn codes(&self, codes: Vec<String>) -> Result<Response, StatusCode> {
+        session::clear_revoked_session(&self.session).await;
+        page(
+            self.language,
+            &self.session,
+            "codes",
+            false,
+            String::new(),
+            codes,
+            vec![],
+        )
+        .await
+    }
+}
+
+fn validate_proof(password: &str, code: &str) -> Result<(), StatusCode> {
+    if password.is_empty()
+        || password.len() > 1024
+        || code.len() != 6
+        || !code.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
+async fn manage(
+    State(context): State<Context>,
+    request: SecurityRequest,
+    Form(input): Form<ManagementInput>,
+) -> Result<Response, StatusCode> {
+    if let Err(status) = validate_proof(&input.password, &input.code) {
+        return request.proof_refusal(status, "management-refused").await;
+    }
+    let action = match input.action {
+        Operation::Replace => ManagementAction::Replace,
+        Operation::Remove => ManagementAction::Remove,
+        Operation::RotateCodes => ManagementAction::RotateCodes,
+    };
+    let Some(result) = context
+        .mfa
+        .manage(request.actor().await?, &input.password, &input.code, action)
+        .await
+        .map_err(unavailable)?
+    else {
+        return request
+            .proof_refusal(StatusCode::FORBIDDEN, "management-refused")
+            .await;
+    };
+    match result {
+        ManagementResult::Replacement(secret) => {
+            page(
+                request.language,
+                &request.session,
+                "replacement",
+                false,
+                secret,
+                vec![],
+                vec![],
+            )
+            .await
+        }
+        ManagementResult::Removed => {
+            session::clear_revoked_session(&request.session).await;
+            Ok(redirect(request.language, "/login"))
+        }
+        ManagementResult::Codes(codes) => request.codes(codes).await,
+    }
+}
+
+async fn confirm_replacement(
+    State(context): State<Context>,
+    request: SecurityRequest,
+    Form(input): Form<ConfirmationInput>,
+) -> Result<Response, StatusCode> {
+    if let Err(status) = validate_proof(&input.password, &input.code) {
+        return request.proof_refusal(status, "replacement").await;
+    }
+    let Some(codes) = context
+        .mfa
+        .confirm_replacement(request.actor().await?, &input.password, &input.code)
+        .await
+        .map_err(unavailable)?
+    else {
+        return request
+            .proof_refusal(StatusCode::FORBIDDEN, "replacement")
+            .await;
+    };
+    request.codes(codes).await
+}
+
+#[derive(Deserialize)]
+struct NativeInput {
+    family: uuid::Uuid,
+}
+
+async fn revoke_native(
+    State(context): State<Context>,
+    request: SecurityRequest,
+    Form(input): Form<NativeInput>,
+) -> Result<Response, StatusCode> {
+    if !context.native_enabled {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let hash = request
+        .session
+        .identity_hash()
+        .await
+        .ok_or(StatusCode::FORBIDDEN)?;
+    let mut tx = context.mfa.pool().begin().await.map_err(unavailable)?;
+    let active: Option<uuid::Uuid> = sqlx::query_scalar("SELECT id FROM accounts WHERE id=$1 AND status='active' AND email_verified_at IS NOT NULL FOR UPDATE")
+        .bind(request.id).fetch_optional(&mut *tx).await.map_err(unavailable)?;
+    if active.is_none() {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let until: Option<OffsetDateTime> = sqlx::query_scalar("SELECT sudo_until FROM web_sessions WHERE id_hash=$1 AND account_id=$2 AND sudo_until>clock_timestamp() AND sudo_until<=clock_timestamp()+interval '15 minutes' AND least(idle_expires_at,absolute_expires_at)>clock_timestamp()")
+        .bind(hash).bind(request.id).fetch_optional(&mut *tx).await.map_err(unavailable)?;
+    let until = until.ok_or(StatusCode::FORBIDDEN)?;
+    let revoked =
+        oteryn_gameauth::devices::revoke_remembered_for_owner(&mut tx, request.id, input.family)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if !revoked {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES($1,'account.native_device.revoked',$2,'{\"revoked\":false}','{\"revoked\":true}',$3)")
+        .bind(request.id).bind(input.family.to_string()).bind(uuid::Uuid::now_v7())
+        .execute(&mut *tx).await.map_err(unavailable)?;
+    let rotation = session::rotate_in_transaction(&request.session, &mut tx, until)
+        .await
+        .map_err(unavailable)?;
+    tx.commit().await.map_err(unavailable)?;
+    session::apply_rotation(&request.session, rotation).await;
+    Ok(redirect(request.language, "/mfa"))
+}
+
 #[cfg(test)]
 #[path = "mfa_http_tests.rs"]
 mod tests;

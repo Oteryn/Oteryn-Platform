@@ -517,6 +517,39 @@ impl Sessions {
         Ok(())
     }
 }
+/// The browser panel exposes only remembered families and uses the same
+/// environment veto as native enrollment.
+pub fn owner_panel_enabled() -> bool {
+    std::env::var("OTERYN_PANEL_NATIVE_DEVICES_ENABLED").as_deref() == Ok("true")
+        && http::configured_settings(|key| std::env::var(key).ok())
+            .check()
+            .is_ok()
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct RememberedFamily {
+    pub id: Uuid,
+    pub updated_at: String,
+}
+
+pub async fn remembered_for_owner(pool: &PgPool, owner: Uuid) -> Result<Vec<RememberedFamily>> {
+    sqlx::query_as("SELECT d.id,to_char(d.updated_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS updated_at FROM device_sessions d JOIN accounts a ON a.id=d.account_id WHERE d.account_id=$1 AND a.status='active' AND d.persistence_class='remembered' AND d.revoked_at IS NULL AND least(d.absolute_expires_at,d.idle_expires_at)>extract(epoch FROM clock_timestamp()) ORDER BY d.updated_at DESC,d.id")
+        .bind(owner).fetch_all(pool).await.map_err(unavailable)
+}
+
+/// The browser adapter holds the account lock and checks current session and
+/// recent authentication on this connection before calling.
+pub async fn revoke_remembered_for_owner(
+    connection: &mut PgConnection,
+    owner: Uuid,
+    family: Uuid,
+) -> Result<bool> {
+    let at = clock(connection).await?;
+    let changed = sqlx::query("UPDATE device_sessions SET revoked_at=$3,updated_at=clock_timestamp() WHERE id=$1 AND account_id=$2 AND persistence_class='remembered' AND revoked_at IS NULL AND least(absolute_expires_at,idle_expires_at)>$3")
+        .bind(family).bind(owner).bind(at).execute(connection).await.map_err(unavailable)?;
+    Ok(changed.rows_affected() == 1)
+}
+
 async fn insert_credential(
     db: &mut PgConnection,
     credential: &Credential,

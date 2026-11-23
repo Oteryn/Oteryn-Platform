@@ -368,6 +368,12 @@ test('Today and the ticker follow localized announcement publication and action 
     await expect(card).toContainText(body);
     const action = card.getByRole('link', { name: link, exact: true });
     await expect(action).toHaveAttribute('href', '/worlds');
+    await page.setExtraHTTPHeaders({ 'accept-language': pl ? 'en' : 'pl' });
+    await visit(page, `/today?lang=${lang}`, 200, { lang });
+    await expect(page.locator(`#portal-navigation a[href="/${lang}/news"]`)).toHaveCount(1);
+    const aliasTicker = page.locator('aside article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+    await expect(aliasTicker.getByRole('link', { name: link, exact: true })).toHaveAttribute('href', '/worlds');
+    await page.setExtraHTTPHeaders({ 'accept-language': lang });
     await action.click();
     await expect(page).toHaveURL(/\/worlds$/);
     await expect(page.locator('main h1')).toHaveText(pl ? 'Status światów' : 'World status');

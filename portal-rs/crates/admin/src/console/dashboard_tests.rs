@@ -310,6 +310,9 @@ async fn postgres_pages_permissions_unavailable_and_happy_render() {
             assert!(!html.contains("<script>"));
             assert!(html.contains("width=device-width"));
             assert!(html.contains(r#"<label for="agent""#));
+            // HTML pattern uses the Unicode Sets (v) regex flag, which requires
+            // a literal hyphen in a character class to be escaped.
+            assert_eq!(html.matches(r#"pattern="[A-Za-z0-9_.\-]+""#).count(), 2);
             assert!(html.contains(&format!(r#"lang="{lang}""#)));
         }
         for mode in 1..=7 {
@@ -512,36 +515,97 @@ async fn postgres_platform_metrics_and_closed_permission_catalog() {
 }
 
 #[tokio::test]
-async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
+async fn postgres_binding_alerts_require_the_dedicated_permission() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
-    let started = std::time::Instant::now();
     let db = Db::new().await.expect("PORTAL_TEST_DATABASE_URL required");
     let actor = db.staff().await;
-    let alarm:Uuid=sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
-        .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"})).bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
-    let page = body(
+    sqlx::query("INSERT INTO accounts(id,email,password_hash,locale,status,email_verified_at) VALUES($1,'alerts@example.invalid','fixture','en','active',now())")
+        .bind(actor).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,'game.ops.read' FROM roles WHERE key='console_fixture'")
+        .execute(&db.pool).await.unwrap();
+    let alarm: Uuid = sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
+        .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"}))
+        .bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT actor,action,'second-binding',before,after,$2 FROM audit_log WHERE id=$1")
+        .bind(alarm).bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','malformed-alarm','null','{}',$1)")
+        .bind(Uuid::now_v7()).execute(&db.pool).await.unwrap();
+    let read = |overview| {
         get(
-            app(db.pool.clone(), actor, fixture(3), true, true),
+            app(db.pool.clone(), actor, fixture(3), overview, true),
             "/console/dashboard?lang=en",
         )
-        .await,
-    )
-    .await;
+    };
+    let response = read(true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let denied = body(response).await;
+    assert!(!denied.contains("IMMUTABLE_BINDING"));
+    assert!(!denied.contains(&alarm.to_string()));
+    assert!(!denied.contains("binding-fingerprint"));
+    assert!(!denied.contains("second-binding"));
+
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='game_admin' AND built_in")
+        .bind(actor).execute(&db.pool).await.unwrap();
+    let page = body(read(true).await).await;
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
-    let denied = body(
+    let denied = app(db.pool.clone(), actor, fixture(3), false, true)
+        .oneshot(
+            Request::get("/console/dashboard?lang=pl")
+                .header("host", "staff.test")
+                .header("accept-language", "en")
+                .header("cookie", "portal_language=en")
+                .extension(oteryn_ui::Registry::default().chrome(
+                    "en",
+                    "/console/dashboard",
+                    oteryn_ui::Account::Anonymous,
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    let denied = body(denied).await;
+    assert!(denied.contains("<html lang=\"pl\""));
+    assert!(denied.contains("Brak dostępu"));
+    assert!(!denied.contains(&alarm.to_string()));
+
+    assert!(page.contains("second-binding"));
+    assert!(!page.contains("malformed-alarm"));
+    assert!(!body(read(false).await).await.contains(&alarm.to_string()));
+    let polish = body(
         get(
-            app(db.pool.clone(), actor, fixture(3), false, true),
-            "/console/dashboard?lang=en",
+            app(db.pool.clone(), actor, fixture(3), true, true),
+            "/console/dashboard?lang=pl",
         )
         .await,
     )
     .await;
-    assert!(!denied.contains(&alarm.to_string()));
+    let alerts: Vec<_> = polish
+        .split("<h3>IMMUTABLE_BINDING</h3>")
+        .skip(1)
+        .filter_map(|tail| tail.split_once("</article>").map(|(fields, _)| fields))
+        .collect();
+    assert_eq!(alerts.len(), 2);
+    for alert in alerts {
+        for label in [
+            "Alarm",
+            "UTC",
+            "Źródło danych",
+            "Rodzina",
+            "Rekord",
+            "Powiązanie",
+        ] {
+            assert_eq!(
+                alert.matches(&format!("<dt>{label}</dt>")).count(),
+                1,
+                "Polish alert label {label}"
+            );
+        }
+    }
+    assert!(!polish.contains(">Authority<"));
+    assert!(!polish.contains(">Binding<"));
     db.close().await;
-    eprintln!(
-        "postgres_operator_alarms_visible_offline_only_with_ops_permission duration: {:?}",
-        started.elapsed()
-    );
 }

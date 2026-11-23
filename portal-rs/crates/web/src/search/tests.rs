@@ -186,7 +186,7 @@ async fn postgres_http_success_refusal_bad_input_and_escaping() -> TestResult {
     assert!(!html.contains("<script>"));
     assert_eq!(
         get(app.clone(), "/en/search?q=x").await?.0,
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     assert_eq!(
         get(app.clone(), "/pl/search?q=dragon&kind=characters")
@@ -200,7 +200,7 @@ async fn postgres_http_success_refusal_bad_input_and_escaping() -> TestResult {
     );
     assert_eq!(
         get(app, "/en/search?q=dragon&page=bad").await?.0,
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::BAD_REQUEST
     );
     db.close().await
 }

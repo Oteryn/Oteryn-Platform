@@ -626,11 +626,21 @@ impl Database {
             })
             .connect(&url)
             .await?;
-        sqlx::raw_sql(include_str!(
-            "../../../../migrations/20261115100001_support_enforcement_commands.sql"
-        ))
-        .execute(&pool)
-        .await?;
+        for migration in [
+            include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+            include_str!("../../../../migrations/20261105170000_t10_rbac_audit.sql"),
+            include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
+            include_str!("../../../../migrations/20261105220235_t34_sanctions.sql"),
+            include_str!("../../../../migrations/20261105220236_t34b_appeals.sql"),
+            include_str!("../../../../migrations/20261105231600_support_sanction_revisions.sql"),
+            include_str!("../../../../migrations/20261111140002_n009_sanction_export.sql"),
+            include_str!("../../../../migrations/20261115100001_support_enforcement_commands.sql"),
+            include_str!("../../../../migrations/20261122170100_support_enforcement_decisions.sql"),
+            include_str!("../../../../migrations/20261122170600_enforcement_expiry_block.sql"),
+            include_str!("../../../../migrations/20261122170500_enforcement_overdue_cursor.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await?;
+        }
         Ok(Some(Self {
             pool,
             admin,
@@ -1012,4 +1022,593 @@ async fn audit_w3_03_terminal_below_pending_refused_on_postgres() -> TestResult 
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn replacement_after_refusal_fences_on_games_accepted_revision() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    db.record(&apply()).await?;
+    let recorded = db.record(&revoke()).await?.ok_or("not recorded")?;
+    let body = std::str::from_utf8(RESULT_REVOKED)?
+        .replace("\"state\":\"REVOKED\"", "\"state\":\"REJECTED\"")
+        .replace(
+            "\"result_code\":\"OK\"",
+            "\"result_code\":\"LIFECYCLE_CONFLICT\"",
+        )
+        .replace(
+            "\"accepted_decision_revision\":2",
+            "\"accepted_decision_revision\":1",
+        )
+        .replace(
+            "\"stream_state\":\"REVOKED\"",
+            "\"stream_state\":\"ACTIVE\"",
+        )
+        .replace(
+            "\"effective_until_ms\":null",
+            "\"effective_until_ms\":1700003600000",
+        )
+        .replace(
+            "\"runtime_effect\":\"ONLINE_APPLIED\"",
+            "\"runtime_effect\":\"NONE\"",
+        );
+    let value = canonical::decode(body.as_bytes(), MAX_RESULT, 4)?;
+    let receipt = Receipt::decode(&value)?;
+    assert_eq!(receipt.command_digest, recorded.command_digest);
+    ingest(&db.pool, &receipt, body.as_bytes()).await?;
+
+    let retry = Command {
+        operation_id: id(0x103),
+        decision_revision: 3,
+        ..revoke()
+    };
+    assert!(matches!(
+        db.record(&Command {
+            prior_decision_revision: Some(2),
+            ..retry.clone()
+        })
+        .await,
+        Err(Error::Stale)
+    ));
+    assert!(matches!(
+        db.record(&Command {
+            decision_revision: 2,
+            ..retry.clone()
+        })
+        .await,
+        Err(Error::Stale)
+    ));
+    assert_eq!(db.record(&retry).await?.ok_or("not recorded")?.position, 3);
+    db.cleanup().await
+}
+
+async fn platform_apply(db: &Database) -> TestResult<Command> {
+    let command = apply();
+    for account in [command.account_id, id(0x501)] {
+        sqlx::query(
+            "INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at)
+                     VALUES ($1,$2,'fixture','active','en',now())",
+        )
+        .bind(account)
+        .bind(format!("{account}@example.invalid"))
+        .execute(&db.pool)
+        .await?;
+    }
+    let mut tx = db.pool.begin().await?;
+    assert_eq!(
+        persist_platform_sanction(&mut tx, &command, id(0x501))
+            .await
+            .map_err(|e| format!("{e:?}"))?,
+        1,
+    );
+    persist_typed_decision(&mut tx, &command).await?;
+    assert!(record(&mut tx, &mute(), &command).await?.is_some());
+    tx.commit().await?;
+    Ok(command)
+}
+
+async fn receive(db: &Database, bytes: &[u8]) -> TestResult {
+    let decoded = canonical::decode(bytes, MAX_RESULT, 4)?;
+    let receipt = Receipt::decode(&decoded)?;
+    ingest(&db.pool, &receipt, bytes).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn rejected_newer_revoke_claim_cannot_confirm_release() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let command = platform_apply(&db).await?;
+    receive(&db, RESULT_APPLIED).await?;
+    db.record(&revoke()).await?;
+    let body = std::str::from_utf8(RESULT_REVOKED)?
+        .replace(
+            r#""state":"REVOKED","result_code":"OK""#,
+            r#""state":"REJECTED","result_code":"STALE_REVISION""#,
+        )
+        .replace(
+            r#""accepted_decision_revision":2"#,
+            r#""accepted_decision_revision":3"#,
+        )
+        .replace(
+            r#""runtime_effect":"ONLINE_APPLIED""#,
+            r#""runtime_effect":"NONE""#,
+        );
+    receive(&db, body.as_bytes()).await?;
+    let mut tx = db.pool.begin().await?;
+    let state = latest(
+        &mut tx,
+        command.account_id,
+        command.character_id,
+        BrowserProfile::Mute,
+    )
+    .await?
+    .ok_or("missing projected state")?;
+    assert!(matches!(state.confirmed_state(), StateLabel::Applied));
+    assert_eq!(state.accepted_revision, Some(3));
+    assert_eq!(state.confirmed_revision, Some(1));
+    assert!(state.actions().is_empty());
+    tx.commit().await?;
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn overdue_worker_checks_one_bounded_batch_and_ignores_operations_with_any_receipt()
+-> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    // Backdated journal fixture, with the normal immutable publication path.
+    sqlx::query(
+        "ALTER TABLE support_enforcement_commands ALTER COLUMN created_at
+                 SET DEFAULT clock_timestamp()-interval '5 minutes'",
+    )
+    .execute(&db.pool)
+    .await?;
+    let first = apply();
+    db.record(&first).await?;
+    receive(&db, RESULT_APPLIED).await?;
+    let pending = Command {
+        operation_id: id(0x700),
+        sanction_stream_id: id(0x701),
+        ..apply()
+    };
+    let record = db
+        .record(&pending)
+        .await?
+        .ok_or("pending command missing")?;
+    let receipt = result_with(
+        r#""state":"APPLIED","result_code":"OK""#,
+        r#""state":"ACCEPTED_PENDING","result_code":"PENDING_RUNTIME""#,
+    )
+    .replace(
+        &first.operation_id.to_string(),
+        &pending.operation_id.to_string(),
+    )
+    .replace(
+        &first.sanction_stream_id.to_string(),
+        &pending.sanction_stream_id.to_string(),
+    )
+    .replace(&digest(COMMAND_APPLY), &record.command_digest);
+    receive(&db, receipt.as_bytes()).await?;
+    let mut missing = Vec::new();
+    for offset in 0..127 {
+        let command = Command {
+            operation_id: id(0x2000 + offset),
+            sanction_stream_id: id(0x3000 + offset),
+            ..apply()
+        };
+        db.record(&command).await?.ok_or("command missing")?;
+        missing.push(command.operation_id);
+    }
+    sqlx::query("ALTER TABLE support_enforcement_commands ALTER COLUMN created_at SET DEFAULT clock_timestamp()")
+        .execute(&db.pool).await?;
+    db.record(&Command {
+        operation_id: id(0x4000),
+        sanction_stream_id: id(0x4001),
+        ..apply()
+    })
+    .await?;
+    let worker = Overdue(db.pool.clone());
+    assert_eq!(worker.check().await?, missing[..126]);
+    let (left, right) = tokio::join!(worker.check(), worker.check());
+    let caught_up: Vec<_> = left?.into_iter().chain(right?).collect();
+    assert_eq!(caught_up, missing[126..]);
+    assert!(worker.check().await?.is_empty());
+    assert_eq!(db.count("support_enforcement_commands").await?, 130);
+    assert_eq!(db.count("support_enforcement_results").await?, 2);
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn refused_successors_keep_the_original_timer_and_never_publish_a_stale_expiry() -> TestResult
+{
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    for (action, minutes) in [(Action::Replace, Some(15)), (Action::Revoke, None)] {
+        let Some(db) = Database::new().await? else {
+            return Ok(());
+        };
+        let command = platform_apply(&db).await?;
+        receive(&db, RESULT_APPLIED).await?;
+        let worker = Expiry::new(db.pool.clone(), mute());
+        let journal = BrowserJournal {
+            profiles: mute(),
+            exchange_available: true,
+            authority: None,
+        };
+        let target = Target {
+            account: command.account_id,
+            character: command.character_id,
+            name: "Test character".into(),
+        };
+        let operation = Uuid::now_v7();
+        let timer = || {
+            sqlx::query_scalar::<_, Option<i64>>(
+                "SELECT reconcile_at_ms FROM support_enforcement_decisions WHERE operation_id=$1",
+            )
+            .bind(command.operation_id)
+            .fetch_one(&db.pool)
+        };
+        let mut tx = db.pool.begin().await?;
+        journal
+            .submit(
+                &mut tx,
+                &target,
+                Decision {
+                    actor: id(0x501),
+                    profile: BrowserProfile::Mute,
+                    action,
+                    operation,
+                    version: 1,
+                    minutes,
+                    reason: oteryn_admin::console::enforcement::Reason::RuleViolation,
+                },
+            )
+            .await
+            .map_err(|error| format!("{error:?}"))?;
+        tx.commit().await?;
+        worker.reconcile().await?;
+        assert_eq!(timer().await?, command.expires_at_ms);
+        assert_eq!(db.count("support_enforcement_commands").await?, 2);
+
+        let bytes = read_command(&db.pool, operation)
+            .await?
+            .ok_or("missing successor")?;
+        let refused = std::str::from_utf8(RESULT_APPLIED)?
+            .replace(&command.operation_id.to_string(), &operation.to_string())
+            .replace(&digest(COMMAND_APPLY), &digest(&bytes))
+            .replace(
+                r#""state":"APPLIED","result_code":"OK""#,
+                r#""state":"REJECTED","result_code":"LIFECYCLE_CONFLICT""#,
+            )
+            .replace(
+                r#""runtime_effect":"ONLINE_APPLIED""#,
+                r#""runtime_effect":"NONE""#,
+            );
+        receive(&db, refused.as_bytes()).await?;
+        assert_eq!(timer().await?, command.expires_at_ms);
+        worker.reconcile().await?;
+        worker.reconcile().await?;
+        assert_eq!(timer().await?, None);
+        assert_eq!(db.count("support_enforcement_commands").await?, 2);
+
+        let mut tx = db.pool.begin().await?;
+        let rows = journal
+            .restrictions(&mut tx, &target)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(!rows[0].expiry_pending);
+        assert!(rows[0].expiry_blocked);
+        assert!(matches!(rows[0].state, StateLabel::Refused));
+        assert!(matches!(rows[0].current, StateLabel::Applied));
+        assert_eq!(rows[0].actions, &[Action::Revoke]);
+        let resolved = Uuid::now_v7();
+        journal
+            .submit(
+                &mut tx,
+                &target,
+                Decision {
+                    actor: id(0x501),
+                    profile: BrowserProfile::Mute,
+                    action: Action::Revoke,
+                    operation: resolved,
+                    version: rows[0].version,
+                    minutes: None,
+                    reason: oteryn_admin::console::enforcement::Reason::RuleViolation,
+                },
+            )
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        tx.commit().await?;
+        let bytes = read_command(&db.pool, resolved)
+            .await?
+            .ok_or("missing reconciliation revoke")?;
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes)?["decision_revision"],
+            3
+        );
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&bytes)?["prior_decision_revision"],
+            1
+        );
+        let revoked = std::str::from_utf8(RESULT_REVOKED)?
+            .replace(&revoke().operation_id.to_string(), &resolved.to_string())
+            .replace(&digest(COMMAND_REVOKE), &digest(&bytes))
+            .replace(
+                r#""accepted_decision_revision":2"#,
+                r#""accepted_decision_revision":3"#,
+            );
+        receive(&db, revoked.as_bytes()).await?;
+        let mut tx = db.pool.begin().await?;
+        let rows = journal
+            .restrictions(&mut tx, &target)
+            .await
+            .map_err(|e| format!("{e:?}"))?;
+        assert!(!rows[0].expiry_blocked);
+        assert!(matches!(rows[0].current, StateLabel::Revoked));
+        tx.commit().await?;
+        db.cleanup().await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn expiry_pages_past_due_timers_with_pending_successors() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let initial = platform_apply(&db).await?;
+    for n in 0..9 {
+        let command = if n == 0 {
+            initial.clone()
+        } else {
+            let command = Command {
+                operation_id: id(0x600 + n),
+                sanction_stream_id: id(0x201 + n),
+                ..initial.clone()
+            };
+            let mut tx = db.pool.begin().await?;
+            let revision = persist_platform_sanction(&mut tx, &command, id(0x501))
+                .await
+                .map_err(|e| format!("{e:?}"))?;
+            assert_eq!(revision, 1);
+            persist_typed_decision(&mut tx, &command).await?;
+            assert!(record(&mut tx, &mute(), &command).await?.is_some());
+            tx.commit().await?;
+            command
+        };
+        let confirmed = std::str::from_utf8(RESULT_APPLIED)?
+            .replace(
+                &initial.operation_id.to_string(),
+                &command.operation_id.to_string(),
+            )
+            .replace(
+                &initial.sanction_stream_id.to_string(),
+                &command.sanction_stream_id.to_string(),
+            )
+            .replace(&digest(COMMAND_APPLY), &digest(&command.encode()?));
+        receive(&db, confirmed.as_bytes()).await?;
+        if n < 8 {
+            let successor = Command {
+                operation_id: id(0x700 + n),
+                sanction_stream_id: command.sanction_stream_id,
+                ..revoke()
+            };
+            assert!(db.record(&successor).await?.is_some());
+        }
+    }
+    let worker = Expiry::new(db.pool.clone(), mute());
+    worker.reconcile().await?;
+    assert_eq!(db.count("support_enforcement_commands").await?, 17);
+    worker.reconcile().await?;
+    let expired: Uuid = sqlx::query_scalar(
+        "SELECT sanction_stream_id FROM support_enforcement_commands WHERE intent='EXPIRE'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(expired, id(0x209));
+    assert_eq!(db.count("support_enforcement_commands").await?, 18);
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn worker_expires_latest_confirmed_decision_once_and_waits_for_game() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let command = platform_apply(&db).await?;
+    let worker = Expiry::new(db.pool.clone(), mute());
+    worker.reconcile().await?;
+    assert_eq!(db.count("support_enforcement_commands").await?, 1);
+    receive(&db, RESULT_APPLIED).await?;
+    let (first, duplicate) = tokio::join!(worker.reconcile(), worker.reconcile());
+    first?;
+    duplicate?;
+    worker.reconcile().await?;
+    assert_eq!(db.count("support_enforcement_commands").await?, 2);
+    let (operation, revision, command_digest): (Uuid, i64, String) = sqlx::query_as(
+        "SELECT operation_id,decision_revision,command_digest FROM support_enforcement_commands WHERE intent='EXPIRE'",
+    ).fetch_one(&db.pool).await?;
+    assert_eq!(revision, 1);
+    let mut tx = db.pool.begin().await?;
+    let state = latest(
+        &mut tx,
+        command.account_id,
+        command.character_id,
+        BrowserProfile::Mute,
+    )
+    .await?
+    .ok_or("missing projected state")?;
+    assert!(matches!(state.confirmed_state(), StateLabel::Applied));
+    assert!(state.actions().is_empty());
+    tx.commit().await?;
+
+    let body = std::str::from_utf8(RESULT_REVOKED)?
+        .replace(&revoke().operation_id.to_string(), &operation.to_string())
+        .replace(&digest(COMMAND_REVOKE), &command_digest)
+        .replace(r#""state":"REVOKED""#, r#""state":"EXPIRED""#)
+        .replace(r#""stream_state":"REVOKED""#, r#""stream_state":"EXPIRED""#)
+        .replace(
+            r#""accepted_decision_revision":2"#,
+            r#""accepted_decision_revision":1"#,
+        );
+    let app = router(db.pool.clone(), on(6000), identities()?);
+    for false_expiry in [
+        body.replace(
+            r#""stream_state":"EXPIRED","effective_until_ms":null"#,
+            r#""stream_state":"ACTIVE","effective_until_ms":1700003600000"#,
+        ),
+        body.replace(
+            r#""accepted_decision_revision":1"#,
+            r#""accepted_decision_revision":2"#,
+        ),
+    ] {
+        assert_ne!(false_expiry, body);
+        assert_eq!(
+            status(&app, request(RESULTS_PATH, false_expiry, Some(RESULTS))).await?,
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(db.count("support_enforcement_results").await?, 1);
+        let stored_status: String = sqlx::query_scalar("SELECT status FROM sanctions WHERE id=$1")
+            .bind(command.sanction_stream_id)
+            .fetch_one(&db.pool)
+            .await?;
+        assert_eq!(stored_status, "active");
+    }
+    receive(&db, body.as_bytes()).await?;
+    let mut tx = db.pool.begin().await?;
+    let state = latest(
+        &mut tx,
+        command.account_id,
+        command.character_id,
+        BrowserProfile::Mute,
+    )
+    .await?
+    .ok_or("missing projected state")?;
+    assert!(matches!(state.confirmed_state(), StateLabel::Expired));
+    assert_eq!(state.actions(), &[Action::Apply]);
+    assert_eq!(state.platform_status.as_deref(), Some("expired"));
+    tx.commit().await?;
+    worker.reconcile().await?;
+    assert_eq!(db.count("support_enforcement_commands").await?, 2);
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn accepted_appeal_publishes_revoke_at_the_n009_revision() -> TestResult {
+    use crate::appeals::{Action as Appeal, Appeals, Status};
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let command = platform_apply(&db).await?;
+    receive(&db, RESULT_APPLIED).await?;
+    let mut tx = db.pool.begin().await?;
+    let appeals = Appeals { enabled: true };
+    let stream = command.sanction_stream_id;
+    appeals
+        .change(
+            &mut tx,
+            command.account_id,
+            stream,
+            1,
+            Appeal::Submit("Please review"),
+        )
+        .await?;
+    assert_eq!(db.count("support_enforcement_commands").await?, 1);
+    appeals
+        .change(
+            &mut tx,
+            command.account_id,
+            stream,
+            2,
+            Appeal::Decide {
+                status: Status::Reviewing,
+                outcome: "",
+            },
+        )
+        .await?;
+    let revoke = prepare_appeal_revoke(
+        &mut tx,
+        stream,
+        command.account_id,
+        command.character_id,
+        "MUTE",
+    )
+    .await
+    .map_err(|e| format!("{e:?}"))?
+    .ok_or("missing appeal revoke")?;
+    let operation = revoke.operation_id;
+    appeals
+        .change(
+            &mut tx,
+            command.account_id,
+            stream,
+            3,
+            Appeal::Decide {
+                status: Status::Accepted,
+                outcome: "Accepted",
+            },
+        )
+        .await?;
+    publish_appeal_revoke(&mut tx, id(0x501), revoke, mute())
+        .await
+        .map_err(|e| format!("{e:?}"))?;
+    tx.commit().await?;
+    let row: (i64, i64, bool, String) = sqlx::query_as(
+        "SELECT c.decision_revision,d.decision_revision,n.revoked,w.status
+         FROM support_enforcement_commands c
+         JOIN support_enforcement_decisions d USING(operation_id)
+         JOIN support_sanction_export_revisions n ON n.sanction_stream_id=c.sanction_stream_id
+             AND n.decision_revision=c.decision_revision
+         JOIN support_appeal_workflows w ON w.sanction_id=c.sanction_stream_id
+         WHERE c.operation_id=$1",
+    )
+    .bind(operation)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(row, (3, 3, true, "accepted".to_owned()));
+    db.cleanup().await
+}
+
+#[tokio::test]
+async fn moderation_labels_a_refused_apply_separately_from_platform_status() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let command = platform_apply(&db).await?;
+    let rejected = std::str::from_utf8(RESULT_APPLIED)?
+        .replace(
+            r#""state":"APPLIED","result_code":"OK""#,
+            r#""state":"REJECTED","result_code":"TARGET_NOT_APPLICABLE""#,
+        )
+        .replace(
+            r#""accepted_decision_revision":1"#,
+            r#""accepted_decision_revision":0"#,
+        )
+        .replace(
+            r#""stream_state":"ACTIVE","effective_until_ms":1700003600000"#,
+            r#""stream_state":"NONE","effective_until_ms":null"#,
+        )
+        .replace(
+            r#""runtime_effect":"ONLINE_APPLIED""#,
+            r#""runtime_effect":"NONE""#,
+        );
+    receive(&db, rejected.as_bytes()).await?;
+    let (platform, game) = moderation_state(&db.pool, command.sanction_stream_id, "MUTE")
+        .await?
+        .ok_or("missing moderation state")?;
+    assert_eq!(platform, "active");
+    assert_eq!(game.profile.name(), "MUTE");
+    assert!(matches!(game.request, StateLabel::Refused));
+    assert!(matches!(game.current, StateLabel::Unconfirmed));
+    db.cleanup().await
 }

@@ -3,8 +3,8 @@ use fluent_bundle::{FluentBundle, FluentResource};
 use std::time::Duration;
 use tokio::time::{Instant, timeout_at};
 
-const EN: &str = "title = Email security\nconfirm = Confirm your new email address. Without a recovery key the change takes seven days.\nrevert = This was not me: cancel or revert this email change. This link expires after 30 days.\nemail = New email\nrepeat = Repeat email\npassword = Current password\nproof = MFA code or recovery key\nrecovery = Use recovery key\nbackup = Set backup email\nsubmit = Continue\nfailed = Request refused or invalid input.\nrequested = Check both email addresses for confirmation and cancellation links.\nconfirmed = Address confirmed. The change will take effect after the waiting period.\nchanged = Email updated. Sign in again. Trading and further email changes are blocked for 72 hours.\ncancelled = Email change cancelled.\nreverted = Email change reverted. Sign in again.\n";
-const PL: &str = "title = Bezpieczeństwo adresu e-mail\nconfirm = Potwierdź nowy adres e-mail. Bez klucza odzyskiwania zmiana nastąpi po siedmiu dniach.\nrevert = To nie ja: anuluj lub cofnij zmianę adresu e-mail. Link wygasa po 30 dniach.\nemail = Nowy adres e-mail\nrepeat = Powtórz adres e-mail\npassword = Obecne hasło\nproof = Kod 2FA lub klucz odzyskiwania\nrecovery = Użyj klucza odzyskiwania\nbackup = Ustaw zapasowy e-mail\nsubmit = Kontynuuj\nfailed = Odmowa lub nieprawidłowe dane.\nrequested = Sprawdź oba adresy e-mail, aby potwierdzić lub anulować zmianę.\nconfirmed = Adres potwierdzony. Zmiana nastąpi po okresie oczekiwania.\nchanged = E-mail zmieniony. Zaloguj się ponownie. Handel i kolejna zmiana adresu są zablokowane przez 72 godziny.\ncancelled = Zmiana adresu anulowana.\nreverted = Zmiana adresu cofnięta. Zaloguj się ponownie.\n";
+const EN: &str = "title = Email security\nconfirm = Confirm your new email address. Without a recovery key the change takes seven days.\nrevert = This was not me: cancel or revert this email change. This link expires after 30 days.\nassisted = Staff proposed a change to the email address below. If you recognize this request, sign in to Email security and submit the address with your current password and security proof.\nemail = New email\nrepeat = Repeat email\npassword = Current password\nproof = MFA code or recovery key\nrecovery = Use recovery key\nbackup = Set backup email\nsubmit = Continue\nfailed = Request refused or invalid input.\nrequested = Check both email addresses for confirmation and cancellation links.\nconfirmed = Address confirmed. The change will take effect after the waiting period.\nchanged = Email updated. Sign in again. Trading and further email changes are blocked for 72 hours.\ncancelled = Email change cancelled.\nreverted = Email change reverted. Sign in again.\n";
+const PL: &str = "title = Bezpieczeństwo adresu e-mail\nconfirm = Potwierdź nowy adres e-mail. Bez klucza odzyskiwania zmiana nastąpi po siedmiu dniach.\nrevert = To nie ja: anuluj lub cofnij zmianę adresu e-mail. Link wygasa po 30 dniach.\nassisted = Zespół zaproponował zmianę na poniższy adres. Jeśli rozpoznajesz tę prośbę, zaloguj się, przejdź do ustawień adresu e-mail i podaj ten adres, aktualne hasło oraz kod 2FA lub klucz odzyskiwania.\nemail = Nowy adres e-mail\nrepeat = Powtórz adres e-mail\npassword = Obecne hasło\nproof = Kod 2FA lub klucz odzyskiwania\nrecovery = Użyj klucza odzyskiwania\nbackup = Ustaw zapasowy e-mail\nsubmit = Kontynuuj\nfailed = Odmowa lub nieprawidłowe dane.\nrequested = Sprawdź oba adresy e-mail, aby potwierdzić lub anulować zmianę.\nconfirmed = Adres potwierdzony. Zmiana nastąpi po okresie oczekiwania.\nchanged = E-mail zmieniony. Zaloguj się ponownie. Handel i kolejna zmiana adresu są zablokowane przez 72 godziny.\ncancelled = Zmiana adresu anulowana.\nreverted = Zmiana adresu cofnięta. Zaloguj się ponownie.\n";
 pub fn text(locale: &str, key: &str) -> Result<String, sqlx::Error> {
     let invalid = || sqlx::Error::Protocol("email translation unavailable".into());
     let source = match locale {
@@ -132,9 +132,26 @@ impl Worker {
             .begin()
             .await
             .map_err(|_| "email delivery unavailable".to_owned())?;
-        let row:Option<(Uuid,String,String,String)>=sqlx::query_as("SELECT m.id,m.recipient,m.subject,m.body FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp() AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL ORDER BY m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED").fetch_optional(&mut *tx).await.map_err(|_|"email delivery unavailable".to_owned())?;
-        let Some((id, recipient, subject, text)) = row else {
+        let row: Option<(Uuid, String, String, String, bool)> = sqlx::query_as(
+            "SELECT m.id,m.recipient,m.subject,m.body,
+                    c.initiated_by_staff AND c.owner_approved_at IS NULL
+             FROM account_email_change_mail m JOIN account_email_changes c ON c.id=m.change_id
+             WHERE m.delivered_at IS NULL AND m.next_attempt_at<=clock_timestamp()
+               AND c.revert_until>now() AND c.cancelled_at IS NULL AND c.reverted_at IS NULL
+               AND (NOT c.initiated_by_staff OR c.owner_approved_at IS NOT NULL
+                    OR (c.expires_at>clock_timestamp() AND m.recipient=c.old_email))
+             ORDER BY m.created_at,m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED",
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|_| "email delivery unavailable".to_owned())?;
+        let Some((id, recipient, subject, text, owner_proposal)) = row else {
             return Ok(false);
+        };
+        let link_origin: fn(&str) -> Option<&str> = if owner_proposal {
+            owner_notice_origin
+        } else {
+            link_origin
         };
         if Instant::now() >= last_send {
             return Ok(false);
@@ -198,8 +215,44 @@ impl Worker {
         Ok(true)
     }
 }
+fn owner_notice_origin(link: &str) -> Option<&str> {
+    for suffix in ["/pl/account/security/email", "/en/account/security/email"] {
+        if let Some(origin) = link.strip_suffix(suffix) {
+            let authority = origin.strip_prefix("https://")?;
+            if !authority.contains('@') && authority.parse::<axum::http::uri::Authority>().is_ok() {
+                return Some(origin);
+            }
+        }
+    }
+    None
+}
+
 impl oteryn_db::outbox::Cleanup for Worker {
     fn clean(&self) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + '_>> {
         Box::pin(self.tick())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{link_origin, owner_notice_origin};
+
+    #[test]
+    fn owner_notice_links_are_localized_settings_routes_without_tokens() {
+        let origin = "https://portal.example.invalid";
+        for lang in ["pl", "en"] {
+            let url = format!("{origin}/{lang}/account/security/email");
+            assert_eq!(owner_notice_origin(&url), Some(origin));
+            assert_eq!(link_origin(&url), None);
+        }
+        for invalid in [
+            "http://portal.example.invalid/en/account/security/email",
+            "https://user@portal.example.invalid/en/account/security/email",
+            "https://portal.example.invalid/en/account/security/email?return_to=roles",
+            "https://portal.example.invalid/en/account/security/email#confirmation",
+            "https://portal.example.invalid/de/account/security/email",
+        ] {
+            assert_eq!(owner_notice_origin(invalid), None);
+        }
     }
 }

@@ -23,6 +23,8 @@ bid = Złóż ofertę
 unavailable = Bazar jest niedostępny. Prośba pozostaje w toku.
 denied = Prośba została odrzucona. Sprawdź konto i dane obiektu.
 
+coins = Coiny
+gold = Złoto
 currency = Waluta
 
 resume = Wznów z aktualnym uprawnieniem

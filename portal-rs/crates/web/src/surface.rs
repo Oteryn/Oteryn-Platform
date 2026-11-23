@@ -2,7 +2,6 @@
 
 use axum::{
     Router,
-    body::Body,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -11,6 +10,10 @@ use axum::{
 };
 
 use crate::AppState;
+
+pub(crate) const HSTS: &str = "max-age=63072000; includeSubDomains";
+pub(crate) const PERMISSIONS: &str = "camera=(), microphone=(), geolocation=(), payment=(), usb=()";
+pub(crate) const REFERRER: &str = "strict-origin-when-cross-origin";
 
 /// Per-response script nonce. Handlers may read this request extension.
 #[derive(Clone, Debug)]
@@ -69,6 +72,11 @@ pub enum Language {
     En,
 }
 impl Language {
+    /// Resolve the portal locale using the URL, preference cookie, then Accept-Language.
+    pub fn for_request(request: &Request) -> Self {
+        document_language(request.uri(), request.headers())
+    }
+
     /// BCP 47 language code for templates and response headers.
     pub fn code(self) -> &'static str {
         match self {
@@ -90,48 +98,50 @@ impl Language {
     }
 }
 
-pub(crate) fn negotiate(headers: &HeaderMap) -> Language {
-    for cookie in headers.get_all(header::COOKIE) {
-        if let Ok(cookie) = cookie.to_str() {
-            for part in cookie.split(';') {
-                if let Some(("portal_language", value)) = part.trim().split_once('=')
-                    && let Some(lang) = Language::parse(value)
-                {
-                    return lang;
-                }
-            }
-        }
+/// Resolve the preferred browser language from its locale cookie and headers.
+pub fn negotiate(headers: &HeaderMap) -> Language {
+    if oteryn_ui::preferred_language(headers) == "en" {
+        Language::En
+    } else {
+        Language::Pl
     }
-    let mut candidates = Vec::new();
-    if let Some(value) = headers
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
+}
+
+/// Resolve the public document language before constructing portal chrome.
+pub fn document_language(uri: &axum::http::Uri, headers: &HeaderMap) -> Language {
+    if let Some(lang) = path_language(uri.path()) {
+        return lang;
+    }
+    if (matches!(uri.path(), "/news" | "/today") || uri.path().starts_with("/news/"))
+        && let Some(query) = uri.query()
+        && let Ok(options) = serde_urlencoded::from_str::<Vec<(String, String)>>(query)
+        && let Some((_, lang)) = options.iter().find(|(key, _)| key == "lang")
     {
-        for (index, item) in value.split(',').enumerate() {
-            let mut parts = item.trim().split(';');
-            let tag = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
-            let quality = match parts.next() {
-                None => 1.0,
-                Some(q) => q
-                    .trim()
-                    .strip_prefix("q=")
-                    .and_then(|q| q.parse::<f32>().ok())
-                    .unwrap_or(0.0),
-            };
-            if quality > 0.0
-                && quality <= 1.0
-                && let Some(lang) = Language::parse(tag.split('-').next().unwrap_or_default())
-            {
-                candidates.push((quality, index, lang));
-            }
-        }
+        return Language::parse(lang).unwrap_or(Language::Pl);
     }
-    candidates.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
-    candidates.first().map_or(Language::Pl, |item| item.2)
+    negotiate(headers)
 }
 
 fn message(lang: Language, id: &str) -> String {
     oteryn_ui::text(lang.code(), id)
+}
+
+/// Console pages use an explicit language selector instead of localized paths.
+pub(crate) fn request_language(request: &Request) -> Language {
+    #[derive(serde::Deserialize)]
+    struct LocaleQuery {
+        lang: Option<String>,
+    }
+
+    let path = request.uri().path();
+    let console = path == "/console" || path.starts_with("/console/");
+    path_language(path)
+        .or_else(|| {
+            let query = request.uri().query().filter(|_| console)?;
+            let selection: LocaleQuery = serde_urlencoded::from_str(query).ok()?;
+            Language::parse(selection.lang.as_deref()?)
+        })
+        .unwrap_or_else(|| document_language(request.uri(), request.headers()))
 }
 
 fn request_chrome(request: &Request, lang: Language) -> oteryn_ui::Chrome {
@@ -180,7 +190,7 @@ pub(crate) async fn resolve(data: Option<HomeFuture>) -> oteryn_ui::HomeData {
     }
 }
 async fn localized_home(request: Request) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = request_language(&request);
     let chrome = request_chrome(&request, lang);
     let data = home_data(&request, lang);
     drop(request);
@@ -216,11 +226,10 @@ fn wants_json(headers: &HeaderMap) -> bool {
 }
 
 async fn policy(mut request: Request, next: Next) -> Response {
-    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    let lang = request_language(&request);
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
     let path = request.uri().path().to_owned();
-    let is_head = request.method() == axum::http::Method::HEAD;
     let mut random = [0_u8; 32];
     let nonce = if getrandom::fill(&mut random).is_ok() {
         random
@@ -241,13 +250,26 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
+    let form_refusal = !json
+        && matches!(status, StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN)
+        && response
+            .extensions()
+            .get::<crate::RenderedFormRefusal>()
+            .is_some();
     if path != oteryn_gameauth::locator::PATH
         && matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503
         )
+        && !form_refusal
         && !(status == StatusCode::UNPROCESSABLE_ENTITY
             && response.extensions().get::<crate::RenderedPage>().is_some())
+        && !(status == StatusCode::SERVICE_UNAVAILABLE
+            && !json
+            && response
+                .extensions()
+                .get::<crate::search::SourceUnavailable>()
+                .is_some())
     {
         let mut replacement = if json {
             let error = serde_json::json!({"status": status.as_u16(), "error": message(lang, &format!("error-{}-title", status.as_u16()))});
@@ -262,15 +284,20 @@ async fn policy(mut request: Request, next: Next) -> Response {
                 )
         };
         // Preserve protocol metadata, but discard internal content and entity headers.
-        for name in [header::ALLOW, header::RETRY_AFTER] {
+        for name in [
+            header::ALLOW,
+            header::RETRY_AFTER,
+            header::CONTENT_SECURITY_POLICY,
+            header::REFERRER_POLICY,
+        ] {
             if let Some(value) = response.headers().get(&name) {
                 replacement.headers_mut().insert(name, value.clone());
             }
         }
-        for value in response.headers().get_all(header::SET_COOKIE) {
-            replacement
-                .headers_mut()
-                .append(header::SET_COOKIE, value.clone());
+        for name in [header::SET_COOKIE, header::CACHE_CONTROL] {
+            for value in response.headers().get_all(&name) {
+                replacement.headers_mut().append(&name, value.clone());
+            }
         }
         response = replacement;
     }
@@ -279,24 +306,22 @@ async fn policy(mut request: Request, next: Next) -> Response {
         "default-src 'none'; script-src 'self' 'nonce-{nonce}'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; form-action 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     );
     if let Ok(value) = HeaderValue::from_str(&csp) {
-        headers.insert(header::CONTENT_SECURITY_POLICY, value);
+        headers
+            .entry(header::CONTENT_SECURITY_POLICY)
+            .or_insert(value);
     }
     headers.insert(
         header::STRICT_TRANSPORT_SECURITY,
-        HeaderValue::from_static("max-age=63072000; includeSubDomains"),
+        HeaderValue::from_static(HSTS),
     );
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    headers.insert(
-        header::REFERRER_POLICY,
-        HeaderValue::from_static("strict-origin-when-cross-origin"),
-    );
-    headers.insert(
-        "permissions-policy",
-        HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=(), usb=()"),
-    );
+    headers
+        .entry(header::REFERRER_POLICY)
+        .or_insert(HeaderValue::from_static(REFERRER));
+    headers.insert("permissions-policy", HeaderValue::from_static(PERMISSIONS));
     headers.insert(
         "cross-origin-opener-policy",
         HeaderValue::from_static("same-origin"),
@@ -309,18 +334,15 @@ async fn policy(mut request: Request, next: Next) -> Response {
         header::VARY,
         HeaderValue::from_static("Accept, Accept-Language, Cookie"),
     );
-    let cache = if path.starts_with("/static/") && status.is_success() {
-        if hashed_name(&path) {
+    if path.starts_with("/static/") && status.is_success() {
+        let cache = if hashed_name(&path) {
             "public, max-age=31536000, immutable"
         } else {
             "public, max-age=300, must-revalidate"
-        }
+        };
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     } else {
-        "no-store"
-    };
-    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
-    if is_head {
-        *response.body_mut() = Body::empty();
+        crate::chrome::ensure_no_store(headers);
     }
     response
 }
@@ -335,7 +357,7 @@ fn hashed_name(path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::body::to_bytes;
+    use axum::body::{Body, to_bytes};
     use axum::http::Request as HttpRequest;
     use tower::ServiceExt;
 
@@ -401,6 +423,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn explicit_response_policy_survives_surface_rendering() -> TestResult {
+        const EXPLICIT_CSP: &str = "default-src 'none'; frame-ancestors 'none'";
+        let app = finish(Router::new().route(
+            "/en/{status}",
+            get(|Path(status): Path<u16>| async move {
+                (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_REQUEST),
+                    [
+                        (header::CONTENT_SECURITY_POLICY, EXPLICIT_CSP),
+                        (header::REFERRER_POLICY, "no-referrer"),
+                    ],
+                )
+            }),
+        ));
+        for status in [StatusCode::OK, StatusCode::NOT_FOUND] {
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::get(format!("/en/{}", status.as_u16())).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response.headers()[header::CONTENT_SECURITY_POLICY],
+                EXPLICIT_CSP
+            );
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn html_json_static_have_policy_and_types() -> TestResult {
         for (uri, accept, status, content_type) in [
             ("/en/", "text/html", StatusCode::OK, "text/html"),
@@ -437,6 +489,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rendered_form_refusal_keeps_status_and_retry_for_html_only() -> TestResult {
+        #[derive(askama::Template)]
+        #[template(source = "<a href='/en/mfa'>Retry verification</a>", ext = "html")]
+        struct Retry;
+
+        let app = finish(
+            Router::new()
+                .route(
+                    "/en/bad",
+                    axum::routing::post(|| async {
+                        crate::render_form_refusal(StatusCode::BAD_REQUEST, &Retry)
+                    }),
+                )
+                .route(
+                    "/en/forbidden",
+                    axum::routing::post(|| async {
+                        crate::render_form_refusal(StatusCode::FORBIDDEN, &Retry)
+                    }),
+                ),
+        );
+        for (uri, expected) in [
+            ("/en/bad", StatusCode::BAD_REQUEST),
+            ("/en/forbidden", StatusCode::FORBIDDEN),
+        ] {
+            for (accept, retry) in [("text/html", true), ("application/json", false)] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        HttpRequest::post(uri)
+                            .header(header::ACCEPT, accept)
+                            .body(Body::empty())?,
+                    )
+                    .await?;
+                assert_eq!(response.status(), expected);
+                assert_headers(&response);
+                assert!(
+                    response.headers()[header::CONTENT_TYPE]
+                        .to_str()?
+                        .starts_with(accept)
+                );
+                assert_eq!(html(response).await?.contains("Retry verification"), retry);
+            }
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn localized_layout_is_semantic_and_has_no_inline_scripts() -> TestResult {
         let response = app()?
             .oneshot(HttpRequest::get("/en/").body(Body::empty())?)
@@ -461,6 +560,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn console_fallback_uses_explicit_locale_in_chrome_and_response_headers() -> TestResult {
+        let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+        let app = app()?.layer(axum::middleware::from_fn_with_state(
+            crate::chrome::Shell {
+                registry: oteryn_ui::Registry::default(),
+                sessions: crate::session::SessionLayer::new(pool),
+            },
+            crate::chrome::middleware,
+        ));
+        for (path, lang, title) in [
+            ("/console/missing?lang=en", "en", "Page not found"),
+            ("/console/missing?lang=pl", "pl", "Nie znaleziono strony"),
+            (
+                "/console/missing?lang=invalid",
+                "pl",
+                "Nie znaleziono strony",
+            ),
+            ("/other?lang=en", "pl", "Nie znaleziono strony"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get(path)
+                        .header(header::ACCEPT, "text/html")
+                        .header(header::COOKIE, "portal_language=pl")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = html(response).await?;
+            assert!(body.contains(&format!("<html lang=\"{lang}\"")), "{path}");
+            assert!(body.contains(title), "{path}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn errors_hide_details_and_keep_protocol_headers() -> TestResult {
         let failures = Router::new()
             .route(
@@ -469,7 +606,15 @@ mod tests {
             )
             .route(
                 "/unavailable",
-                get(|| async { (StatusCode::SERVICE_UNAVAILABLE, "private failure") }),
+                get(|| async {
+                    let mut headers = HeaderMap::new();
+                    headers.append(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("private, no-store"),
+                    );
+                    headers.append(header::CACHE_CONTROL, HeaderValue::from_static("max-age=0"));
+                    (StatusCode::SERVICE_UNAVAILABLE, headers, "private failure")
+                }),
             )
             .route(
                 "/limited",
@@ -514,6 +659,16 @@ mod tests {
                 assert_headers(&response);
                 if status == StatusCode::TOO_MANY_REQUESTS {
                     assert_eq!(response.headers()[header::RETRY_AFTER], "30");
+                }
+                if status == StatusCode::SERVICE_UNAVAILABLE {
+                    assert_eq!(
+                        response
+                            .headers()
+                            .get_all(header::CACHE_CONTROL)
+                            .iter()
+                            .collect::<Vec<_>>(),
+                        ["private, no-store", "max-age=0"],
+                    );
                 }
                 let body = html(response).await?;
                 assert!(body.contains(title));

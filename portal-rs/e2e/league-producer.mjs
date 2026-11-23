@@ -23,10 +23,27 @@ export async function leagueProducer({root,scratch,env,openssl,internalOrigin}) 
   OTERYN_LEAGUE_RECOVERY_FILE:`${directory}/recovery.json`,PORTAL_E2E_LEAGUE_CONTROL:'http://127.0.0.1:18445',
  });
  const fixtures=JSON.parse(fs.readFileSync(path.join(root,'crates/minigames/src/league/fixtures/snapshots.json')));
+ // Rebase only the live test publications. The pinned contract bytes and the
+ // hashes checked below remain the source of truth for the original vectors.
+ const shift=Math.floor(Date.now()/1000)-1790000205;
+ const time=value=>String(Number(value)+shift);
+ const recordsByHash=new Map();
  const records=fixtures.vectors.map(v=>{
   if(hash(v.wire)!==v.sha256)throw Error('pinned wire hash mismatch');
   const s=JSON.parse(v.wire);
-  return {name:v.name,path:`/internal/v1/game-public/${s.season?'guild-season':'world-event-outcome'}`,body:v.wire};
+  const row=(s.event??s.season)[0];
+  s.source_observed_at=time(s.source_observed_at);
+  for(const key of s.event
+   ? ['scheduled_start','scheduled_end','lock_at']
+   : ['starts_at','ends_at','freeze_at','computed_at','source_complete_through']) row[key]=time(row[key]);
+  if(s.event)row.decided_at=row.decided_at.map(time);
+  row.correction_of=row.correction_of.map(previous=>{
+   const updated=recordsByHash.get(previous);
+   if(!updated)throw Error('pinned correction predecessor missing');
+   return updated;
+  });
+  if(v.record_sha256)recordsByHash.set(v.record_sha256,hash(JSON.stringify(row)));
+  return {name:v.name,path:`/internal/v1/game-public/${s.season?'guild-season':'world-event-outcome'}`,body:JSON.stringify(s)};
  });
  const options={ca:fs.readFileSync(`${scratch}/ca.pem`),key:fs.readFileSync(`${directory}/league-game.key`),cert:fs.readFileSync(`${directory}/league-game.pem`),minVersion:'TLSv1.3',maxVersion:'TLSv1.3',ALPNProtocols:['http/1.1'],agent:false};
  let mode='good',published=false,closed=false,refusalStatus=null,task;
@@ -39,9 +56,31 @@ export async function leagueProducer({root,scratch,env,openssl,internalOrigin}) 
  });
  const pause=ms=>new Promise(r=>setTimeout(r,ms));
  const retry=async r=>{let backoff=1000;while(!closed){const status=await send(r);if(status===200)return; if([400,401,409].includes(status))throw Error(`league producer refused ${r.name||r.path}: ${status}`);await pause(backoff);backoff=Math.min(backoff*2,10000);}};
+ let watermarkBatch=Promise.resolve();
+ const sendWatermarks=async()=>{
+  const seconds=String(Math.floor(Date.now()/1000));
+  for(const family of ['world_event_outcome','guild_season'])await retry({
+   path:'/internal/v1/game-public/league-watermark',
+   body:JSON.stringify({contract_version:1,operation:'PublishLeagueWatermarkV1',source_authority:authority,family,projection_epoch:epoch,complete_through:seconds,observed_at:seconds}),
+  });
+  return seconds;
+ };
  const controls=http.createServer(async(req,res)=>{
   res.setHeader('content-type','application/json');
   if(req.method==='POST'){
+   if(req.url==='/hold-watermarks'){
+    if(!published||closed){res.writeHead(503);res.end('{}');return;}
+    mode='paused';
+    try{
+     await watermarkBatch;
+     const batch=sendWatermarks();
+     watermarkBatch=batch;
+     res.end(JSON.stringify({watermark:await batch}));
+    }catch{
+     res.writeHead(503);res.end('{}');
+    }
+    return;
+   }
    if(req.url==='/pause')mode='paused';else if(req.url==='/resume')mode='good';
    else if(req.url==='/wrong-identity'){refusalStatus=await send(records[0],true);mode='paused';}
    else{res.writeHead(404);res.end('{}');return;}
@@ -50,7 +89,7 @@ export async function leagueProducer({root,scratch,env,openssl,internalOrigin}) 
  });
  await new Promise(r=>controls.listen(18445,'127.0.0.1',r));
  return {
-  start(){task=(async()=>{const registry=new pg.Client({connectionString:env.OTERYN_DATABASE_URL});await registry.connect();try{await registry.query('INSERT INTO world_status(id,name) VALUES($1,$2) ON CONFLICT DO NOTHING',[JSON.parse(records[0].body).world_id,'Synthetic fixture world']);}finally{await registry.end();}for(const r of records)await retry(r);published=true;while(!closed){if(mode==='good'){const seconds=String(Math.floor(Date.now()/1000));for(const family of ['world_event_outcome','guild_season'])await retry({path:'/internal/v1/game-public/league-watermark',body:JSON.stringify({contract_version:1,operation:'PublishLeagueWatermarkV1',source_authority:authority,family,projection_epoch:epoch,complete_through:seconds,observed_at:seconds})});}await pause(2000);}})().catch(e=>{console.error(e);closed=true;});},
+  start(){task=(async()=>{const registry=new pg.Client({connectionString:env.OTERYN_DATABASE_URL});await registry.connect();try{await registry.query('INSERT INTO world_status(id,name) VALUES($1,$2) ON CONFLICT DO NOTHING',[JSON.parse(records[0].body).world_id,'Synthetic fixture world']);}finally{await registry.end();}for(const r of records)await retry(r);published=true;while(!closed){if(mode==='good'){watermarkBatch=sendWatermarks();await watermarkBatch;}await pause(2000);}})().catch(e=>{console.error(e);closed=true;});},
   async close(){closed=true;await task;await new Promise(r=>controls.close(r));},
  };
 }

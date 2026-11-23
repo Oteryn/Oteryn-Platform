@@ -165,6 +165,20 @@
       ]
     },
     {
+      "route": "/admin/console/players/retry",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/admin/src/console/access.rs:506"
+      ]
+    },
+    {
       "route": "/admin/console/players",
       "crate": "admin",
       "flags": [
@@ -218,6 +232,20 @@
       ],
       "sources": [
         "crates/admin/src/console/access.rs:283"
+      ]
+    },
+    {
+      "route": "/console",
+      "crate": "admin",
+      "flags": [
+        "OTERYN_ADMIN_CONSOLE",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/admin/src/console/mod.rs:424"
       ]
     },
     {
@@ -2094,6 +2122,118 @@
       ]
     },
     {
+      "route": "/{lang}/mfa/manage",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:89"
+      ]
+    },
+    {
+      "route": "/mfa/manage",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/mfa/replace/confirm",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:90"
+      ]
+    },
+    {
+      "route": "/mfa/replace/confirm",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/mfa/native-devices",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_NATIVE_DEVICES_ENABLED"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:95"
+      ]
+    },
+    {
+      "route": "/mfa/native-devices",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_CREDENTIALS",
+        "OTERYN_ACCOUNT_LOGIN",
+        "OTERYN_ACCOUNT_MFA",
+        "OTERYN_ADMIN_PANEL",
+        "OTERYN_PANEL_NATIVE_DEVICES_ENABLED"
+      ],
+      "methods": [
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/mfa_http.rs:prefix alias"
+      ]
+    },
+    {
+      "route": "/{lang}/account/profile",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_LOGIN"
+      ],
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "sources": [
+        "crates/identity/src/profile_http.rs:33"
+      ]
+    },
+    {
       "route": "/mfa/devices",
       "crate": "identity",
       "flags": [
@@ -2118,6 +2258,19 @@
       ],
       "sources": [
         "crates/identity/src/passkeys_http.rs:35"
+      ]
+    },
+    {
+      "route": "/{lang}/account/passkeys/manage",
+      "crate": "identity",
+      "flags": [
+        "OTERYN_ACCOUNT_PASSKEYS"
+      ],
+      "methods": [
+        "GET"
+      ],
+      "sources": [
+        "crates/identity/src/passkeys_http.rs:36"
       ]
     },
     {
@@ -4231,6 +4384,51 @@
     }
   ],
   "sections": [
+    {
+      "section": "account-mfa",
+      "label": "shell-mfa",
+      "path": "mfa",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-sudo",
+      "label": "shell-sudo",
+      "path": "account/sudo",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-email",
+      "label": "shell-email",
+      "path": "account/security/email",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-export",
+      "label": "shell-export",
+      "path": "account/privacy/export",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
+    {
+      "section": "account-termination",
+      "label": "shell-termination",
+      "path": "account/privacy/delete",
+      "crate": "identity",
+      "group": "Account",
+      "footer": false,
+      "source": "crates/identity/src/navigation.rs"
+    },
     {
       "section": "account-overview",
       "label": "shell-account-overview",

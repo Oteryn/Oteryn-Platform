@@ -458,7 +458,7 @@ async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_g
                 let pool = pool.clone();
                 async move {
                     let proof = proof.lock().await.take().ok_or(StatusCode::UNAUTHORIZED)?;
-                    establish(&pool, Language::En, &session, proof).await
+                    establish(&pool, Language::En, &session, proof, false).await
                 }
             }),
         )
@@ -649,7 +649,8 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
             .env(CHILD, "1")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
             .env("OTERYN_PUBLIC_ORIGIN", "https://pub.test")
-            .env("OTERYN_ADMIN_HOST", "staff.test")
+            .env("OTERYN_ADMIN_PANEL", "true")
+            .env("OTERYN_ADMIN_HOST", "staff.test:443")
             .status()?;
         assert!(status.success());
         return Ok(());
@@ -678,4 +679,49 @@ async fn separate_admin_origin_can_submit_login() -> TestResult {
     db.close().await?;
     assert_eq!(status, StatusCode::FOUND, "admin-origin login form");
     Ok(())
+}
+
+#[test]
+fn staff_dashboard_return_is_exact_and_bound_to_the_staff_host() {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        header::HOST,
+        axum::http::HeaderValue::from_static("staff.test"),
+    );
+    assert!(dashboard_return(
+        Some("return_to=/admin"),
+        &headers,
+        Some("STAFF.test:443")
+    ));
+    for query in [
+        None,
+        Some("return_to=//staff.test/admin"),
+        Some("return_to=/admin/roles"),
+        Some("return_to=/admin&return_to=//staff.test/admin"),
+    ] {
+        assert!(!dashboard_return(query, &headers, Some("staff.test")));
+    }
+    assert!(!dashboard_return(
+        Some("return_to=/admin"),
+        &headers,
+        Some("public.test")
+    ));
+    for host in ["staff.test:8443", "fixture-user@staff.test", "staff.test:"] {
+        assert!(!dashboard_return(
+            Some("return_to=/admin"),
+            &headers,
+            Some(host)
+        ));
+    }
+    headers.append(
+        header::HOST,
+        axum::http::HeaderValue::from_static("public.test"),
+    );
+    assert!(!dashboard_return(
+        Some("return_to=/admin"),
+        &headers,
+        Some("staff.test")
+    ));
+    assert!(!accepted("/admin"));
+    assert!(!accepted("/admin/roles"));
 }

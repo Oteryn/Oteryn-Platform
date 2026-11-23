@@ -365,11 +365,12 @@ async fn page(
     State(state): State<Guilds>,
     OriginalUri(uri): OriginalUri,
     RawQuery(raw): RawQuery,
+    headers: axum::http::HeaderMap,
 ) -> Response {
     if !state.config.enabled {
         return StatusCode::NOT_FOUND.into_response();
     }
-    let en = uri.path().starts_with("/en/");
+    let en = oteryn_ui::browser_language(uri.path(), &headers) == "en";
     let lang = if en { "en" } else { "pl" };
     let labels = labels(en);
     let Ok(query) = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or("")) else {
@@ -384,7 +385,7 @@ async fn page(
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let prefix = if en {
+    let prefix = if uri.path().starts_with("/en/") {
         "/en/guilds"
     } else if uri.path().starts_with("/pl/") {
         "/pl/guilds"

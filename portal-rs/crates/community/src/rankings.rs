@@ -76,6 +76,9 @@ pub fn router(db: PgPool, enabled: bool, visibility: Arc<dyn PublicVisibility>) 
             visibility,
         })
 }
+const MAX_ROWS: usize = 1000;
+const PAGE_SIZE: usize = 50;
+
 // Level and experience are two presentations of the same producer ordering.
 const KINDS: &[(&str, u8)] = &[
     ("level", 1),
@@ -241,19 +244,19 @@ async fn handle(
     let Ok(number) = page_number.parse::<usize>() else {
         return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     };
-    if number == 0 || page_number != number.to_string() {
+    if !(1..=MAX_ROWS.div_ceil(PAGE_SIZE)).contains(&number) || page_number != number.to_string() {
         return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
     let vocation = filters.vocation.as_deref().unwrap_or("0");
     if !matches!(vocation, "0" | "1" | "2" | "3" | "4" | "5") {
-        return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
+        return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
     if filters
         .world
         .as_ref()
         .is_some_and(|w| uuid::Uuid::parse_str(w).map_or(true, |id| id.to_string() != *w))
     {
-        return failure(lang, StatusCode::NOT_FOUND, "rankings-not-found");
+        return failure(lang, StatusCode::BAD_REQUEST, "rankings-bad-query");
     }
     match load(
         &state,
@@ -266,7 +269,12 @@ async fn handle(
     )
     .await
     {
-        Ok(page) => page.response(StatusCode::OK),
+        Ok(Some(page)) => page.response(StatusCode::OK),
+        Ok(None) => oteryn_ui::missing_game_data(failure(
+            lang,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "rankings-unavailable",
+        )),
         Err(status) => failure(
             lang,
             status,
@@ -286,7 +294,7 @@ async fn load(
     selected: Option<&str>,
     vocation: &str,
     number: usize,
-) -> Result<Page, StatusCode> {
+) -> Result<Option<Page>, StatusCode> {
     let privacy_cut = crate::privacy::Cut::read(&state.db)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -295,6 +303,16 @@ async fn load(
     let worlds: BTreeSet<String> = sqlx::query_scalar::<_, String>("SELECT DISTINCT split_part(subject,':',1) AS world FROM public_snapshots WHERE family='highscores' AND NOT public_projection_conflicted('highscores') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) ORDER BY world LIMIT 257").fetch_all(&state.db).await.map_err(|_| unavailable)?.into_iter().collect();
     if worlds.len() > 256 {
         return Err(unavailable);
+    }
+    if selected.is_none() && worlds.is_empty() {
+        let conflicted: bool =
+            sqlx::query_scalar("SELECT public_projection_conflicted('highscores')")
+                .fetch_one(&state.db)
+                .await
+                .map_err(|_| unavailable)?;
+        if !conflicted {
+            return Ok(None);
+        }
     }
     let world = match selected {
         Some(w) if worlds.contains(w) => w,
@@ -309,7 +327,7 @@ async fn load(
     if snapshot.world_id != world
         || snapshot.category != category
         || snapshot.filter.to_string() != vocation
-        || snapshot.rows.len() > 1000
+        || snapshot.rows.len() > MAX_ROWS
     {
         return Err(unavailable);
     }
@@ -336,7 +354,7 @@ async fn load(
         .zip(hidden)
         .filter_map(|(r, hidden)| (!hidden).then_some(r))
         .collect();
-    if number > visible.len().div_ceil(50).max(1) {
+    if number > visible.len().div_ceil(PAGE_SIZE).max(1) {
         return Err(StatusCode::NOT_FOUND);
     }
     let mut page = Page::new(lang);
@@ -361,13 +379,13 @@ async fn load(
     if number > 1 {
         page.previous_url = url(number - 1);
     }
-    if number * 50 < visible.len() {
+    if number * PAGE_SIZE < visible.len() {
         page.next_url = url(number + 1);
     }
     page.rows = visible
         .into_iter()
-        .skip((number - 1) * 50)
-        .take(50)
+        .skip((number - 1) * PAGE_SIZE)
+        .take(PAGE_SIZE)
         .map(|r| {
             vec![
                 r.rank,
@@ -402,7 +420,7 @@ async fn load(
     {
         return Err(unavailable);
     }
-    Ok(page)
+    Ok(Some(page))
 }
 
 /// Top `limit` visible characters of the level ranking on the first world, for
@@ -428,7 +446,7 @@ pub async fn home_top(
     if snapshot.world_id != world
         || snapshot.category != 1
         || snapshot.filter != 0
-        || snapshot.rows.len() > 1000
+        || snapshot.rows.len() > MAX_ROWS
     {
         return Err(VisibilityUnavailable);
     }

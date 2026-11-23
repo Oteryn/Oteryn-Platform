@@ -1679,6 +1679,7 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
         "wallet.top_up",
         "email.password-reset",
         "email.verify",
+        oteryn_admin::staff_invites::MAIL_KIND,
         "email.account_exists",
         "notify.email",
         "bazaar.authority",
@@ -1716,6 +1717,11 @@ async fn disabled_consumers_preserve_approved_refund_and_resume_once() -> TestRe
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(refund, ("pending".into(), 0));
+    let invite: (String, i32) = outbox::query_as("SELECT state,attempts FROM outbox WHERE kind=$1")
+        .bind(oteryn_admin::staff_invites::MAIL_KIND)
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(invite, ("pending".into(), 0));
     let dead: i64 =
         query_scalar("SELECT count(*) FROM outbox WHERE state='dead' AND kind<>'unknown.audit3'")
             .fetch_one(&db.pool)

@@ -1,8 +1,13 @@
 import {test as base,expect} from '@playwright/test';
+import {flushRecorder} from './ledger/record.mjs';
 export {expect};
 
 export const test=base.extend({
- browserDiagnostics:[async({context,page},use,info)=>{
+ ledgerCapture:[async({},use,info)=>{
+   try { await use(); }
+   finally { await flushRecorder(info); }
+ },{auto:'all-hooks-included'}],
+ browserDiagnostics:[async({ledgerCapture,page},use,info)=>{
    const errors=[];
    const diagnostics=[];
    const watch=screen=>{
@@ -20,8 +25,12 @@ export const test=base.extend({
        }else errors.push(message.text());
      });
    };
-   watch(page);context.on('page',watch);
-   await use();
+   const watchContext=actorContext=>{
+     actorContext.on('page',watch);
+     actorContext.pages().forEach(watch);
+   };
+   watchContext(page.context());
+   await use(watchContext);
    await info.attach('browser-diagnostics',{body:JSON.stringify({errors,expectedHttpDiagnostics:diagnostics}),contentType:'application/json'});
    expect(errors,'unexpected browser console/script/server errors').toEqual([]);
  },{auto:true}],

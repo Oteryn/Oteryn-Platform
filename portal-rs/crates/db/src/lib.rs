@@ -1,9 +1,11 @@
 //! PostgreSQL pool and migrations for the Oteryn portal.
 
 use sqlx::{
-    PgConnection,
+    Connection, PgConnection, Postgres, Transaction,
     postgres::{PgPool, PgPoolOptions},
 };
+use std::time::Duration;
+use tokio::time::Instant;
 
 /// Embedded migrations from `portal-rs/migrations`.
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../../migrations");
@@ -13,6 +15,94 @@ pub fn lazy_pool(database_url: &str) -> Result<PgPool, sqlx::Error> {
     PgPoolOptions::new()
         .max_connections(16)
         .connect_lazy(database_url)
+}
+
+/// Run database work within one acquisition and execution deadline, then
+/// finish returning or closing the connection before releasing the caller's
+/// admission permit. A timed-out connection is discarded rather than reused.
+async fn with_connection_deadline<T, E>(
+    pool: &PgPool,
+    deadline: Instant,
+    work: impl AsyncFnOnce(&mut sqlx::PgConnection) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<sqlx::Error>,
+{
+    use std::future::{Future, poll_fn};
+    use std::task::Poll;
+    use tokio::time::{timeout, timeout_at};
+    check_deadline(deadline)?;
+    let mut connection = timeout_at(deadline, pool.acquire())
+        .await
+        .map_err(|_| sqlx::Error::PoolTimedOut)??;
+    let outcome = {
+        let mut work = std::pin::pin!(work(&mut connection));
+        // Timeout polls its inner future first. Check before resuming any SQL.
+        timeout_at(
+            deadline,
+            poll_fn(|cx| match check_deadline(deadline) {
+                Ok(()) => work.as_mut().poll(cx),
+                Err(error) => Poll::Ready(Err(error.into())),
+            }),
+        )
+        .await
+    };
+    let cleanup = Duration::from_millis(250);
+    match outcome {
+        Ok(result) if check_deadline(deadline).is_ok() => {
+            // SQLx checks the connection and flushes any queued rollback.
+            // Dropping this future on a network stall discards the socket.
+            let _ = timeout(cleanup, connection.return_to_pool()).await;
+            result
+        }
+        _ => {
+            let _ = timeout(cleanup, connection.close()).await;
+            Err(sqlx::Error::PoolTimedOut.into())
+        }
+    }
+}
+
+/// Check an absolute request deadline before starting another phase of work.
+pub fn check_deadline(deadline: Instant) -> Result<(), sqlx::Error> {
+    if Instant::now() >= deadline {
+        return Err(sqlx::Error::PoolTimedOut);
+    }
+    Ok(())
+}
+
+/// Bound pooled SQL and its transaction-local timeouts by the original deadline.
+pub async fn with_transaction_deadline<T, E>(
+    pool: &PgPool,
+    deadline: Instant,
+    lock_limit: Duration,
+    statement_limit: Duration,
+    work: impl AsyncFnOnce(&mut Transaction<'_, Postgres>) -> Result<T, E>,
+) -> Result<T, E>
+where
+    E: From<sqlx::Error>,
+{
+    with_connection_deadline(pool, deadline, async |connection| {
+        let mut tx = connection.begin().await?;
+        check_deadline(deadline)?;
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let millis = |duration: Duration| format!("{}ms", duration.as_millis().max(1));
+        sqlx::query(
+            "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true),
+             CASE WHEN current_setting('server_version_num')::integer >= 170000
+             THEN set_config('transaction_timeout', $3, true) END",
+        )
+        .bind(millis(remaining.min(lock_limit)))
+        .bind(millis(remaining.min(statement_limit)))
+        .bind(millis(remaining))
+        .execute(&mut *tx)
+        .await?;
+        check_deadline(deadline)?;
+        let result = work(&mut tx).await?;
+        check_deadline(deadline)?;
+        tx.commit().await?;
+        Ok(result)
+    })
+    .await
 }
 
 /// Applies pending migrations.

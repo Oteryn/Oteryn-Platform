@@ -19,6 +19,12 @@ impl Database {
     async fn with_connections(
         maximum: u32,
     ) -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
+        Self::with_migrator(maximum, &oteryn_db::MIGRATOR).await
+    }
+    async fn with_migrator(
+        maximum: u32,
+        migrator: &sqlx::migrate::Migrator,
+    ) -> std::result::Result<Option<Self>, Box<dyn std::error::Error + Send + Sync>> {
         let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
             eprintln!("Skipping PostgreSQL support test: PORTAL_TEST_DATABASE_URL is unset");
             return Ok(None);
@@ -45,7 +51,7 @@ impl Database {
             })
             .connect(&url)
             .await?;
-        oteryn_db::migrate(&pool).await?;
+        migrator.run(&pool).await?;
         Ok(Some(Self {
             pool,
             admin,
@@ -107,6 +113,99 @@ async fn staff(pool: &PgPool, id: Uuid) -> Option<CheckContext> {
         mfa_verified: true,
         session_proof: crate::test_staff::proof(pool, id).await.ok(),
     })
+}
+
+#[tokio::test]
+async fn postgres_staff_metadata_migration_preserves_verified_history() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let before = sqlx::migrate::Migrator::with_migrations(
+        oteryn_db::MIGRATOR
+            .iter()
+            .filter(|migration| migration.version < 20261122190100)
+            .cloned()
+            .collect(),
+    );
+    let db = Database::with_migrator(1, &before)
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let assignee = db.account("en").await?;
+    let ticket: Uuid = sqlx::query_scalar(
+        "INSERT INTO tickets(account_id,request_key,category,subject,lock_version)
+         VALUES ($1,$2,'account','Ticket with history',4) RETURNING id",
+    )
+    .bind(owner)
+    .bind(Uuid::now_v7())
+    .fetch_one(&db.pool)
+    .await?;
+    for (account, version) in [(owner, 2), (assignee, 4), (owner, 5)] {
+        sqlx::query(
+            "INSERT INTO audit_log(action,target,before,after,request_id)
+             VALUES ('support.ticket_assigned',$1,'null',$2,$3)",
+        )
+        .bind(ticket.to_string())
+        .bind(serde_json::json!({"assigned_to": account, "lock_version": version}))
+        .bind(Uuid::now_v7())
+        .execute(&db.pool)
+        .await?;
+    }
+    let sanction: Uuid = sqlx::query_scalar(
+        "INSERT INTO sanctions(account_id,category,status,public_reason,created_by,effective_at,expires_at)
+         VALUES ($1,'warning','active','Existing sanction',$2,now(),now()+interval '1 day') RETURNING id",
+    )
+    .bind(owner)
+    .bind(assignee)
+    .fetch_one(&db.pool)
+    .await?;
+    let mut reports = Vec::new();
+    for (reference, expected) in [
+        (owner.to_string(), Some(sanction)),
+        (assignee.to_string(), None),
+        ("Unresolved Player".into(), None),
+    ] {
+        let report: Uuid = sqlx::query_scalar(
+            "INSERT INTO player_reports(reporter_account_id,request_key,report_type,category,target_reference,status,public_outcome,lock_version)
+             VALUES ($1,$2,'player','conduct',$3,'actioned','Reviewed',2) RETURNING id",
+        )
+        .bind(assignee)
+        .bind(Uuid::now_v7())
+        .bind(reference)
+        .fetch_one(&db.pool)
+        .await?;
+        sqlx::query(
+            "INSERT INTO audit_log(action,target,before,after,request_id)
+             VALUES ('support.report_sanction_linked',$1,'null',$2,$3)",
+        )
+        .bind(report.to_string())
+        .bind(serde_json::json!({"sanction_id": sanction, "lock_version": 2}))
+        .bind(Uuid::now_v7())
+        .execute(&db.pool)
+        .await?;
+        reports.push((report, expected));
+    }
+    oteryn_db::migrate(&db.pool).await?;
+    let row: (Option<Uuid>, i64) =
+        sqlx::query_as("SELECT assigned_to,lock_version FROM tickets WHERE id=$1")
+            .bind(ticket)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(row, (Some(assignee), 4));
+    for (report, expected) in reports {
+        let row: (Option<Uuid>, i64, Option<Uuid>) =
+            sqlx::query_as("SELECT sanction_id,lock_version,verified_target_account_id FROM player_reports WHERE id=$1")
+                .bind(report)
+                .fetch_one(&db.pool)
+                .await?;
+        assert_eq!(row, (expected, 2, expected.map(|_| owner)));
+    }
+    let historical_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log
+         WHERE action IN ('support.ticket_assigned','support.report_sanction_linked')",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(historical_events, 6);
+    db.finish().await
 }
 
 #[tokio::test]
@@ -575,7 +674,11 @@ async fn postgres_player_routes_session_csrf_bad_input_and_success() -> TestResu
                 )))?,
         )
         .await?;
-    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        response.headers()[axum::http::header::LOCATION],
+        format!("/en/support/tickets/{}", ticket.id),
+    );
     assert_eq!(t.list(owner, false, 0).await?[0].status, "closed");
     db.finish().await
 }
@@ -715,13 +818,24 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
         .await?;
     assert_eq!(response.status(), StatusCode::OK);
     for (body, expected) in [
-        ("body=answer&lock_version=1".into(), StatusCode::FORBIDDEN),
         (
-            format!("_csrf={csrf}&body=answer&lock_version=0"),
+            "body=answer&lock_version=1&reason=Reviewed".into(),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            format!("_csrf={csrf}&body=answer&lock_version=0&reason=Reviewed"),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
         (
             format!("_csrf={csrf}&body=answer&lock_version=1"),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (
+            format!("_csrf={csrf}&body=answer&lock_version=1&reason=Reviewed"),
+            StatusCode::FOUND,
+        ),
+        (
+            format!("_csrf={csrf}&body=private+note&internal=1&lock_version=2&reason=Reviewed"),
             StatusCode::FOUND,
         ),
     ] {
@@ -741,6 +855,25 @@ async fn postgres_staff_routes_require_host_mfa_permission_and_csrf() -> TestRes
         assert_eq!(response.status(), expected);
     }
     assert_eq!(t.list(owner, false, 0).await?[0].status, "waiting_user");
+    let row: Vec<(String, bool, String)> = sqlx::query_as(
+        "SELECT a.action,m.internal,m.body FROM audit_log a JOIN ticket_messages m
+           ON m.id::text=a.after->>'message_id' AND m.ticket_id::text=a.target
+         WHERE a.target=$1 ORDER BY a.id",
+    )
+    .bind(ticket.id.to_string())
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(
+        row,
+        [
+            ("support.ticket_replied".into(), false, "answer".into()),
+            (
+                "support.ticket_internal_note_added".into(),
+                true,
+                "private note".into()
+            ),
+        ]
+    );
     db.finish().await
 }
 
@@ -925,7 +1058,9 @@ async fn staff_waiting_mutation_rechecks_authority(
         .extension(ConnectInfo(
             "127.0.0.1:3210".parse::<std::net::SocketAddr>()?,
         ))
-        .body(Body::from(format!("_csrf={csrf}&lock_version=1&{fields}")))?;
+        .body(Body::from(format!(
+            "_csrf={csrf}&lock_version=1&reason=Reviewed+ticket&{fields}"
+        )))?;
     let pending = tokio::spawn(async move { app.oneshot(request).await });
     // Observe the request waiting at the owner's account lock, after its
     // shared guard and pre-lock actor read have completed.
@@ -1248,6 +1383,13 @@ async fn postgres_read_acknowledgement_requires_displayed_reply() -> TestResult 
             .bind(id)
             .fetch_one(&db.pool)
     };
+    assert!(unread().await?);
+    let invalid = acknowledge("not-a-uuid").await?;
+    assert_eq!(invalid.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        to_bytes(invalid.into_body(), 65536).await?.as_ref(),
+        b"The request could not be completed. Reload the ticket and try again.",
+    );
     assert!(unread().await?);
     // Owner mutations establish no viewing boundary.
     tickets

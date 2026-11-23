@@ -72,7 +72,7 @@ async fn prepare_download(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let id = authorized_account(&mut *tx, session).await?;
-    let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'email_verified_at',email_verified_at,'status',status,'locale',locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
+    let account: Value = sqlx::query_scalar("SELECT jsonb_build_object('id',id,'email',email,'display_name',profile_display_name,'email_verified_at',email_verified_at,'status',status,'locale',locale,'public_account_association',public_account_association,'public_status_visible',public_status_visible,'created_at',created_at,'updated_at',updated_at) FROM accounts WHERE id=$1")
         .bind(id).fetch_one(&mut *tx).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Vec<u8>, std::io::Error>>(1);
     let errors = sender.clone();
@@ -198,6 +198,25 @@ pub async fn export_account(
 ) -> Result<Uuid, StatusCode> {
     validate_request(config, session)?;
     authorized_account(pool, session).await
+}
+
+/// An active account with a live session can be sent to password confirmation.
+pub async fn needs_password_confirmation(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<bool, StatusCode> {
+    validate_request(config, session)?;
+    sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id
+         WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now()
+           AND a.status='active' AND a.email_verified_at IS NOT NULL
+           AND (s.sudo_until IS NULL OR s.sudo_until<=now()))",
+    )
+    .bind(Sha256::digest(session.as_bytes()).to_vec())
+    .fetch_one(pool)
+    .await
+    .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 
 #[cfg(test)]

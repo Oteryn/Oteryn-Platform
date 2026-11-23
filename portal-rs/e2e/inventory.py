@@ -31,8 +31,9 @@ for file in sorted((ROOT / 'crates').rglob('*.rs')):
     matches = list(re.finditer(r'\.route\(\s*(?:&format!\()?"([^"\n]+)"', source))
     # Routes whose path variable comes from a literal array in the same router.
     if re.search(r'\.route\(\s*(?:path|&format!\("\{path\}/data")', source):
+        explicit_literals = {m.start(1) for m in matches}
         for m in re.finditer(r'"(/(?:admin|console)[^"\s]*)"', source):
-            if source[max(0,m.start()-250):m.start()].find('href=') < 0:
+            if m.start(1) not in explicit_literals and source[max(0,m.start()-250):m.start()].find('href=') < 0:
                 matches.append(m)
     for m in matches:
         path = m[1]
@@ -102,6 +103,11 @@ for row in rows.values():
         row['flags']=sorted(set(row['flags']+['OTERYN_ADMIN_PANEL']))
     if '/admin/analytics' in row['route']:
         row['flags']=sorted(set(row['flags']+['OTERYN_ADMIN_ANALYTICS_PRESENT']))
+    if row['crate']=='identity':
+        if row['route']=='/{lang}/account/profile':
+            row['flags']=sorted(set(row['flags']+['OTERYN_ACCOUNT_LOGIN']))
+        if row['route'].endswith('/mfa/native-devices'):
+            row['flags']=sorted(set(row['flags']+['OTERYN_PANEL_NATIVE_DEVICES_ENABLED']))
 for row in rows.values():
     if row['crate']=='bazaar' and row['route']=='/{lang}/bazaar/items/{id}/{action}':
         row['notApplicable']='Compatibility item action adapter is not mounted when the qualified Bazaar runtime is selected; current actions use account/bazaar listing bids and control endpoints (bazaar.spec.mjs). The absence is asserted as 404.'

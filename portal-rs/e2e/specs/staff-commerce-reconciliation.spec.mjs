@@ -1,14 +1,16 @@
 import {test,expect} from '../fixtures.mjs';
 import {register,login,submit,pool} from '../helpers.mjs';
-import {staffContext,paidTopup} from '../staff-commerce-helpers.mjs';
+import {paidTopup} from '../staff-commerce-helpers.mjs';
+import {isolatedSeededAdmin} from '../staff-rbac-helpers.mjs';
 
 test('staff reconciles a paid test intent and records the audit; bad intent refused',async({page,browser},info)=>{
  const lang=info.project.metadata.locale;
  const account=await register(page,lang);await login(page,lang,account);
- const db=pool(),staff=await staffContext(browser,info);
+ const {context:staff,page:admin}=await isolatedSeededAdmin(browser,info);
+ const db=pool();
  try {
   const paid=await paidTopup(page,lang,db);
-  const admin=await staff.newPage();expect((await admin.goto('/admin/commerce')).status()).toBe(200);
+  expect((await admin.goto('/admin/commerce')).status()).toBe(200);
   // Commerce has one target-ID form rather than a payment-intent detail page.
   const selector='form[action="/admin/commerce/reconcile"]';
   const request=await admin.locator(`${selector} [name=request_id]`).inputValue();

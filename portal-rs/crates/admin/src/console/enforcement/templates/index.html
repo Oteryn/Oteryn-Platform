@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="{{ lang.code() }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.title() }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main id="main" class="op-panel op-stack">
+  <a href="/admin/console/players?lang={{ lang.code() }}">{{ lang.text("Postacie", "Characters") }}</a>
+  <h1>{{ self.title() }}</h1>
+  {% if let Some(error) = message %}<p role="alert">{{ error }}</p>{% endif %}
+  <form class="op-stack" action="{{ PATH }}" method="get">
+    <input type="hidden" name="lang" value="{{ lang.code() }}">
+    <label for="character">{{ lang.text("Identyfikator postaci", "Character ID") }}</label>
+    <input class="op-input" id="character" name="character" maxlength="36" required {% if let Some(id) = character %}value="{{ id }}"{% endif %}>
+    <button class="op-button" type="submit">{{ lang.text("Otwórz kartę postaci", "Open character dossier") }}</button>
+  </form>
+  {% if let Some(name) = name %}<h2>{{ name }}</h2>{% endif %}
+  {% if let Some(id) = character %}
+    {% if step_up %}
+    <form class="op-stack" action="{{ STEP_PATH }}?lang={{ lang.code() }}&amp;character={{ id }}" method="post">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label for="code">{{ lang.text("Nowy kod TOTP", "Fresh TOTP code") }}</label>
+      <input class="op-input" id="code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" required>
+      <button class="op-button" type="submit">{{ lang.text("Potwierdź", "Confirm") }}</button>
+    </form>
+    {% endif %}
+    {% for panel in panels %}
+    {% let row = panel.restriction %}
+    <section class="op-stack" data-profile="{{ row.profile.name() }}">
+      <h3>{{ lang.profile(row.profile) }}</h3>
+      <dl>
+        <dt>{{ lang.text("Ostatni potwierdzony stan w grze", "Last confirmed Game state") }}</dt>
+        <dd data-current>{{ lang.state(row.current) }}</dd>
+        {% if row.current_received_at != row.received_at %}
+        {% if let Some(confirmed_at) = row.current_received_at %}
+        <dt>{{ lang.text("Potwierdzenie obecnego stanu (UTC)", "Current state receipt (UTC)") }}</dt>
+        <dd><time data-current-receipt datetime="{{ confirmed_at }}">{{ confirmed_at }}</time></dd>
+        {% endif %}
+        {% endif %}
+        <dt>{{ lang.text("Ostatnie żądanie", "Latest request") }}</dt>
+        <dd data-state {% if let Some(operation) = row.operation %}data-operation="{{ operation }}"{% endif %}>{{ lang.state(row.state) }}</dd>
+        {% if let Some(received_at) = row.received_at %}
+        <dt>{{ lang.text("Odebrano potwierdzenie (UTC)", "Receipt received (UTC)") }}</dt>
+        <dd><time data-receipt datetime="{{ received_at }}">{{ received_at }}</time></dd>
+        {% endif %}
+        {% if let Some(until) = row.effective_until %}
+        <dt>{{ lang.text("Obowiązuje do (UTC)", "Effective until (UTC)") }}</dt>
+        <dd><time data-effective-until datetime="{{ until }}">{{ until }}</time></dd>
+        {% endif %}
+        {% if let Some(code) = row.result_code %}<dt>{{ lang.text("Kod odmowy", "Refusal code") }}</dt><dd>{{ code }}</dd>{% endif %}
+      </dl>
+      {% if row.expiry_pending %}
+      <p data-expiry-pending>{{ lang.text("Potwierdzenie wygaśnięcia przez grę jest w toku.", "Expiry is awaiting Game confirmation.") }}</p>
+      {% endif %}
+      {% if row.expiry_blocked %}
+      <p data-expiry-blocked>{{ lang.text("Wygaśnięcie wymaga uzgodnienia. Sprawdź potwierdzenia z gry lub użyj cofnięcia, jeśli jest dostępne.", "Expiry requires reconciliation. Check Game receipts or use revoke when available.") }}</p>
+      {% endif %}
+      {% for form in panel.forms %}
+      {% let field_id = form.operation %}
+      <form class="op-stack" action="{{ PATH }}?lang={{ lang.code() }}&amp;character={{ id }}" method="post" data-action="{{ form.intent.name() }}">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="profile" value="{{ row.profile.name() }}">
+        <input type="hidden" name="intent" value="{{ form.intent.name() }}">
+        <input type="hidden" name="operation" value="{{ form.operation }}">
+        <input type="hidden" name="proof" value="{{ form.proof }}">
+        <input type="hidden" name="version" value="{{ row.version }}">
+        {% if form.intent != Action::Revoke %}
+        <label for="minutes-{{ field_id }}">{{ lang.text("Czas trwania (minuty)", "Duration (minutes)") }}</label>
+        <input class="op-input" id="minutes-{{ field_id }}" type="number" name="minutes" min="{{ MIN_MINUTES }}" max="{{ MAX_MINUTES }}" required>
+        {% endif %}
+        <label for="reason-{{ field_id }}">{{ lang.text("Powód publiczny", "Public reason") }}</label>
+        <select class="op-input" id="reason-{{ field_id }}" name="reason" required>
+          <option value="">{{ lang.text("Wybierz powód", "Choose a reason") }}</option>
+          <option value="disruptive_behavior">{{ lang.text("Zakłócanie gry", "Disruptive behavior") }}</option>
+          <option value="rule_violation">{{ lang.text("Naruszenie zasad", "Rule violation") }}</option>
+        </select>
+        <button class="op-button" type="submit">{% if row.expiry_blocked && form.intent == Action::Revoke %}{{ lang.text("Uzgodnij przez cofnięcie", "Reconcile by revoking") }}{% else %}{{ lang.action(form.intent) }}{% endif %}</button>
+      </form>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  {% endif %}
+</main>
+</body>
+</html>

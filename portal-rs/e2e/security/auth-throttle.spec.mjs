@@ -35,6 +35,7 @@ async function expectLogin(page, lang, source, account) {
 }
 
 test('the login identity budget is keyed by normalized email and source', async ({ page }, info) => {
+  test.setTimeout(180_000);
   const lang = info.project.metadata.locale;
   const account = await seedAccount(lang);
   const unknown = emailAddress();

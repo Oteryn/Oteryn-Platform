@@ -6,17 +6,37 @@ import {fileURLToPath} from 'node:url';
 import crypto from 'node:crypto';
 import {pool,csrfRejected,submit,register,login,password,waitForLoginBudget} from './helpers.mjs';
 export const unique=()=>`staff_rbac_${crypto.randomBytes(10).toString('hex')}`;
-export async function staff(browser,info){const context=await browser.newContext({storageState:path.join(process.env.PORTAL_E2E_AUTH_DIRECTORY,`staff-${info.project.name}.json`),baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:info.project.metadata.locale});return {context,page:await context.newPage()};}
 export async function query(sql,args=[],databaseURL){const db=pool(databaseURL);try{return (await db.query(sql,args)).rows;}finally{await db.end();}}
 export async function player(page,lang){const account=await register(page,lang);await login(page,lang,account);return {...account,id:(await query('SELECT id FROM accounts WHERE email=$1',[account.email]))[0].id};}
+
+export async function seedAccount(lang, role) {
+  const { id: accountId, email, password } = await seededAccount(lang);
+  const credentials = { email, password };
+  if (!role) return { credentials, accountId };
+  const { recoveryCodes } = await seed('account-mfa', { accountId, password });
+  expect(recoveryCodes).toHaveLength(8);
+  const grants = await query(
+    'INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2 AND built_in RETURNING role_id',
+    [accountId, role],
+  );
+  expect(grants).toHaveLength(1);
+  return { credentials, accountId, recoveryCodes };
+}
+
 // roles.html has select controls and named submit buttons; submit() cannot fill selects.
 // support_web.rs renders hidden action controls and select controls in SSR forms.
 export async function action(page,selector,values={},button){const form=page.locator(selector).first();const url=await form.getAttribute('action');const fields=await form.evaluate(f=>Object.fromEntries(new FormData(f)));await csrfRejected(page,url,{...fields,...values});for(const [name,value] of Object.entries(values)){const field=form.locator(`[name="${name}"]`);if(await field.evaluate(e=>e.tagName)==='SELECT')await field.selectOption(value);else await field.fill(value);}await form.locator(button?`button[value="${button}"]`:'button').first().click();}
-export async function role(page,permissions=''){const key=unique();await page.goto('/admin/roles');await submit(page,'form:has(input[name=key])',{key,permissions});const id=(await query('SELECT id FROM roles WHERE key=$1',[key]))[0].id;await rolePage(page,id);await expect(page.locator('main'),'created role is visible').toContainText(key);return id;}
-export async function membership(page,account,role,op){await rolePage(page,role);await action(page,'form:has(input[name=account])',{account,role},op);await expect.poll(async()=>Number((await query('SELECT count(*) n FROM account_roles WHERE account_id=$1 AND role_id=$2',[account,role]))[0].n),{message:`${op} persists`}).toBe(op==='grant'?1:0);}
-export async function audit(page,operation,target){const rows=await query('SELECT actor,request_id FROM audit_log WHERE action=$1 AND target=$2 ORDER BY created_at DESC',[operation,target]);expect(rows.length,`${operation} emits audit evidence`).toBeGreaterThan(0);for(const row of rows){const actor=row.actor;expect((await page.goto(`/admin/console/audit?${new URLSearchParams({admin:actor,operation,target,request_id:row.request_id})}`)).status(),'audit console opens').toBe(200);const main=page.locator('main');await expect(main,'audit exposes action').toContainText(operation);await expect(main,'audit exposes actor').toContainText(actor);await expect(main,'audit exposes target').toContainText(target);}}
+export async function role(page,permissions=''){const key=unique();await page.goto('/admin/roles');await action(page,'form:has(input[name=key])',{key,permissions,reason:'role_assignment'},'create');const id=(await query('SELECT id FROM roles WHERE key=$1',[key]))[0].id;await rolePage(page,id);await expect(page.locator('main'),'created role is visible').toContainText(key);return id;}
+export async function membership(page,account,role,op,connect=pool){await rolePage(page,role);await action(page,'form:has(input[name=account])',{account,role,reason:'role_assignment'},op);await expect.poll(async()=>Number((await queryWith(connect,'SELECT count(*) n FROM account_roles WHERE account_id=$1 AND role_id=$2',[account,role]))[0].n),{message:`${op} persists`}).toBe(op==='grant'?1:0);}
+export async function audit(page,operation,target,{lang}={}){const rows=await query('SELECT actor,request_id FROM audit_log WHERE action=$1 AND target=$2 ORDER BY created_at DESC',[operation,target]);expect(rows.length,`${operation} emits audit evidence`).toBeGreaterThan(0);for(const row of rows){const actor=row.actor;expect((await page.goto(`/admin/console/audit?${new URLSearchParams({admin:actor,operation,target,request_id:row.request_id,...(lang?{lang}:{})})}`)).status(),'audit console opens').toBe(200);const main=page.locator('main');await expect(main,'audit exposes action').toContainText(operation);await expect(main,'audit exposes actor').toContainText(actor);await expect(main,'audit exposes target').toContainText(target);}}
 
 export async function rolePage(page,id){await page.goto('/admin/roles');for(let n=0;n<10000;n++){if(await page.locator(`select[name=role] option[value="${id}"]`).count())return;const next=page.locator('a[href^="/admin/roles?after="]');expect(await next.count(),'role remains discoverable through keyset pagination').toBe(1);await next.click();}throw new Error('role pagination exceeded bound');}
+
+export async function queryWith(connect, sql, args = []) {
+ const db = connect();
+ try { return (await db.query(sql,args)).rows; }
+ finally { await db.end(); }
+}
 
 export async function enrollMfa(page,lang,account){
  await page.goto(`/${lang}/mfa`);
@@ -39,16 +59,38 @@ export async function expectLoginRedirect(page,path){
  expect(response.headers().location).toBe('/login');
 }
 
+export async function confirmStaffPassword(page,lang,password){
+ await page.goto(`/${lang}/account/sudo?return_to=roles`);
+ await submit(page,'main form',{current_password:password});
+ await expect(page).toHaveURL(/\/admin\/roles$/);
+}
+
 export async function isolatedAdmin(browser,info){
+ return isolatedStaff(browser,info,'platform_admin');
+}
+
+export async function isolatedSeededAdmin(browser, info) {
+ const account = await seededAccount(info.project.metadata.locale);
+ return isolatedStaff(browser, info, 'platform_admin', account);
+}
+
+export async function isolatedStaff(browser,info,roleKey,seededAccount){
  const lang=info.project.metadata.locale;
  const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,viewport:info.project.use.viewport,locale:lang});
  try{
   const page=await context.newPage();
-  const account=await register(page,lang);
-  await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key='platform_admin'",[account.email]);
+  const account=seededAccount??(await register(page,lang));
+  const grants=await query("INSERT INTO account_roles(account_id,role_id) SELECT a.id,r.id FROM accounts a CROSS JOIN roles r WHERE a.email=$1 AND r.key=$2 RETURNING role_id",[account.email,roleKey]);
+  expect(grants).toHaveLength(1);
   await login(page,lang,account);
   const codes=await enrollMfa(page,lang,account);
+  const mainCodes=page.locator('main textarea[readonly]');
+  await expect(mainCodes.first()).toBeVisible();
+  const shownCodes=await mainCodes.allTextContents();
+  expect(shownCodes.length===codes.length && shownCodes.every((code,index)=>code===codes[index]),
+    'recovery codes are displayed in the main content').toBe(true);
   await loginWithRecoveryCode(page,lang,account,codes[0]);
+  await confirmStaffPassword(page,lang,account.password);
   return {context,page,account,password:account.password,codes};
  }catch(error){await context.close();throw error;}
 }

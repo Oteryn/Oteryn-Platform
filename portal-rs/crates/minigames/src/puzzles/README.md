@@ -11,24 +11,69 @@ also require `OTERYN_WORLD_ENABLED=true`. Configure `OTERYN_PUBLIC_ORIGIN`
 for browser Origin verification. Authentication uses the existing browser
 session; only active, verified accounts may read or answer puzzles.
 
-A trusted editorial/worker caller publishes a `Definition` with
-`Puzzles::publish(day, definition, media)`. This is a Rust service interface,
-not a public publishing endpoint. The caller must have editorial publication
-authority and verify that the question, bilingual clues, choice labels,
-correct entity and selected image agree. No source family or appearance
-mapping is guessed. All choices must resolve through the public `WorldStore`
-API to allow-listed entities in the same active version. Missing or hidden
-entities and inactive versions deny reads and submissions.
+## Publish a UTC day
 
-Publish one immutable definition per UTC date and kind: monster silhouette,
-Atlas location, and world quiz. Future dates may be scheduled. Past dates
-cannot be published or answered. `Media::monster` verifies a creature
-thumbnail against the sprite pipeline's manifest and turns it into a light
-silhouette before storing it. `Media::atlas` accepts an exact tile from the
-public Atlas pipeline manifest, keyed by the world version UUID. Both verify
-bytes and bound decoding, and neither publishes source filenames. When a
-pipeline or source is unavailable, publication must remain unavailable.
-The editorial caller supplies a meaningful equivalent clue in both languages.
+Run the admin CLI from a trusted operator shell, with the portal database
+configured and both `OTERYN_DAILY_PUZZLES_ENABLED=true` and
+`OTERYN_WORLD_ENABLED=true`. Pass the UUID of an active, email-verified staff account with the
+`puzzles.publish` permission, granted to the built-in `platform_admin` role.
+
+```sh
+oteryn-portal admin-cli puzzles publish publication.json --actor <account-uuid>
+```
+
+The JSON file is limited to 64 KiB. It contains a non-nil UUID
+`publication_id`, a UTC `day` in `YYYY-MM-DD` format, and a `puzzles` array
+with one to three entries and at most one entry per kind. Each entry supplies
+the existing `definition` and, for image puzzles, a `media` reference. The
+following quiz uses an already active and approved catalogue.
+
+```json
+{
+  "publication_id": "019a0000-0000-7000-8000-000000000023",
+  "day": "2099-01-01",
+  "puzzles": [{
+    "definition": {
+      "kind": "quiz",
+      "world_version": "019a0000-0000-7000-8000-000000000022",
+      "question": {"pl": "Które zwierzę ma spiczaste uszy?", "en": "Which animal has pointed ears?"},
+      "clue": {"pl": "Poszukaj małego leśnego zwierzęcia.", "en": "Look for a small woodland animal."},
+      "choices": [
+        {"label": {"pl": "Lis", "en": "Fox"}, "source": {"kind": "Creature", "key": "fox"}},
+        {"label": {"pl": "Wilk", "en": "Wolf"}, "source": {"kind": "Creature", "key": "wolf"}}
+      ],
+      "correct_choice": 0
+    }
+  }]
+}
+```
+
+`correct_choice` is zero-based. Every choice must reference an allow-listed
+entity in the same active world version. Editorial staff verify the questions,
+bilingual clues and labels, correct entity, and its correspondence to any image.
+
+For monster media, use `{"kind":"monster","manifest":"sprites/manifest.json","request":{"kind":"creature","appearance_id":1,"pattern":null}}`
+with the sprite pipeline's immutable manifest. The portal verifies the thumbnail
+and stores a silhouette. For Atlas media, use
+`{"kind":"atlas","manifest":"atlas/manifest.json","tile":"0/0/0.webp"}`
+with the immutable public tile pipeline manifest for the supplied world version's
+source commit.
+Relative manifest paths resolve next to the publication JSON. Asset paths resolve
+inside the manifest directory and the portal checks their digests against that
+manifest. Quiz entries omit media. The portal fails closed if an asset or approved
+source is unavailable.
+
+New publications store all supplied slots and append one `puzzles.publish`
+audit entry in the same transaction. Future slots are staged until midnight UTC.
+Before release, submit a new publication ID to replace the staged slots for the
+kinds in the document. If the catalogue changed, include every existing kind
+for that date so the replacement uses one catalogue throughout. Slots for the
+current UTC day are playable and immutable.
+
+Repeating the same document and ID returns `replayed: true` without reopening
+its assets or restoring superseded slots. Reusing an ID with changed content,
+replacing a released slot, or mixing catalogue versions on one date returns
+`Conflict`.
 
 Each account gets one attempt per puzzle. Repeating the same choice returns
 the stored result; changing it returns a conflict. All three correct answers
@@ -41,9 +86,8 @@ The server never returns the correct-choice index or entity keys. Database
 uniqueness and a per-account row lock serialize answers and completion.
 Source/account authorization precedes the transaction, using public crate
 APIs without retaining a connection needed by those APIs. UTC expiry is
-checked after acquiring the lock and before committing. Published definitions
-cannot be updated or deleted; a revoked source fails closed rather than
-silently changing a puzzle after players have answered it.
+checked after acquiring the lock and before committing. Released definitions
+cannot be updated or deleted. A revoked source fails closed.
 
 Tests use synthetic data only. PostgreSQL tests read
 `PORTAL_TEST_DATABASE_URL`, print a skip notice when absent, and otherwise

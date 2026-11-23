@@ -4,12 +4,29 @@ import dns from 'node:dns';
 dns.setDefaultResultOrder('ipv4first');
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { beginCapture } from './ledger/capture.mjs';
+import { installRecorder } from './ledger/record.mjs';
+if (process.env.TEST_WORKER_INDEX !== undefined) installRecorder();
 process.env.PORTAL_E2E_AUTH_DIRECTORY ||= fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-auth-'));
+// The existing workflow lists and runs this config with the same shard filter.
+const gameDataInCi = process.env.GITHUB_ACTIONS === 'true';
 export default defineConfig({
-  testDir: '.', testMatch: ['specs/**/*.@(spec|test).?(c|m)[jt]s?(x)', 'bazaar/legacy.spec.mjs', 'security/auth*.spec.mjs'], timeout: 120_000, expect: { timeout: 10_000 },
+  // Playwright serializes global metadata to both its workers and JSON reporter.
+  metadata: process.env.TEST_WORKER_INDEX === undefined ? { ledger: beginCapture() } : {},
+  testIgnore: gameDataInCi ? [] : ['**/game-data.spec.mjs'],
+  globalSetup: gameDataInCi ? fileURLToPath(new URL('./game-data.setup.mjs', import.meta.url)) : undefined,
+  testDir: '.',
+  testMatch: [
+    'specs/**/*.@(spec|test).?(c|m)[jt]s?(x)',
+    'bazaar/legacy.spec.mjs',
+    'security/auth*.spec.mjs',
+    'mutation/matrix.spec.mjs',
+  ],
+  timeout: 120_000, expect: { timeout: 10_000 },
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
-  use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true,
+  use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
     actionTimeout: 30_000, navigationTimeout: 30_000, browserName: 'chromium', launchOptions: { executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] },
     trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: ['pl', 'en'].flatMap(locale => [1440, 390].map(width => ({ name: `${locale}-${width}`, use: { locale, viewport: { width, height: 900 } }, metadata: { locale } }))),

@@ -26,3 +26,6 @@ available = Available
 
 main-character = Main character
 profile-preferences = Profile preferences
+
+roster-unproven = Some character ownership could not be confirmed. Those characters are hidden.
+roster-empty = Your character roster is empty.

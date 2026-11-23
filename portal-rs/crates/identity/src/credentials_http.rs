@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::State,
+    extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -96,15 +96,28 @@ pub fn router(service: Credentials) -> Router {
         .ok()
         .into_iter()
         .collect();
+    if let Ok(host) = std::env::var("OTERYN_ADMIN_HOST")
+        && let Ok(authority) = host.parse::<axum::http::uri::Authority>()
+    {
+        sessions
+            .csrf
+            .trusted_origins
+            .push(format!("https://{authority}"));
+    }
     let limiter = RateLimiter::new(service.pool.clone());
     let mut routes = Router::new();
     for prefix in ["", "/pl", "/en"] {
         routes = routes
             .route(
                 &format!("{prefix}/password/change"),
-                get(show_password).post(change).put(change),
+                oteryn_web::html::get(show_password)
+                    .post(change)
+                    .put(change),
             )
-            .route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo))
+            .route(
+                &format!("{prefix}/account/sudo"),
+                oteryn_web::html::get(show_sudo).post(sudo),
+            )
             .route(&format!("{prefix}/account/security"), get(security_landing));
     }
     let routes = routes
@@ -320,11 +333,26 @@ async fn change(
         Outcome::Unavailable => Err(StatusCode::SERVICE_UNAVAILABLE),
     }
 }
+#[derive(Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SudoDestination {
+    #[default]
+    Security,
+    Export,
+    Roles,
+}
+
+#[derive(serde::Deserialize)]
+struct SudoQuery {
+    #[serde(default)]
+    return_to: SudoDestination,
+}
+
 async fn sudo(
+    Query(destination): Query<SudoQuery>,
     Extension(lang): Extension<Language>,
     State(service): State<Credentials>,
-    Extension(session): Extension<BrowserSession>,
-    Extension(limiter): Extension<RateLimiter>,
+    (Extension(session), Extension(limiter)): (Extension<BrowserSession>, Extension<RateLimiter>),
     oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
     headers: HeaderMap,
     Form(input): Form<Input>,
@@ -359,7 +387,12 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(lang, &session, "account/sudo").await;
+        let path = match destination.return_to {
+            SudoDestination::Security => "account/sudo",
+            SudoDestination::Export => "account/sudo?return_to=export",
+            SudoDestination::Roles => "account/sudo?return_to=roles",
+        };
+        return refuse(lang, &session, path).await;
     }
     let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
     sqlx::query(
@@ -376,7 +409,12 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&format!("/{}/account/security", lang.code())))
+    let next = match destination.return_to {
+        SudoDestination::Security => format!("/{}/account/security", lang.code()),
+        SudoDestination::Export => format!("/{}/account/privacy/export", lang.code()),
+        SudoDestination::Roles => "/admin/roles".into(),
+    };
+    Ok(redirect(&next))
 }
 
 #[cfg(test)]

@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Path, Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
@@ -300,6 +300,7 @@ struct Page {
     version_text: String,
     reply_text: String,
     internal_text: String,
+    reason_text: String,
     unread_text: String,
     previous_text: String,
     next_text: String,
@@ -358,6 +359,7 @@ impl Page {
             version_text: tr("version"),
             reply_text: tr("reply"),
             internal_text: tr("internal"),
+            reason_text: tr("reason"),
             unread_text: tr("new-reply"),
             previous_text: tr("previous"),
             next_text: tr("next"),
@@ -478,7 +480,7 @@ async fn mark_read(
     State(t): State<Tickets>,
     Path((language, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
-    Form(form): Form<ReadForm>,
+    form: std::result::Result<Form<ReadForm>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if let Err(e) = lang(&language) {
         return e.into_response();
@@ -486,6 +488,9 @@ async fn mark_read(
     let (owner, _) = match account(&t, &session, None).await {
         Ok(v) => v,
         Err(e) => return e.into_response(),
+    };
+    let Ok(Form(form)) = form else {
+        return fail(Error::Invalid, &language);
     };
     match t
         .load_page(owner, false, id, form.after, Acknowledge::Reply(form.reply))
@@ -630,6 +635,7 @@ async fn create(
 #[derive(Deserialize)]
 struct Mutation {
     lock_version: i64,
+    reason: Option<String>,
     #[serde(default)]
     body: String,
     #[serde(default)]
@@ -679,13 +685,19 @@ async fn status(
     Extension(session): Extension<BrowserSession>,
     staff: Option<Extension<CheckContext>>,
     peer: Option<ClientSource>,
+    method: Method,
     form: std::result::Result<Form<Mutation>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     let form = match form {
         Ok(Form(form)) => form,
         Err(_) => return fail(Error::Invalid, &language),
     };
-    mutate(t, (language, id), session, staff, peer, form, false).await
+    let mut response = mutate(t, (language, id), session, staff, peer, form, false).await;
+    if method == Method::PUT && response.status() == StatusCode::FOUND {
+        // Browsers can preserve PUT across a 302. The ticket detail accepts GET.
+        *response.status_mut() = StatusCode::SEE_OTHER;
+    }
+    response
 }
 async fn mutate(
     t: Tickets,
@@ -717,6 +729,10 @@ async fn mutate(
     {
         return limiter_response(e, &language);
     }
+    let reason = form.reason.as_deref();
+    if staff.is_some() && !reason.is_some_and(|reason| valid_text(reason, 500)) {
+        return fail(Error::Invalid, &language);
+    }
     let change = if reply {
         Change::Reply {
             body: &form.body,
@@ -726,7 +742,7 @@ async fn mutate(
         Change::Status(&form.status)
     };
     match t
-        .change(account, staff, id, form.lock_version, change)
+        .change_direct(account, staff, (id, form.lock_version), change, reason)
         .await
     {
         Ok(_) => redirect(&language, staff.is_some(), id),
@@ -997,7 +1013,7 @@ mod route_tests {
                 retry_after,
                 |version| {
                     form(&reply, staff_origin, staff_host, &staff_cookie).body(Body::from(format!(
-                        "_csrf={staff_csrf}&lock_version={version}&body=Reply+{version}"
+                        "_csrf={staff_csrf}&lock_version={version}&body=Reply+{version}&reason=Staff+reply+review"
                     )))
                 },
             )
@@ -1016,7 +1032,7 @@ mod route_tests {
                     let version = ticket.lock_version + attempt - 1;
                     let next = if attempt % 2 == 1 { "closed" } else { "open" };
                     form(&status, staff_origin, staff_host, &staff_cookie).body(Body::from(
-                        format!("_csrf={staff_csrf}&lock_version={version}&status={next}"),
+                        format!("_csrf={staff_csrf}&lock_version={version}&status={next}&reason=Staff+status+review"),
                     ))
                 },
             )

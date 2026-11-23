@@ -12,12 +12,23 @@ struct EconomyCell {
     epoch: String,
     revision: String,
 }
+
+enum UnavailableReason {
+    GameEvidence,
+    GameReleaseDelay,
+    PlatformReleaseDelay,
+}
+
 #[derive(serde::Serialize)]
 struct Group {
+    #[serde(skip)]
+    label_key: &'static str,
     family: String,
     source: &'static str,
     columns: &'static str,
     state: &'static str,
+    #[serde(skip)]
+    unavailable_reason: Option<UnavailableReason>,
     epoch: String,
     revision: String,
     cut: String,
@@ -28,12 +39,45 @@ struct Group {
 #[template(path = "admin/analytics_economy.html", config = "src/web_askama.toml")]
 struct EconomyPage {
     lang: &'static str,
+    copy: Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>>,
     world: String,
     from: String,
     to: String,
     policy: String,
     groups: Vec<Group>,
 }
+impl EconomyPage {
+    fn text(&self, key: &str) -> String {
+        crate::web::translated(self.copy.as_ref(), key)
+    }
+
+    fn state(&self, state: &str) -> String {
+        self.text(&format!("economy-state-{state}"))
+    }
+
+    fn source(&self, group: &Group) -> String {
+        self.text(if group.source == "Platform" {
+            "economy-source-platform"
+        } else {
+            "economy-source-game"
+        })
+    }
+
+    fn unavailable_reason(&self, group: &Group) -> String {
+        let key = match group.unavailable_reason {
+            Some(UnavailableReason::GameEvidence) => "economy-unavailable",
+            Some(UnavailableReason::GameReleaseDelay) => "economy-game-delay",
+            Some(UnavailableReason::PlatformReleaseDelay) => "economy-purchased-delay",
+            None => return String::new(),
+        };
+        self.text(key)
+    }
+
+    fn group_label(&self, group: &Group, suffix: &str) -> String {
+        self.text(&format!("economy-{}-{suffix}", group.label_key))
+    }
+}
+
 pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     s: Arc<Context<I, A>>,
     request: Request,
@@ -71,25 +115,40 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     let expired = end
         .checked_add(400 * 86400)
         .is_none_or(|expiry| expiry <= now);
+    let released = end.checked_add(86400).is_some_and(|release| release <= now);
     let mut groups = Vec::new();
-    for (family, columns) in [
+    for (family, label_key, columns) in [
         (
             "economy_circulation_daily",
+            "circulation",
             "gold (end-of-day stock by location)",
         ),
-        ("economy_flows_daily", "gold_in / gold_out"),
-        ("economy_trades_daily", "trades / traded_gold"),
+        ("economy_flows_daily", "flows", "gold_in / gold_out"),
+        ("economy_trades_daily", "trades", "trades / traded_gold"),
         (
             "economy_market_daily",
+            "market",
             "traded_units / traded_gold / offers_created / median_unit_price",
         ),
-        ("economy_store_daily", "count / amount (currency units)"),
+        (
+            "economy_store_daily",
+            "store",
+            "count / amount (currency units)",
+        ),
     ] {
         let mut group = Group {
+            label_key,
             family: family.into(),
             source: "Game",
             columns,
             state: if expired { "expired" } else { "unavailable" },
+            unavailable_reason: if expired {
+                None
+            } else if released {
+                Some(UnavailableReason::GameEvidence)
+            } else {
+                Some(UnavailableReason::GameReleaseDelay)
+            },
             epoch: String::new(),
             revision: String::new(),
             cut: String::new(),
@@ -97,7 +156,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
             cells: Vec::new(),
         };
         if !expired
-            && end.checked_add(86400).is_some_and(|release| release <= now)
+            && released
             && let Some(world) = selection.world
         {
             let evidence = sqlx::query("SELECT b.epoch::text,b.revision::text,b.observed::text,w.observed::text AS watermark,b.generation FROM admin_analytics.subjects b JOIN admin_analytics.fence f ON f.authority=b.authority AND f.epoch=b.epoch AND f.active_generation=b.generation JOIN admin_analytics.generations g ON g.id=b.generation AND g.accepted_at IS NOT NULL AND g.epoch=f.epoch JOIN admin_analytics.watermarks w ON w.authority=b.authority AND w.family=b.family AND w.world=b.world AND w.epoch=f.epoch WHERE b.authority=$1 AND b.family=$2 AND b.world=$3 AND b.bucket_start=$4::text::numeric AND b.bucket_end=$5::text::numeric AND b.privacy=$6 AND f.privacy_floor=$6 AND w.privacy=$6 AND NOT w.conflict AND NOT b.conflict AND NOT b.erased AND w.observed >= $7::text::numeric-120 AND w.observed <= $7::text::numeric+2 AND w.cut <= w.observed AND w.cut >= b.observed AND w.cut >= g.baseline_cut AND b.bucket_end+86400 <= $7::text::numeric")
@@ -133,6 +192,7 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
                     return StatusCode::SERVICE_UNAVAILABLE.into_response();
                 }
                 group.state = "available";
+                group.unavailable_reason = None;
             }
         }
         groups.push(group);
@@ -142,8 +202,8 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
         .get::<PlatformAnalytics>()
         .is_some_and(|scope| scope.0)
     {
-        let released = end.checked_add(86400).is_some_and(|release| release <= now);
         let mut purchased = Group {
+            label_key: "purchased",
             family: "purchased — Platform wallet ledger (all worlds)".into(),
             source: "Platform",
             columns: "credited top-ups / coins; paid amounts in minor units by payment currency",
@@ -154,6 +214,8 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
             } else {
                 "unavailable"
             },
+            unavailable_reason: (!expired && !released)
+                .then_some(UnavailableReason::PlatformReleaseDelay),
             epoch: String::new(),
             revision: String::new(),
             cut: utc(&now.to_string()),
@@ -211,13 +273,10 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     if request.uri().path().ends_with("/data") {
         return axum::Json(json!({"state":if expired {"expired"} else if groups.iter().all(|g|g.state=="unavailable") {"unavailable"} else {"available"},"groups":groups})).into_response();
     }
-    let english = request
-        .headers()
-        .get(header::ACCEPT_LANGUAGE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("en"));
+    let lang = oteryn_web::Language::for_request(&request).code();
     let page = EconomyPage {
-        lang: if english { "en" } else { "pl" },
+        lang,
+        copy: crate::web::translations(lang),
         world: selection.world.map(|v| v.to_string()).unwrap_or_default(),
         from: input_time(start),
         to: input_time(end),
@@ -227,5 +286,53 @@ pub(super) async fn read<I: StaffSession, A: AccountStateReader>(
     match page.render() {
         Ok(html) => Html(html).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn economy_unavailable_copy_follows_the_page_locale() -> Result<(), askama::Error> {
+        for (lang, expected, other) in [
+            (
+                "pl",
+                "Wymagana jest zaakceptowana baza ponownej synchronizacji",
+                "accepted resync baseline",
+            ),
+            (
+                "en",
+                "accepted resync baseline",
+                "Wymagana jest zaakceptowana baza ponownej synchronizacji",
+            ),
+        ] {
+            let html = EconomyPage {
+                lang,
+                copy: crate::web::translations(lang),
+                world: String::new(),
+                from: String::new(),
+                to: String::new(),
+                policy: String::new(),
+                groups: vec![Group {
+                    label_key: "circulation",
+                    family: "economy_circulation_daily".into(),
+                    source: "Game",
+                    columns: "",
+                    state: "unavailable",
+                    unavailable_reason: Some(UnavailableReason::GameEvidence),
+                    epoch: String::new(),
+                    revision: String::new(),
+                    cut: String::new(),
+                    age: 0,
+                    cells: vec![],
+                }],
+            }
+            .render()?;
+            assert!(html.contains(expected), "{lang}");
+            assert!(!html.contains(other), "{lang}");
+            assert!(html.contains(r#"data-state="unavailable""#));
+        }
+        Ok(())
     }
 }

@@ -7,11 +7,47 @@
 <form method="get" action="/admin/players" class="op-stack"><div class="op-field"><label for="q">{{ query_label }}</label><input class="op-input" id="q" name="q" maxlength="254" value="{{ query }}" required></div><button class="op-button">{{ search }}</button></form>
 <ul>{% for row in accounts %}<li><a href="/admin/players/{{ row.id }}">{{ row.id }}</a></li>{% endfor %}</ul>
 {% if let Some(row) = account %}
+{% if let Some(label) = audit_label %}<a class="op-link" href="/admin/console/audit?lang={{ lang }}">{{ label }}</a>{% endif %}
 <section class="op-stack"><h2>{{ row.id }}</h2><dl><dt>{{ status }}</dt><dd>{{ row.status }}</dd><dt>{{ locale }}</dt><dd>{{ row.locale }}</dd><dt>{{ verified }}</dt><dd>{% if row.email_verified %}{{ yes }}{% else %}{{ no }}{% endif %}</dd></dl></section>
+{% if status_edit %}
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="account-status">{{ status }}</label><select class="op-input" id="account-status" name="body">
+<option value="active"{% if account_status == "active" %} selected{% endif %}>{{ active }}</option>
+<option value="suspended"{% if account_status == "suspended" %} selected{% endif %}>{{ suspended }}</option>
+</select></div>
+{% let reason_id = "status-reason" %}{% include "edit-reason.html" %}
+<button class="op-button" name="action" value="account-status">{{ save_status }}</button>
+</form>
+{% endif %}
+{% if email_edit %}
+{% if pending_email %}
+<p role="status">{{ email_pending_label }}</p>
+{% else %}
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="account-email">{{ email_label }}</label><input class="op-input" id="account-email" type="email" name="body" maxlength="254" required aria-describedby="email-help"></div>
+<p id="email-help">{{ email_help }}</p>
+{% let reason_id = "email-reason" %}{% include "edit-reason.html" %}
+<button class="op-button" name="action" value="account-email">{{ request_email }}</button>
+</form>
+{% endif %}
+{% endif %}
+{% if flag_edit %}
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<div class="op-field"><label for="review-flag">{{ review_flag }}</label><select class="op-input" id="review-flag" name="body">
+<option value="yes"{% if needs_review %} selected{% endif %}>{{ yes }}</option>
+<option value="no"{% if !needs_review %} selected{% endif %}>{{ no }}</option>
+</select></div>
+{% let reason_id = "flag-reason" %}{% include "edit-reason.html" %}
+<button class="op-button" name="action" value="review-flag">{{ save_flag }}</button>
+</form>
+{% endif %}
 <section><h2>{{ sessions_label }}</h2>{% if sessions_unavailable %}<p>{{ unavailable }}</p>{% endif %}<ul>{% for session in sessions %}<li>{{ session.kind }} · {{ session.expires_at }}</li>{% endfor %}</ul></section>
 <section><h2>{{ characters_label }}</h2>{% if characters_unavailable %}<p>{{ unavailable }}</p>{% endif %}<ul>{% for character in characters %}<li>{{ character.name }} · {{ character.id }} · {{ character.world }}</li>{% endfor %}</ul></section>
 <section class="op-stack"><h2>{{ notes_label }}</h2><ul>{% for note in notes %}<li>{{ note }}</li>{% endfor %}</ul>
-<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="note">{{ notes_label }}</label><textarea class="op-input" id="note" name="body" maxlength="4000" required></textarea></div><button class="op-button" name="action" value="note">{{ add_note }}</button></form></section>
+<form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="note">{{ notes_label }}</label><textarea class="op-input" id="note" name="body" maxlength="4000" required></textarea></div><input type="hidden" name="submission" value="{{ note_submission }}">{% let reason_id = "note-reason" %}{% include "edit-reason.html" %}<button class="op-button" name="action" value="note">{{ add_note }}</button></form></section>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="logout-reason">{{ reason }}</label><textarea class="op-input" id="logout-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="logout">{{ logout }}</button></form>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="kick-reason">{{ reason }}</label><textarea class="op-input" id="kick-reason" name="reason" maxlength="500" required></textarea></div><button class="op-button" name="action" value="kick">{{ kick }}</button></form>
 <form method="post" action="/admin/players/{{ row.id }}" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><label for="verification-ticket">{% if lang == "pl" %}Zweryfikowano tożsamość właściciela zgłoszenia konta{% else %}Identity verified for the account ticket owner{% endif %}</label><input class="op-input" id="verification-ticket" name="ticket" required><button class="op-button" name="action" value="verify-identity">{% if lang == "pl" %}Potwierdź weryfikację{% else %}Attest verification{% endif %}</button></form>

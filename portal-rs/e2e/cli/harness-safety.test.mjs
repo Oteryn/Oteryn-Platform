@@ -9,7 +9,9 @@ import { createInterface } from 'node:readline';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { executeFixtureDdl } from '../support/harness-database.mjs';
 import { localPostgresUrl } from '../postgres-url.mjs';
+import { spawnFixtureHarness, stopFixtureHarness } from '../support/fixture-harness.mjs';
 
 test('canonical PostgreSQL URLs fence the disposable database and endpoint', () => {
   const base = 'postgresql://fixture@127.0.0.1/oteryn_test';
@@ -28,37 +30,44 @@ test('canonical PostgreSQL URLs fence the disposable database and endpoint', () 
   }
 });
 
-test('the harness drops its database when the migration executable cannot start', async () => {
-  const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-early-failure-'));
-  const admin = new pg.Client({ connectionString: adminURL.href });
-  try {
-    await admin.connect();
-    const harness = fileURLToPath(new URL('../harness.mjs', import.meta.url));
-    const result = spawnSync(process.execPath, [harness], {
-      env: {
-        ...process.env,
-        PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href,
-        PORTAL_E2E_BINARY: path.join(directory, 'missing-binary'),
-        PORTAL_E2E_OUT: path.join(directory, 'run'),
-        PORTAL_E2E_KEEP_DATABASE: '0',
-      },
-      encoding: 'utf8',
-      timeout: 60_000,
-    });
-    assert.ok(!result.error, 'Harness terminates within the process deadline');
-    assert.equal(result.status, 1);
-    assert.ok(result.stdout === '', 'Failed migration does not report readiness');
-    assert.ok(result.stderr.includes('missing-binary migrate failed'), 'Harness reports the migration failure');
-    const database = result.stderr.match(/^\[harness\] database (portal_e2e_[a-f0-9]{12})$/m)?.[1];
-    assert.ok(database, 'Harness created a disposable database before migration');
-    const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
-    assert.deepEqual(rows, []);
-  } finally {
-    await admin.end();
-    fs.rmSync(directory, { recursive: true, force: true });
-  }
-});
+for (const keep of ['0', '1']) {
+  test(`failed migration ${keep === '1' ? 'keeps' : 'drops'} the confirmed database (keep=${keep})`, async () => {
+    const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-early-failure-'));
+    const admin = new pg.Client({ connectionString: adminURL.href });
+    let database;
+    try {
+      await admin.connect();
+      const harness = fileURLToPath(new URL('../harness.mjs', import.meta.url));
+      const result = spawnSync(process.execPath, [harness], {
+        env: {
+          ...process.env,
+          PORTAL_E2E_ADMIN_DATABASE_URL: adminURL.href,
+          PORTAL_E2E_BINARY: path.join(directory, 'missing-binary'),
+          PORTAL_E2E_OUT: path.join(directory, 'run'),
+          PORTAL_E2E_KEEP_DATABASE: keep,
+        },
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      assert.ok(!result.error, 'Harness terminates within the process deadline');
+      assert.equal(result.status, 1);
+      assert.ok(result.stdout === '', 'Failed migration does not report readiness');
+      assert.ok(result.stderr.includes('missing-binary migrate failed'), 'Harness reports the migration failure');
+      database = result.stderr.match(/^\[harness\] database (portal_e2e_[a-f0-9]{12})$/m)?.[1];
+      assert.ok(database, 'Harness created a disposable database before migration');
+      const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
+      assert.deepEqual(rows, keep === '1' ? [{ datname: database }] : []);
+    } finally {
+      try {
+        if (database) await executeFixtureDdl(admin.query.bind(admin), 'dropDatabaseIfExists', database);
+      } finally {
+        await admin.end();
+      }
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}
 
 test('SIGTERM cancels a stopped migration and drops the disposable database', { timeout: 900_000 }, async t => {
   const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
@@ -222,7 +231,7 @@ test('SIGTERM reconciles a committed CREATE whose response was lost', async () =
     (index, chunk) => {
       if (index !== 1 || database) return;
       const data = frontendTail + chunk.toString('latin1');
-      database = data.match(/CREATE DATABASE "(portal_e2e_[a-f0-9]{12})"/)?.[1];
+      database = data.match(/CREATE DATABASE (portal_e2e_[a-f0-9]{12})/)?.[1];
       frontendTail = data.slice(-80);
     },
     (index, chunk) => {
@@ -252,6 +261,124 @@ test('SIGTERM reconciles a committed CREATE whose response was lost', async () =
       }
     },
   );
+});
+
+test('cleanup retries a lost DROP reply and verifies the database is gone', { timeout: 900_000 }, async () => {
+  let dropping = false;
+  let firstDropConnection;
+  let retryConnection;
+  let dropCommitted = false;
+  const frontendTails = new Map();
+  let backendTail = '';
+  await withPostgresProxy(
+    (index, chunk) => {
+      if (!dropping || index === firstDropConnection) return;
+      const data = (frontendTails.get(index) ?? '') + chunk.toString('latin1');
+      if (/DROP DATABASE IF EXISTS portal_e2e_[a-f0-9]{12} WITH \(FORCE\)/.test(data)) {
+        if (firstDropConnection === undefined) firstDropConnection = index;
+        else retryConnection = index;
+        frontendTails.delete(index);
+      } else {
+        frontendTails.set(index, data.slice(-80));
+      }
+    },
+    (index, chunk) => {
+      if (index !== firstDropConnection) return false;
+      const data = backendTail + chunk.toString('latin1');
+      dropCommitted ||= data.includes('DROP DATABASE\0');
+      backendTail = data.slice(-32);
+      return true;
+    },
+    async (endpoint, adminURL) => {
+      const admin = new pg.Client({ connectionString: adminURL.href });
+      try {
+        await admin.connect();
+        await withHarness(endpoint, async (child, output) => {
+          const lines = createInterface({ input: child.stdout });
+          const exited = once(child, 'close');
+          let report;
+          try {
+            const [line] = await Promise.race([
+              once(lines, 'line', { signal: AbortSignal.timeout(120_000) }),
+              exited.then(() => { throw new Error('Harness exited before readiness'); }),
+            ]);
+            report = JSON.parse(line);
+          } finally {
+            lines.close();
+          }
+          assert.equal(report.status, 'ready');
+          const { database } = report;
+          assert.match(database, /^portal_e2e_[a-f0-9]{12}$/);
+          dropping = true;
+          assert.ok(child.kill('SIGTERM'));
+          const shutdown = once(child, 'close', { signal: AbortSignal.timeout(30_000) });
+          assert.deepEqual(await shutdown, [0, null]);
+          assert.ok(dropCommitted, 'PostgreSQL completed the first drop');
+          assert.ok(retryConnection > firstDropConnection, 'Cleanup retried on a fresh connection');
+          assert.ok(output().stderr.includes(`retrying disposable database cleanup ${database}`));
+          const { rows } = await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [database]);
+          assert.deepEqual(rows, []);
+        }, { PGSSLMODE: 'disable' });
+      } finally {
+        await admin.end();
+      }
+    },
+  );
+});
+
+test('fixture reaps services and drops the database when the harness is stopped', { timeout: 900_000 }, async () => {
+  const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-fixture-'));
+  const output = path.join(directory, 'run');
+  const admin = new pg.Client({ connectionString: adminURL.href });
+  const child = spawnFixtureHarness(output, adminURL.href, process.env);
+  const exited = once(child, 'close');
+  const lines = createInterface({ input: child.stdout });
+  const listeners = [];
+  child.stderr.resume();
+  try {
+    const [line] = await Promise.race([
+      once(lines, 'line', { signal: AbortSignal.timeout(120_000) }),
+      exited.then(() => { throw new Error('Harness exited before readiness'); }),
+    ]);
+    const report = JSON.parse(line);
+    assert.equal(report.status, 'ready');
+    assert.match(report.database, /^portal_e2e_[a-f0-9]{12}$/);
+    await admin.connect();
+    const databases = async () => (await admin.query('SELECT datname FROM pg_database WHERE datname=$1', [report.database])).rows;
+    assert.deepEqual(await databases(), [{ datname: report.database }]);
+
+    assert.ok(child.kill('SIGSTOP'));
+    const stopDeadline = AbortSignal.timeout(3_000);
+    for (;;) {
+      stopDeadline.throwIfAborted();
+      const status = await fs.promises.readFile(`/proc/${child.pid}/status`, 'utf8');
+      if (/^State:\s+T\b/m.test(status)) break;
+    }
+    await assert.rejects(
+      stopFixtureHarness(child, exited, output, adminURL.href, 100),
+      /harness shutdown timed out/,
+    );
+    assert.deepEqual(await exited, [null, 'SIGKILL']);
+    assert.deepEqual(await databases(), []);
+
+    for (const address of Object.values(report.baseUrls)) {
+      const listener = createServer();
+      listeners.push(listener);
+      listener.listen(Number(new URL(address).port), '127.0.0.1');
+      await once(listener, 'listening', { signal: AbortSignal.timeout(2_000) });
+    }
+  } finally {
+    lines.close();
+    if (child.exitCode === null && child.signalCode === null) {
+      await stopFixtureHarness(child, exited, output, adminURL.href, 100).catch(error => {
+        if (error.message !== 'harness shutdown timed out') throw error;
+      });
+    }
+    await Promise.all(listeners.map(listener => new Promise(resolve => listener.close(resolve))));
+    await admin.end();
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('a failing second world seed names the step and keeps input out of diagnostics', { timeout: 900_000 }, async () => {

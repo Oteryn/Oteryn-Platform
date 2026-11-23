@@ -16,6 +16,8 @@ OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- serve
 OTERYN_DATABASE_URL=postgres://... cargo run -p oteryn-portal -- bootstrap-intent issue --actor <staff-uuidv7> --input request.json  # operator issuer, audited, see the producer contract
 ```
 
+Daily puzzle operators use the [publication CLI and JSON format](crates/minigames/src/puzzles/README.md#publish-a-utc-day).
+
 ## Native login protocol 3 and recovery (contract §19, testing only)
 
 Gateway login contract §19 (N4P-4) runs only behind these default-off flags. Protocol 3 needs `OTERYN_ENV` `testing` or `preprod`; recovery handles also need `OTERYN_ENV=testing` (owner decision U21). Production stays refused.
@@ -82,3 +84,14 @@ plaintext production mode. `TRUSTED_PROXIES` is a comma-separated list of exact 
 addresses, validated once per process; absent/empty trusts no forwarding headers.
 Every browser limiter and abuse adapter uses this policy. Invalid entries refuse
 startup. Proxies must append/overwrite `X-Forwarded-For` correctly.
+
+## Staff invitations
+
+Role managers can open Staff invitations from the Roles page or the Access
+console. The inviter must currently hold each selected role. The public link
+uses `OTERYN_PUBLIC_ORIGIN`. Sending uses the existing registration SMTP settings
+and `OTERYN_RESET_DELIVERY_KEY` to encrypt the queued token. The recipient uses
+the matching verified email account and reopens the link after signing in and
+completing MFA. Each issuer sees and revokes their own pending invitations. Privileged invitations
+wait for a second role manager who currently holds the selected roles. To request
+approval, share the approval link from the pending invitations page.

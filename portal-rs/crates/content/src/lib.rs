@@ -48,3 +48,7 @@ pub(crate) async fn revalidate(
 
 #[cfg(test)]
 mod last_wait_tests;
+
+fn staff_language(headers: &axum::http::HeaderMap) -> &'static str {
+    oteryn_ui::preferred_language(headers)
+}

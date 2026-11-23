@@ -145,7 +145,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                     "lock_version=1&action=sanction&status=active&target={owner}&category=warning&public_reason=Existing+sanction&moderator_notes=&effective_at=1794000000&expires_at=1894000000"
                 )
             } else {
-                "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes="
+                "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes=Escalated+for+review"
                     .into()
             };
             let a = concurrent_app.clone();
@@ -169,7 +169,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                 "support/tickets",
                 ticket,
                 &format!(
-                    "lock_version={ticket_version}&action=reply&body=Concurrent+reply&internal=true"
+                    "lock_version={ticket_version}&action=reply&reason=Reviewed+ticket&body=Concurrent+reply&internal=true"
                 ),
             )
             .await
@@ -198,6 +198,34 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
                 .execute(&pool)
                 .await?;
         }
+        // A duplicate create must wait on the existing resource before it
+        // acquires the global role-writer fence.
+        let mut resource = concurrent_pool.begin().await?;
+        sqlx::query("SELECT id FROM sanctions WHERE id=$1 FOR UPDATE")
+            .bind(sanction)
+            .execute(&mut *resource)
+            .await?;
+        let a = concurrent_app.clone();
+        let h = host.clone();
+        let c = cookie.clone();
+        let token = csrf.clone();
+        let duplicate = tokio::spawn(async move {
+            let form = format!(
+                "lock_version=1&action=apply_sanction&target={owner}&category=warning&public_reason=Duplicate&moderator_notes=&duration_hours=1"
+            );
+            staff_post(a, &h, &c, &token, "moderation/enforcement", sanction, &form).await
+        });
+        wait_staff_locks(&concurrent_pool, &schema, 1).await?;
+        assert!(
+            sqlx::query_scalar::<_, bool>("SELECT pg_try_advisory_xact_lock(71010)")
+                .fetch_one(&mut *resource)
+                .await?
+        );
+        resource.commit().await?;
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(5), duplicate).await???,
+            StatusCode::CONFLICT
+        );
         concurrent_pool.close().await;
     }
     if scenario == Some("messages") {
@@ -275,7 +303,8 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=1&action=reply&body=Staff+reply&internal=false".into()
+            "lock_version=1&action=reply&reason=Reviewed+ticket&body=Staff+reply&internal=false"
+                .into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -291,7 +320,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=1&action=ticket_status&status=closed".into()
+            "lock_version=1&action=ticket_status&reason=Reviewed+ticket&status=closed".into()
         )
         .await?,
         StatusCode::CONFLICT
@@ -305,7 +334,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=2&action=reply&body=Private+internal+note&internal=true".into()
+            "lock_version=2&action=reply&reason=Reviewed+ticket&body=Private+internal+note&internal=true".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -321,11 +350,37 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "support/tickets",
             ticket,
-            "lock_version=3&action=ticket_status&status=resolved".into()
+            "lock_version=3&action=ticket_status&reason=Reviewed+ticket&status=resolved".into()
         )
         .await?,
         StatusCode::SEE_OTHER
     );
+    let report_snapshot = || {
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(r) FROM player_reports r WHERE id=$1",
+        )
+        .bind(report)
+        .fetch_one(&pool)
+    };
+    let audit_count = || {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE target=$1")
+            .bind(report.to_string())
+            .fetch_one(&pool)
+    };
+    let before_report = report_snapshot().await?;
+    let before_audit = audit_count().await?;
+    assert_eq!(
+        post(
+            "moderation/reports",
+            report,
+            "lock_version=1&action=moderate&status=reviewing&public_outcome=&moderator_notes="
+                .into(),
+        )
+        .await?,
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(report_snapshot().await?, before_report);
+    assert_eq!(audit_count().await?, before_audit);
     assert_eq!(post("moderation/reports",report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=Private".into()).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         sqlx::query_scalar::<_, String>(
@@ -341,7 +396,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/enforcement",
             sanction,
-            "lock_version=2&action=appeal&appeal_status=reviewing&appeal_outcome=".into()
+            "lock_version=2&action=appeal&reason=Reviewed+appeal&appeal_status=reviewing&appeal_outcome=".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -355,7 +410,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/enforcement",
             sanction,
-            "lock_version=4&action=appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
+            "lock_version=4&action=appeal&reason=Reviewed+appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
         )
         .await?,
         StatusCode::SERVICE_UNAVAILABLE
@@ -389,7 +444,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/enforcement",
             sanction,
-            "lock_version=4&action=appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
+            "lock_version=4&action=appeal&reason=Reviewed+appeal&appeal_status=accepted&appeal_outcome=Accepted".into()
         )
         .await?,
         StatusCode::SEE_OTHER
@@ -410,8 +465,70 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?,
         "accepted"
     );
+    let (prior, decided): (String, String) = sqlx::query_as(
+        "SELECT before->>'appeal_status', after->>'appeal_status' FROM audit_log
+         WHERE action='support.enforcement_appeal_updated' AND target=$1
+           AND after->>'appeal_status'='accepted'",
+    )
+    .bind(sanction.to_string())
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(
+        (prior.as_str(), decided.as_str()),
+        ("reviewing", "accepted")
+    );
+    let start: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&pool)
+            .await?;
+    let create_legacy = |effective_at, expires_at| {
+        format!(
+            "lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Original+public+reason&moderator_notes=Original+private+notes&effective_at={effective_at}&expires_at={expires_at}"
+        )
+    };
+    if scenario == Some("expiry") {
+        let oversized = Uuid::now_v7();
+        assert_eq!(
+            post(
+                "moderation/enforcement",
+                oversized,
+                create_legacy(start, start + 8760 * 3600 + 1)
+            )
+            .await?,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            post(
+                "moderation/enforcement",
+                oversized,
+                create_legacy(start, start + 3599)
+            )
+            .await?,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            post(
+                "moderation/enforcement",
+                oversized,
+                create_legacy(start - 7200, start - 3600)
+            )
+            .await?,
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sanctions WHERE id=$1")
+                .bind(oversized)
+                .fetch_one(&pool)
+                .await?,
+            0
+        );
+    }
     let created = Uuid::now_v7();
-    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&create=true&status=active&target={owner}&category=warning&public_reason=Created&moderator_notes=&effective_at=1794000000&expires_at=1894000000")).await?,StatusCode::SEE_OTHER);
+    let end = start + 8760 * 3600;
+    assert_eq!(
+        post("moderation/enforcement", created, create_legacy(start, end)).await?,
+        StatusCode::SEE_OTHER
+    );
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sanctions WHERE id=$1")
             .bind(created)
@@ -448,7 +565,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         post(
             "moderation/reports",
             report,
-            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes="
+            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes=Moderation+complete"
                 .into()
         )
         .await?,
@@ -468,12 +585,47 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .bind(owner)
         .execute(&pool)
         .await?;
-    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Revoked&moderator_notes=&effective_at=1794000000&expires_at=1894000000")).await?,StatusCode::SEE_OTHER);
+    assert_eq!(post("moderation/enforcement",created,format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Updated+public+reason&moderator_notes=Updated+private+notes&effective_at={start}&expires_at={end}")).await?,StatusCode::SEE_OTHER);
+    let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+        "SELECT before,after FROM audit_log WHERE target=$1 AND action='support.enforcement_updated'",
+    )
+    .bind(created.to_string())
+    .fetch_one(&pool)
+    .await?;
+    let digest = |text: &str| {
+        use sha2::{Digest, Sha256};
+        format!("{:x}", Sha256::digest(text.as_bytes()))
+    };
+    assert_eq!(
+        before["public_reason_sha256"],
+        digest("Original public reason")
+    );
+    assert_eq!(
+        before["moderator_notes_sha256"],
+        digest("Original private notes")
+    );
+    assert_eq!(
+        after["public_reason_sha256"],
+        digest("Updated public reason")
+    );
+    assert_eq!(
+        after["moderator_notes_sha256"],
+        digest("Updated private notes")
+    );
+    let audit = format!("{before}{after}");
+    for text in [
+        "Original public reason",
+        "Original private notes",
+        "Updated public reason",
+        "Updated private notes",
+    ] {
+        assert!(!audit.contains(text));
+    }
     assert_eq!(
         post(
             "moderation/reports",
             report,
-            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes="
+            "lock_version=2&action=moderate&status=closed&public_outcome=Closed&moderator_notes=Moderation+complete"
                 .into()
         )
         .await?,
@@ -482,7 +634,7 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
     let pending = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,$2,'synthetic-hash','pending_verification','en')").bind(pending).bind(format!("{pending}@example.invalid")).execute(&pool).await?;
     let pending_report:Uuid=sqlx::query_scalar("INSERT INTO player_reports(reporter_account_id,request_key,report_type,category,target_reference) VALUES($1,$2,'player','conduct','Pending reporter') RETURNING id").bind(pending).bind(Uuid::now_v7()).fetch_one(&pool).await?;
-    assert_eq!(post("moderation/reports",pending_report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=".into()).await?,StatusCode::SEE_OTHER);
+    assert_eq!(post("moderation/reports",pending_report,"lock_version=1&action=moderate&status=rejected&public_outcome=Reviewed&moderator_notes=Reviewed+evidence".into()).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         sqlx::query_scalar::<_, i64>("SELECT count(*) FROM notifications WHERE account_id=$1")
             .bind(pending)
@@ -555,6 +707,54 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .fetch_one(&pool)
         .await?
     );
+    let lapsed = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO sanctions(id,account_id,category,status,public_reason,effective_at,expires_at,created_by)
+         VALUES ($1,$2,'warning','active','Lapsed sanction',now()-interval '2 hours',now()-interval '1 hour',$3)",
+    )
+    .bind(lapsed)
+    .bind(owner)
+    .bind(staff)
+    .execute(&pool)
+    .await?;
+    let response = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/admin/moderation/enforcement/{lapsed}"))
+                .header("host", &host)
+                .header("accept-language", "en")
+                .header("cookie", &cookie)
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(response.into_body(), 100000).await?.to_vec())?;
+    assert!(html.contains("<p>Expired</p>"));
+    assert!(!html.contains("value=\"revoke_sanction\""));
+    assert_eq!(
+        post(
+            "moderation/enforcement",
+            lapsed,
+            "lock_version=1&action=revoke_sanction&public_reason=Reviewed".into(),
+        )
+        .await?,
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        post(
+            "moderation/enforcement",
+            lapsed,
+            format!("lock_version=1&action=sanction&status=revoked&target={owner}&category=warning&public_reason=Reviewed&moderator_notes=&effective_at={start}&expires_at={end}"),
+        )
+        .await?,
+        StatusCode::CONFLICT
+    );
+    let row: (String, i64) =
+        sqlx::query_as("SELECT status,lock_version FROM sanctions WHERE id=$1")
+            .bind(lapsed)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(row, ("active".into(), 1));
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)

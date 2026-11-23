@@ -22,6 +22,7 @@ pub enum Permission {
     ManageSupportContent,
     ManageSupportTickets,
     ManageSupportReports,
+    ReviewSupportReports,
     ManageSupportEnforcement,
     ManageMarketplace,
     ManagePremiumTime,
@@ -37,6 +38,7 @@ pub enum Permission {
     ManageWikiArticles,
     ManageWikiCategories,
     PublishWiki,
+    ReadPlayerdataBindingAlerts,
     GameOpsRead,
     GameOpsWrite,
     GameOpsLogsRead,
@@ -61,6 +63,7 @@ pub enum Permission {
     GameEconomyModerate,
     GameSanctionRead,
     GameSanctionWrite,
+    GameSanctionEnforce,
     GameSanctionBan,
     GameStaffAdmin,
     GameAnalyticsRead,
@@ -73,9 +76,14 @@ pub enum Permission {
     KickAccountSessions,
     /// Release one account's coin purchase hold; settles nothing.
     ReleaseCoinPurchaseHold,
+    PublishDailyPuzzles,
     ImportStoreCatalog,
     ActivateStoreCatalog,
     GenerateStoreCodes,
+    GrantRoles,
+    EditAccountEmail,
+    EditAccountStatus,
+    EditAccountFlags,
 }
 
 impl Permission {
@@ -108,6 +116,7 @@ impl Permission {
         Self::ManageSupportContent,
         Self::ManageSupportTickets,
         Self::ManageSupportReports,
+        Self::ReviewSupportReports,
         Self::ManageSupportEnforcement,
         Self::ManageMarketplace,
         Self::ManagePremiumTime,
@@ -123,6 +132,7 @@ impl Permission {
         Self::ManageWikiArticles,
         Self::ManageWikiCategories,
         Self::PublishWiki,
+        Self::ReadPlayerdataBindingAlerts,
         Self::GameOpsRead,
         Self::GameOpsWrite,
         Self::GameOpsLogsRead,
@@ -147,6 +157,7 @@ impl Permission {
         Self::GameEconomyModerate,
         Self::GameSanctionRead,
         Self::GameSanctionWrite,
+        Self::GameSanctionEnforce,
         Self::GameSanctionBan,
         Self::GameStaffAdmin,
         Self::GameAnalyticsRead,
@@ -157,9 +168,14 @@ impl Permission {
         Self::GameAuditRead,
         Self::KickAccountSessions,
         Self::ReleaseCoinPurchaseHold,
+        Self::PublishDailyPuzzles,
         Self::ImportStoreCatalog,
         Self::ActivateStoreCatalog,
         Self::GenerateStoreCodes,
+        Self::GrantRoles,
+        Self::EditAccountEmail,
+        Self::EditAccountStatus,
+        Self::EditAccountFlags,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -181,6 +197,7 @@ impl Permission {
             Self::ManageSupportContent => "support.content.manage",
             Self::ManageSupportTickets => "support.tickets.manage",
             Self::ManageSupportReports => "support.reports.manage",
+            Self::ReviewSupportReports => "support.reports.review",
             Self::ManageSupportEnforcement => "support.enforcement.manage",
             Self::ManageMarketplace => "marketplace.manage",
             Self::ManagePremiumTime => "products.premium.manage",
@@ -196,6 +213,7 @@ impl Permission {
             Self::ManageWikiArticles => "wiki.articles.manage",
             Self::ManageWikiCategories => "wiki.categories.manage",
             Self::PublishWiki => "wiki.publish",
+            Self::ReadPlayerdataBindingAlerts => "ops.playerdata_binding_conflict.read",
             Self::GameOpsRead => "game.ops.read",
             Self::GameOpsWrite => "game.ops.write",
             Self::GameOpsLogsRead => "game.ops.logs.read",
@@ -220,6 +238,7 @@ impl Permission {
             Self::GameEconomyModerate => "game.economy.moderate",
             Self::GameSanctionRead => "game.sanction.read",
             Self::GameSanctionWrite => "game.sanction.write",
+            Self::GameSanctionEnforce => "game.sanction.enforce",
             Self::GameSanctionBan => "game.sanction.ban",
             Self::GameStaffAdmin => "game.staff.admin",
             Self::GameAnalyticsRead => "game.analytics.read",
@@ -229,9 +248,14 @@ impl Permission {
             Self::GameAnalyticsExport => "game.analytics.export",
             Self::GameAuditRead => "game.audit.read",
             Self::KickAccountSessions => "account.security.kick",
+            Self::PublishDailyPuzzles => "puzzles.publish",
             Self::ImportStoreCatalog => "store.catalog.import",
             Self::ActivateStoreCatalog => "store.catalog.activate",
             Self::GenerateStoreCodes => "store.codes.generate",
+            Self::GrantRoles => "admin.roles.grant",
+            Self::EditAccountEmail => "account.email.edit",
+            Self::EditAccountStatus => "account.status.edit",
+            Self::EditAccountFlags => "account.flags.edit",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }
@@ -345,14 +369,20 @@ impl BuiltInRole {
                 Permission::PublishWiki,
                 Permission::KickAccountSessions,
                 Permission::ReleaseCoinPurchaseHold,
+                Permission::PublishDailyPuzzles,
                 Permission::ImportStoreCatalog,
                 Permission::ActivateStoreCatalog,
                 Permission::GenerateStoreCodes,
+                Permission::GrantRoles,
+                Permission::EditAccountEmail,
+                Permission::EditAccountStatus,
+                Permission::EditAccountFlags,
             ],
             Self::SecurityAdmin => &[
                 Permission::Access,
                 Permission::ManageRoles,
                 Permission::ViewAudit,
+                Permission::GrantRoles,
             ],
             Self::ContentEditor => &[
                 Permission::ManageNews,
@@ -376,6 +406,7 @@ impl BuiltInRole {
             ],
             Self::Moderator => &[
                 Permission::Access,
+                Permission::ReviewSupportReports,
                 Permission::ManageSupportEnforcement,
                 Permission::ManageMarketplace,
                 Permission::KickAccountSessions,
@@ -434,6 +465,7 @@ impl BuiltInRole {
                 Permission::GamePlayerRead,
                 Permission::GamePlayerModerate,
                 Permission::GameSanctionWrite,
+                Permission::GameSanctionEnforce,
                 Permission::GamePlayerManage,
                 Permission::GamePlayerValueWrite,
                 Permission::GameSanctionBan,
@@ -459,6 +491,7 @@ impl BuiltInRole {
             ],
             Self::GameAdmin => &[
                 Permission::Access,
+                Permission::ReadPlayerdataBindingAlerts,
                 Permission::GameOpsRead,
                 Permission::GameOpsLogsRead,
                 Permission::GameWorldRead,
@@ -503,6 +536,79 @@ impl BuiltInRole {
                 Permission::GameSanctionRead,
             ],
             Self::GameRelease => &[Permission::Access, Permission::GameNodeDeploy],
+        }
+    }
+}
+
+/// Platform and Game panel sections reuse the permissions enforced by their routes.
+pub const ADMIN_PANEL_SECTIONS: &[(&str, &str, Permission, Option<&str>)] = &[
+    ("/admin", "panel-admin", Permission::Access, None),
+    (
+        "/admin/roles?lang={lang}",
+        "panel-roles",
+        Permission::ManageRoles,
+        None,
+    ),
+    (
+        "/admin/players",
+        "panel-accounts",
+        Permission::ManageSupportTickets,
+        Some("OTERYN_ADMIN_PLAYERS"),
+    ),
+    (
+        "/admin/{lang}/bazaar",
+        "panel-bazaar",
+        Permission::ManageMarketplace,
+        Some("OTERYN_BAZAAR_MODERATION"),
+    ),
+];
+
+pub const GM_PANEL_SECTIONS: &[(&str, &str, Permission)] = &[
+    (
+        "/console/dashboard?lang={lang}",
+        "panel-game-overview",
+        Permission::GameOpsRead,
+    ),
+    (
+        "/console/worlds?lang={lang}",
+        "panel-worlds",
+        Permission::GameWorldRead,
+    ),
+    (
+        "/console/nodes?lang={lang}",
+        "panel-nodes",
+        Permission::GameNodeRead,
+    ),
+    (
+        "/console/database?lang={lang}",
+        "panel-database",
+        Permission::GameDbRead,
+    ),
+];
+
+#[cfg(test)]
+mod panel_permissions {
+    use super::*;
+
+    #[test]
+    fn panel_sections_and_grant_round_trip_through_the_catalog() {
+        for permission in ADMIN_PANEL_SECTIONS
+            .iter()
+            .map(|entry| entry.2)
+            .chain(GM_PANEL_SECTIONS.iter().map(|entry| entry.2))
+            .chain([Permission::GrantRoles])
+        {
+            assert_eq!(
+                permission.as_str().parse::<Permission>().ok(),
+                Some(permission)
+            );
+        }
+        assert_ne!(Permission::GrantRoles, Permission::ManageRoles);
+        for role in BuiltInRole::ALL {
+            assert_eq!(
+                role.permissions().contains(&Permission::GrantRoles),
+                role.permissions().contains(&Permission::ManageRoles)
+            );
         }
     }
 }

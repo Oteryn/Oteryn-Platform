@@ -227,17 +227,8 @@ pub async fn banner(
         ]
         .iter()
         .any(|p| path.starts_with(p));
-    let lang = if path.starts_with("/en/")
-        || request
-            .uri()
-            .query()
-            .is_some_and(|q| q.split('&').any(|p| p == "lang=en"))
-    {
-        "en"
-    } else {
-        "pl"
-    };
-    let mut response = next.run(request).await;
+    let lang = oteryn_web::document_language(request.uri(), request.headers()).code();
+    let response = next.run(request).await;
     if !eligible
         || response.headers().contains_key(header::CONTENT_ENCODING)
         || !response.status().is_success()
@@ -256,18 +247,23 @@ pub async fn banner(
     let Ok(mut html) = String::from_utf8(bytes.to_vec()) else {
         return axum::response::Response::from_parts(parts, Body::from(bytes));
     };
+    // The homepage mast overlaps the hero. Its ticker belongs below the hero.
+    const HOME_TICKER_SLOT: &str = "<!-- portal-announcement-ticker -->";
+    let placement = html
+        .find(HOME_TICKER_SLOT)
+        .map(|start| start..start + HOME_TICKER_SLOT.len())
+        .or_else(|| html.find("<main").map(|start| start..start));
     // Fragments and non-page responses are left intact.
-    if let Some(position) = html.find("<main") {
+    if let Some(placement) = placement {
         let ticker = crate::today::render_ticker(&pool, lang, OffsetDateTime::now_utc()).await;
-        html.insert_str(position, &ticker);
+        html.replace_range(placement, &ticker);
         parts.headers.remove(header::CONTENT_LENGTH);
         parts.headers.insert(
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store, max-age=0"),
         );
     }
-    response = axum::response::Response::from_parts(parts, Body::from(html));
-    response
+    axum::response::Response::from_parts(parts, Body::from(html))
 }
 
 #[path = "announcements_staff.rs"]

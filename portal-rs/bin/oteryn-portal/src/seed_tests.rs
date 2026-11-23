@@ -83,6 +83,60 @@ impl Database {
     }
 }
 
+#[tokio::test]
+async fn query_catalog_seed_serializes_and_publishes_visibility_atomically() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(QUERY_CATALOG_FIXTURE);
+    let seed = || seed_query_catalog_fixture(&db.pool, &root);
+    let refuse_beta =
+        "ALTER TABLE world_visibility ADD CONSTRAINT refuse_beta CHECK (key <> 'fixture.beta')";
+    let remove_refusal = "ALTER TABLE world_visibility DROP CONSTRAINT refuse_beta";
+    sqlx::query(refuse_beta).execute(&db.pool).await?;
+    assert!(seed().await.is_err());
+    for sql in [
+        "SELECT count(*) FROM world_active_version WHERE version_id IS NOT NULL OR previous_version_id IS NOT NULL",
+        "SELECT count(*) FROM world_versions",
+        "SELECT count(*) FROM world_entities",
+        "SELECT count(*) FROM world_visibility",
+    ] {
+        assert_eq!(db.count(sql).await?, 0, "{sql}");
+    }
+    sqlx::query(remove_refusal).execute(&db.pool).await?;
+
+    let (first, second) = tokio::join!(seed(), seed());
+    let version = first?;
+    assert_eq!(version, second?);
+    assert_eq!(db.count("SELECT count(*) FROM world_versions").await?, 1);
+    let visible = "SELECT count(*) FROM world_visibility WHERE kind = 'Item'
+                   AND key IN ('fixture.alpha', 'fixture.beta') AND allowed";
+    assert_eq!(db.count(visible).await?, 2);
+    let grant_timestamps = "SELECT updated_at::text FROM world_visibility ORDER BY kind, key";
+    let before: Vec<String> = sqlx::query_scalar(grant_timestamps)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(seed().await?, version);
+    let after: Vec<String> = sqlx::query_scalar(grant_timestamps)
+        .fetch_all(&db.pool)
+        .await?;
+    assert_eq!(after, before);
+
+    sqlx::query("DELETE FROM world_visibility")
+        .execute(&db.pool)
+        .await?;
+    sqlx::query(refuse_beta).execute(&db.pool).await?;
+    assert!(seed().await.is_err());
+    assert_eq!(db.count(visible).await?, 0);
+
+    sqlx::query(remove_refusal).execute(&db.pool).await?;
+    assert_eq!(seed().await?, version);
+    assert_eq!(db.count(visible).await?, 2);
+    db.close().await
+}
+
 fn is_bad(result: Result<Value, SeedError>) -> bool {
     matches!(result, Err(SeedError::BadInput(_)))
 }
@@ -481,10 +535,48 @@ async fn account_mfa_enrols_once_and_the_secret_logs_in() -> TestResult {
 }
 
 #[tokio::test]
+async fn account_mfa_confirms_when_the_first_code_aged_out() -> TestResult {
+    use totp_rs::{Algorithm, Secret, TOTP};
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let id = Uuid::parse_str(&account(&db, "mfa-rollover@example.invalid").await?)?;
+    let mfa = db.settings().mfa.unwrap();
+    let enrollment = mfa.enroll(id, PASSWORD).await?.unwrap();
+    let secret = Secret::Encoded(enrollment.secret).to_bytes()?;
+    let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)?;
+    let current = unix_seconds()? / totp.step;
+    let live_codes = [current - 1, current, current + 1, current + 2]
+        .map(|step| totp.generate(step * totp.step));
+    let stale_step = (current - 8..current)
+        .rev()
+        .find(|step| !live_codes.contains(&totp.generate((step - 1) * totp.step)))
+        .expect("an older step has a distinct confirmation code");
+
+    let codes = confirm_seed_mfa(&mfa, id, PASSWORD, &totp, stale_step * totp.step).await?;
+    assert_eq!(codes.len(), 8);
+    assert!(mfa.enrolled(id).await?);
+    assert_eq!(
+        db.count("SELECT count(*) FROM audit_log WHERE action='mfa.refused'")
+            .await?,
+        1
+    );
+    db.close().await
+}
+
+#[tokio::test]
 async fn every_seed_action_refuses_outside_testing() -> TestResult {
-    let args = [
-        "account-mfa".to_owned(),
-        r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
+    let cases = [
+        [
+            "account-mfa".to_owned(),
+            r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
+        ],
+        [
+            "character-service-order".to_owned(),
+            json!({"accountId": Uuid::now_v7(), "characterId": Uuid::now_v7(),
+                "requestId": Uuid::now_v7(), "action": "schedule"})
+            .to_string(),
+        ],
     ];
     for environment in [
         None,
@@ -493,12 +585,14 @@ async fn every_seed_action_refuses_outside_testing() -> TestResult {
         Some("preprod"),
         Some("Testing"),
     ] {
-        assert_eq!(
-            run_in(environment, &args).await,
-            Err(SeedError::Unavailable(
-                "seed runs only with OTERYN_ENV=testing"
-            ))
-        );
+        for args in &cases {
+            assert_eq!(
+                run_in(environment, args).await,
+                Err(SeedError::Unavailable(
+                    "seed runs only with OTERYN_ENV=testing"
+                ))
+            );
+        }
     }
     Ok(())
 }

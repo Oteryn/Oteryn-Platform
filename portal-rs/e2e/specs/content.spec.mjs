@@ -72,12 +72,14 @@ test('wiki editorial article: draft, preview, review, publish, history and unpub
  expect((await page.request.get(`/${info.project.metadata.locale}/wiki/articles/${key}`)).status()).toBe(404);
 });
 
-test('media: upload, retrieve normalized content and thumbnail, then delete',async({page})=>{
+test('media: upload, retrieve normalized content and thumbnail, then delete',async({page}, info)=>{
  const alt=`Local browser image ${crypto.randomUUID()}`;
- expect((await page.goto('/admin/media')).status()).toBe(200);
+ const localeQuery=`?lang=${info.project.metadata.locale}`;
+ const upload=`main form[action="/admin/media${localeQuery}"]`;
+ expect((await page.goto(`/admin/media${localeQuery}`)).status()).toBe(200);
  await assertShell(page);
- await page.locator('main form[action="/admin/media"] input[type=file]').setInputFiles({name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')});
- await submit(page,'main form[action="/admin/media"]',{alt_text:alt});
+ await page.locator(`${upload} input[type=file]`).setInputFiles({name:'local.png',mimeType:'image/png',buffer:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAABQAAAAUCAYAAACNiR0NAAAAHklEQVR4nGNQzrP5T03MMGrgqIGjBo4aOGrgSDUQANpkzt/P0xIDAAAAAElFTkSuQmCC','base64')});
+ await submit(page,upload,{alt_text:alt});
  const image=page.getByRole('img',{name:alt,exact:true});await expect(image).toBeVisible();
  const thumbnail=await image.getAttribute('src');
  const content=thumbnail.replace(/\/thumbnail$/,'/content');
@@ -87,7 +89,7 @@ test('media: upload, retrieve normalized content and thumbnail, then delete',asy
    expect((await response.body()).length).toBeGreaterThan(0);
  }
  await assertShell(page);
- await submit(page,`main form[action="${thumbnail.replace(/\/thumbnail$/,'/delete')}"]`);
+ await submit(page,`main form[action="${thumbnail.replace(/\/thumbnail$/,'/delete')}${localeQuery}"]`);
  await expect(page.getByRole('img',{name:alt,exact:true})).toHaveCount(0);
  expect((await page.request.get(content)).status()).toBe(404);
 });

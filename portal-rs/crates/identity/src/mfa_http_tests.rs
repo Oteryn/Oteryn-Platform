@@ -1,6 +1,6 @@
-#[path = "mfa_test_db.rs"]
-mod database;
 use super::*;
+use crate::identity_test_db as database;
+use axum::routing::get;
 use tower::ServiceExt;
 #[tokio::test]
 async fn postgres_mfa_browser_csrf_limiter_and_login_challenge()
@@ -41,7 +41,7 @@ async fn browser_flow(
         .ok_or("confirm")?;
     let mut layer = SessionLayer::new(db.pool.clone());
     layer.csrf.trusted_origins = vec!["https://portal.example.test".into()];
-    let app = compose(Router::new(), db.pool.clone(), mfa.clone(), layer);
+    let app = compose(Router::new(), db.pool.clone(), mfa.clone(), layer, false);
     let response = app
         .clone()
         .oneshot(
@@ -266,18 +266,34 @@ async fn browser_flow(
             .fetch_one(&db.pool)
             .await?;
     let device = mfa.devices(id).await?.pop().ok_or("remembered device")?;
-    let response = app
-        .clone()
-        .oneshot(
-            axum::http::Request::post("/en/mfa/devices")
-                .header(header::COOKIE, authenticated_cookie)
-                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
-                .body(axum::body::Body::from(format!(
-                    "_csrf={authenticated_csrf}&device={device}"
-                )))?,
-        )
+    let remove_request = || -> Result<_, Box<dyn std::error::Error>> {
+        Ok(axum::http::Request::post("/en/mfa/devices")
+            .header(header::COOKIE, authenticated_cookie)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+            .body(axum::body::Body::from(format!(
+                "_csrf={authenticated_csrf}&device={device}"
+            )))?)
+    };
+    sqlx::raw_sql(
+        "CREATE FUNCTION refuse_browser_reissue() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN RAISE EXCEPTION 'test refusal of browser reissue'; END $$;
+         CREATE TRIGGER refuse_browser_reissue BEFORE UPDATE OF id_hash ON web_sessions
+         FOR EACH ROW WHEN (OLD.id_hash IS DISTINCT FROM NEW.id_hash)
+         EXECUTE FUNCTION refuse_browser_reissue();",
+    )
+    .execute(&db.pool)
+    .await?;
+    let failed = app.clone().oneshot(remove_request()?).await?;
+    assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        mfa.devices(id).await?.as_slice(),
+        std::slice::from_ref(&device)
+    );
+    sqlx::query("DROP TRIGGER refuse_browser_reissue ON web_sessions")
+        .execute(&db.pool)
         .await?;
+    let response = app.clone().oneshot(remove_request()?).await?;
     assert_eq!(response.status(), StatusCode::OK);
     assert!(mfa.devices(id).await?.is_empty());
     let settings = String::from_utf8(
@@ -311,6 +327,7 @@ async fn postgres_mfa_limits_and_missing_transport() -> Result<(), Box<dyn std::
         return Ok(());
     };
     let context = Context {
+        native_enabled: false,
         mfa: Mfa::new(db.pool.clone(), [7; 32]),
         limiter: RateLimiter::new(db.pool.clone()),
     };
@@ -381,6 +398,7 @@ async fn mfa_composition_preserves_unrelated_response_policy()
         pool.clone(),
         Mfa::new(pool.clone(), [7; 32]),
         SessionLayer::new(pool),
+        false,
     );
     let response = app
         .oneshot(
@@ -413,6 +431,7 @@ async fn postgres_password_browser_rotation_releases_account_lock()
         db.pool.clone(),
         Mfa::new(db.pool.clone(), [7; 32]),
         SessionLayer::new(db.pool.clone()),
+        false,
     );
     let response = app
         .clone()
@@ -504,6 +523,7 @@ async fn postgres_mfa_http_refusal_records_only_the_session_account()
         db.pool.clone(),
         Mfa::new(db.pool.clone(), [7; 32]),
         SessionLayer::new(db.pool.clone()),
+        false,
     );
     let post = || {
         axum::http::Request::post("/en/mfa/devices")
@@ -559,7 +579,7 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
             .env("OTERYN_ACCOUNT_MFA", "true")
             .env("OTERYN_ACCOUNT_LOGIN", "true")
             .env("OTERYN_ADMIN_PANEL", "true")
-            .env("OTERYN_ADMIN_HOST", "admin.example.test")
+            .env("OTERYN_ADMIN_HOST", "admin.example.test:443")
             .env("OTERYN_PUBLIC_ORIGIN", "https://portal.example.test")
             .env("OTERYN_MFA_KEY", "07".repeat(32))
             .status()?;
@@ -569,7 +589,7 @@ async fn r9_admin_origin_login_reaches_challenge() -> Result<(), Box<dyn std::er
     let db = database::Database::open()
         .await?
         .ok_or("PostgreSQL required")?;
-    let app = oteryn_web::register::configured(configured(Router::new(), db.pool.clone())?);
+    let app = oteryn_web::register::configured(configured(Router::new(), db.pool.clone(), None)?);
     let mfa = Mfa::new(db.pool.clone(), [7; 32]);
     let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('browser@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
     let enrollment = mfa.enroll(id, "test password").await?.ok_or("enrollment")?;
@@ -660,6 +680,7 @@ async fn authenticated_challenge_routes_redirect_home() -> Result<(), Box<dyn st
         db.pool.clone(),
         Mfa::new(db.pool.clone(), [7; 32]),
         SessionLayer::new(db.pool.clone()),
+        false,
     );
     for (method, path) in [
         ("GET", "challenge"),
@@ -681,6 +702,338 @@ async fn authenticated_challenge_routes_redirect_home() -> Result<(), Box<dyn st
         assert_eq!(response.status(), StatusCode::FOUND);
         assert_eq!(response.headers()[header::LOCATION], "/en/");
     }
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn panel_mfa_management_checks_live_owner_and_proof() -> Result<(), Box<dyn std::error::Error>>
+{
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let password = "panel test password";
+    let account: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('panel-mfa@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(oteryn_identity::password::hash(password)?).fetch_one(&db.pool).await?;
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let original = mfa.enroll(account, password).await?.ok_or("enrollment")?;
+    let factor = |secret| -> Result<totp_rs::TOTP, Box<dyn std::error::Error>> {
+        let bytes = totp_rs::Secret::Encoded(secret).to_bytes()?;
+        Ok(totp_rs::TOTP::new(
+            totp_rs::Algorithm::SHA1,
+            6,
+            1,
+            30,
+            bytes,
+        )?)
+    };
+    let original = factor(original.secret)?;
+    let timestamp = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|time| time.as_secs())
+    };
+    mfa.confirm(account, password, &original.generate(timestamp()?))
+        .await?
+        .ok_or("confirmation")?;
+    let app = compose(
+        Router::new(),
+        db.pool.clone(),
+        mfa.clone(),
+        SessionLayer::new(db.pool.clone()),
+        false,
+    );
+    let pool = &db.pool;
+    let create_session = |account: uuid::Uuid, cookie: String, csrf: String| async move {
+        sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES(sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+            .bind(cookie.into_bytes()).bind(account).bind(csrf).execute(pool).await
+    };
+    let send =
+        |path: &'static str, cookie: String, csrf: String, fields: Vec<(&'static str, String)>| {
+            let app = app.clone();
+            async move {
+                let mut fields = fields;
+                fields.push(("_csrf", csrf));
+                let body = serde_urlencoded::to_string(fields)?;
+                let request = axum::http::Request::post(path)
+                    .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .extension(ConnectInfo("127.0.0.1:4322".parse::<SocketAddr>()?))
+                    .body(axum::body::Body::from(body))?;
+                Ok::<_, Box<dyn std::error::Error>>(app.oneshot(request).await?)
+            }
+        };
+    let manage = "/en/mfa/manage";
+    let confirm = "/en/mfa/replace/confirm";
+    let cookie = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    create_session(account, cookie.clone(), csrf.clone()).await?;
+    let proof = |pass: &str, code: String| vec![("password", pass.to_owned()), ("code", code)];
+    let action = |name: &str, pass: &str, code: String| {
+        let mut fields = proof(pass, code);
+        fields.push(("action", name.to_owned()));
+        fields
+    };
+    assert_eq!(
+        send(
+            manage,
+            cookie.clone(),
+            "x".repeat(64),
+            action("replace", password, original.generate(timestamp()? + 30))
+        )
+        .await?
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            manage,
+            cookie.clone(),
+            csrf.clone(),
+            action("replace", password, "bad".into())
+        )
+        .await?
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    let refusal = send(
+        manage,
+        cookie.clone(),
+        csrf.clone(),
+        action("replace", "wrong", original.generate(timestamp()? + 30)),
+    )
+    .await?;
+    assert_eq!(refusal.status(), StatusCode::FORBIDDEN);
+    let body = axum::body::to_bytes(refusal.into_body(), 32768).await?;
+    let html = std::str::from_utf8(&body)?;
+    assert!(html.contains("role=\"alert\""));
+    assert!(html.contains("href=\"/en/mfa\">Back to security settings"));
+    let response = send(
+        manage,
+        cookie.clone(),
+        csrf.clone(),
+        action("replace", password, original.generate(timestamp()? + 30)),
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 32768)
+            .await?
+            .to_vec(),
+    )?;
+    let replacement = factor(
+        body.split("class=\"op-prose\">")
+            .nth(1)
+            .and_then(|tail| tail.split('<').next())
+            .ok_or("new authenticator")?
+            .into(),
+    )?;
+    assert_eq!(mfa.remaining_codes(account).await?, 8);
+    assert_eq!(
+        send(
+            confirm,
+            cookie.clone(),
+            csrf.clone(),
+            proof(password, "bad".into())
+        )
+        .await?
+        .status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        send(
+            confirm,
+            cookie.clone(),
+            csrf.clone(),
+            proof("wrong", replacement.generate(timestamp()?))
+        )
+        .await?
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send(
+            confirm,
+            cookie.clone(),
+            csrf.clone(),
+            proof(password, replacement.generate(timestamp()?))
+        )
+        .await?
+        .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(
+            manage,
+            cookie,
+            csrf,
+            action(
+                "rotate_codes",
+                password,
+                replacement.generate(timestamp()? + 30)
+            )
+        )
+        .await?
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+
+    sqlx::raw_sql(
+        "CREATE SEQUENCE rotation_delete_attempts;
+         CREATE FUNCTION forbid_second_session_delete() RETURNS trigger LANGUAGE plpgsql AS $$
+         BEGIN
+             IF nextval('rotation_delete_attempts') > 1 THEN
+                 RAISE EXCEPTION 'session deletion already committed';
+             END IF;
+             RETURN NULL;
+         END $$;
+         CREATE TRIGGER forbid_second_session_delete BEFORE DELETE ON web_sessions
+           FOR EACH STATEMENT EXECUTE FUNCTION forbid_second_session_delete();",
+    )
+    .execute(&db.pool)
+    .await?;
+    let cookie = "c".repeat(64);
+    let csrf = "d".repeat(64);
+    create_session(account, cookie.clone(), csrf.clone()).await?;
+    let response = send(
+        manage,
+        cookie,
+        csrf,
+        action(
+            "rotate_codes",
+            password,
+            replacement.generate(timestamp()? + 30),
+        ),
+    )
+    .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        response.headers()[header::SET_COOKIE]
+            .to_str()?
+            .contains("Max-Age=0")
+    );
+    let html = axum::body::to_bytes(response.into_body(), 32768).await?;
+    assert_eq!(std::str::from_utf8(&html)?.matches("<textarea ").count(), 8);
+    let attempts: i64 = sqlx::query_scalar("SELECT last_value FROM rotation_delete_attempts")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(attempts, 1);
+    assert_eq!(mfa.remaining_codes(account).await?, 8);
+    sqlx::query("DROP TRIGGER forbid_second_session_delete ON web_sessions")
+        .execute(&db.pool)
+        .await?;
+    // Removal needs a new post-confirmation step of its own. Use a separate
+    // enrolled owner so rotation and removal never compete for one clock window.
+    let removal_account: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('panel-mfa-remove@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(oteryn_identity::password::hash(password)?).fetch_one(&db.pool).await?;
+    let enrollment = mfa
+        .enroll(removal_account, password)
+        .await?
+        .ok_or("removal enrollment")?;
+    let removal_factor = factor(enrollment.secret)?;
+    mfa.confirm(
+        removal_account,
+        password,
+        &removal_factor.generate(timestamp()?),
+    )
+    .await?
+    .ok_or("removal confirmation")?;
+    let cookie = "e".repeat(64);
+    let csrf = "f".repeat(64);
+    create_session(removal_account, cookie.clone(), csrf.clone()).await?;
+    assert_eq!(
+        send(
+            manage,
+            cookie,
+            csrf,
+            action(
+                "remove",
+                password,
+                removal_factor.generate(timestamp()? + 30)
+            )
+        )
+        .await?
+        .status(),
+        StatusCode::FOUND
+    );
+    assert!(!mfa.enrolled(removal_account).await?);
+    assert_eq!(mfa.remaining_codes(removal_account).await?, 0);
+    db.close().await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn panel_native_revoke_checks_recent_session_and_family_ownership()
+-> Result<(), Box<dyn std::error::Error>> {
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let accounts: Vec<uuid::Uuid> = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('native-owner@example.test','unused','active','en',now()),('native-other@example.test','unused','active','en',now()) RETURNING id").fetch_all(&db.pool).await?;
+    let cookie = "a".repeat(64);
+    let csrf = "b".repeat(64);
+    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,csrf_token,user_agent_summary,idle_expires_at,absolute_expires_at) VALUES(sha256($1::bytea),$2,$3,'test',now()+interval '1 hour',now()+interval '1 day')")
+        .bind(cookie.as_bytes()).bind(accounts[0]).bind(&csrf).execute(&db.pool).await?;
+    let families = [uuid::Uuid::now_v7(), uuid::Uuid::now_v7()];
+    for (account, family) in accounts.iter().zip(families) {
+        sqlx::query("INSERT INTO device_sessions(id,account_id,client_id,enrollment_token_id,game_generation,native_generation,absolute_expires_at,idle_expires_at) VALUES($1,$2,uuidv7(),$3,0,1,extract(epoch FROM now())::bigint+3600,extract(epoch FROM now())::bigint+1800)")
+            .bind(family).bind(account).bind(family.to_string()).execute(&db.pool).await?;
+    }
+    let app = compose(
+        Router::new(),
+        db.pool.clone(),
+        Mfa::new(db.pool.clone(), [7; 32]),
+        SessionLayer::new(db.pool.clone()),
+        true,
+    );
+    let send = |family: String, token: &str| {
+        let app = app.clone();
+        let cookie = cookie.clone();
+        let token = token.to_owned();
+        async move {
+            let request = axum::http::Request::post("/en/mfa/native-devices")
+                .header(header::COOKIE, format!("{}={cookie}", session::COOKIE_NAME))
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .extension(ConnectInfo("127.0.0.1:4323".parse::<SocketAddr>()?))
+                .body(axum::body::Body::from(format!(
+                    "_csrf={token}&family={family}"
+                )))?;
+            Ok::<_, Box<dyn std::error::Error>>(app.oneshot(request).await?)
+        }
+    };
+    assert_eq!(
+        send(families[0].to_string(), &csrf).await?.status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query(
+        "UPDATE web_sessions SET sudo_until=now()+interval '5 minutes' WHERE account_id=$1",
+    )
+    .bind(accounts[0])
+    .execute(&db.pool)
+    .await?;
+    assert_eq!(
+        send(families[0].to_string(), "bad").await?.status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        send("malformed".into(), &csrf).await?.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert_eq!(
+        send(families[1].to_string(), &csrf).await?.status(),
+        StatusCode::FORBIDDEN
+    );
+    let response = send(families[0].to_string(), &csrf).await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert!(response.headers().contains_key(header::SET_COOKIE));
+    let revoked: Vec<uuid::Uuid> =
+        sqlx::query_scalar("SELECT id FROM device_sessions WHERE revoked_at IS NOT NULL")
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(revoked, [families[0]]);
+    assert_eq!(
+        send(families[0].to_string(), &csrf).await?.status(),
+        StatusCode::FORBIDDEN
+    );
     db.close().await?;
     Ok(())
 }
