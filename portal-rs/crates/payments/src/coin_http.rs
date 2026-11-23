@@ -424,12 +424,7 @@ async fn act(
     let paid = match decision.action.as_str() {
         "pay" => true,
         "fail" => false,
-        _ => {
-            return match chrome {
-                Some(Extension(chrome)) => oteryn_ui::error(&chrome, StatusCode::BAD_REQUEST),
-                None => invalid_checkout_action(&headers),
-            };
-        }
+        _ => return invalid_checkout_action(chrome, &headers),
     };
     match service.sandbox_complete(account, order, paid).await {
         Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),
@@ -437,7 +432,15 @@ async fn act(
     }
 }
 
-fn invalid_checkout_action(headers: &HeaderMap) -> Response {
+fn invalid_checkout_action(chrome: Option<Extension<Chrome>>, headers: &HeaderMap) -> Response {
+    if let Some(Extension(chrome)) = chrome {
+        let language = if chrome.lang == "pl" { "pl" } else { "en" };
+        return (
+            [(header::CONTENT_LANGUAGE, language)],
+            oteryn_ui::error(&chrome, StatusCode::BAD_REQUEST),
+        )
+            .into_response();
+    }
     let language = if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|value| value.to_str().ok())
@@ -508,11 +511,22 @@ mod tests {
         ] {
             let mut headers = HeaderMap::new();
             headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static(lang));
-            let response = invalid_checkout_action(&headers);
+            let response = invalid_checkout_action(None, &headers);
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);
             assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
             let body = to_bytes(response.into_body(), 256).await?;
             assert_eq!(&body[..], message.as_bytes());
+
+            let chrome = oteryn_ui::Registry::default().chrome(
+                lang,
+                CHECKOUT_PATH,
+                oteryn_ui::Account::Anonymous,
+            );
+            let response = invalid_checkout_action(Some(Extension(chrome)), &headers);
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = to_bytes(response.into_body(), 128 * 1024).await?;
+            assert!(String::from_utf8_lossy(&body).contains(message));
         }
         Ok(())
     }
