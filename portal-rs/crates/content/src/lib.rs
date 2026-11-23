@@ -8,6 +8,8 @@ pub mod announcements;
 pub mod media;
 pub mod today;
 
+mod revisions;
+
 /// Shared portal navigation registration.
 pub mod navigation;
 

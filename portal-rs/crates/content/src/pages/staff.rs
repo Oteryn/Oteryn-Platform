@@ -1,5 +1,6 @@
 use super::*;
-use axum::{Extension, Form, response::Redirect};
+use crate::revisions::{self, Target};
+use axum::{Extension, Form, extract::Query, http::HeaderMap, response::Redirect, routing::post};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{
@@ -42,6 +43,14 @@ fn admin_routes(pool: PgPool) -> Router {
     Router::new()
         .route("/admin/pages", get(index))
         .route("/admin/pages/{slug}/{locale}", get(edit).post(save))
+        .route(
+            "/admin/pages/{slug}/{locale}/revisions",
+            get(history).layer(axum::middleware::from_fn(revisions::private)),
+        )
+        .route(
+            "/admin/pages/{slug}/{locale}/revisions/{source}/restore",
+            post(restore),
+        )
         .with_state(pool)
 }
 #[derive(Template)]
@@ -55,6 +64,8 @@ struct Editor {
     form: PageForm,
     labels: Vec<String>,
     legal: bool,
+    history: String,
+    history_label: String,
 }
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(super) struct PageForm {
@@ -175,6 +186,7 @@ async fn edit(
     State(pool): State<PgPool>,
     Path((slug, locale)): Path<(String, String)>,
     Extension(session): Extension<BrowserSession>,
+    headers: HeaderMap,
 ) -> Response {
     if !valid_slug(&slug) || !matches!(locale.as_str(), "pl" | "en") {
         return StatusCode::BAD_REQUEST.into_response();
@@ -214,7 +226,18 @@ async fn edit(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let history = if !legal(&slug) && !form.expected_revision.is_empty() {
+        Target::Page {
+            slug: &slug,
+            locale: &locale,
+        }
+        .history_path()
+    } else {
+        String::new()
+    };
     oteryn_web::render(&Editor {
+        history,
+        history_label: revisions::history_label(revisions::language(&headers)),
         title: text(&locale, "pages"),
         labels: [
             "title",
@@ -243,17 +266,58 @@ async fn save(
     Extension(auth): Extension<MutationAuthorization>,
     Form(form): Form<PageForm>,
 ) -> Response {
-    match save_page(&pool, &auth, context, &slug, &locale, form, SaveMode::Staff).await {
+    match save_page(&pool, &auth, context, &slug, &locale, Change::Staff(form)).await {
         Ok(()) => Redirect::to("/admin/pages").into_response(),
-        Err(SaveError::InvalidForm) => StatusCode::BAD_REQUEST.into_response(),
-        Err(SaveError::Authorization(Error::Denied)) => StatusCode::FORBIDDEN.into_response(),
-        Err(
-            SaveError::MissingSource
-            | SaveError::ImmutableVersion
-            | SaveError::Authorization(Error::InvalidInput),
-        ) => StatusCode::CONFLICT.into_response(),
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        Err(error) => error.status().into_response(),
     }
+}
+
+async fn history(
+    State(pool): State<PgPool>,
+    Extension(session): Extension<BrowserSession>,
+    Path((slug, locale)): Path<(String, String)>,
+    Query(query): Query<revisions::Query>,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    let target = revision_target(&slug, &locale).map_err(revisions::Error::status)?;
+    revisions::history(
+        &pool,
+        target,
+        revisions::language(&headers),
+        query,
+        &session,
+    )
+    .await
+}
+
+async fn restore(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
+    Path((slug, locale, source)): Path<(String, String, i64)>,
+    Form(form): Form<revisions::Restore<String>>,
+) -> Result<Redirect, StatusCode> {
+    save_page(
+        &pool,
+        &auth,
+        context,
+        &slug,
+        &locale,
+        Change::Restore { source, form },
+    )
+    .await
+    .map_err(SaveError::status)?;
+    Ok(Redirect::to(&format!("/admin/pages/{slug}/{locale}")))
+}
+
+fn revision_target<'a>(slug: &'a str, locale: &'a str) -> Result<Target<'a>, revisions::Error> {
+    if !valid_slug(slug) || !matches!(locale, "en" | "pl") {
+        return Err(revisions::Error::Invalid);
+    }
+    if legal(slug) {
+        return Err(revisions::Error::Missing);
+    }
+    Ok(Target::Page { slug, locale })
 }
 
 #[derive(Debug)]
@@ -275,7 +339,23 @@ pub enum SaveError {
     #[error("use a new version to change an immutable legal edition")]
     ImmutableVersion,
     #[error(transparent)]
+    Revision(#[from] revisions::Error),
+    #[error(transparent)]
     Authorization(#[from] Error),
+}
+
+impl SaveError {
+    fn status(self) -> StatusCode {
+        match self {
+            Self::InvalidForm => StatusCode::BAD_REQUEST,
+            Self::Authorization(Error::Denied) => StatusCode::FORBIDDEN,
+            Self::MissingSource
+            | Self::ImmutableVersion
+            | Self::Authorization(Error::InvalidInput) => StatusCode::CONFLICT,
+            Self::Revision(error) => error.status(),
+            Self::Authorization(_) => StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
 }
 
 impl From<sqlx::Error> for SaveError {
@@ -340,8 +420,7 @@ pub async fn publish_legal_edition(
         context,
         &edition.slug,
         &edition.locale,
-        form,
-        SaveMode::Operator,
+        Change::Operator(form),
     )
     .await
 }
@@ -361,8 +440,7 @@ pub(super) async fn persist(
         context,
         slug,
         locale,
-        form.clone(),
-        SaveMode::Staff,
+        Change::Staff(form.clone()),
     )
     .await
     .map_err(|error| match error {
@@ -371,9 +449,13 @@ pub(super) async fn persist(
     })
 }
 
-enum SaveMode {
-    Staff,
-    Operator,
+enum Change {
+    Staff(PageForm),
+    Operator(PageForm),
+    Restore {
+        source: i64,
+        form: revisions::Restore<String>,
+    },
 }
 
 async fn save_page(
@@ -382,13 +464,9 @@ async fn save_page(
     context: CheckContext,
     slug: &str,
     locale: &str,
-    mut form: PageForm,
-    mode: SaveMode,
+    change: Change,
 ) -> Result<(), SaveError> {
-    let publish_now = matches!(mode, SaveMode::Operator);
-    if !valid(&form, slug, locale, publish_now) {
-        return Err(SaveError::InvalidForm);
-    }
+    let publish_now = matches!(change, Change::Operator(_));
     let mut tx = pool.begin().await?;
     let resource_slug = slug.to_owned();
     oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -408,6 +486,30 @@ async fn save_page(
         &[Permission::Access, Permission::ManagePages],
     )
     .await?;
+    let (mut form, restored_from) = match change {
+        Change::Staff(form) | Change::Operator(form) => (form, None),
+        Change::Restore { source, form } => {
+            let target = revision_target(slug, locale)?;
+            if form.expected_revision.is_empty() {
+                return Err(Error::InvalidInput.into());
+            }
+            let snapshot = target.snapshot(&mut tx, source).await?;
+            (
+                PageForm {
+                    expected_revision: form.expected_revision,
+                    reviewed_source_revision: form.reviewed_source_revision,
+                    title: revisions::value(&snapshot, "title"),
+                    body: revisions::value(&snapshot, "body"),
+                    action: "save".into(),
+                    ..PageForm::default()
+                },
+                Some(source),
+            )
+        }
+    };
+    if !valid(&form, slug, locale, publish_now) {
+        return Err(SaveError::InvalidForm);
+    }
     if publish_now {
         let published_at: time::OffsetDateTime = sqlx::query_scalar("SELECT now()")
             .fetch_one(&mut *tx)
@@ -489,6 +591,15 @@ async fn save_page(
         sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond')")
             .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await?;
     }
+    if form.action == "save" && !legal(slug) {
+        Target::Page { slug, locale }
+            .append(&mut tx, context.account, restored_from)
+            .await?;
+    }
+    let mut after = json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date,"final_approved":final_approved});
+    if let Some(source) = restored_from {
+        after["restored_from"] = json!(source);
+    }
     audit::append(
         &mut tx,
         Entry {
@@ -498,12 +609,14 @@ async fn save_page(
             },
             action: if form.action == "delete" {
                 "cms.page.deleted"
+            } else if restored_from.is_some() {
+                "cms.page.restored"
             } else {
                 "cms.page.saved"
             },
             target: slug,
             before: before.unwrap_or(json!(null)),
-            after: json!({"locale":locale,"title":form.title,"body":form.body,"action":form.action,"published_at":form.published_at,"legal_version":form.legal_version,"legal_effective_date":form.legal_effective_date,"final_approved":final_approved}),
+            after,
         },
     )
     .await?;

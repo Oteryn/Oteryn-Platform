@@ -1,0 +1,16 @@
+.cms-revision-list {
+  list-style: none;
+  padding-inline-start: 0;
+}
+
+.cms-revision-diff {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+  gap: var(--op-space-4);
+}
+
+.cms-revision-diff pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 0;
+}

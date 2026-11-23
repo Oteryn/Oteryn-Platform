@@ -1,4 +1,5 @@
 //! Explicitly published, time bounded editorial announcements.
+use crate::revisions::{self, Edit, Target};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{AccountStateReader, Authorizer, CheckContext, Permission},
@@ -15,6 +16,8 @@ pub enum Error {
     Invalid,
     #[error("announcement version conflict")]
     Conflict,
+    #[error(transparent)]
+    Revision(#[from] revisions::Error),
     #[error(transparent)]
     Authorization(#[from] oteryn_admin::rbac::Error),
     #[error(transparent)]
@@ -49,7 +52,31 @@ pub fn safe_action(s: &str) -> bool {
                 && !matches!(b, b'\\' | b'<' | b'>' | b'"' | b'\'' | b'%' | b'?' | b'#')
         })
 }
+fn parse_stamp(value: &str) -> Result<OffsetDateTime, Error> {
+    OffsetDateTime::parse(value, &time::format_description::well_known::Rfc3339)
+        .map_err(|_| Error::Invalid)
+}
+
 impl Input {
+    fn draft_from(snapshot: &serde_json::Value) -> Result<Self, Error> {
+        let value = |field| revisions::value(snapshot, field);
+        let optional = |field| snapshot[field].as_str().map(str::to_owned);
+        Ok(Self {
+            publication_state: "draft".into(),
+            severity: value("severity"),
+            starts_at: parse_stamp(&value("starts_at"))?,
+            ends_at: snapshot["ends_at"].as_str().map(parse_stamp).transpose()?,
+            title: value("title"),
+            body: value("body"),
+            action_label: optional("action_label"),
+            action_url: optional("action_url"),
+            title_pl: optional("title_pl"),
+            body_pl: optional("body_pl"),
+            action_label_pl: optional("action_label_pl"),
+            translation_published_at: None,
+        })
+    }
+
     pub fn validate(&self) -> Result<(), Error> {
         let action = match (&self.action_label, &self.action_url) {
             (None, None) => true,
@@ -118,13 +145,29 @@ impl Announcements {
         existing: Option<(Uuid, i64)>,
         input: Input,
     ) -> Result<Uuid, Error> {
+        self.save_change(
+            auth,
+            context,
+            existing.map(|(id, _)| id),
+            Edit::Save((input, existing.map_or(0, |(_, version)| version))),
+        )
+        .await
+    }
+
+    async fn save_change<A: AccountStateReader>(
+        &self,
+        auth: &Authorizer<A>,
+        context: CheckContext,
+        existing: Option<Uuid>,
+        change: Edit<(Input, i64), i64>,
+    ) -> Result<Uuid, Error> {
         let mut tx = self.pool.begin().await?;
         oteryn_admin::rbac::authorize_mutation_with_resources(
             &mut tx,
             &[context.account],
             move |connection| {
                 Box::pin(async move {
-                    if let Some((id, _)) = existing {
+                    if let Some(id) = existing {
                         sqlx::query("SELECT id FROM announcements WHERE id=$1 FOR UPDATE")
                             .bind(id)
                             .execute(connection)
@@ -141,9 +184,21 @@ impl Announcements {
         auth.check_in(&mut tx, context, Permission::Access).await?;
         auth.check_in(&mut tx, context, Permission::ManagePortalAnnouncements)
             .await?;
+        let id = existing.unwrap_or_else(Uuid::now_v7);
+        let target = Target::Announcement(id);
+        let (input, version, restored_from) = match change {
+            Edit::Save((input, version)) => (input, version, None),
+            Edit::Restore { source, form } => {
+                let snapshot = target.snapshot(&mut tx, source).await?;
+                (
+                    Input::draft_from(&snapshot)?,
+                    form.expected_revision,
+                    Some(source),
+                )
+            }
+        };
         input.validate()?;
-        let id = existing.map_or_else(Uuid::now_v7, |v| v.0);
-        let (before, same_publication, previous_source) = if let Some((_, version)) = existing {
+        let (before, same_publication, previous_source) = if existing.is_some() {
             type StoredVersion = (i64, String, bool, Option<OffsetDateTime>);
             let current: Option<StoredVersion> = sqlx::query_as(
                 "SELECT lock_version,publication_state,translation_published_at IS NOT DISTINCT FROM $2::timestamptz,translation_source_updated_at FROM announcements WHERE id=$1 FOR UPDATE",
@@ -176,6 +231,13 @@ impl Announcements {
         });
         sqlx::query("INSERT INTO announcements (id,publication_state,severity,starts_at,ends_at,title,body,action_label,action_url,title_pl,body_pl,action_label_pl,translation_published_at,translation_source_updated_at,created_by,updated_by,updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$16,$15,$15,$14) ON CONFLICT (id) DO UPDATE SET publication_state=$2,severity=$3,starts_at=$4,ends_at=$5,title=$6,body=$7,action_label=$8,action_url=$9,title_pl=$10,body_pl=$11,action_label_pl=$12,translation_published_at=$13,translation_source_updated_at=$16,updated_by=$15,updated_at=CASE WHEN (announcements.title,announcements.body,announcements.action_label,announcements.action_url) IS DISTINCT FROM ($6,$7,$8,$9) THEN $14 ELSE announcements.updated_at END,lock_version=announcements.lock_version+1")
             .bind(id).bind(&input.publication_state).bind(&input.severity).bind(input.starts_at).bind(input.ends_at).bind(&input.title).bind(&input.body).bind(&input.action_label).bind(&input.action_url).bind(&input.title_pl).bind(&input.body_pl).bind(&input.action_label_pl).bind(input.translation_published_at).bind(now).bind(context.account).bind(source).execute(&mut *tx).await?;
+        target
+            .append(&mut tx, context.account, restored_from)
+            .await?;
+        let mut after = json!({"state":input.publication_state});
+        if let Some(source) = restored_from {
+            after["restored_from"] = json!(source);
+        }
         audit::append(
             &mut tx,
             Entry {
@@ -183,10 +245,14 @@ impl Announcements {
                     actor: Some(context.account),
                     request_id: Uuid::now_v7(),
                 },
-                action: "portal.announcement_saved",
+                action: if restored_from.is_some() {
+                    "portal.announcement_restored"
+                } else {
+                    "portal.announcement_saved"
+                },
                 target: &id.to_string(),
                 before,
-                after: json!({"state":input.publication_state}),
+                after,
             },
         )
         .await?;
