@@ -6,6 +6,7 @@ import { role, seededStaff, query } from '../staff-rbac-helpers.mjs';
 const copy = {
   pl: {
     audit: 'Audyt', target: 'Cel', view: 'Wyświetl', invalid: 'Sprawdź wartości w formularzu.',
+    denied: 'Brak dostępu',
     auditCount: '1 wpis audytu', news: 'Aktualności',
     filter: 'Filtruj aktualności', month: 'Miesiąc (1–12)', tag: 'Tag',
     invalidMonth: 'Wpisz miesiąc od 1 do 12.', newsCount: '2 wpisy na tej stronie',
@@ -14,6 +15,7 @@ const copy = {
   },
   en: {
     audit: 'Audit', target: 'Target', view: 'View', invalid: 'Check the values in the form.',
+    denied: 'Access denied',
     auditCount: '1 audit entry', news: 'News',
     filter: 'Filter news', month: 'Month (1–12)', tag: 'Tag',
     invalidMonth: 'Enter a month from 1 to 12.', newsCount: '2 entries on this page',
@@ -39,6 +41,7 @@ test('staff audit and public news forms use the selected locale through the resu
   await page.getByLabel(t.target, { exact: true }).fill(id);
   await page.getByRole('button', { name: t.view, exact: true }).click();
   await expect(page.getByText(t.auditCount, { exact: true })).toBeVisible();
+  await expect(page.getByLabel(t.target, { exact: true })).toHaveValue(id);
   await expect(page.locator('main')).toContainText('rbac.role.created');
   const stamp = entry.created_at.toISOString().slice(0, 19);
   const [day, time] = stamp.split('T');
@@ -52,6 +55,7 @@ test('staff audit and public news forms use the selected locale through the resu
   const bad = await page.goto(`${audit}?lang=${lang}&admin=invalid`);
   expect(bad.status()).toBe(400);
   await expect(page.getByRole('alert')).toHaveText(t.invalid);
+  await expect(page.getByRole('heading', { level: 1, name: t.invalid })).toBeVisible();
   const context = await browser.newContext({
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
     ignoreHTTPSErrors: true,
@@ -103,6 +107,26 @@ test('staff audit and public news forms use the selected locale through the resu
       await expect(page).toHaveURL(/\/admin\/news$/);
     }
   }
+});
+
+test('staff panel audit navigation follows the current role', async ({ page }, info) => {
+  test.setTimeout(180_000);
+  const lang = info.project.metadata.locale;
+  const t = copy[lang];
+  const actor = await seededStaff(page, lang, 'game_viewer');
+  const auditLink = page.getByRole('link', { name: t.audit, exact: true });
+  expect((await page.goto('/admin')).status()).toBe(200);
+  await expect(auditLink).toHaveAttribute('href', `/admin/console/audit?lang=${lang}`);
+  await auditLink.click();
+  await expect(page.getByRole('heading', { level: 1, name: t.audit })).toBeVisible();
+
+  await query("UPDATE account_roles SET role_id=(SELECT id FROM roles WHERE key='support') WHERE account_id=$1", [actor]);
+  expect((await page.goto('/admin')).status()).toBe(200);
+  await expect(auditLink).toHaveCount(0);
+  const refused = await page.goto(`/admin/console/audit?lang=${lang}`);
+  expect(refused.status()).toBe(403);
+  expect(refused.headers()['content-language']).toBe(lang);
+  await expect(page.getByRole('alert')).toHaveText(t.denied);
 });
 
 test('locale negotiation, fallback and refusal work independently of key parity', async ({ page }, info) => {

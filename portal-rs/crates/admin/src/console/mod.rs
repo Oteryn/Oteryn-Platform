@@ -376,6 +376,7 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool,
         Permission::Access,
     )
+    .map(|router| router.route_layer(axum::middleware::from_fn(locale::response_language)))
 }
 pub(super) fn configured_routes(pool: PgPool, enabled: bool, channel: StoredChannel) -> Router {
     routes(Console {
@@ -408,7 +409,6 @@ fn routes<P: Permissions, C: Channel>(console: Console<P, C>) -> Router {
             get(database_page::<P, C>).post(submit::<P, C>),
         )
         .with_state(Arc::new(console))
-        .route_layer(axum::middleware::from_fn(locale::response_language))
 }
 /// Configured embedding with actual staff adapters, retaining the existing guard.
 pub fn router<P: Permissions, C: Channel, I: web::StaffSession, A: AccountStateReader + 'static>(
@@ -426,6 +426,7 @@ pub fn router<P: Permissions, C: Channel, I: web::StaffSession, A: AccountStateR
         accounts,
         Permission::Access,
     )
+    .route_layer(axum::middleware::from_fn(locale::response_language))
 }
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]

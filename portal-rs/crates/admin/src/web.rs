@@ -588,7 +588,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let audit_link = if std::env::var("OTERYN_ADMIN_CONSOLE").as_deref() == Ok("true")
-        && s.auth.check(context, Permission::ViewAudit).await.is_ok()
+        && s.auth.check_console_audit(context).await.is_ok()
     {
         Some(text(lang, "audit-link"))
     } else {

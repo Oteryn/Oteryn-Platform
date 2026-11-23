@@ -92,7 +92,6 @@ pub(crate) async fn page<B: Backend>(
     filter.validate()?;
     let lang = super::locale::select(filter.lang.as_deref(), &headers).ok_or(Error::BadInput)?;
     let mut page = Page::new(lang, "audit");
-    page.filters = true;
     if platform {
         let rows: Vec<(Uuid,Option<Uuid>,String,String,OffsetDateTime)> = sqlx::query_as("SELECT request_id, actor, COALESCE(operation,action), COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target), created_at FROM audit_log WHERE ($1::uuid IS NULL OR request_id=$1) AND ($2::uuid IS NULL OR actor=$2) AND ($3::text IS NULL OR COALESCE(operation,action)=$3) AND ($4::text IS NULL OR COALESCE(admin_control_target->>'character_id',admin_control_target->>'view',target)=$4) ORDER BY created_at DESC, id DESC LIMIT 100")
             .bind(filter.request_id).bind(filter.admin).bind(&filter.operation).bind(&filter.target).fetch_all(&state.pool).await?;
@@ -180,5 +179,6 @@ pub(crate) async fn page<B: Backend>(
             "game-source"
         },
     );
+    page.audit_filter = Some(filter);
     page.response()
 }

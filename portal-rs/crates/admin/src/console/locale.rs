@@ -113,6 +113,9 @@ pub(super) async fn response_language(request: Request, next: Next) -> Response 
     let lang = select(query.as_ref().and_then(|q| q.lang.as_deref()), headers)
         .unwrap_or_else(|| Language::negotiate(headers).code());
     let mut response = next.run(request).await;
+    if response.status() == StatusCode::NOT_FOUND {
+        return response;
+    }
     let key = match response.status() {
         StatusCode::BAD_REQUEST
         | StatusCode::PAYLOAD_TOO_LARGE
@@ -122,7 +125,13 @@ pub(super) async fn response_language(request: Request, next: Next) -> Response 
         StatusCode::SERVICE_UNAVAILABLE => "unavailable",
         _ => "",
     };
+    let has_html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("text/html"));
     if !key.is_empty()
+        && !has_html
         && let Some(message) = message(lang, key, None, false)
         && let Ok(html) = (ErrorPage { lang, message }).render()
     {
@@ -135,7 +144,9 @@ pub(super) async fn response_language(request: Request, next: Next) -> Response 
         );
     }
     let headers = response.headers_mut();
-    headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(lang));
+    if key.is_empty() || !has_html {
+        headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(lang));
+    }
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.append(
         header::VARY,

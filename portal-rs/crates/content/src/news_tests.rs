@@ -2,7 +2,7 @@
 use super::*;
 use axum::{
     body::{Body, to_bytes},
-    http::Request,
+    http::{Request, header},
 };
 use tower::ServiceExt;
 #[test]
@@ -516,7 +516,10 @@ async fn postgres_news_lifecycle() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
-    let _ = to_bytes(response.into_body(), 1024).await.unwrap();
+    assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&body).unwrap();
+    assert!(html.contains(r#"role="alert">Choose a valid result page.</p>"#));
 
     sqlx::query("DELETE FROM account_roles WHERE account_id=$1")
         .bind(context.account)
