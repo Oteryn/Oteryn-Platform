@@ -137,3 +137,49 @@ async fn r7_registration_leaves_both_sessions_anonymous() -> Result<(), Box<dyn 
     }
     db.close().await
 }
+
+#[tokio::test]
+async fn signup_paused_page_links_to_localized_policies() -> Result<(), Box<dyn std::error::Error>>
+{
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&db.pool)
+        .await?;
+    let app = crate::router(
+        AppState {
+            db: db.pool.clone(),
+        },
+        "../../static",
+    );
+    for (locale, message) in [
+        ("en", "Registration is temporarily unavailable."),
+        ("pl", "Rejestracja jest tymczasowo niedostępna."),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(format!("/{locale}/register")).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024).await?;
+        let body = std::str::from_utf8(&body)?;
+        assert!(body.contains(message));
+        for path in ["terms", "privacy"] {
+            assert!(body.contains(&format!("href=\"/{locale}/legal/{path}\"")));
+        }
+        assert!(!body.contains("name=\"password\""));
+        let json = app
+            .clone()
+            .oneshot(
+                Request::get(format!("/{locale}/register"))
+                    .header("accept", "application/json")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(json.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(json.headers()["content-type"], "application/json");
+    }
+    db.close().await
+}

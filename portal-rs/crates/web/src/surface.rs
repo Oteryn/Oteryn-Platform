@@ -241,7 +241,14 @@ async fn policy(mut request: Request, next: Next) -> Response {
         response = StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
     let status = response.status();
+    let registration_paused = !json
+        && status == StatusCode::SERVICE_UNAVAILABLE
+        && response
+            .extensions()
+            .get::<crate::register::PausedRegistration>()
+            .is_some();
     if path != oteryn_gameauth::locator::PATH
+        && !registration_paused
         && matches!(
             status.as_u16(),
             400 | 403 | 404 | 405 | 413 | 422 | 429 | 500 | 503

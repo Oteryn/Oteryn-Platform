@@ -32,8 +32,10 @@ profiles. The bundled fictional operator fields are in `legal/operator.md`.
 Signup uses `OTERYN_TERMS_VERSION` and `OTERYN_PRIVACY_VERSION`. Both default
 to `2026-11-05` in live or unconfigured operation and to the bundled draft
 version under explicit local/testing configuration. The server checks the
-published locale and exact versions at form display and again inside the
-registration transaction. The acceptance stores the snapshot's page, locale,
+published editions and exact versions at form display and again inside the
+registration transaction. Live signup requires both languages for terms and
+privacy. A localized pause page links to the public policies while signup is
+unavailable. The acceptance stores the snapshot's page, locale,
 and version so later language changes preserve the edition that was accepted.
 Earlier consent records keep their original version without an inferred locale.
 Live signup requires immutable, explicitly approved editions and rejects known
@@ -50,7 +52,9 @@ Set the two signup version variables to the exact published values. Each
 approval belongs to the immutable edition, including its locale and content.
 An unchanged resave keeps the existing approval. Previously published
 unapproved editions require a new version for approval.
-Run `oteryn-portal check-signup-legal` with the candidate's live configuration
+In the staff panel, **Pages** shows live readiness for the four required
+editions against the current signup configuration. Run
+`oteryn-portal check-signup-legal` with the candidate's live configuration
 before activating it. This read-only check requires both locales. See the
 [Oracle deployment procedure](../../../../../deploy/oracle/README.md) for upgrades
 from a release whose snapshots lack explicit approval.

@@ -520,6 +520,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    pages_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -623,7 +624,13 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let pages_link = match s.auth.check(context, Permission::ManagePages).await {
+        Ok(()) => Some(text(lang, "pages-link")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
+        pages_link,
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),

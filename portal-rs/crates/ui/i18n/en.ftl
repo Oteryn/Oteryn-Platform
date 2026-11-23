@@ -347,3 +347,6 @@ shell-account-closure-pending = Pending account closure
 shell-account-overview-back = Back to account overview
 shell-account-sudo = Confirm your password
 shell-account-export-sudo = Confirm your password to download your account data.
+
+register-paused-title = Registration is temporarily unavailable.
+register-paused-description = Try again later. You can still read the terms and privacy policy.

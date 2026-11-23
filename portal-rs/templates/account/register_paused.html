@@ -1,0 +1,10 @@
+{% extends "account/register_base.html" %}
+{% block title %}{{ self.text("register-paused-title") }}{% endblock %}
+{% block content %}
+<h1>{{ self.text("register-paused-title") }}</h1>
+<p>{{ self.text("register-paused-description") }}</p>
+<ul>
+  <li><a href="/{{ lang }}/legal/terms">{{ self.text("register-read-terms") }}</a></li>
+  <li><a href="/{{ lang }}/legal/privacy">{{ self.text("register-read-privacy") }}</a></li>
+</ul>
+{% endblock %}

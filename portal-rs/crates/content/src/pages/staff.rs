@@ -9,6 +9,7 @@ use oteryn_admin::{
     },
     web::{PanelConfig, PortalIdentity, StaffSession},
 };
+use oteryn_identity::consents::{ConsentConfig, SignupEditionIssue, SignupEditionStatus};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use serde_json::json;
@@ -124,6 +125,7 @@ async fn index(
     State(pool): State<PgPool>,
     axum::extract::Query(query): axum::extract::Query<CreateQuery>,
     headers: axum::http::HeaderMap,
+    consent: Option<Extension<ConsentConfig>>,
 ) -> Response {
     if let Some(slug) = query.slug {
         if !valid_slug(&slug) || !matches!(query.locale.as_deref(), Some("en" | "pl")) {
@@ -147,16 +149,25 @@ async fn index(
     };
     let rows:Result<Vec<(String,String)>,_>=sqlx::query_as("SELECT p.slug,e.locale FROM pages p JOIN editorial_pages e ON e.page_id=p.id ORDER BY p.slug,e.locale LIMIT 500 OFFSET $1").bind(i64::from(query.page)*500).fetch_all(&pool).await;
     match rows {
-        Ok(rows) => oteryn_web::render(&Listing {
-            next: u64::from(query.page) + 1,
-            more: rows.len() == 500,
-            lang: lang.to_owned(),
-            title: text(lang, "pages"),
-            slug_label: text(lang, "slug"),
-            locale_label: text(lang, "locale"),
-            create_label: text(lang, "create"),
-            rows,
-        }),
+        Ok(rows) => {
+            let editions = consent
+                .map(|Extension(config)| config)
+                .unwrap_or_default()
+                .live_readiness(&pool)
+                .await;
+
+            oteryn_web::render(&Listing {
+                readiness: editions.ok(),
+                next: u64::from(query.page) + 1,
+                more: rows.len() == 500,
+                lang: lang.to_owned(),
+                title: text(lang, "pages"),
+                slug_label: text(lang, "slug"),
+                locale_label: text(lang, "locale"),
+                create_label: text(lang, "create"),
+                rows,
+            })
+        }
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
@@ -178,6 +189,38 @@ struct Listing {
     locale_label: String,
     create_label: String,
     rows: Vec<(String, String)>,
+    readiness: Option<Vec<SignupEditionStatus>>,
+}
+impl Listing {
+    fn text(&self, key: &str) -> String {
+        text(&self.lang, key)
+    }
+
+    fn readiness_summary(&self) -> String {
+        self.text(match &self.readiness {
+            Some(editions) if editions.iter().all(|edition| edition.issue.is_none()) => {
+                "signup-ready"
+            }
+            Some(_) => "signup-blocked",
+            None => "signup-status-unavailable",
+        })
+    }
+
+    fn edition_status(&self, issue: &Option<SignupEditionIssue>) -> String {
+        use SignupEditionIssue::*;
+        self.text(match issue {
+            None => "signup-edition-ready",
+            Some(InvalidConfiguration) => "signup-invalid-config",
+            Some(Unpublished) => "signup-unpublished",
+            Some(StaleTranslation) => "signup-stale",
+            Some(EmptyBody) => "signup-empty",
+            Some(Placeholder) => "signup-placeholder",
+            Some(InvalidNip) => "signup-invalid-nip",
+            Some(VersionMismatch) => "signup-version-mismatch",
+            Some(MissingSnapshot) => "signup-missing-snapshot",
+            Some(Unapproved) => "signup-unapproved",
+        })
+    }
 }
 async fn edit(
     State(pool): State<PgPool>,

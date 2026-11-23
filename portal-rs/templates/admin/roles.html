@@ -5,6 +5,7 @@
 {% if manage %}<a href="/admin/roles">{{ roles_label }}</a>{% endif %}
 {% if moderate_reports %}<a href="/admin/moderation/reports">{{ reports_label }}</a>{% endif %}
 {% if let Some(label) = mail_link %}<a href="/admin/mail-outbox">{{ label }}</a>{% endif %}
+{% if let Some(label) = pages_link %}<a href="/admin/pages">{{ label }}</a>{% endif %}
 </nav>
 {% if manage %}<section class="op-stack"><h2>{{ roles_label }}</h2><ul>{% for (_, key) in roles %}<li>{{ key }}</li>{% endfor %}</ul>
 <form method="post" action="/admin/roles" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><div class="op-field"><label for="account">{{ account_label }}</label><input class="op-input" id="account" name="account" required></div><div class="op-field"><label for="role">{{ role_label }}</label><select class="op-input" id="role" name="role" required>{% for (id,key) in roles %}<option value="{{ id }}">{{ key }}</option>{% endfor %}</select></div><div class="op-row"><button class="op-button" name="action" value="grant">{{ grant }}</button><button class="op-button op-button--secondary" name="action" value="revoke">{{ revoke }}</button></div></form>

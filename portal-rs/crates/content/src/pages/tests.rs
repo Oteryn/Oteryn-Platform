@@ -879,24 +879,170 @@ fn legal_edition(slug: &str, locale: &str, version: &str) -> LegalEdition {
 
 #[tokio::test]
 async fn operator_publishes_bilingual_signup_editions() -> Result<(), Box<dyn std::error::Error>> {
+    use oteryn_identity::{
+        consents::{PLACEHOLDER_LEGAL_VERSION, SignupEditionIssue},
+        register::{Registration, register, validate},
+    };
+
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
     let actor = legal_operator(&pool, "content_editor").await?;
     let terms = "terms-test-edition";
     let privacy = "privacy-test-edition";
     let consents = ConsentConfig::published(terms.into(), privacy.into(), false);
-    assert!(consents.check_publication(&pool, "en").await.is_err());
+    let report = consents.live_readiness(&pool).await?;
+    assert_eq!(report.len(), 4);
+    assert!(
+        report
+            .iter()
+            .all(|row| row.issue == Some(SignupEditionIssue::Unpublished))
+    );
+
+    legal::install(&pool, Some("testing")).await?;
+    let preview = ConsentConfig::published(
+        PLACEHOLDER_LEGAL_VERSION.into(),
+        PLACEHOLDER_LEGAL_VERSION.into(),
+        true,
+    );
+    assert!(
+        preview
+            .live_readiness(&pool)
+            .await?
+            .iter()
+            .all(|row| row.issue == Some(SignupEditionIssue::Placeholder))
+    );
+    let live_drafts = ConsentConfig::published(
+        PLACEHOLDER_LEGAL_VERSION.into(),
+        PLACEHOLDER_LEGAL_VERSION.into(),
+        false,
+    );
+    for locale in ["en", "pl"] {
+        preview.check_publication(&pool, locale).await?;
+        assert!(live_drafts.check_publication(&pool, locale).await.is_err());
+    }
+
     for (slug, version) in [("terms-of-service", terms), ("privacy-policy", privacy)] {
-        for locale in ["en", "pl"] {
-            publish_legal_edition(&pool, actor, legal_edition(slug, locale, version)).await?;
+        publish_legal_edition(&pool, actor, legal_edition(slug, "en", version)).await?;
+    }
+    let report = consents.live_readiness(&pool).await?;
+    for row in &report {
+        let issue = (row.locale == "pl").then_some(SignupEditionIssue::StaleTranslation);
+        assert_eq!(row.issue, issue);
+    }
+    assert!(consents.check_publication(&pool, "en").await.is_err());
+
+    for (slug, version) in [("terms-of-service", terms), ("privacy-policy", privacy)] {
+        publish_legal_edition(&pool, actor, legal_edition(slug, "pl", version)).await?;
+    }
+    assert!(
+        consents
+            .live_readiness(&pool)
+            .await?
+            .iter()
+            .all(|row| row.issue.is_none()
+                && row.edition_version.as_ref() == Some(&row.expected_version))
+    );
+    for locale in ["en", "pl"] {
+        for (kind, version) in [("terms", terms), ("privacy", privacy)] {
+            let response = router(pool.clone())
+                .oneshot(Request::get(format!("/{locale}/legal/{kind}")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), 100_000).await?;
+            assert!(std::str::from_utf8(&body)?.contains(&format!("{version} 2026-11-23")));
         }
     }
-    // The check-signup-legal role runs this final-only check for both locales.
-    let mut tx = pool.begin().await?;
-    for locale in ["en", "pl"] {
-        consents.check_publication(&mut *tx, locale).await?;
+
+    let forbidden = legal_operator(&pool, "moderator").await?;
+    for (operator, status) in [(actor, StatusCode::OK), (forbidden, StatusCode::FORBIDDEN)] {
+        let list = staff_router(
+            pool.clone(),
+            oteryn_admin::web::PanelConfig {
+                admin_panel: true,
+                host: "staff.test".into(),
+            },
+            Identity(operator),
+            oteryn_admin::web::PortalIdentity::configured(pool.clone()),
+        )
+        .layer(axum::Extension(consents.clone()));
+        let response = list
+            .oneshot(
+                Request::get("/admin/pages")
+                    .header("host", "staff.test")
+                    .header("accept-language", "en")
+                    .body(Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), status);
+        let body = to_bytes(response.into_body(), 100_000).await?;
+        let body = std::str::from_utf8(&body)?;
+        let ready = "All four editions are ready for live signup.";
+        assert_eq!(body.contains(ready), status == StatusCode::OK);
     }
-    tx.commit().await?;
+
+    let wrong_config = ConsentConfig::published("old-terms".into(), privacy.into(), false);
+    assert!(
+        wrong_config
+            .live_readiness(&pool)
+            .await?
+            .iter()
+            .filter(|row| row.slug == "terms-of-service")
+            .all(|row| row.issue == Some(SignupEditionIssue::VersionMismatch))
+    );
+    assert!(wrong_config.check_publication(&pool, "pl").await.is_err());
+
+    let signup = || Registration {
+        email: "legal-signup@example.invalid".into(),
+        password: "long-test-password99".into(),
+        password_confirmation: "long-test-password99".into(),
+        terms: Some(terms.into()),
+        privacy: Some(privacy.into()),
+    };
+    let bad_input = Registration {
+        privacy: Some("previous-privacy".into()),
+        ..signup()
+    };
+    assert_eq!(
+        validate(&bad_input, &consents),
+        [("privacy", "register-consent-error")]
+    );
+    assert!(
+        register(&pool, bad_input, &consents, "pl", None)
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM account_consents")
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
+
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=true")
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO registration_password_ranges(prefix,suffixes,expires_at,complete,complete_xact) VALUES('AE9F0',ARRAY[]::text[],now()+interval '1 hour',true,pg_current_xact_id())")
+        .execute(&pool)
+        .await?;
+    let account = register(&pool, signup(), &consents, "pl", None)
+        .await?
+        .ok_or("account missing")?;
+    let accepted: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT c.document_kind,c.document_version,v.locale FROM account_consents c
+         JOIN page_legal_versions v
+         ON (v.page_id,v.locale,v.version)=(c.legal_page_id,c.legal_locale,c.document_version)
+         WHERE c.account_id=$1 ORDER BY c.document_kind",
+    )
+    .bind(account)
+    .fetch_all(&pool)
+    .await?;
+    assert_eq!(
+        accepted,
+        [
+            ("privacy".into(), privacy.into(), "pl".into()),
+            ("terms".into(), terms.into(), "pl".into())
+        ]
+    );
     drop_pages_schema(root, pool, &schema).await?;
     Ok(())
 }
