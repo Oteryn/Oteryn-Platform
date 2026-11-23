@@ -20,7 +20,7 @@ test('players can start from home and find rules, answers and support', async ({
     ['faq', pl ? 'Najczęstsze pytania' : 'Frequently asked questions'],
     ['support', pl ? 'Pomoc dla graczy' : 'Player support'],
   ]) {
-    await page.locator(`main a[href="/${lang}/${route}"]`).click();
+    await page.locator(`main article a[href="/${lang}/${route}"]`).click();
     await expect(page.locator('main h1')).toHaveText(heading);
     if (route === 'server-information') {
       await page.locator(`main a[href="/${lang}/worlds"]`).click();
