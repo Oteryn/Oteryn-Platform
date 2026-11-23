@@ -143,11 +143,20 @@ test('unavailable rankings identify the category and omit live filtering', async
   const main = page.getByRole('main');
   await expect(main.getByRole('status')).toHaveText(t.unavailable);
   await expect(main.locator('[aria-current="page"]')).toHaveText(t.yesterday);
-  await expect(main.locator('nav a, form')).toHaveCount(0);
+  await expect(main.locator('form')).toHaveCount(0);
+  const oldest = main.getByRole('link', { name: t.oldest, exact: true });
+  await expect(oldest).toHaveAttribute('href', `/${lang}/stats/rankings/oldest`);
+  await oldest.click();
+  await expect(page).toHaveURL(new RegExp(`/${lang}/stats/rankings/oldest$`));
+  await expect(main.locator('[aria-current="page"]')).toHaveText(t.oldest);
+
+  const invalid = await page.goto(`/${lang}/stats/rankings/oldest?page=0`);
+  expect(invalid.status()).toBe(400);
+  await expect(main.getByRole('status')).toHaveText(t.invalid);
+  await expect(main.getByRole('button', { name: t.apply, exact: true })).toBeVisible();
 });
 
 test('delivery and league use their menu labels and suppress empty league sections', async ({ page, request }, info) => {
-  test.setTimeout(90_000);
   const { locale: lang } = info.project.metadata;
   await page.goto(`/${lang}/`);
   await revealNav(page, info);
@@ -155,17 +164,29 @@ test('delivery and league use their menu labels and suppress empty league sectio
   const delivery = primaryNav(page).locator('a[href$="/atlas/delivery"]');
   const leagueLabel = (await primaryNav(page).locator('a[href$="/league"]').innerText()).trim();
   const deliveryLabel = (await delivery.innerText()).trim();
-  await delivery.click();
+  const [deliveryPage] = await Promise.all([
+    page.waitForResponse(response => new URL(response.url()).pathname === `/${lang}/atlas/delivery`),
+    delivery.click(),
+  ]);
+  expect(deliveryPage.status()).toBe(503);
+  expect(deliveryPage.headers()['cache-control']).toContain('no-store');
   await expect(mainHeading(page)).toHaveText(deliveryLabel);
 
   const control = process.env.PORTAL_E2E_LEAGUE_CONTROL;
   expect(control).toBeTruthy();
+  const league = `/${lang}/league`;
+  const leagueStatus = () => expect.poll(async () => {
+    const response = await request.get(league);
+    const status = response.status();
+    await response.dispose();
+    return status;
+  }, { timeout: 45_000, intervals: [1000, 2000] });
+  expect((await request.post(`${control}/resume`)).status()).toBe(200);
+  await leagueStatus().toBe(200);
   expect((await request.post(`${control}/pause`)).status()).toBe(200);
   try {
-    await expect.poll(async () => (await request.get(`/${lang}/league`)).status(), {
-      timeout: 45_000, intervals: [1000, 2000],
-    }).toBe(503);
-    const response = await page.goto(`/${lang}/league`);
+    await leagueStatus().toBe(503);
+    const response = await page.goto(league);
     expect(response.status()).toBe(503);
     await expect(mainHeading(page)).toHaveText(leagueLabel);
     const main = page.getByRole('main');
@@ -191,11 +212,18 @@ test('unavailable Item Bazaar and Shop use shared page presentation', async ({ p
 
     await page.goto(new URL(`/${lang}/`, origin).href);
     await revealNav(page, info);
-    await primaryNav(page).locator('.om-shop').click();
+    const [shop] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/static/thais/shop-${lang}.html`),
+      primaryNav(page).locator('.om-shop').click(),
+    ]);
+    expect(shop.status()).toBe(200);
+    expect(shop.headers()['content-language']).toBe(lang);
+    expect(shop.headers()['cache-control']).toBe('no-store');
     await expect(page).toHaveURL(new RegExp(`/static/thais/shop-${lang}[.]html$`));
     await expect(page.locator('#portal-header')).toHaveClass(/\bom-interior\b/);
-    await expect(mainHeading(page)).toBeVisible();
-    await expect(page.locator('main .shop-status')).toBeVisible();
+    const labels = messages('crates/ui/i18n', lang);
+    await expect(mainHeading(page)).toHaveText(labels['shop-fallback-title']);
+    await expect(page.getByRole('main').getByRole('status')).toHaveText(labels['shop-fallback-closed']);
     await revealNav(page, info);
     if (mobile(info)) {
       await expectTargets(page.locator('#portal-header .om-brand, #portal-header .om-fallback-menu > summary'));
@@ -206,10 +234,18 @@ test('unavailable Item Bazaar and Shop use shared page presentation', async ({ p
     await page.locator(`.foot-langs a[hreflang="${alternate}"]`).click();
     await expect(page.locator('html')).toHaveAttribute('lang', alternate);
     await expect(page).toHaveURL(new RegExp(`/static/thais/shop-${alternate}[.]html$`));
-    await expect(page.getByRole('main').getByRole('link', {
-      name: alternate === 'pl' ? 'Zaloguj się' : 'Sign in',
-    })).toHaveAttribute('href', `/${alternate}/login`);
+    const alternateLabels = messages('crates/ui/i18n', alternate);
+    const main = page.getByRole('main');
+    await expect(main.getByRole('heading', { level: 1 })).toHaveText(alternateLabels['shop-fallback-title']);
+    await expect(main.getByRole('link', { name: alternateLabels['shell-support'], exact: true }))
+      .toHaveAttribute('href', `/${alternate}/help`);
+    await expect(main.locator('a[href$="/login"]')).toHaveCount(0);
   });
+
+  await page.goto(`/static/thais/shop-${lang}.html`);
+  const signIn = messages('crates/ui/i18n', lang)['shell-login'];
+  await expect(page.getByRole('main').getByRole('link', { name: signIn, exact: true }))
+    .toHaveAttribute('href', `/${lang}/login`);
 });
 
 test('i18n-parity for the UI consistency catalogs', () => {

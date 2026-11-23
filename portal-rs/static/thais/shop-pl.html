@@ -7,9 +7,22 @@
   <meta name="description" content="Sklep Oterynu i informacje o Oteryn Coins.">
   <title>Sklep Oterynu · Oteryn</title>
   <link rel="alternate" hreflang="en" href="shop-en.html">
-  <link rel="stylesheet" href="/static/thais/shop.css">
+  <link rel="stylesheet" href="shell.css">
+  <link rel="stylesheet" href="shop.css">
 </head>
-<body>
+<body class="op-theme op-shell">
+  <a class="skip" href="#main">Przejdź do treści</a>
+  <header id="portal-header" class="om-mast">
+    <div class="shop-bar">
+      <a class="brand" href="/pl/" aria-label="Oteryn · Strona główna"><img class="oteryn-emblem" src="/static/thais/oteryn-wordmark.webp" alt="" width="720" height="236"></a>
+      <nav aria-label="Nawigacja sklepu">
+        <a href="/pl/">Strona główna</a>
+        <a href="/pl/news">Aktualności</a>
+        <a href="/pl/login">Zaloguj się</a>
+        <a class="shop-language" href="shop-en.html" lang="en" hreflang="en">English</a>
+      </nav>
+    </div>
+  </header>
   <main id="main" tabindex="-1">
     <div class="shop-banner">
       <div class="shop-content">
@@ -18,17 +31,76 @@
       </div>
     </div>
     <section class="shop-content shop-wallet" aria-labelledby="coins">
-      <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>
+      <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="icons.svg#ic-coins"></use></svg>
       <div>
         <h2 id="coins">Oteryn Coins</h2>
         <p>Monetami zapłacisz za oferty dostępne w sklepie Oterynu. Saldo i historię transakcji sprawdzisz na swoim koncie po otwarciu sklepu.</p>
         <p class="shop-status">Sklep jest obecnie zamknięty. Zakupy i doładowania są chwilowo niedostępne.</p>
         <div class="shop-actions">
-          <a class="op-button op-button--primary" href="/pl/login">Zaloguj się</a>
+          <a class="shop-account" href="/pl/login">Zaloguj się</a>
           <a href="/pl/help">Pomoc</a>
         </div>
       </div>
     </section>
   </main>
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <div class="foot-identity">
+      <a class="brand" href="/pl/" aria-label="Oteryn · Strona główna">
+        <img class="oteryn-emblem" src="/static/thais/oteryn-wordmark.webp" alt="" width="720" height="236">
+      </a>
+      <p class="foot-tagline">Prywatny serwer MMORPG</p>
+      <nav class="foot-social" aria-label="Serwisy zewnętrzne">
+        <a href="https://www.twitch.tv/directory/category/tibia">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 3h16v12l-5 5h-4l-3 3v-3H5z M10 7v6m5-6v6"/></svg>
+          Twitch · kategoria Tibia
+        </a>
+        <span class="foot-community-status">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5.5 5.4 6.6C3.8 9 3 12.4 3 15.7a11 11 0 0 0 4.2 2.4l1.1-1.7m7.4 0 1.1 1.7a11 11 0 0 0 4.2-2.4c0-3.3-.8-6.7-2.4-9.1L16 5.5l-.8 1.2a15 15 0 0 0-6.4 0z"/><path d="M8.3 16.4a10 10 0 0 0 7.4 0"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/></svg>
+          Discord · zaproszenie niedostępne
+        </span>
+      </nav>
+    </div>
+    <nav class="foot-links" aria-label="Nawigacja w stopce">
+      <div class="foot-group">
+        <h2>Świat gry</h2>
+        <ul>
+          <li><a href="/pl/#jak-zaczac">Jak zacząć</a></li>
+          <li><a href="/pl/#profesje">Profesje</a></li>
+          <li><a href="/pl/wiki">Wiki</a></li>
+        </ul>
+      </div>
+      <div class="foot-group">
+        <h2>Społeczność</h2>
+        <ul>
+          <li><a href="/pl/news">Aktualności</a></li>
+          <li><a href="/pl/events">Wydarzenia</a></li>
+          <li><a href="/pl/today">Dzisiaj w Oterynie</a></li>
+        </ul>
+      </div>
+      <div class="foot-group">
+        <h2>Pomoc dla graczy</h2>
+        <ul>
+          <li><a href="/pl/help">Pomoc</a></li>
+          <li><a href="/pl/support/report-a-bug">Zgłoś błąd</a></li>
+          <li><a href="/pl/rules">Zasady gry</a></li>
+          <li><a href="/pl/server-information">Informacje o serwerze</a></li>
+        </ul>
+      </div>
+    </nav>
+  </div>
+  <div class="wrap foot-bottom">
+    <p class="foot-copyright">© 2026 Oteryn. Wszelkie prawa zastrzeżone. Oteryn to niezależny, prywatny serwer MMORPG, nienależący do żadnej oficjalnej marki.</p>
+    <nav class="foot-legal" aria-label="Informacje prawne">
+      <a href="/pl/legal/terms">Regulamin</a>
+      <a href="/pl/legal/privacy">Polityka prywatności</a>
+    </nav>
+    <nav class="foot-langs" aria-label="Język portalu">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><use href="icons.svg#ic-world"></use></svg>
+      <a href="#portal-header" lang="pl" hreflang="pl" aria-label="Polski" aria-current="true">PL</a>
+      <a href="shop-en.html" lang="en" hreflang="en" aria-label="English">EN</a>
+    </nav>
+  </div>
+</footer>
 </body>
 </html>

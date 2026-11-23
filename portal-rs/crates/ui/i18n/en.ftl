@@ -202,6 +202,11 @@ shell-server = Server information
 shell-abuse-reports = Abuse reports
 
 shell-shop = Shop
+shop-fallback-title = Oteryn Shop
+shop-fallback-intro = The Oteryn Shop and information about Oteryn Coins.
+shop-fallback-coins = Oteryn Coins
+shop-fallback-description = Use coins to pay for offers in the Oteryn Shop. You can check your balance and transaction history in your account when the shop reopens.
+shop-fallback-closed = The shop is currently closed. Purchases and coin top-ups are temporarily unavailable.
 
 shell-create-character = Create a character
 shell-account-privacy = Account privacy

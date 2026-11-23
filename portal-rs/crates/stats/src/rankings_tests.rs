@@ -316,6 +316,7 @@ async fn unavailable_catalog_never_serves_prior_allow_or_empty_success() -> Resu
     let body = String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
     assert!(body.contains("Statistics are unavailable"));
     assert!(body.contains("aria-disabled=\"true\" aria-current=\"page\""));
+    assert!(body.contains("href=\"/en/stats/rankings/anniversaries\""));
     assert!(!body.contains("<form"));
     assert!(!body.contains("No matching public records"));
     Ok(())

@@ -6,7 +6,7 @@
   <ul class="op-tabs">
     {% for (slug, label) in kinds %}
     <li>
-      {% if unavailable %}
+      {% if !enabled || (!show_filters && slug.as_str() == kind.as_str()) %}
       <span aria-disabled="true"{% if slug.as_str() == kind.as_str() %} aria-current="page"{% endif %}>{{ label }}</span>
       {% else %}
       <a href="/{{ lang }}/stats/rankings/{{ slug }}"{% if slug.as_str() == kind.as_str() %} aria-current="page"{% endif %}>{{ label }}</a>
@@ -15,7 +15,7 @@
     {% endfor %}
   </ul>
 </nav>
-{% if !unavailable %}
+{% if show_filters %}
 <p>{{ hint }}</p>
 <form class="op-stack" method="get">
 <p><label for="world">{{ labels[0] }}</label><select class="op-input" id="world" name="world"><option value="">{{ labels[9] }}</option>{% for (id, name) in worlds %}<option value="{{ id }}"{% if world == *id %} selected{% endif %}>{{ name }}</option>{% endfor %}</select></p>

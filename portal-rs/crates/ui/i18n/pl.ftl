@@ -202,6 +202,11 @@ shell-server = Informacje o serwerze
 shell-abuse-reports = Zgłoszenia naruszeń
 
 shell-shop = Sklep
+shop-fallback-title = Sklep Oterynu
+shop-fallback-intro = Sklep Oterynu i informacje o Oteryn Coins.
+shop-fallback-coins = Oteryn Coins
+shop-fallback-description = Monetami zapłacisz za oferty dostępne w sklepie Oterynu. Saldo i historię transakcji sprawdzisz na swoim koncie po otwarciu sklepu.
+shop-fallback-closed = Sklep jest obecnie zamknięty. Zakupy i doładowania są chwilowo niedostępne.
 
 shell-create-character = Utwórz postać
 shell-account-privacy = Prywatność konta

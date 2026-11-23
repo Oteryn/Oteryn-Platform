@@ -362,6 +362,18 @@ impl<'a> Home<'a> {
 pub fn home(chrome: &Chrome, data: &HomeData) -> Response {
     render(&Home::new(chrome, data), StatusCode::OK)
 }
+
+#[derive(Template)]
+#[template(path = "pages/shop-fallback.html")]
+struct ShopFallback<'a> {
+    chrome: &'a Chrome,
+}
+
+/// Render the localized landing page for an unavailable shop.
+pub fn shop_fallback(chrome: &Chrome) -> Response {
+    render(&ShopFallback { chrome }, StatusCode::OK)
+}
+
 #[derive(Template)]
 #[template(path = "components/shell-header.html")]
 struct ShellHeader<'a> {

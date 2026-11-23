@@ -173,7 +173,10 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
     };
     let mut response = oteryn_web::render(&Page {
         lang: lang.to_owned(),
-        title: nav_title.map_or(title, |key| oteryn_ui::text(lang, key)),
+        title: match (unpublished, nav_title) {
+            (true, Some(key)) => oteryn_ui::text(lang, key),
+            _ => title,
+        },
         body,
         version,
         draft_notice,

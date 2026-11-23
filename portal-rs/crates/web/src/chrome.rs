@@ -247,7 +247,10 @@ fn brand_title(head: &str) -> std::borrow::Cow<'_, str> {
         && let Some(end) = lower[start..].find("</title>").map(|at| start + at)
     {
         let title = head[start..end].trim_end();
-        if !title.trim_start().is_empty() && !title.ends_with(SUFFIX) {
+        if !title.trim_start().is_empty()
+            && !title.ends_with(SUFFIX)
+            && !title.ends_with(" · Oteryn Wiki")
+        {
             return format!("{}{title}{SUFFIX}{}", &head[..start], &head[end..]).into();
         }
     }
@@ -426,6 +429,7 @@ mod tests {
         );
         for head in [
             "<title>Sign in · Oteryn</title>",
+            "<title>Swamp guardian · Oteryn Wiki</title>",
             "<title> </title>",
             "<meta charset=\"utf-8\">",
         ] {
