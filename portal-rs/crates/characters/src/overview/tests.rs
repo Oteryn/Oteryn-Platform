@@ -97,22 +97,26 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let authority = "oteryn:character-authority:primary";
     sqlx::query("UPDATE account_character_feed SET highest_epoch='1',watermark_epoch='1',source_authority=$1,complete_through=EXTRACT(EPOCH FROM now())::bigint,observed_at=EXTRACT(EPOCH FROM now())::bigint WHERE id=1").bind(authority).execute(&pool).await?;
     sqlx::query("INSERT INTO account_character_snapshots(account_id,source_authority,projection_epoch,projection_revision,source_observed_at,content_digest) VALUES($1,$2,'1','1',0,$3)").bind(id).bind(authority).bind(vec![0u8;32]).execute(&pool).await?;
-    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric','AVAILABLE')").bind(id).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&pool).await?;
+    sqlx::query("INSERT INTO account_characters(account_id,character_id,world_id,name,availability) VALUES($1,$2,$3,'Aldric North','AVAILABLE')").bind(id).bind(Uuid::now_v7()).bind(Uuid::now_v7()).execute(&pool).await?;
     let settings = Settings {
         enabled: true,
         environment: oteryn_core::Environment::Testing,
         source_authority: authority.into(),
         ..Settings::default()
     };
-    let response = show(&pool, Some(id), "en", true, settings.clone()).await;
-    assert_eq!(response.status(), StatusCode::OK);
-    let html = String::from_utf8(
-        axum::body::to_bytes(response.into_body(), 65536)
-            .await?
-            .to_vec(),
-    )?;
-    assert!(html.contains("/characters/Aldric"));
-    assert!(html.contains("Current game connection"));
+    for lang in ["en", "pl"] {
+        let response = show(&pool, Some(id), lang, true, settings.clone()).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(
+            axum::body::to_bytes(response.into_body(), 65536)
+                .await?
+                .to_vec(),
+        )?;
+        assert!(html.contains(&format!("href=\"/{lang}/characters/Aldric%20North\"")));
+        if lang == "en" {
+            assert!(html.contains("Current game connection"));
+        }
+    }
     sqlx::query("UPDATE account_character_feed SET complete_through=0 WHERE id=1")
         .execute(&pool)
         .await?;

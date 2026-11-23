@@ -3,7 +3,7 @@ import { test, expect } from '../fixtures.mjs';
 import { disposableDatabaseUrl, pool } from '../helpers.mjs';
 import { messages, visit } from '../public-depth-helpers.mjs';
 
-test('unprefixed wiki routes negotiate locale and stats aliases default to Polish', async ({ page }, info) => {
+test('unprefixed wiki and stats routes negotiate locale', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   const wiki = messages('crates/wiki/src/entities', lang);
   const article = messages('crates/wiki/src/i18n', lang);
@@ -12,11 +12,11 @@ test('unprefixed wiki routes negotiate locale and stats aliases default to Polis
   }
   await visit(page, '/wiki/articles/absent-e2e', 404, { lang, message: article.missing });
 
-  const world = messages('templates/stats/world', 'pl');
-  await visit(page, '/stats/world', 200, { lang: 'pl', message: world['world-title'] });
+  const world = messages('templates/stats/world', lang);
+  await visit(page, '/stats/world', 200, { lang, message: world['world-title'] });
   await expect(page.locator('select[name=world]')).toBeVisible();
-  const guilds = messages('templates/stats/guilds', 'pl');
-  await visit(page, '/stats/guilds', 503, { lang: 'pl', message: guilds['guild-unavailable'] });
+  const guilds = messages('templates/stats/guilds', lang);
+  await visit(page, '/stats/guilds', 503, { lang, message: guilds['guild-unavailable'] });
 });
 
 const resources = [
