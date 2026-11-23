@@ -142,6 +142,42 @@ async fn pages_escape_input_localize_and_use_accessible_components() -> TestResu
     }
     Ok(())
 }
+#[tokio::test]
+async fn committed_receipt_and_roster_visibility_are_distinct() -> TestResult {
+    let character = Uuid::now_v7();
+    let entry = crate::lcfa::CharacterSummary {
+        character_id: crate::lcfa::CharacterId::parse(&character.to_string())?,
+        world_id: crate::lcfa::WorldId::parse(&Uuid::now_v7().to_string())?,
+        name: "Aldric".into(),
+        availability: crate::lcfa::Availability::Available,
+    };
+    for (lang, waiting, ready) in [
+        ("en", "may take a moment", "now in the account roster"),
+        ("pl", "może chwilę potrwać", "jest już na liście"),
+    ] {
+        for roster in [None, Some(&[][..]), Some(std::slice::from_ref(&entry))] {
+            let response = super::page::created(lang, character, roster, true);
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = html(response).await?;
+            assert!(
+                body.contains(if roster.is_some_and(|entries| !entries.is_empty()) {
+                    ready
+                } else {
+                    waiting
+                })
+            );
+            assert!(body.contains(r#"href="/account#characters""#));
+            let unavailable = if lang == "pl" {
+                "lista postaci jest niedostępna"
+            } else {
+                "roster is unavailable"
+            };
+            assert_eq!(body.contains(unavailable), roster.is_none());
+        }
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 struct Session(Arc<Mutex<BrowserContext>>);
 fn app(pool: PgPool, settings: Settings, account: Option<Uuid>) -> (Router, Session) {
@@ -252,6 +288,9 @@ impl Database {
             include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
             include_str!("../../../../migrations/20261105190000_t25_world_registry.sql"),
             include_str!("../../../../migrations/20261105220231_t22c_creation_policy.sql"),
+            include_str!(
+                "../../../../migrations/20261125100001_gap01_create_requests_by_account.sql"
+            ),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
@@ -312,6 +351,15 @@ async fn db_success_concurrent_replay_and_changed_intent_conflict() -> TestResul
     );
     let operation = a?;
     assert_eq!(operation, b?);
+    let duplicate = Submission {
+        id: Uuid::now_v7(),
+        name: "  ALDRIC  STONE  ".into(),
+        ..input.clone()
+    };
+    assert!(matches!(
+        service.submit(account, duplicate).await,
+        Err(Error::Duplicate)
+    ));
     let raw: String = sqlx::query_scalar("SELECT intent_json FROM character_commands WHERE id=$1")
         .bind(operation)
         .fetch_one(&db.pool)
@@ -569,7 +617,21 @@ async fn db_receipts_decide_outcome_and_expiry_alone_stays_pending() -> TestResu
             .status(),
         StatusCode::OK
     );
-    assert_eq!(service.status(account, operation).await?, Outcome::Created);
+    let character = Uuid::parse_str("01934f10-7c04-7001-805b-3b1122334401")?;
+    assert_eq!(
+        service.status(account, operation).await?,
+        Outcome::Created(character)
+    );
+    assert_eq!(
+        super::recent_requests(&db.pool, account).await?,
+        vec![(operation, "Aldric Stone".to_owned())]
+    );
+    let other = db.account("active").await?;
+    assert!(super::recent_requests(&db.pool, other).await?.is_empty());
+    assert!(matches!(
+        service.status(other, operation).await,
+        Err(Error::NotFound)
+    ));
     let rejected = service.submit(account, input(world)).await?;
     let receipt = include_str!("../commands/fixtures/rejected-receipt.json").replace(
         "0192a000-0000-7000-8000-000000000001",

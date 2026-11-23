@@ -33,3 +33,5 @@ character-services = Character services
 character-items = Character inventory
 market-history = Market history
 trade-history = Trade history
+create-character = Create character
+recent-character-requests = Recent creation requests

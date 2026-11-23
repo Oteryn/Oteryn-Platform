@@ -1,7 +1,10 @@
 use super::names;
 use crate::commands::{self, AccountState, AccountStateReader, Commands, Intent, Sex, Vocation};
+use crate::{lcfa, overview};
 use oteryn_identity::accounts::Accounts;
 use sqlx::{Acquire, PgConnection, PgPool, Row};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Default)]
@@ -10,11 +13,26 @@ pub struct Settings {
     pub commands: commands::Settings,
 }
 impl Settings {
+    pub fn configured() -> Self {
+        let flag = |key| std::env::var(key).as_deref() == Ok("true");
+        Self {
+            enabled: flag("OTERYN_CHARACTER_CREATE_WEB_ENABLED"),
+            commands: commands::Settings {
+                enabled: flag("OTERYN_CHARACTER_COMMANDS_ENABLED"),
+                create_enabled: flag("OTERYN_CHARACTER_COMMAND_CREATE_ENABLED"),
+                source_authority: std::env::var("OTERYN_CHARACTER_COMMAND_SOURCE_AUTHORITY")
+                    .unwrap_or_default(),
+                ..Default::default()
+            },
+        }
+    }
+
+    pub(crate) fn mounted(&self) -> bool {
+        self.enabled && self.commands.enabled && self.commands.create_enabled
+    }
+
     pub fn available(&self) -> bool {
-        self.enabled
-            && self.commands.enabled
-            && self.commands.create_enabled
-            && !self.commands.source_authority.is_empty()
+        self.mounted() && self.commands.available()
     }
 }
 #[derive(Debug, thiserror::Error)]
@@ -23,6 +41,8 @@ pub enum Error {
     Invalid,
     #[error("reserved name")]
     Reserved,
+    #[error("duplicate character name")]
+    Duplicate,
     #[error("creation unavailable")]
     Unavailable,
     #[error("account denied")]
@@ -66,7 +86,7 @@ pub struct Submission {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Pending,
-    Created,
+    Created(Uuid),
     Rejected(&'static str),
 }
 #[derive(Clone, Debug)]
@@ -195,6 +215,7 @@ impl Creation {
             return Err(Error::Unavailable);
         }
         self.eligible(account).await?;
+        let roster = self.current_roster(account).await;
         // Serialize with identity changes. Keep this lock until the command is durable.
         // All checks and command issuance share this transaction.
         let mut tx = self.pool.begin().await?;
@@ -239,21 +260,30 @@ impl Creation {
             if self.reserved_in(tx, &name).await? {
                 return Err(Error::Reserved);
             }
+            let duplicate_request: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                    SELECT 1 FROM character_commands
+                    WHERE account_id=$1 AND command='CreateCharacter' AND state='PENDING'
+                    AND binding_json::jsonb->>'target_world_id'=$2
+                    AND binding_json::jsonb->>'requested_name'=$3
+                )",
+            )
+            .bind(account)
+            .bind(input.world.to_string())
+            .bind(&name)
+            .fetch_one(&mut **tx)
+            .await?;
+            if duplicate_request
+                || roster.iter().flatten().any(|character| {
+                    character.world_id.as_uuid() == input.world
+                        && character.name.eq_ignore_ascii_case(&name)
+                })
+            {
+                return Err(Error::Duplicate);
+            }
             let status = self
                 .commands
-                .enqueue_in(
-                    tx,
-                    &Eligible(account),
-                    input.id,
-                    &format!("web-create:{account}:{}", input.id),
-                    Intent::Create {
-                        account_id: account,
-                        world_id: input.world,
-                        name,
-                        sex: input.sex,
-                        vocation: input.vocation,
-                    },
-                )
+                .enqueue_in(tx, &Eligible(account), input.id, &key, intent)
                 .await?;
             Ok(status.operation_id)
         }
@@ -266,27 +296,41 @@ impl Creation {
         tx.commit().await?;
         result
     }
+    pub(super) async fn current_roster(
+        &self,
+        account: Uuid,
+    ) -> Option<Vec<lcfa::CharacterSummary>> {
+        roster(&self.pool, account, overview::configured_projection()).await
+    }
+
     pub async fn status(&self, account: Uuid, operation: Uuid) -> Result<Outcome, Error> {
         if !self.available() {
             return Err(Error::Unavailable);
         }
         self.eligible(account).await?;
         self.limit(account, "read").await?;
-        let status = self.commands.status(operation).await?;
-        let intent: serde_json::Value =
-            serde_json::from_str(&status.intent_json).map_err(|_| Error::Unavailable)?;
-        if status.command != commands::CREATE
-            || intent["account_id"].as_str() != Some(account.to_string().as_str())
-        {
-            return Err(Error::NotFound);
-        }
-        let Some(receipt) = status.receipt_json else {
+        let receipt: Option<String> = sqlx::query_scalar(
+            "SELECT receipt_json FROM character_commands
+             WHERE id=$1 AND account_id=$2 AND command='CreateCharacter'",
+        )
+        .bind(operation)
+        .bind(account)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(Error::NotFound)?;
+        let Some(receipt) = receipt else {
             return Ok(Outcome::Pending);
         };
         let receipt: serde_json::Value =
             serde_json::from_str(&receipt).map_err(|_| Error::Unavailable)?;
         match (receipt["outcome"].as_str(), receipt["result_code"].as_str()) {
-            (Some("COMMITTED"), Some("CHAR_CMD_OK")) => Ok(Outcome::Created),
+            (Some("COMMITTED"), Some("CHAR_CMD_OK")) => {
+                let id = receipt["character_id"]
+                    .as_str()
+                    .and_then(|id| lcfa::CharacterId::parse(id).ok())
+                    .ok_or(Error::Unavailable)?;
+                Ok(Outcome::Created(id.as_uuid()))
+            }
             (Some("REJECTED"), Some(code)) => Ok(Outcome::Rejected(match code {
                 "CHAR_CMD_NAME_INVALID" => "name-invalid",
                 "CHAR_CMD_NAME_UNAVAILABLE" => "name-unavailable",
@@ -299,4 +343,39 @@ impl Creation {
             _ => Err(Error::Unavailable),
         }
     }
+}
+
+/// Uses the same live, account-scoped projection as the account overview.
+async fn roster(
+    pool: &PgPool,
+    account: Uuid,
+    settings: lcfa::Settings,
+) -> Option<Vec<lcfa::CharacterSummary>> {
+    let account = lcfa::AccountId::parse(&account.to_string()).ok()?;
+    let now = i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()).ok()?;
+    let projection = lcfa::Projection::new(
+        pool.clone(),
+        settings,
+        Arc::new(overview::Accounts(pool.clone())),
+    );
+    projection
+        .list_characters(account, now)
+        .await
+        .ok()
+        .filter(|view| view.state == lcfa::ReadState::Ready)
+        .map(|view| view.characters)
+}
+
+pub(crate) async fn recent_requests(
+    pool: &PgPool,
+    account: Uuid,
+) -> Result<Vec<(Uuid, String)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT id, intent_json::jsonb->>'requested_name'
+         FROM character_commands WHERE account_id=$1 AND command='CreateCharacter'
+         ORDER BY source_revision DESC LIMIT 10",
+    )
+    .bind(account)
+    .fetch_all(pool)
+    .await
 }

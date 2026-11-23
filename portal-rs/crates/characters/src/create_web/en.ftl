@@ -42,3 +42,6 @@ any = Any
 apply = Filter worlds
 filter-invalid = Choose valid world filters.
 no-worlds = No worlds match these filters. Change the filters to continue.
+created-visible = Game confirmed creation. Your character is now in the account roster.
+open-roster = Open character roster
+roster-unavailable = The character roster is unavailable.

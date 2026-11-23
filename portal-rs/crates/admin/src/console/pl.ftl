@@ -74,3 +74,11 @@ cancelled = Zapytanie anulowane
 
 game-read-invalid-target = Wybrany cel lub filtry są niezgodne z tym odczytem danych gry.
 game-read-character-online = Postać musi być offline. Wyloguj się z postaci i spróbuj ponownie.
+creation-status = Tworzenie postaci
+creation-issuance = Wydawanie poleceń z przeglądarki
+creation-exchange = Ustawienia wymiany z grą dla poleceń z przeglądarki
+creation-configured = Skonfigurowano
+creation-pending = Prośby oczekujące na potwierdzenie
+creation-expired = Oczekujące na potwierdzenie po upływie ważności polecenia
+creation-committed = Potwierdzenia utworzenia z ostatnich 24 godzin
+creation-rejected = Potwierdzenia odrzucenia z ostatnich 24 godzin

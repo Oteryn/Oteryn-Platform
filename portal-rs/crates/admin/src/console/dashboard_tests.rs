@@ -519,6 +519,21 @@ async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
     let actor = db.staff().await;
     let alarm:Uuid=sqlx::query_scalar("INSERT INTO audit_log(actor,action,target,before,after,request_id) VALUES(NULL,'ops.playerdata_binding_conflict','binding-fingerprint','null',$1,$2) RETURNING id")
         .bind(serde_json::json!({"authority":"oteryn:journal:primary","family":"BANK","record_id":"019a0000-0000-7000-8000-000000000008"})).bind(Uuid::now_v7()).fetch_one(&db.pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO character_commands
+         (id, issuer_decision_id, request_key, command, account_id, binding_json, intent_json, state, receipt_json)
+         VALUES
+           (uuidv7(), uuidv7(), 'fixture:pending', 'CreateCharacter', $1, '{}', $2, 'PENDING', NULL),
+           (uuidv7(), uuidv7(), 'fixture:committed', 'CreateCharacter', $1, '{}', '{}', 'TERMINAL', $3),
+           (uuidv7(), uuidv7(), 'fixture:rejected', 'CreateCharacter', $1, '{}', '{}', 'TERMINAL', $4)",
+    )
+    .bind(actor)
+    .bind(r#"{"expires_at_source":"1"}"#)
+    .bind(r#"{"outcome":"COMMITTED"}"#)
+    .bind(r#"{"outcome":"REJECTED"}"#)
+    .execute(&db.pool)
+    .await
+    .unwrap();
     let page = body(
         get(
             app(db.pool.clone(), actor, fixture(3), true, true),
@@ -530,6 +545,15 @@ async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
     assert!(page.contains("IMMUTABLE_BINDING"));
     assert!(page.contains(&alarm.to_string()));
     assert!(page.contains("binding-fingerprint"));
+    for label in [
+        "Requests awaiting a receipt",
+        "Awaiting a receipt after intent expiry",
+        "Committed receipts in the last 24 hours",
+        "Rejected receipts in the last 24 hours",
+    ] {
+        assert!(page.contains(&format!("<dt>{label}</dt><dd>1</dd>")));
+    }
+
     let denied = body(
         get(
             app(db.pool.clone(), actor, fixture(3), false, true),
@@ -539,6 +563,7 @@ async fn postgres_operator_alarms_visible_offline_only_with_ops_permission() {
     )
     .await;
     assert!(!denied.contains(&alarm.to_string()));
+    assert!(!denied.contains("Requests awaiting a receipt"));
     db.close().await;
     eprintln!(
         "postgres_operator_alarms_visible_offline_only_with_ops_permission duration: {:?}",
