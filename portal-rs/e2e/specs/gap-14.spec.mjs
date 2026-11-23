@@ -3,7 +3,7 @@ import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
 import {test, expect} from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
-import {login, password, submit, pool} from '../helpers.mjs';
+import {csrfRejected, login, password, submit, pool, waitForLoginBudget} from '../helpers.mjs';
 
 function seedAccount(lang) {
   const account = {email: `account-actions-${crypto.randomUUID()}@example.invalid`, password: password(), locale: lang};
@@ -21,17 +21,21 @@ test('account actions are reachable and return to the correct account page', asy
   const prefix = `/${lang}`;
   const overview = '/account';
   const exportPath = `${prefix}/account/privacy/export`;
+  const exportAction = `${exportPath}?start=true`;
+  const sudo = destination => `${prefix}/account/sudo?return_to=${destination}`;
   const closurePath = `${prefix}/account/privacy/delete`;
   const sessions = `${prefix}/account/sessions`;
   const settings = `${prefix}/mfa`;
   const paths = [settings, `${settings}#remembered-devices`, `${prefix}/account/security/email`,
-    `${prefix}/account/passkeys`, sessions, exportPath, closurePath];
+    `${prefix}/account/passkeys`, sessions, exportAction, closurePath];
   const overviewLink = page.locator('main a[href="/account"]');
   const action = path => page.locator(`main a[href="${path}"]`);
   const navigate = async (link, path) => {
     await link.click();
-    await expect(page).toHaveURL(url => url.pathname + url.hash === path);
+    await expect(page).toHaveURL(url => url.pathname + url.search + url.hash === path);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
+    await expect(page.locator('header#portal-header')).toHaveCount(1);
+    await expect(page.locator('footer.foot')).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   };
 
@@ -44,6 +48,13 @@ test('account actions are reachable and return to the correct account page', asy
     await expect(menu.locator(`a[href="${route}"]`)).toBeVisible();
   }
   await navigate(menu.locator('a[href="/account"]'), overview);
+  const securityShortcut = page.locator('main nav').getByRole('link', {
+    name: lang === 'pl' ? 'Bezpieczeństwo' : 'Security',
+    exact: true,
+  });
+  await expect(securityShortcut).toHaveAttribute('href', `${prefix}/account/security`);
+  await navigate(securityShortcut, `${prefix}/password/change`);
+  await navigate(overviewLink, overview);
   for (const route of paths.slice(0, -2)) {
     await navigate(action(route), route);
     if (route === sessions) {
@@ -53,13 +64,19 @@ test('account actions are reachable and return to the correct account page', asy
     await navigate(overviewLink, overview);
   }
 
-  const sudo = (destination) => `${prefix}/account/sudo?return_to=${destination}`;
-  await navigate(action(exportPath), exportPath);
-  await action(sudo('export')).click();
+  const confirmation = await page.goto(exportPath);
+  expect(confirmation.status()).toBe(403);
+  expect(confirmation.headers()['cache-control']).toContain('no-store');
+  await expect(action(sudo('export'))).toBeVisible();
+  await expect(page.locator('main form')).toHaveCount(0);
+  await navigate(overviewLink, overview);
+  await navigate(action(exportAction), sudo('export'));
   const invalid = await page.request.get(`${prefix}/account/sudo?return_to=https://example.invalid`, {maxRedirects: 0});
   expect(invalid.status()).toBe(400);
   await submit(page, 'main form', {current_password: account.password});
   await expect(page).toHaveURL(url => url.pathname === exportPath);
+  await navigate(overviewLink, overview);
+  await navigate(action(exportAction), exportAction);
   const downloadEvent = page.waitForEvent('download');
   await page.locator('main form button').click();
   const download = await downloadEvent;
@@ -108,13 +125,27 @@ test('security actions update the signed-in account and provide a way back', asy
   });
   try {
     await clickAction(passkeys);
+    await waitForLoginBudget(2);
     await page.locator('#passkey-password').fill(account.password);
     await page.locator('[data-passkey="register"]').click();
     await expect(page).toHaveURL(url => url.pathname === loginPath);
     await login(page, lang, account);
     await page.goto('/account');
     await clickAction(passkeys);
-    await expect(page.locator('[data-remove]')).toHaveCount(1);
+    const remove = page.locator('[data-remove]');
+    await expect(remove).toHaveCount(1);
+    const endpoint = await remove.getAttribute('formaction');
+    await csrfRejected(page, endpoint, {password: account.password});
+    await waitForLoginBudget(2);
+    const token = await page.locator('#passkey-removal input[name="_csrf"]').inputValue();
+    const refused = await page.request.post(endpoint, {
+      form: {_csrf: token, password: 'incorrect password'},
+      headers: {origin: new URL(page.url()).origin},
+      maxRedirects: 0,
+    });
+    expect(refused.status()).toBe(403);
+    await page.reload();
+    await expect(remove).toHaveCount(1);
     await page.locator('#passkey-password').fill(account.password);
     await page.locator('[data-remove]').click();
     await expect(page).toHaveURL(url => url.pathname === loginPath);

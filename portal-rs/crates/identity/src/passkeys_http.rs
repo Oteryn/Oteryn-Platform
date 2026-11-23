@@ -1,9 +1,9 @@
 //! Browser composition adapter; identity does not depend on the web crate.
 use axum::{
-    Extension, Json, Router,
-    extract::{ConnectInfo, Path, State},
+    Extension, Form, Json, Router,
+    extract::{ConnectInfo, FromRequest, Path, Request, State},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use oteryn_identity::passkeys::{Completion, Error, Passkeys};
@@ -123,7 +123,7 @@ async fn page(
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
-    let lang = language(&lang)?.code();
+    let lang = language(&lang)?;
     let account = session.account_id().await;
     let ids = if let Some(id) = account {
         service.list(id).await.map_err(|_| StatusCode::FORBIDDEN)?
@@ -131,7 +131,7 @@ async fn page(
         Vec::new()
     };
     let page = Page {
-        lang,
+        lang: lang.code(),
         csrf: session
             .csrf_token()
             .await
@@ -333,28 +333,64 @@ async fn end_authenticate(
     }
     Ok(result)
 }
-async fn delete_key(
-    service: &Passkeys,
-    session: &BrowserSession,
-    binding: &str,
-    input: Password,
-    path: &std::collections::HashMap<String, String>,
-) -> Result<serde_json::Value, Error> {
-    let id = path
-        .get("id")
-        .and_then(|id| Uuid::parse_str(id).ok())
-        .ok_or(Error::Refused)?;
-    let account = confirm(service, session, input).await?;
-    service.remove_authorized(binding, account, id).await?;
-    session::rotate(session, PrivilegeChange::Logout).await?;
-    let lang = path.get("lang").ok_or(Error::Refused)?;
-    Ok(serde_json::json!({"ok":true, "location":format!("/{lang}/login")}))
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemovalForm {
+    _csrf: String,
+    password: String,
+}
+
+async fn remove(
+    State(service): State<Passkeys>,
+    Path((lang, id)): Path<(String, String)>,
+    Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    request: Request,
+) -> Response {
+    let Ok(lang) = language(&lang) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    if let Err(response) = charge(&service, &limiter, &session, peer, request.headers(), lang).await
+    {
+        return response;
+    }
+    let browser_form = request
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.split(';').next() == Some("application/x-www-form-urlencoded"));
+    let result = async {
+        let id = Uuid::parse_str(&id).map_err(|_| Error::Refused)?;
+        let input = if browser_form {
+            let Form(input) = Form::<RemovalForm>::from_request(request, &())
+                .await
+                .map_err(|_| Error::Refused)?;
+            Password {
+                password: input.password,
+            }
+        } else {
+            let Json(input) = Json::<Password>::from_request(request, &())
+                .await
+                .map_err(|_| Error::Refused)?;
+            input
+        };
+        let binding = session.csrf_token().await?;
+        let account = confirm(&service, &session, input).await?;
+        service.remove_authorized(&binding, account, id).await?;
+        session::rotate(&session, PrivilegeChange::Logout).await?;
+        Ok(serde_json::json!({"ok":true}))
+    }
+    .await;
+    if result.is_ok() && browser_form {
+        return Redirect::to(&format!("/{}/login", lang.code())).into_response();
+    }
+    refused(&service, &session, result).await
 }
 endpoint!(register_start, begin_register, Password);
 endpoint!(register_finish, end_register, Completion);
 endpoint!(authenticate_start, begin_authenticate, Empty);
 endpoint!(authenticate_finish, end_authenticate, Completion);
-endpoint!(remove, delete_key, Password);
 
 async fn headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
     let mut response = next.run(request).await;

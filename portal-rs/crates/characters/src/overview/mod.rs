@@ -54,6 +54,8 @@ struct Page {
     unavailable: String,
     shortcuts: String,
     security: String,
+    security_shortcut: Option<String>,
+    security_shortcut_label: String,
     security_actions: Vec<oteryn_ui::NavLink>,
     premium: String,
     balance: String,
@@ -236,6 +238,9 @@ async fn load(
         unavailable: t("unavailable"),
         shortcuts: t("shortcuts"),
         security: t("security"),
+        security_shortcut: oteryn_identity::navigation::sudo_enabled()
+            .then(|| oteryn_identity::navigation::SudoReturn::Security.path(lang)),
+        security_shortcut_label: t("security-shortcut"),
         security_actions: oteryn_identity::navigation::overview_actions(
             lang,
             oteryn_identity::passkeys::account_eligible(&status, verified, mfa_required),

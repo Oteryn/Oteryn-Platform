@@ -13,12 +13,14 @@ pub fn sudo_enabled() -> bool {
     enabled("OTERYN_ACCOUNT_CREDENTIALS")
 }
 
-pub fn export_enabled() -> bool {
-    crate::export::ExportConfig::configured().enabled
+pub fn export_action() -> Option<&'static str> {
+    (crate::export::ExportConfig::configured().enabled && sudo_enabled())
+        .then_some("account/privacy/export?start=true")
 }
 
 pub fn closure_enabled() -> bool {
-    crate::termination::Config::from_env().is_ok_and(|config| config.enabled)
+    enabled("PORTAL_ACCOUNT_CLOSURE_ENABLED")
+        && crate::termination::Config::from_env().is_ok_and(|config| config.enabled)
 }
 
 pub fn mfa_enabled() -> bool {
@@ -72,12 +74,6 @@ fn action_sections(registry: &mut Registry, pending_closure: bool) {
             "account/privacy",
         ),
         (
-            export_enabled(),
-            "account-export",
-            "shell-account-export",
-            "account/privacy/export",
-        ),
-        (
             pending_closure || closure_enabled(),
             "account-closure",
             if pending_closure {
@@ -89,6 +85,16 @@ fn action_sections(registry: &mut Registry, pending_closure: bool) {
         ),
     ] {
         registry.section(enabled, section, label, path, Group::Account, false);
+    }
+    if let Some(path) = export_action() {
+        registry.section(
+            true,
+            "account-export",
+            "shell-account-export",
+            path,
+            Group::Account,
+            false,
+        );
     }
 }
 

@@ -75,7 +75,7 @@ async fn private_response(request: Request, next: axum::middleware::Next) -> Res
 #[derive(Template)]
 #[template(
     source = r#"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/app.css"><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>{% if invalid %}<p role="alert">{{ error }}</p>{% endif %}<form method="post" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><label class="op-row"><input type="checkbox" name="public_account_association" value="1"{% if prefs.public_account_association %} checked{% endif %}>{{ association }}</label><label class="op-row"><input type="checkbox" name="public_status_visible" value="1"{% if prefs.public_status_visible %} checked{% endif %}>{{ status }}</label><label for="locale">{{ language }}</label><select class="op-input" id="locale" name="locale"><option value="pl"{% if prefs.locale == "pl" %} selected{% endif %}>Polski</option><option value="en"{% if prefs.locale == "en" %} selected{% endif %}>English</option></select><button class="op-button" type="submit">{{ save }}</button></form>
-{% if self.export_enabled() %}<p><a href="/{{ lang }}/account/privacy/export">{{ self.shell_text("shell-account-export") }}</a></p>{% endif %}
+{% if let Some(path) = self.export_action() %}<p><a href="/{{ lang }}/{{ path }}">{{ self.shell_text("shell-account-export") }}</a></p>{% endif %}
 {% if self.closure_available() %}<p><a href="/{{ lang }}/account/privacy/delete">{{ self.closure_label() }}</a></p>{% endif %}
 {% if self.overview_enabled() %}<p><a href="/account">{{ self.shell_text("shell-account-overview-back") }}</a></p>{% endif %}
 </main></body></html>"#,
@@ -103,8 +103,8 @@ impl Page {
         oteryn_identity::navigation::overview_enabled()
     }
 
-    fn export_enabled(&self) -> bool {
-        oteryn_identity::navigation::export_enabled()
+    fn export_action(&self) -> Option<&'static str> {
+        oteryn_identity::navigation::export_action()
     }
 
     fn closure_available(&self) -> bool {

@@ -1,13 +1,15 @@
 //! Browser adapter for personal-data exports.
 use crate::export::navigation::{self, SudoReturn};
-use crate::export::{ExportConfig, PRODUCER_DEADLINE, export_account, stream_download_until};
+use crate::export::{
+    ExportConfig, PRODUCER_DEADLINE, confirmation_access, export_account, stream_download_until,
+};
 use askama::Template;
 use axum::{
     Extension, Router,
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode, header},
     middleware,
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use oteryn_web::{
@@ -64,34 +66,44 @@ impl Confirmation {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct ConfirmationQuery {
+    #[serde(default)]
+    start: bool,
+}
+
 async fn confirmation(
     State(state): State<ExportState>,
     Extension(language): Extension<Language>,
     Extension(browser): Extension<BrowserSession>,
+    query: Result<Query<ConfirmationQuery>, axum::extract::rejection::QueryRejection>,
     headers: HeaderMap,
 ) -> Response {
+    let Ok(Query(query)) = query else {
+        return private_response(StatusCode::BAD_REQUEST.into_response());
+    };
     let session = session_cookie(&headers).unwrap_or_default();
-    let result = export_account(&state.pool, &state.config, session).await;
+    let result = confirmation_access(&state.pool, &state.config, session).await;
     let response = match result {
-        Ok(_) => match browser.csrf_token().await {
+        Ok(true) => match browser.csrf_token().await {
             Ok(csrf) => oteryn_web::render(&Confirmation {
                 language,
                 csrf: Some(csrf),
             }),
             Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
         },
-        Err(StatusCode::FORBIDDEN)
-            if navigation::sudo_enabled() && browser.account_id().await.is_some() =>
-        {
-            (
-                StatusCode::FORBIDDEN,
-                oteryn_web::render(&Confirmation {
-                    language,
-                    csrf: None,
-                }),
-            )
-                .into_response()
+        Ok(false) if query.start && navigation::sudo_enabled() => {
+            Redirect::to(&SudoReturn::Export.sudo_path(language.code())).into_response()
         }
+        Ok(false) if navigation::sudo_enabled() => (
+            StatusCode::FORBIDDEN,
+            oteryn_web::render(&Confirmation {
+                language,
+                csrf: None,
+            }),
+        )
+            .into_response(),
+        Ok(false) => StatusCode::FORBIDDEN.into_response(),
         Err(status) => status.into_response(),
     };
     private_response(response)

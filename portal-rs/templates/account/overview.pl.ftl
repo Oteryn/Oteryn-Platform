@@ -10,6 +10,7 @@ unavailable = Niedostępne
 linked = Aktualne powiązanie z grą
 shortcuts = Skróty
 security = Bezpieczeństwo i prywatność
+security-shortcut = Bezpieczeństwo
 premium = Premium
 balance = Saldo
 loyalty = Punkty lojalności
