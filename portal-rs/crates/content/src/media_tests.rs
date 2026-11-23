@@ -126,6 +126,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            Method::POST,
             Ok(Form(DeleteForm::default()))
         )
         .await
@@ -153,6 +154,7 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            Method::POST,
             Ok(Form(DeleteForm::default()))
         )
         .await
@@ -178,12 +180,17 @@ async fn postgres_media_atomic_storage_references_and_integrity() {
             Extension(context),
             Extension(auth.clone()),
             Path(id),
+            Method::POST,
             Ok(Form(DeleteForm::default())),
         ),
     )
     .await
     .unwrap()
     .unwrap();
+    assert_eq!(
+        read(&pool, id, false, false).await.err(),
+        Some(StatusCode::NOT_FOUND)
+    );
     news_replacement(&pool, &auth, context, &processed).await;
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
@@ -227,6 +234,7 @@ async fn news_replacement(
             Extension(context),
             Extension(auth.clone()),
             Path(original),
+            Method::POST,
             Ok(Form(DeleteForm {
                 replacement_id,
                 lang: None,
@@ -271,11 +279,41 @@ async fn news_replacement(
         .execute(pool)
         .await
         .unwrap();
+    sqlx::query("UPDATE media SET sha256=$2 WHERE id=$1")
+        .bind(replacement)
+        .bind(vec![0u8; 32])
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        remove(Some(replacement)).await.err(),
+        Some(StatusCode::SERVICE_UNAVAILABLE)
+    );
+    assert_eq!(attached().await.unwrap(), vec![original; 2]);
+    assert!(read(pool, original, false, false).await.is_ok());
+    sqlx::query("UPDATE media SET sha256=$2 WHERE id=$1")
+        .bind(replacement)
+        .bind(Sha256::digest(&image.content).to_vec())
+        .execute(pool)
+        .await
+        .unwrap();
     assert_eq!(
         remove(Some(replacement)).await.unwrap().status(),
         StatusCode::FOUND
     );
     assert_eq!(attached().await.unwrap(), vec![replacement; 2]);
+    let audited: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE actor=$1 AND action='cms.news_media_replaced'
+         AND before=jsonb_build_object('media_id', $2::uuid)
+         AND after=jsonb_build_object('media_id', $3::uuid)",
+    )
+    .bind(context.account)
+    .bind(original)
+    .bind(replacement)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(audited, 2);
     assert_eq!(
         read(pool, original, false, false).await.err(),
         Some(StatusCode::NOT_FOUND)
@@ -284,6 +322,7 @@ async fn news_replacement(
         read(pool, replacement, false, true).await.unwrap().status(),
         StatusCode::OK
     );
+    staff_library_view(pool, replacement).await;
 
     sqlx::query("UPDATE news SET published_at=NULL WHERE slug='media-published'")
         .execute(pool)
@@ -293,6 +332,43 @@ async fn news_replacement(
         read(pool, replacement, false, true).await.err(),
         Some(StatusCode::NOT_FOUND)
     );
+}
+
+async fn staff_library_view(pool: &PgPool, asset: Uuid) {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+
+    let actor = Uuid::now_v7();
+    let role: Uuid =
+        sqlx::query_scalar("INSERT INTO roles(key) VALUES('media_editor') RETURNING id")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.access'), ($1,'media.manage')")
+        .bind(role).execute(pool).await.unwrap();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(actor)
+        .bind(role)
+        .execute(pool)
+        .await
+        .unwrap();
+    let response = test_app(pool.clone(), actor)
+        .oneshot(
+            Request::get(format!("/admin/media?lang=en&q={asset}"))
+                .header("host", "staff.test")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = axum::body::to_bytes(response.into_body(), 100_000)
+        .await
+        .unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(html.contains("Replacement diagram"));
+    assert!(html.contains("News posts (2)"));
+    assert!(!html.contains("/admin/news/"));
 }
 
 #[tokio::test]
@@ -463,6 +539,23 @@ async fn browser_lifecycle(pool: &PgPool) {
             .status(),
         StatusCode::TOO_MANY_REQUESTS
     );
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::post(format!("/admin/media/{id}/delete"))
+                .header("host", "staff.test")
+                .header("origin", "https://staff.test")
+                .header("cookie", &cookie)
+                .header("x-csrf-token", csrf)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(read(pool, id, false, false).await.is_ok());
 
     let response = app
         .oneshot(

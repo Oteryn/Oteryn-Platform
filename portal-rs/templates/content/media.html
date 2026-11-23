@@ -44,23 +44,30 @@
     </details>
     <label for="asset-{{ item.id }}">{{ self.text("media-id") }}</label>
     <input class="op-input" id="asset-{{ item.id }}" value="{{ item.id }}" readonly>
+    {% if can_manage_news %}
     <a href="/admin/news/create?lang={{ lang }}&amp;media_id={{ item.id }}">{{ self.text("media-new-post") }}</a>
-    {% if !item.references.is_empty() || item.other_references > 0 %}
+    {% endif %}
+    {% if item.news_references > 0 || item.other_references > 0 %}
     <h2>{{ self.text("media-references") }}</h2>
     <ul>
       {% for reference in item.references %}
       <li><a href="/admin/news/{{ reference.id }}/edit?lang={{ lang }}">{{ reference.title }}</a></li>
       {% endfor %}
+      {% if can_manage_news && self.has_more_references(item) %}
+      <li><a href="/admin/news?lang={{ lang }}&amp;media_id={{ item.id }}">{{ self.text("media-all-news-references") }} ({{ item.news_references }})</a></li>
+      {% else if !can_manage_news && item.news_references > 0 %}
+      <li>{{ self.text("media-news-references") }} ({{ item.news_references }})</li>
+      {% endif %}
       {% if item.other_references > 0 %}
       <li>{{ self.text("media-other-reference") }} ({{ item.other_references }})</li>
       {% endif %}
     </ul>
     {% endif %}
-    {% if item.other_references == 0 %}
+    {% if item.other_references == 0 && (item.news_references == 0 || can_manage_news) %}
     <form class="op-stack" method="post" action="/admin/media/{{ item.id }}/delete">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <input type="hidden" name="lang" value="{{ lang }}">
-      {% if item.references.is_empty() %}
+      {% if item.news_references == 0 %}
       <button class="op-button">{{ self.text("media-delete") }}</button>
       {% else %}
       <label for="replacement-{{ item.id }}">{{ self.text("media-replacement") }}</label>

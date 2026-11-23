@@ -545,20 +545,15 @@ async fn postgres_pagination_language_and_caps() {
     )
     .unwrap();
     assert!(html.contains("English news"));
-    let context = CheckContext {
-        account: Uuid::now_v7(),
-        require_staff_mfa: true,
-        mfa_verified: true,
-        session_proof: None,
-    };
     for number in [100000, 4] {
         let q = Options {
             lang: Some("en".into()),
             page: Some(number),
+            media_id: None,
         };
         assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
         assert!(
-            !admin_index(State(pool.clone()), Extension(context), Query(q))
+            !admin_listing(&pool, q, false)
                 .await
                 .unwrap()
                 .0

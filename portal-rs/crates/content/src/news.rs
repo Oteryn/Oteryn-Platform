@@ -8,7 +8,7 @@ use axum::{
 };
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
-    rbac::{CheckContext, MutationAuthorization, Permission},
+    rbac::{CheckContext, MutationAuthorization, MutationCheck, Permission},
 };
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
@@ -68,6 +68,7 @@ const MAX_PAGE: i64 = 100000;
 struct Options {
     lang: Option<String>,
     page: Option<i64>,
+    media_id: Option<Uuid>,
 }
 impl Options {
     fn lang(&self) -> &str {
@@ -91,6 +92,7 @@ struct Input {
     #[serde(default)]
     expected_revision: String,
     media_id: Option<String>,
+    lang: Option<String>,
     slug: String,
     title: String,
     body: String,
@@ -264,7 +266,8 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
     let row = sqlx::query(
         "SELECT CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,
                 CASE WHEN $1='pl' THEN body_pl ELSE body END AS body,
-                m.id AS media_id, m.alt_text, least(m.width, 320) AS image_width
+                m.id AS media_id, m.alt_text,
+                least(m.width, greatest(1, round(m.width::numeric * 320 / greatest(m.width, m.height))::int)) AS image_width
          FROM news LEFT JOIN media m ON m.id=news.media_id
          WHERE published_at<=now() AND slug=$2 AND ($1='en' OR
              (translation_published_at<=now() AND translation_source_updated_at>=news.updated_at
@@ -309,24 +312,45 @@ struct Article {
 
 async fn admin_index(
     State(pool): State<PgPool>,
-    Extension(_): Extension<CheckContext>,
+    Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
+    let can_manage_media =
+        crate::media::can_manage(&pool, &auth, context, Permission::ManageMedia).await?;
+    admin_listing(&pool, q, can_manage_media).await
+}
+
+async fn admin_listing(
+    pool: &PgPool,
+    q: Options,
+    can_manage_media: bool,
+) -> Result<Html<String>, StatusCode> {
+    let lang = q.lang();
     let rows = sqlx::query(
-        "SELECT id,title FROM news ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
+        "SELECT id, CASE WHEN $3='pl' THEN coalesce(title_pl,title) ELSE title END AS title
+         FROM news WHERE ($2::uuid IS NULL OR media_id=$2)
+         ORDER BY updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
     .bind(q.offset(25)?)
-    .fetch_all(&pool)
+    .bind(q.media_id)
+    .bind(lang)
+    .fetch_all(pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.lang();
-    let messages = crate::media::messages(lang)?;
-    let library = crate::media::label(&messages, "media-news-library");
     let mut html = format!(
-        "<a href=\"/admin/news/create?lang={lang}\">{}</a><a href=\"/admin/media?lang={lang}\">{}</a>",
-        label(lang, "new"),
-        escape(&library)
+        "<div class=\"op-row\"><a href=\"/admin/news/create?lang={lang}\">{}</a>",
+        label(lang, "new")
     );
+    if can_manage_media {
+        let messages = crate::media::messages(lang)?;
+        let library = crate::media::label(&messages, "media-news-library");
+        html.push_str(&format!(
+            "<a href=\"/admin/media?lang={lang}\">{}</a>",
+            escape(&library)
+        ));
+    }
+    html.push_str("</div>");
     let has_next = rows.len() > 25 && q.page.unwrap_or(1) < MAX_PAGE;
     for row in rows.into_iter().take(25) {
         let id: Uuid = row.get("id");
@@ -336,8 +360,11 @@ async fn admin_index(
         ));
     }
     if has_next {
+        let filter = q
+            .media_id
+            .map_or_else(String::new, |id| format!("&amp;media_id={id}"));
         html.push_str(&format!(
-            "<a href=\"?page={}&amp;lang={lang}\">{}</a>",
+            "<a href=\"?page={}&amp;lang={lang}{filter}\">{}</a>",
             q.page.unwrap_or(1) + 1,
             label(lang, "next")
         ));
@@ -350,34 +377,38 @@ struct CreateOptions {
     media_id: Option<Uuid>,
 }
 async fn new(
-    Extension(_): Extension<CheckContext>,
+    State(pool): State<PgPool>,
+    Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Extension(session): Extension<BrowserSession>,
     Query(q): Query<CreateOptions>,
 ) -> Result<Html<String>, StatusCode> {
+    let can_manage_media =
+        crate::media::can_manage(&pool, &auth, context, Permission::ManageMedia).await?;
     form(
-        if q.lang.as_deref() == Some("en") {
-            "en"
-        } else {
-            "pl"
-        },
+        q.lang.as_deref(),
         None,
         Input {
             media_id: q.media_id.map(|id| id.to_string()),
             ..Input::default()
         },
         session.csrf_token().await.map_err(unavailable)?,
+        can_manage_media,
     )
 }
 async fn edit(
     State(pool): State<PgPool>,
-    Extension(_): Extension<CheckContext>,
+    Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
+    let can_manage_media =
+        crate::media::can_manage(&pool, &auth, context, Permission::ManageMedia).await?;
     let row=sqlx::query("SELECT media_id::text AS media_id,updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     form(
-        q.lang(),
+        q.lang.as_deref(),
         Some(id),
         Input {
             media_id: row.get("media_id"),
@@ -389,16 +420,20 @@ async fn edit(
             title_pl: row.get("title_pl"),
             body_pl: row.get("body_pl"),
             translation_published_at: row.get("translation_published_at"),
+            ..Input::default()
         },
         session.csrf_token().await.map_err(unavailable)?,
+        can_manage_media,
     )
 }
 fn form(
-    lang: &str,
+    language: Option<&str>,
     id: Option<Uuid>,
     input: Input,
     csrf: String,
+    can_manage_media: bool,
 ) -> Result<Html<String>, StatusCode> {
+    let lang = if language == Some("en") { "en" } else { "pl" };
     let action = id.map_or_else(
         || "/admin/news".to_owned(),
         |id| format!("/admin/news/{id}"),
@@ -407,6 +442,11 @@ fn form(
         "<form class=\"op-stack\" method=\"post\" action=\"{action}?lang={lang}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\">",
         escape(&csrf)
     );
+    if matches!(language, Some("pl" | "en")) {
+        html.push_str(&format!(
+            "<input type=\"hidden\" name=\"lang\" value=\"{lang}\">"
+        ));
+    }
     html.push_str(&format!(
         "<input type=\"hidden\" name=\"expected_revision\" value=\"{}\">",
         escape(&input.expected_revision)
@@ -447,13 +487,15 @@ fn form(
             )
         });
     }
-    let messages = crate::media::messages(lang)?;
-    let library = crate::media::label(&messages, "media-news-library");
-    let field = crate::media::label(&messages, "media-news-field");
-    html.push_str(&format!(
-        "<label for=\"media_id\">{}</label><input class=\"op-input\" id=\"media_id\" name=\"media_id\" maxlength=\"36\" value=\"{}\"><a href=\"/admin/media?lang={lang}\" target=\"_blank\" rel=\"noopener\">{}</a>",
-        escape(&field), escape(input.media_id.as_deref().unwrap_or_default()), escape(&library)
-    ));
+    if can_manage_media {
+        let messages = crate::media::messages(lang)?;
+        let library = crate::media::label(&messages, "media-news-library");
+        let field = crate::media::label(&messages, "media-news-field");
+        html.push_str(&format!(
+            "<label for=\"media_id\">{}</label><input class=\"op-input\" id=\"media_id\" name=\"media_id\" maxlength=\"36\" value=\"{}\"><a href=\"/admin/media?lang={lang}\" target=\"_blank\" rel=\"noopener\">{}</a>",
+            escape(&field), escape(input.media_id.as_deref().unwrap_or_default()), escape(&library)
+        ));
+    }
     html.push_str(&format!(
         "<button class=\"op-button\">{}</button></form>",
         label(lang, "save")
@@ -556,6 +598,13 @@ async fn save(
     if let Some(id) = id {
         verify_revision(&mut tx, id, &input.expected_revision).await?;
     }
+    let mut permissions = vec![Permission::Access, Permission::ManageNews];
+    if input.media_id.is_some() && before["media_id"] != json!(media_id) {
+        auth.check(&mut tx, context, Permission::ManageMedia)
+            .await
+            .map_err(crate::media::authorization_status)?;
+        permissions.push(Permission::ManageMedia);
+    }
     let action = if id.is_some() {
         "cms.news_updated"
     } else {
@@ -595,23 +644,20 @@ async fn save(
     )
     .await
     .map_err(unavailable)?;
-    crate::revalidate(
-        auth,
-        &mut tx,
-        context,
-        &[Permission::Access, Permission::ManageNews],
-    )
-    .await
-    .map_err(|error| match error {
-        oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
-        _ => StatusCode::SERVICE_UNAVAILABLE,
-    })?;
+    crate::revalidate(auth, &mut tx, context, &permissions)
+        .await
+        .map_err(crate::media::authorization_status)?;
     tx.commit().await.map_err(unavailable)?;
+    let locale = match input.lang.as_deref() {
+        Some("en") => "?lang=en",
+        Some("pl") => "?lang=pl",
+        _ => "",
+    };
     Ok((
         StatusCode::FOUND,
         [(
             axum::http::header::LOCATION,
-            format!("/admin/news/{id}/edit"),
+            format!("/admin/news/{id}/edit{locale}"),
         )],
     )
         .into_response())

@@ -3,7 +3,7 @@
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, Query, State, rejection::FormRejection},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -12,14 +12,16 @@ use fluent_bundle::{FluentBundle, FluentResource};
 use image::{GenericImageView, ImageFormat, ImageReader};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
-    rbac::{CheckContext, MutationAuthorization, Permission},
+    rbac::{CheckContext, MutationAuthorization, MutationCheck, Permission},
 };
+use oteryn_web::ratelimit::{PublicGameData, RateLimit};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::io::Cursor;
 use uuid::Uuid;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
+const REFERENCE_PREVIEW: i64 = 5;
 static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
@@ -214,6 +216,7 @@ struct Asset {
     alt: String,
     name: Option<String>,
     references: Vec<Reference>,
+    news_references: i64,
     other_references: i64,
     revision: String,
 }
@@ -234,11 +237,16 @@ struct MediaPage {
     messages: FluentBundle<FluentResource>,
     csrf: String,
     items: Vec<Asset>,
+    can_manage_news: bool,
 }
 
 impl MediaPage {
     fn text(&self, key: &str) -> String {
         label(&self.messages, key)
+    }
+
+    fn has_more_references(&self, asset: &Asset) -> bool {
+        asset.news_references > REFERENCE_PREVIEW
     }
 }
 
@@ -276,7 +284,8 @@ fn locale(lang: Option<&str>) -> &'static str {
 
 async fn index(
     State(pool): State<PgPool>,
-    Extension(_): Extension<CheckContext>,
+    Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
     Extension(session): Extension<oteryn_web::session::BrowserSession>,
     Query(options): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
@@ -290,8 +299,10 @@ async fn index(
     {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
+    let can_manage_news = can_manage(&pool, &auth, context, Permission::ManageNews).await?;
     let rows = sqlx::query(
         "SELECT m.id, m.alt_text, m.original_name, m.updated_at::text AS revision,
+                (SELECT count(*) FROM news WHERE media_id=m.id) AS news_references,
                 (SELECT count(*) FROM media_references WHERE media_id=m.id) AS other_references
          FROM media m
          WHERE $1='' OR strpos(lower(m.alt_text),lower($1))>0
@@ -311,32 +322,40 @@ async fn index(
             alt: row.get("alt_text"),
             name: row.get("original_name"),
             references: Vec::new(),
+            news_references: row.get("news_references"),
             other_references: row.get("other_references"),
             revision: row.get("revision"),
         })
         .collect();
-    let ids: Vec<_> = items.iter().map(|item| item.id).collect();
-    let references = sqlx::query(
-        "SELECT media_id, id, CASE WHEN $2='pl' THEN coalesce(title_pl,title) ELSE title END AS title
-         FROM news WHERE media_id=ANY($1) ORDER BY title,id",
-    )
-    .bind(&ids)
-    .bind(lang)
-    .fetch_all(&pool)
-    .await
-    .map_err(unavailable)?;
-    let mut by_asset = std::collections::HashMap::<Uuid, Vec<Reference>>::new();
-    for row in references {
-        by_asset
-            .entry(row.get("media_id"))
-            .or_default()
-            .push(Reference {
-                id: row.get("id"),
-                title: row.get("title"),
-            });
-    }
-    for item in &mut items {
-        item.references = by_asset.remove(&item.id).unwrap_or_default();
+    if can_manage_news {
+        let ids: Vec<_> = items.iter().map(|item| item.id).collect();
+        let references = sqlx::query(
+            "SELECT asset.id AS media_id, post.id, post.title
+             FROM unnest($1::uuid[]) AS asset(id)
+             CROSS JOIN LATERAL (
+                 SELECT id, CASE WHEN $2='pl' THEN coalesce(title_pl,title) ELSE title END AS title
+                 FROM news WHERE media_id=asset.id ORDER BY updated_at DESC,id DESC LIMIT $3
+             ) AS post",
+        )
+        .bind(&ids)
+        .bind(lang)
+        .bind(REFERENCE_PREVIEW)
+        .fetch_all(&pool)
+        .await
+        .map_err(unavailable)?;
+        let mut by_asset = std::collections::HashMap::<Uuid, Vec<Reference>>::new();
+        for row in references {
+            by_asset
+                .entry(row.get("media_id"))
+                .or_default()
+                .push(Reference {
+                    id: row.get("id"),
+                    title: row.get("title"),
+                });
+        }
+        for item in &mut items {
+            item.references = by_asset.remove(&item.id).unwrap_or_default();
+        }
     }
     let csrf = session.csrf_token().await.map_err(unavailable)?;
     let page = MediaPage {
@@ -348,8 +367,23 @@ async fn index(
         messages: messages(lang)?,
         csrf,
         items,
+        can_manage_news,
     };
     Ok(Html(page.render().map_err(unavailable)?))
+}
+
+pub(crate) async fn can_manage(
+    pool: &PgPool,
+    auth: &MutationAuthorization,
+    context: CheckContext,
+    permission: Permission,
+) -> Result<bool, StatusCode> {
+    let mut connection = pool.acquire().await.map_err(unavailable)?;
+    match auth.check(&mut connection, context, permission).await {
+        Ok(()) => Ok(true),
+        Err(oteryn_admin::rbac::Error::Denied) => Ok(false),
+        Err(error) => Err(authorization_status(error)),
+    }
 }
 async fn record(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -473,7 +507,7 @@ async fn upload(
         _ => StatusCode::SERVICE_UNAVAILABLE,
     })?;
     tx.commit().await.map_err(unavailable)?;
-    Ok(library_redirect(lang.as_deref()))
+    Ok(library_redirect(lang.as_deref(), None))
 }
 #[derive(serde::Deserialize)]
 struct AltForm {
@@ -551,7 +585,7 @@ async fn update_alt(
         .await
         .map_err(authorization_status)?;
     tx.commit().await.map_err(unavailable)?;
-    Ok(library_redirect(Some(&form.lang)))
+    Ok(library_redirect(Some(&form.lang), Some(id)))
 }
 
 fn validated_alt(alt: &str) -> Result<&str, StatusCode> {
@@ -561,11 +595,15 @@ fn validated_alt(alt: &str) -> Result<&str, StatusCode> {
     Ok(alt.trim())
 }
 
-fn library_redirect(lang: Option<&str>) -> Response {
+fn library_redirect(lang: Option<&str>, asset: Option<Uuid>) -> Response {
     let target = match lang {
         Some("en") => "/admin/media?lang=en",
         Some("pl") => "/admin/media?lang=pl",
         _ => "/admin/media",
+    };
+    let target = match asset {
+        Some(id) => format!("/admin/media?lang={}&q={id}", locale(lang)),
+        None => target.to_owned(),
     };
     (StatusCode::FOUND, [(header::LOCATION, target)]).into_response()
 }
@@ -621,8 +659,9 @@ async fn thumbnail(
 pub(crate) async fn published_content(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
+    _: RateLimit<PublicGameData>,
 ) -> Result<Response, StatusCode> {
-    read(&pool, id, false, true).await
+    read(&pool, id, true, true).await
 }
 async fn read(
     pool: &PgPool,
@@ -631,27 +670,23 @@ async fn read(
     published_only: bool,
 ) -> Result<Response, StatusCode> {
     let row = sqlx::query(
-        "SELECT mime_type,content,sha256,thumbnail,thumbnail_sha256 FROM media
+        "SELECT mime_type,
+                CASE WHEN $3 AND thumbnail IS NOT NULL THEN thumbnail ELSE content END AS bytes,
+                CASE WHEN $3 AND thumbnail IS NOT NULL THEN thumbnail_sha256 ELSE sha256 END AS hash
+         FROM media
          WHERE id=$1 AND (NOT $2 OR EXISTS (
              SELECT 1 FROM news WHERE media_id=$1 AND published_at<=now()
          ))",
     )
     .bind(id)
     .bind(published_only)
+    .bind(thumbnail)
     .fetch_optional(pool)
     .await
     .map_err(unavailable)?
     .ok_or(StatusCode::NOT_FOUND)?;
-    let variant: Option<Vec<u8>> = row.get("thumbnail");
-    let (bytes, hash): (Vec<u8>, Vec<u8>) = if thumbnail && variant.is_some() {
-        (
-            variant.ok_or(StatusCode::SERVICE_UNAVAILABLE)?,
-            row.get::<Option<Vec<u8>>, _>("thumbnail_sha256")
-                .ok_or(StatusCode::SERVICE_UNAVAILABLE)?,
-        )
-    } else {
-        (row.get("content"), row.get("sha256"))
-    };
+    let bytes: Vec<u8> = row.try_get("bytes").map_err(unavailable)?;
+    let hash: Vec<u8> = row.try_get("hash").map_err(unavailable)?;
     if Sha256::digest(&bytes).to_vec() != hash {
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
@@ -677,11 +712,14 @@ async fn delete(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
+    method: Method,
     form: Result<Form<DeleteForm>, FormRejection>,
 ) -> Result<Response, StatusCode> {
     let form = match form {
         Ok(Form(form)) => form,
-        Err(FormRejection::InvalidFormContentType(_)) => DeleteForm::default(),
+        Err(FormRejection::InvalidFormContentType(_)) if method == Method::DELETE => {
+            DeleteForm::default()
+        }
         Err(error) => return Err(error.into_response().status()),
     };
     let replacement = form.replacement_id;
@@ -722,23 +760,15 @@ async fn delete(
     )
     .await
     .map_err(authorization_status)?;
-    let row =
-        sqlx::query("SELECT content,sha256,thumbnail,thumbnail_sha256 FROM media WHERE id=$1")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(unavailable)?
-            .ok_or(StatusCode::NOT_FOUND)?;
-    let content: Vec<u8> = row.get("content");
-    let hash: Vec<u8> = row.get("sha256");
-    let thumbnail: Option<Vec<u8>> = row.get("thumbnail");
-    let thumbnail_hash: Option<Vec<u8>> = row.get("thumbnail_sha256");
-    if Sha256::digest(&content).to_vec() != hash
-        || thumbnail.as_ref().map(|b| Sha256::digest(b).to_vec()) != thumbnail_hash
-    {
-        return Err(StatusCode::SERVICE_UNAVAILABLE);
-    }
+    verify_asset(&mut tx, id).await?;
     if let Some(replacement) = replacement {
+        verify_asset(&mut tx, replacement).await.map_err(|status| {
+            if status == StatusCode::NOT_FOUND {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                status
+            }
+        })?;
         replace_in_news(&mut tx, context, id, replacement).await?;
     }
     let result = sqlx::query("DELETE FROM media WHERE id=$1")
@@ -762,10 +792,33 @@ async fn delete(
         .await
         .map_err(authorization_status)?;
     tx.commit().await.map_err(unavailable)?;
-    Ok(library_redirect(form.lang.as_deref()))
+    Ok(library_redirect(form.lang.as_deref(), None))
 }
 
-fn authorization_status(error: oteryn_admin::rbac::Error) -> StatusCode {
+async fn verify_asset(connection: &mut sqlx::PgConnection, id: Uuid) -> Result<(), StatusCode> {
+    let row =
+        sqlx::query("SELECT content,sha256,thumbnail,thumbnail_sha256 FROM media WHERE id=$1")
+            .bind(id)
+            .fetch_optional(connection)
+            .await
+            .map_err(unavailable)?
+            .ok_or(StatusCode::NOT_FOUND)?;
+    let content: Vec<u8> = row.get("content");
+    let hash: Vec<u8> = row.get("sha256");
+    let thumbnail: Option<Vec<u8>> = row.get("thumbnail");
+    let thumbnail_hash: Option<Vec<u8>> = row.get("thumbnail_sha256");
+    if Sha256::digest(&content).to_vec() != hash
+        || thumbnail
+            .as_ref()
+            .map(|bytes| Sha256::digest(bytes).to_vec())
+            != thumbnail_hash
+    {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    Ok(())
+}
+
+pub(crate) fn authorization_status(error: oteryn_admin::rbac::Error) -> StatusCode {
     match error {
         oteryn_admin::rbac::Error::Denied => StatusCode::FORBIDDEN,
         _ => StatusCode::SERVICE_UNAVAILABLE,
@@ -778,48 +831,29 @@ async fn replace_in_news(
     old: Uuid,
     replacement: Uuid,
 ) -> Result<(), StatusCode> {
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM media WHERE id=$1)")
-        .bind(replacement)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(unavailable)?;
-    if !exists {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    let changed: Vec<Uuid> = sqlx::query_scalar(
+    let changed = sqlx::query(
         "WITH revisions AS MATERIALIZED (
              SELECT id, greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp
              FROM news WHERE media_id=$1
+         ), changed AS (
+             UPDATE news SET media_id=$2, updated_at=revisions.stamp,
+                 translation_source_updated_at=CASE WHEN translation_source_updated_at>=updated_at
+                     THEN revisions.stamp ELSE translation_source_updated_at END
+             FROM revisions WHERE news.id=revisions.id RETURNING news.id
          )
-         UPDATE news SET media_id=$2, updated_at=revisions.stamp,
-             translation_source_updated_at=CASE WHEN translation_source_updated_at>=updated_at
-                 THEN revisions.stamp ELSE translation_source_updated_at END
-         FROM revisions WHERE news.id=revisions.id RETURNING news.id",
+         INSERT INTO audit_log (actor, action, target, before, after, request_id)
+         SELECT $3, 'cms.news_media_replaced', id::text,
+             jsonb_build_object('media_id', $1::uuid), jsonb_build_object('media_id', $2::uuid), uuidv7()
+         FROM changed",
     )
     .bind(old)
     .bind(replacement)
-    .fetch_all(&mut **tx)
+    .bind(context.account)
+    .execute(&mut **tx)
     .await
     .map_err(unavailable)?;
-    if changed.is_empty() {
+    if changed.rows_affected() == 0 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
-    for id in changed {
-        audit::append(
-            tx,
-            Entry {
-                context: AuditContext {
-                    actor: Some(context.account),
-                    request_id: Uuid::now_v7(),
-                },
-                action: "cms.news_media_replaced",
-                target: &id.to_string(),
-                before: json!({"media_id": old}),
-                after: json!({"media_id": replacement}),
-            },
-        )
-        .await
-        .map_err(unavailable)?;
     }
     Ok(())
 }
