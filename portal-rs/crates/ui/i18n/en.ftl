@@ -108,7 +108,6 @@ verify-login = Sign in
 register-errors = Please correct the fields below.
 
 rankings-title = Rankings
-rankings-as-of = Data as of
 rankings-world = World
 rankings-vocation = Vocation
 rankings-apply = Apply filters

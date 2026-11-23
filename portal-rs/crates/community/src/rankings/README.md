@@ -54,4 +54,4 @@ authorized epoch resync in preproduction, then stop publication and observe
 the 503 transition on the public page. Production activation requires Game
 and deployment-owner approval of the producer, freshness policy and transport.
 
-[Public projection contract](../contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md)
+[Public projection contract](../../../../../docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md)

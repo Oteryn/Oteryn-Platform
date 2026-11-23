@@ -1,13 +1,17 @@
 //! Public, privacy-filtered presentation of authoritative highscores snapshots.
 use askama::Template;
 use axum::{
-    Router,
-    extract::{Path, RawQuery, State},
+    Extension, Router,
+    extract::{Path, RawQuery, Request, State},
     http::{StatusCode, header},
+    middleware::{self, Next},
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use oteryn_web::Language;
+use oteryn_web::{
+    Language,
+    ratelimit::{self, ClientSource, Keys, NamedPolicy, RateLimiter},
+};
 use serde::Deserialize;
 use sqlx::{PgPool, Row};
 use std::{future::Future, pin::Pin, sync::Arc};
@@ -61,12 +65,44 @@ struct Rankings {
 }
 /// Off by default; enabling this flag cannot bypass the privacy adapter.
 pub fn configured_router(db: PgPool) -> Router {
-    router(
+    let enabled = std::env::var("PORTAL_PUBLIC_RANKINGS_ENABLED").as_deref() == Ok("true");
+    let rankings = router(
         db.clone(),
-        std::env::var("PORTAL_PUBLIC_RANKINGS_ENABLED").as_deref() == Ok("true"),
-        Arc::new(crate::privacy::Authority::configured(db)),
-    )
+        enabled,
+        Arc::new(crate::privacy::Authority::configured(db.clone())),
+    );
+    if !enabled {
+        return rankings;
+    }
+    rankings
+        .route_layer(middleware::from_fn(limit_rankings))
+        .route_layer(middleware::from_fn_with_state(
+            RateLimiter::new(db),
+            ratelimit::supply,
+        ))
 }
+
+async fn limit_rankings(
+    Extension(limiter): Extension<RateLimiter>,
+    Path((locale, _)): Path<(String, String)>,
+    ClientSource(ip): ClientSource,
+    request: Request,
+    next: Next,
+) -> Response {
+    let lang = match locale.as_str() {
+        "pl" => Language::Pl,
+        "en" => Language::En,
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    match limiter
+        .check(NamedPolicy::PublicGameData, &[Keys::source(ip)])
+        .await
+    {
+        Ok(()) => next.run(request).await,
+        Err(denial) => denial.response(lang, false),
+    }
+}
+
 pub fn router(db: PgPool, enabled: bool, visibility: Arc<dyn PublicVisibility>) -> Router {
     Router::new()
         .route("/{lang}/rankings/{kind}", get(handle))
@@ -299,7 +335,7 @@ async fn load_selected(
     category: u8,
     selected: Option<&str>,
 ) -> Result<(), Unavailable> {
-    page.worlds = worlds(&state.db, category, &page.vocation).await?;
+    page.worlds = worlds(&state.db, category, &page.vocation, selected.is_none()).await?;
     let world = match selected {
         Some(id) => page
             .worlds
@@ -309,7 +345,7 @@ async fn load_selected(
         None => page
             .worlds
             .iter()
-            .find(|(_, _, published)| *published)
+            .find(|(_, _, ready)| *ready)
             .or_else(|| page.worlds.first())
             .ok_or(Unavailable::MissingWorld)?,
     };
@@ -321,23 +357,50 @@ async fn worlds(
     db: &PgPool,
     category: u8,
     vocation: &str,
+    find_current: bool,
 ) -> Result<Vec<(String, String, bool)>, Unavailable> {
-    let worlds = sqlx::query_as(
-        "SELECT w.id::text, w.name, EXISTS (
-            SELECT 1 FROM public_snapshots s
-            JOIN public_projection_state p ON p.id=1 AND p.highest_epoch=s.epoch
-            WHERE s.family='highscores' AND NOT s.is_watermark
-              AND s.subject=w.id::text || ':' || $1 || ':' || $2
-         )
-         FROM world_status w ORDER BY w.name COLLATE \"C\", w.id LIMIT 257",
+    let records = sqlx::query(
+        "SELECT w.id::text AS id, w.name,
+                floor(extract(epoch FROM statement_timestamp()))::bigint AS now,
+                s.watermark AS observed, s.payload->>'computed_at' AS computed,
+                f.watermark AS complete_through
+         FROM world_status w
+         CROSS JOIN public_projection_state p
+         LEFT JOIN public_snapshots f ON $3 AND f.family='highscores'
+             AND f.subject='' AND f.is_watermark AND f.epoch=p.highest_epoch
+         LEFT JOIN public_snapshots s ON f.watermark IS NOT NULL
+             AND s.family='highscores' AND NOT s.is_watermark
+             AND s.epoch=p.highest_epoch AND s.subject=w.id::text || ':' || $1 || ':' || $2
+         WHERE p.id=1
+         ORDER BY w.name COLLATE \"C\", w.id LIMIT 257",
     )
     .bind(category.to_string())
     .bind(vocation)
+    .bind(find_current)
     .fetch_all(db)
     .await?;
-    if worlds.len() > 256 {
+    if records.len() > 256 {
         return Err(Unavailable::WorldRegistryLimit);
     }
+    let worlds = records
+        .into_iter()
+        .map(|record| {
+            let complete_through = record.try_get("complete_through")?;
+            let observed = record.try_get("observed")?;
+            let computed: Option<String> = record.try_get("computed")?;
+            let ready = match (complete_through, observed, computed) {
+                (Some(complete_through), Some(observed), Some(computed)) => {
+                    let now = record.try_get("now")?;
+                    watermark_is_current(now, complete_through)
+                        && computed.parse::<i64>().is_ok_and(|computed| {
+                            snapshot_is_current(now, complete_through, observed, computed)
+                        })
+                }
+                _ => false,
+            };
+            Ok((record.try_get("id")?, record.try_get("name")?, ready))
+        })
+        .collect::<Result<_, sqlx::Error>>()?;
     Ok(worlds)
 }
 
@@ -437,6 +500,15 @@ const WATERMARK_MAX_AGE: i64 = 29;
 const SNAPSHOT_MAX_AGE: i64 = 299;
 const CLOCK_UNCERTAINTY: i64 = 1;
 
+fn watermark_is_current(now: i64, complete_through: i64) -> bool {
+    (now - WATERMARK_MAX_AGE..=now + CLOCK_UNCERTAINTY).contains(&complete_through)
+}
+
+fn snapshot_is_current(now: i64, complete_through: i64, observed: i64, computed: i64) -> bool {
+    observed <= complete_through
+        && (now - SNAPSHOT_MAX_AGE..=observed.min(now + CLOCK_UNCERTAINTY)).contains(&computed)
+}
+
 #[derive(Debug)]
 enum Unavailable {
     WorldRegistryLimit,
@@ -495,7 +567,7 @@ impl RankingCut {
             .try_get::<Option<i64>, _>("complete_through")?
             .ok_or(Unavailable::MissingWatermark)?;
         let now: i64 = row.try_get("now")?;
-        if !(now - WATERMARK_MAX_AGE..=now + CLOCK_UNCERTAINTY).contains(&complete_through) {
+        if !watermark_is_current(now, complete_through) {
             return Err(Unavailable::StaleWatermark);
         }
         let observed = row
@@ -506,9 +578,7 @@ impl RankingCut {
             .as_str()
             .and_then(|value| value.parse::<i64>().ok())
             .ok_or(Unavailable::InvalidSnapshot)?;
-        if !(now - SNAPSHOT_MAX_AGE..=observed.min(now + CLOCK_UNCERTAINTY)).contains(&computed)
-            || observed > complete_through
-        {
+        if !snapshot_is_current(now, complete_through, observed, computed) {
             return Err(Unavailable::StaleSnapshot);
         }
         Ok(Self {
@@ -555,7 +625,7 @@ impl RankingCut {
         Ok(())
     }
 }
-/// Top visible characters of the first registered world's level ranking.
+/// Top visible characters from the first world with a current level ranking.
 pub async fn home_top(
     db: &PgPool,
     visibility: &dyn PublicVisibility,
@@ -579,10 +649,10 @@ async fn home_top_inner(
     profiles: bool,
 ) -> Result<(Vec<oteryn_ui::HomeRank>, String), Unavailable> {
     let privacy_cut = crate::privacy::Cut::read(db).await?;
-    let worlds = worlds(db, 1, "0").await?;
+    let worlds = worlds(db, 1, "0", true).await?;
     let (world, _, _) = worlds
         .iter()
-        .find(|(_, _, published)| *published)
+        .find(|(_, _, ready)| *ready)
         .ok_or(Unavailable::MissingSnapshot)?;
     let subject = format!("{world}:1:0");
     let cut = RankingCut::read(db, &subject).await?;

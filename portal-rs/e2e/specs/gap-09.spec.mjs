@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { pool } from '../helpers.mjs';
+import { assertShell } from '../shell.mjs';
 import { messages, missingId, probe, seedWorld, visit } from '../public-depth-helpers.mjs';
 
 function fixtureId() {
@@ -26,9 +27,17 @@ test('a visitor picks a world, skill and vocation and sees the published ties', 
   try {
     await page.goto(`/${lang}/`);
     const path = `/${lang}/rankings/experience`;
-    const link = page.locator(`header a[href="${path}"]`).first();
-    await expect(link).toHaveAttribute('href', path);
-    await visit(page, await link.getAttribute('href'), 503, { lang, message: t['rankings-unavailable'] });
+    if (info.project.use.viewport.width <= 960) await page.locator('#portal-menu-toggle').click();
+    await page.locator('#portal-community-button').click();
+    const link = page.locator(`#portal-community-panel a[href="${path}"]`);
+    const [cold] = await Promise.all([
+      page.waitForResponse(reply => reply.request().isNavigationRequest() && new URL(reply.url()).pathname === path),
+      link.click(),
+    ]);
+    expect(cold.status()).toBe(503);
+    expect(cold.headers()['cache-control']).toContain('no-store');
+    await expect(page.locator('main')).toContainText(t['rankings-unavailable']);
+    await assertShell(page, { status: 503 });
 
     const [state] = (await db.query('SELECT highest_epoch::text FROM public_projection_state WHERE id=1')).rows;
     publicEpochBefore = state.highest_epoch;
@@ -90,7 +99,7 @@ test('a visitor picks a world, skill and vocation and sees the published ties', 
     await expect(page.locator('tbody th')).toHaveText(['2', '2', '4']);
     await expect(page.locator('tbody tr td:first-of-type')).toHaveText(rows.slice(1).map(row => row.name));
     await expect(page.locator('main time')).toHaveAttribute('datetime', new Date(now * 1000).toISOString().replace('.000Z', 'Z'));
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await assertShell(page);
 
     const selected = `/${lang}/rankings/magic?world=${world.id}&vocation=1`;
     await probe(page, `${selected}&page=21`, 400, { lang, message: t['rankings-bad-query'] });
@@ -128,6 +137,20 @@ test('a visitor picks a world, skill and vocation and sees the published ties', 
       await db.query('DELETE FROM world_status WHERE id=$1', [world.id]);
     } finally {
       await db.end();
+    }
+  }
+});
+
+test('i18n-parity for public rankings', () => {
+  const keys = locale => Object.keys(messages('crates/ui/i18n', locale))
+    .filter(key => key.startsWith('rankings-'))
+    .sort();
+  expect(keys('pl')).toEqual(keys('en'));
+  for (const locale of ['pl', 'en']) {
+    const catalogue = messages('crates/ui/i18n', locale);
+    for (const key of ['rankings-computed-at', 'rankings-world', 'rankings-category', 'rankings-vocation',
+      'rankings-empty', 'rankings-unavailable', 'rankings-bad-query', 'rankings-not-found']) {
+      expect(catalogue[key], `${locale} ${key}`).toBeTruthy();
     }
   }
 });

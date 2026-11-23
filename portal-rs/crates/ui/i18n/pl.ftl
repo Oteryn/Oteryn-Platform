@@ -108,7 +108,6 @@ verify-login = Zaloguj się
 register-errors = Popraw poniższe pola.
 
 rankings-title = Rankingi
-rankings-as-of = Dane na dzień
 rankings-world = Świat
 rankings-vocation = Profesja
 rankings-apply = Zastosuj filtry

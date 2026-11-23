@@ -439,3 +439,32 @@ async fn database_rankings_require_a_recent_publication_cut() -> TestResult {
     }
     Ok(())
 }
+
+#[tokio::test]
+async fn default_ranking_selects_a_world_with_current_results() -> TestResult {
+    let (pool, db, schema) = seeded().await?.ok_or("PostgreSQL required")?;
+    sqlx::query(
+        "UPDATE public_snapshots SET payload=jsonb_set(payload,'{computed_at}',to_jsonb('1'::text))
+         WHERE family='highscores' AND NOT is_watermark AND subject=$1",
+    )
+    .bind(format!("{WORLD}:1:0"))
+    .execute(&db)
+    .await?;
+
+    let app = rankings::router(db.clone(), true, Arc::new(Visible));
+    let (status, html) = send(app.clone(), "/en/rankings/level").await?;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(&format!("value=\"{OTHER}\" selected")));
+    assert!(html.contains("Other2"));
+    assert_eq!(
+        send(app, &format!("/en/rankings/level?world={WORLD}"))
+            .await?
+            .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let (home, _) = rankings::home_top(&db, &Visible, oteryn_web::Language::En, 5, false)
+        .await
+        .map_err(|_| "home ranking unavailable")?;
+    assert_eq!(home.first().map(|row| row.name.as_str()), Some("Other2"));
+    cleanup(pool, db, schema).await
+}
