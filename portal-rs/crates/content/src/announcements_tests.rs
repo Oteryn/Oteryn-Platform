@@ -185,7 +185,16 @@ async fn postgres_announcements_and_today() {
     }
     let cards = crate::today::cards(&pool, "en", at).await;
     assert_eq!(cards[2].items[0].title, "active-event");
-    sqlx::raw_sql("INSERT INTO pages(id,slug) VALUES(uuidv7(),'support'); INSERT INTO editorial_pages(page_id,locale,title,body,published_at) SELECT id,'en','Assistance dragon','Help body',now() FROM pages WHERE slug='support'").execute(&pool).await.unwrap();
+    let updated = sqlx::query(
+        "UPDATE editorial_pages e
+         SET title = 'Assistance dragon', body = 'Help body'
+         FROM pages p
+         WHERE e.page_id = p.id AND p.slug = 'support' AND e.locale = 'en'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(updated.rows_affected(), 1);
     let search = oteryn_web::search::routes(oteryn_web::search::SearchState {
         pool: pool.clone(),
         world: None,

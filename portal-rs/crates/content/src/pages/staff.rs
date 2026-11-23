@@ -147,6 +147,7 @@ async fn index(
             slug_label: text(lang, "slug"),
             locale_label: text(lang, "locale"),
             create_label: text(lang, "create"),
+            faq_help: text(lang, "faq-editor-help"),
             rows,
         }),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -169,6 +170,7 @@ struct Listing {
     slug_label: String,
     locale_label: String,
     create_label: String,
+    faq_help: String,
     rows: Vec<(String, String)>,
 }
 async fn edit(

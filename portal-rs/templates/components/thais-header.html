@@ -105,7 +105,11 @@
         {% else %}
           <a class="om-top-link om-mobile-only" href="#status"><span class="om-label">{{ chrome.text("worlds-title") }}</span></a>
         {% endif %}
+        {% if let Some(link) = chrome.link("start") %}
+        <a class="om-top-link" href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}><span class="om-label">{{ link.label }}</span></a>
+        {% else %}
         <a class="om-top-link" href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac"><span class="om-label">{{ chrome.text("thais-nav-start") }}</span></a>
+        {% endif %}
       </div>
       <div class="om-tools">
         {% if chrome.signed_in() %}

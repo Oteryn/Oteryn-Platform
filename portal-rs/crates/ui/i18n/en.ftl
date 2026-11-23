@@ -157,6 +157,7 @@ shell-back = Back to home
 shell-news = News
 shell-wiki = Wiki
 shell-support = Support
+shell-faq = FAQ
 shell-privacy = Privacy policy
 shell-terms = Terms of service
 shell-events = Events

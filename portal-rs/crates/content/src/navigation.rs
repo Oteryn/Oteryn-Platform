@@ -3,6 +3,8 @@ use oteryn_ui::{Group, Registry};
 
 /// Register sections using the existing process enable/mount decisions.
 pub fn register(registry: &mut Registry) {
+    registry.section(true, "start", "thais-nav-start", "start", Group::Play, true);
+    registry.section(true, "faq", "shell-faq", "faq", Group::Community, true);
     registry.section(true, "news", "shell-news", "news", Group::Community, true);
     registry.section(
         true,

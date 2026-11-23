@@ -20,7 +20,11 @@
       <div class="foot-group">
         <h2>{{ chrome.text("thais-nav-world") }}</h2>
         <ul>
+          {% if let Some(link) = chrome.link("start") %}
+          <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
+          {% else %}
           <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac">{{ chrome.text("thais-nav-start") }}</a></li>
+          {% endif %}
           <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#profesje">{{ chrome.text("thais-nav-professions") }}</a></li>
           {% for key in ["wiki", "worlds"] %}
           {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
@@ -37,7 +41,7 @@
         </ul>
       </div>
       {% endif %}
-      {% if chrome.first_link("support,rules,server").is_some() %}
+      {% if chrome.first_link("support,faq,rules,server").is_some() %}
       <div class="foot-group">
         <h2>{{ chrome.text("thais-foot-player-help") }}</h2>
         <ul>
@@ -45,7 +49,7 @@
           <li><a href="/{{ chrome.lang }}/help">{{ chrome.text("shell-support") }}</a></li>
           <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ chrome.text("thais-foot-report") }}</a></li>
           {% endif %}
-          {% for key in ["rules", "server"] %}
+          {% for key in ["faq", "rules", "server"] %}
           {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
           {% endfor %}
         </ul>

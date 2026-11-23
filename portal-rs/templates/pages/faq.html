@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+  <main class="op-panel op-stack">
+    <h1>{{ title }}</h1>
+    {% if entries.is_empty() %}
+    <p>{{ empty }}</p>
+    {% else %}
+    <ul>
+      {% for (slug, question) in entries %}
+      <li><a href="/{{ lang }}/faq/{{ slug }}">{{ question }}</a></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if let Some(page) = previous %}
+    <a href="?page={{ page }}" rel="prev">{{ previous_label }}</a>
+    {% endif %}
+    {% if let Some(page) = next %}
+    <a href="?page={{ page }}" rel="next">{{ next_label }}</a>
+    {% endif %}
+  </main>
+</body>
+</html>
