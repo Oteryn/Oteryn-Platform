@@ -49,6 +49,9 @@ struct Page {
     lang: &'static str,
     labels: Vec<String>,
     unavailable: bool,
+    guild: String,
+    compare: String,
+    days: u8,
     cards: Vec<Card>,
 }
 struct Card {
@@ -117,7 +120,7 @@ async fn render(state: App, uri: axum::http::Uri, raw: Option<String>) -> Respon
     }
     let guild = query.guild.filter(|s| !s.is_empty());
     let compare = query.compare.filter(|s| !s.is_empty());
-    if compare.is_some() && guild.is_none() {
+    if compare.is_some() && (guild.is_none() || guild == compare) {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let result = async {
@@ -134,6 +137,7 @@ async fn render(state: App, uri: axum::http::Uri, raw: Option<String>) -> Respon
                 }
             }
             summaries.retain(|s| &s.guild.name == name || compare.as_ref() == Some(&s.guild.name));
+            summaries.sort_by_key(|s| &s.guild.name != name);
         }
         let end = OffsetDateTime::now_utc().date();
         let start: Date = end
@@ -170,6 +174,9 @@ async fn render(state: App, uri: axum::http::Uri, raw: Option<String>) -> Respon
         lang: if en { "en" } else { "pl" },
         labels: labels(en),
         unavailable,
+        guild: guild.unwrap_or_default(),
+        compare: compare.unwrap_or_default(),
+        days,
         cards: result.unwrap_or_default(),
     };
     match page.render() {

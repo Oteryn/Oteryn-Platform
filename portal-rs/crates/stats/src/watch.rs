@@ -4,9 +4,11 @@ use sqlx::PgPool;
 use std::{future::Future, pin::Pin, sync::Arc};
 use uuid::Uuid;
 
+mod access;
 pub mod http;
 #[cfg(test)]
 mod tests;
+mod web;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 pub type PolicyFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>;
@@ -128,8 +130,7 @@ impl Watches {
     /// Removal does not require the target to remain visible.
     pub async fn unsubscribe(&self, owner: Uuid, s: Subscription) -> Result<()> {
         self.check(owner, s)?;
-        sqlx::query("DELETE FROM stats_watches WHERE account_id=$1 AND target_kind=$2 AND target_id=$3 AND event_kind=$4")
-            .bind(owner).bind(s.target_kind.key()).bind(s.target_id).bind(s.event_kind.key()).execute(&self.pool).await?;
+        delete(&self.pool, owner, s).await?;
         Ok(())
     }
     pub async fn list(&self, owner: Uuid) -> Result<Vec<Subscription>> {
@@ -201,6 +202,17 @@ impl Watches {
         Ok(sent)
     }
 }
+async fn delete<'e>(
+    db: impl sqlx::Executor<'e, Database = sqlx::Postgres>,
+    owner: Uuid,
+    subscription: Subscription,
+) -> std::result::Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM stats_watches WHERE account_id=$1 AND target_kind=$2 AND target_id=$3 AND event_kind=$4")
+        .bind(owner).bind(subscription.target_kind.key()).bind(subscription.target_id)
+        .bind(subscription.event_kind.key()).execute(db).await?;
+    Ok(())
+}
+
 fn message(locale: Locale) -> Result<(String, String)> {
     use fluent_bundle::{FluentResource, concurrent::FluentBundle};
     let (language, source) = match locale {

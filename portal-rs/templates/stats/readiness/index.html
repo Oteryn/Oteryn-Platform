@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ text.label("title") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-stack">
+  <h1>{{ text.label("title") }}</h1>
+  {% for report in reports %}
+  <section class="op-card op-stack">
+    <h2>{% if let Some(path) = report.path %}<a href="/{{ lang }}/{{ path }}">{{ text.label(report.title) }}</a>{% else %}{{ text.label(report.title) }}{% endif %}</h2>
+    <p>{{ text.label(report.state) }} · {{ text.label(report.reason) }}</p>
+  </section>
+  {% endfor %}
+  <section class="op-card op-stack">
+    <h2>{{ text.label("watches") }}</h2>
+    <p>{{ text.label("unavailable") }} · {{ text.label("watch-source") }}</p>
+    {% if watches %}<p><a href="/{{ lang }}/account/stats-watches">{{ text.label("access") }}</a></p>
+    {% else %}<p>{{ text.label("access") }} · {{ text.label("off") }}</p>{% endif %}
+  </section>
+</main>
+</body>
+</html>
