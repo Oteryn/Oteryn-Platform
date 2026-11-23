@@ -932,10 +932,13 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
     let timer = tokio::spawn(async move {
         let entered = tokio::time::timeout(Duration::from_secs(5), storage_start.recv())
             .await
-            .expect("admission did not enter custody storage")
-            .expect("custody storage dropped before the write");
+            .map_err(|_| "admission did not enter custody storage")?
+            .ok_or("custody storage dropped before the write")?;
         // Another request prepares while the first holds the custody mutex.
-        concurrent.prepare().await?;
+        concurrent
+            .prepare()
+            .await
+            .map_err(|error| error.to_string())?;
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(250),
@@ -945,7 +948,7 @@ async fn wave2_05_stalled_custody_preserves_timer_and_request_deadline() -> Test
             .is_err(),
             "concurrent signing must await the custody permit"
         );
-        Ok::<_, Error>(entered.elapsed())
+        Ok::<_, String>(entered.elapsed())
     });
     let result = store::admit(
         &f.db.pool,
