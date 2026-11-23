@@ -833,8 +833,12 @@ async fn manage(
         peer,
         request.headers(),
         language,
-        (Some(actor.account.to_string()), None, None),
-        &[policy],
+        (
+            Some(actor.account.to_string()),
+            Some(format!("management:{}", actor.account)),
+            None,
+        ),
+        &[NamedPolicy::IdentityMfaChallengeIdentity, policy],
     )
     .await
     {

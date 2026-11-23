@@ -639,6 +639,26 @@ async fn postgres_mfa_management_proofs_and_credential_changes()
         .replacement_secret(&actor)
         .await?
         .ok_or("pending factor")?;
+    sqlx::query(
+        "UPDATE accounts SET native_security_generation=native_security_generation+1 WHERE id=$1",
+    )
+    .bind(id)
+    .execute(&db.pool)
+    .await?;
+    assert!(mfa.replacement_secret(&actor).await?.is_none());
+    assert!(
+        mfa.manage(&actor, ConfirmReplacement, "", &code(&secret, 0)?)
+            .await?
+            .is_none()
+    );
+    assert!(matches!(
+        mfa.manage(&actor, Replace, password, &initial[3]).await?,
+        Some(ManagementOutcome::ReplacementStarted)
+    ));
+    let secret = mfa
+        .replacement_secret(&actor)
+        .await?
+        .ok_or("pending factor")?;
     let Some(ManagementOutcome::Codes(replaced)) = mfa
         .manage(&actor, ConfirmReplacement, "", &code(&secret, 0)?)
         .await?

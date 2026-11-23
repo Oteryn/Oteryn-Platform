@@ -32,8 +32,18 @@ async fn pending(
     session_id: Uuid,
     generation: Uuid,
 ) -> Result<Option<Vec<u8>>, sqlx::Error> {
-    sqlx::query_scalar("SELECT secret FROM account_mfa_replacements WHERE session_id=$1 AND factor_generation=$2 AND expires_at>clock_timestamp()")
-        .bind(session_id).bind(generation).fetch_optional(conn).await
+    sqlx::query_scalar(
+        "SELECT r.secret FROM account_mfa_replacements r
+         JOIN web_sessions s ON s.session_id=r.session_id
+         JOIN accounts a ON a.id=s.account_id
+         WHERE r.session_id=$1 AND r.factor_generation=$2
+         AND r.authorization_generation=a.native_security_generation
+         AND r.expires_at>clock_timestamp()",
+    )
+    .bind(session_id)
+    .bind(generation)
+    .fetch_optional(conn)
+    .await
 }
 
 impl Mfa {
@@ -48,6 +58,7 @@ impl Mfa {
              JOIN account_mfa_totp m ON m.account_id=a.id AND m.generation=r.factor_generation
              WHERE s.id_hash=$1 AND a.id=$2 AND a.status='active' AND a.email_verified_at IS NOT NULL
              AND m.confirmed AND r.expires_at>clock_timestamp()
+             AND r.authorization_generation=a.native_security_generation
              AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp()
              AND (s.authorization_generation IS NULL OR s.authorization_generation=a.native_security_generation)",
         )
@@ -119,8 +130,19 @@ impl Mfa {
         let (outcome, event, notification) = match operation {
             Replace => {
                 let secret = self.encrypt(id, &Self::new_secret()?)?;
-                sqlx::query("INSERT INTO account_mfa_replacements(session_id,factor_generation,secret) VALUES($1,$2,$3) ON CONFLICT(session_id) DO UPDATE SET factor_generation=$2,secret=$3,expires_at=EXCLUDED.expires_at")
-                    .bind(session_id).bind(state.generation).bind(secret).execute(&mut *tx).await?;
+                sqlx::query(
+                    "INSERT INTO account_mfa_replacements(session_id,factor_generation,secret,authorization_generation)
+                     SELECT $1,$2,$3,native_security_generation FROM accounts WHERE id=$4
+                     ON CONFLICT(session_id) DO UPDATE SET factor_generation=EXCLUDED.factor_generation,
+                     secret=EXCLUDED.secret,authorization_generation=EXCLUDED.authorization_generation,
+                     expires_at=EXCLUDED.expires_at",
+                )
+                .bind(session_id)
+                .bind(state.generation)
+                .bind(secret)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
                 Self::audit(&mut tx, Some(id), "mfa.replacement_started").await?;
                 tx.commit().await?;
                 return Ok(Some(ManagementOutcome::ReplacementStarted));

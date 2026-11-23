@@ -1,7 +1,10 @@
 import {test, expect} from '../fixtures.mjs';
-import {register, login, submit, csrfRejected} from '../helpers.mjs';
+import {register, login, submit, password, pool} from '../helpers.mjs';
 import * as OTPAuth from 'otpauth';
+import {randomUUID} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
+import {assertShell} from '../shell.mjs';
 
 const form = (path) => `main form[action$="/mfa/${path}"]`;
 const recovery = (page) => page.locator('main textarea[readonly]');
@@ -65,9 +68,8 @@ test('manage two-factor authentication from account security', async ({page, bro
     await signInWithCode(other, lang, account, initialCodes[0], true);
     await signInWithCode(page, lang, account, initialCodes[1]);
     await page.goto(`/${lang}/mfa`);
-    await expectContentFits(page);
+    await assertShell(page);
 
-    await csrfRejected(page, `/${lang}/mfa/rotate`, {password, code: initialCodes[2]});
     await manage(page, 'rotate', {password, code: initialCodes[0]});
     await expect(page.locator('main [role=alert]')).toBeVisible();
     await manage(page, 'rotate', {password, code: initialCodes[2]});
@@ -86,7 +88,7 @@ test('manage two-factor authentication from account security', async ({page, bro
     await page.goto(`/${lang}/mfa`);
     await manage(page, 'replace', {password, code: rotated[1]});
     const newFactor = await authenticator(page);
-    await expectContentFits(page);
+    await assertShell(page);
     const confirm = page.locator(form('replace/confirm'));
     const fields = { _csrf: await confirm.locator('[name=_csrf]').inputValue(), code: 'invalid' };
     const malformed = await page.request.post(`/${lang}/mfa/replace/confirm`, {
@@ -124,6 +126,38 @@ test('manage two-factor authentication from account security', async ({page, bro
   } finally {
     await otherContext.close();
   }
+});
+
+test('account security changes share a request budget', async ({page}, info) => {
+  const locale = info.project.metadata.locale;
+  const account = {email: `mfa-${randomUUID()}@example.invalid`, password: password(), locale};
+  const seed = spawnSync(process.env.PORTAL_E2E_BINARY, ['seed', 'account', JSON.stringify(account)], {stdio: 'ignore'});
+  expect(seed.status, 'disposable account seed succeeded').toBe(0);
+  await login(page, locale, account);
+  const settings = `/${locale}/mfa`;
+  expect((await page.goto(settings)).status()).toBe(200);
+  const csrf = await page.locator(form('enroll')).locator('[name=_csrf]').inputValue();
+  const db = pool();
+  try {
+    await expect.poll(async () => {
+      const {rows} = await db.query('SELECT extract(second FROM clock_timestamp())::int AS elapsed');
+      return rows[0].elapsed;
+    }, {timeout: 35_000, intervals: [1000]}).toBeLessThan(35);
+  } finally {
+    await db.end();
+  }
+  const change = (operation) => page.request.post(`${settings}/${operation}`, {
+    form: {_csrf: csrf},
+    headers: {origin: new URL(page.url()).origin},
+    maxRedirects: 0,
+  });
+  for (let i = 0; i < 5; i++) {
+    expect((await change('disable')).status()).toBe(302);
+    expect((await change('rotate')).status()).toBe(302);
+  }
+  const limited = await change('rotate');
+  expect(limited.status()).toBe(429);
+  expect(limited.headers()['retry-after']).toMatch(/^[1-9]\d*$/);
 });
 
 test('i18n-parity for account security and its change notifications', async () => {
