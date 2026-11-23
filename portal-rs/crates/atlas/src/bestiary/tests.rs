@@ -150,6 +150,31 @@ fn recommendations_filters_and_grouped_locations() {
     assert_eq!(m.recommendations, vec!["rat"]);
     assert_eq!(m.entries[0].estimated_hours, Some(2.0));
     assert_eq!(m.entries[0].spawns.len(), 2);
+    let filters = Filters {
+        class: Some("other".into()),
+        difficulty: Some("easy".into()),
+        ..Default::default()
+    };
+    let other = Definition {
+        key: "other-creature".into(),
+        class: "other".into(),
+        difficulty: "hard".into(),
+        ..definition()
+    };
+    assert!(
+        build(
+            &[definition(), other],
+            &[spawn()],
+            &[progress(1)],
+            &rates,
+            20,
+            &filters,
+            1000,
+        )
+        .expect("filtered")
+        .entries
+        .is_empty()
+    );
     assert!(
         build(
             &[definition()],
