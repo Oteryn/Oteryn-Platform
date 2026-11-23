@@ -1,5 +1,5 @@
 Oracle staging qualification update
-Base for this patch is codex/staging-infra at 903b9bcecd6c5bd0d6591e58d993f2714c9e2dc9.
+Base for this patch is codex/staging-infra at a0e6cecd81c5a583c89510edbfec5cea9dc8cc89.
 Apply this patch from the root of that infrastructure checkout.
 
 The browser image supplies the exact revision's executable, static files,
@@ -11,6 +11,9 @@ The Compose changes give browser qualification a temporary PostgreSQL 18.6
 cluster. Browser and PostgreSQL share loopback on a separate internal network.
 The namespace allows the CI launcher's SMTP ports 465 and 587. PostgreSQL
 data uses a fresh anonymous volume. Keys and reports use bounded tmpfs.
+
+A default deployment builds only the runtime. An explicit browser request
+prepares the fixture stack and runs the selected spec or the full project.
 
 The deployment script generates independent credentials for that cluster,
 starts it before the browser and removes it after completion or timeout.
@@ -27,10 +30,10 @@ The infrastructure tests check loopback isolation, credential separation,
 full spec collection, the time budget and cleanup.
 
 diff --git a/deploy/oracle/README.md b/deploy/oracle/README.md
-index 59440cf..9984eff 100644
+index 59440cf..fe3d73d 100644
 --- a/deploy/oracle/README.md
 +++ b/deploy/oracle/README.md
-@@ -554,8 +554,8 @@ install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.y
+@@ -554,13 +554,15 @@ install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.y
 
  The host needs Python 3.11+, Git, OpenSSL, Docker Engine 28+ with BuildKit and
  Compose v2, at least four CPUs and 10 GiB RAM. The largest running staging
@@ -41,7 +44,14 @@ index 59440cf..9984eff 100644
  The CLI refuses a held production deployment lock or a pending production
  deployment when it starts, before building, and before replacing staging.
  Each check releases its shared read lock immediately.
-@@ -576,28 +576,28 @@ Keep the generated environment files and captured mail private.
+
+ ```sh
++python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha>
++python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> ''
+ python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs
+ python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs --pg-tests oteryn-db,oteryn-web
+ python3 /opt/oteryn-staging/staging-deploy.py status
+@@ -576,34 +578,36 @@ Keep the generated environment files and captured mail private.
 
  Each replacement recreates PostgreSQL, migrates it, installs the testing legal
  pages and seeds a disposable account through the portal CLI. The staging portal
@@ -78,17 +88,26 @@ index 59440cf..9984eff 100644
 +temporary PostgreSQL cluster share an isolated network namespace and never
 +connect to the tunnel-facing deployment. The synthetic Game producers and
 +payment fixture run there with throwaway keys. The launcher owns the flags,
-+legal pages, test CA, mail sink and seed data. With no spec filter Playwright
-+runs the full `pl-1440` project. The separate Portal RS E2E workflow covers all
-+four projects. The staging report retains counts, test names and failure types.
++legal pages, test CA, mail sink and seed data. A default deploy builds and
++starts the runtime without a test job. On the host CLI an explicit empty spec
++argument requests the full `pl-1440` project, and a spec path requests that file.
++The separate Portal RS E2E workflow covers all four projects. The staging
++report retains counts, test names and failure types.
 
  ### Staging from GitHub Actions
 
+ `oracle-staging.yml` deploys every push to a `staging/**` branch (and, by
+ dispatch, any eligible `codex/*` or `staging/*` head) and waits for the
+-Playwright result. It runs only on the third runner service in
++deployment result. A dispatch that supplies a spec also waits for that spec. It runs only on the third runner service in
+ `runners.compose.yml`, `oteryn-oracle-staging`, registered in its own org
+ runner group `staging-runners` with labels `oteryn-staging` and
+ `oteryn-oracle-staging`. That runner volume holds one key,
 diff --git a/deploy/oracle/staging-deploy.py b/deploy/oracle/staging-deploy.py
-index d258694..2477160 100644
+index f961892..8eeb17a 100644
 --- a/deploy/oracle/staging-deploy.py
 +++ b/deploy/oracle/staging-deploy.py
-@@ -52,9 +52,8 @@ OFF = (
+@@ -53,9 +53,8 @@ OFF = (
      'PORTAL_PLAYERDATA_G9_INGEST_ENABLED', 'PORTAL_PLAYERDATA_G10_INGEST_ENABLED',
      'PORTAL_PLAYERDATA_PROGRESS_INGEST_ENABLED', 'PORTAL_ACCOUNT_CLOSURE_ENABLED',
  )
@@ -100,7 +119,7 @@ index d258694..2477160 100644
  PUBLIC_FLAGS = (
      'OTERYN_ACCOUNT_BADGES_ENABLED', 'OTERYN_ACCOUNT_EXPORT_ENABLED',
      'OTERYN_ATLAS_ENABLED', 'OTERYN_ATLAS_BESTIARY_ENABLED', 'OTERYN_ATLAS_DELIVERY_ENABLED',
-@@ -74,33 +73,6 @@ ADMIN_FLAGS = (
+@@ -75,33 +74,6 @@ ADMIN_FLAGS = (
      'OTERYN_ADMIN_PANEL', 'OTERYN_ADMIN_PLAYERS', 'OTERYN_ADMIN_PLAYER_CHARACTERS',
      'OTERYN_ADMIN_CONSOLE', 'OTERYN_ADMIN_CONTROL',
  )
@@ -134,18 +153,44 @@ index d258694..2477160 100644
  # One staff account per built-in role (staff-<role>@example.invalid, plus
  # founder@example.invalid as platform_admin). Passwords are random and
  # discarded: each black-box tester takes over its own account through the
-@@ -274,8 +246,9 @@ def build_context(directory, pg=False):
+@@ -269,22 +241,27 @@ def verify_checkout(directory, sha):
+         raise Refusal('source checkout is dirty')
+
+
+-def build_context(directory, pg=False):
++def build_context(directory, pg=False, browser=True):
+     portal = directory / 'portal-rs'
+     e2e = portal / 'e2e'
      lock = e2e / 'package-lock.json'
      cargo_lock = portal / 'Cargo.lock'
-     paths = [portal, e2e, lock, cargo_lock, e2e / 'package.json']
-+    paths += [directory / name for name in ('docs', 'docs/contracts', 'docs/contracts/fixtures')]
+-    paths = [portal, e2e, lock, cargo_lock, e2e / 'package.json']
++    paths = [portal, cargo_lock]
++    if browser:
++        paths += [e2e, lock, e2e / 'package.json', directory / 'docs/contracts/fixtures']
++    if browser or pg:
++        paths += [directory / 'docs', directory / 'docs/contracts']
      if pg:
 -        paths += [directory / name for name in ('docs', 'docs/contracts', 'deploy', 'deploy/oracle')]
-+        paths += [directory / name for name in ('deploy', 'deploy/oracle')]
++        paths += [directory / 'deploy', directory / 'deploy/oracle']
      if any(path.is_symlink() for path in paths):
          raise Refusal('staging build inputs must be within the checkout')
-     packages = json.loads(lock.read_text())['packages']
-@@ -316,7 +289,8 @@ def build(directory, sha, target):
+-    packages = json.loads(lock.read_text())['packages']
+-    if packages['node_modules/@playwright/test']['version'] != PLAYWRIGHT_VERSION:
+-        raise Refusal('Playwright lockfile and installed browser image versions differ')
+-    if any(not package.get('resolved', '').startswith('https://registry.npmjs.org/')
+-           for name, package in packages.items() if name):
+-        raise Refusal('staging npm dependencies must use the public npm registry')
++    if browser:
++        packages = json.loads(lock.read_text())['packages']
++        if packages['node_modules/@playwright/test']['version'] != PLAYWRIGHT_VERSION:
++            raise Refusal('Playwright lockfile and installed browser image versions differ')
++        if any(not package.get('resolved', '').startswith('https://registry.npmjs.org/')
++               for name, package in packages.items() if name):
++            raise Refusal('staging npm dependencies must use the public npm registry')
+     if any(package.get('source', 'registry+https://github.com/rust-lang/crates.io-index')
+            != 'registry+https://github.com/rust-lang/crates.io-index'
+            for package in tomllib.loads(cargo_lock.read_text())['package']):
+@@ -317,7 +294,8 @@ def build(directory, sha, target):
              '--build-arg', 'CARGO_BUILD_JOBS=2', '--label', f'{REVISION}={sha}',
              '-f', str(ROOT / 'staging.Dockerfile'), '-t', image]
      if target == 'browser':
@@ -155,7 +200,7 @@ index d258694..2477160 100644
      elif target == 'builder':
          args += ['--build-context', f'contracts={directory / "docs/contracts"}',
                   '--build-context', f'oracle={directory / "deploy/oracle"}']
-@@ -366,7 +340,7 @@ def random_hex_key():
+@@ -367,7 +345,7 @@ def random_hex_key():
 
  def configure(directory, sha):
      db_password, smtp_password, test_password = (secrets.token_urlsafe(32) for _ in range(3))
@@ -164,7 +209,7 @@ index d258694..2477160 100644
      test_db = f'postgres://staging_tests:{test_password}@postgres:5432/{TEST_DB}'
      env_file(directory, 'compose.env', {
          'STAGING_IMAGE': image_tag(sha), 'STAGING_BROWSER': image_tag(sha, 'browser'),
-@@ -377,9 +351,6 @@ def configure(directory, sha):
+@@ -378,9 +356,6 @@ def configure(directory, sha):
      })
      portal = dict.fromkeys(OFF, 'false')
      portal.update({f'OTERYN_ACCOUNT_{flag}': 'true' for flag in ACCOUNT_FLAGS})
@@ -174,7 +219,7 @@ index d258694..2477160 100644
      portal.update({flag: 'true' for flag in PUBLIC_FLAGS + ADMIN_FLAGS})
      portal['OTERYN_ADMIN_HOST'] = ORIGIN.split('://', 1)[1]
      portal.update({
-@@ -408,20 +379,19 @@ def configure(directory, sha):
+@@ -409,20 +384,19 @@ def configure(directory, sha):
          'OTERYN_WEBAUTHN_RP_ID': host.split(':', 1)[0],
          'OTERYN_NOTIFY_UNSUBSCRIBE_URL': f'{origin}/en/unsubscribe',
      })
@@ -201,7 +246,7 @@ index d258694..2477160 100644
                   portal['OTERYN_MFA_KEY'], portal['OTERYN_RESET_DELIVERY_KEY'],
                   portal['OTERYN_NOTIFY_UNSUBSCRIBE_KEY']]
      return smtp_password, test_password, seed_password, sensitive
-@@ -440,15 +410,14 @@ def install_tls(directory, smtp_password):
+@@ -441,15 +415,14 @@ def install_tls(directory, smtp_password):
               '-subj', '/CN=Oracle Staging CA', '-addext', 'basicConstraints=critical,CA:TRUE',
               '-keyout', 'ca-key.pem', '-out', 'ca.pem'], cwd=tls)
          files = [('trust/ca.pem', (tls / 'ca.pem').read_bytes(), 0o444)]
@@ -225,7 +270,7 @@ index d258694..2477160 100644
          files.append(('mail/auth', f'portal:{smtp_password}\n'.encode(), 0o444))
          payload = io.BytesIO()
          with tarfile.open(fileobj=payload, mode='w') as archive:
-@@ -506,87 +475,95 @@ def replace_stack(directory, sha, smtp_password, seed_password):
+@@ -507,87 +480,95 @@ def replace_stack(directory, sha, smtp_password, seed_password):
      wait_ready()
 
 
@@ -393,7 +438,7 @@ index d258694..2477160 100644
  """
 
 
-@@ -635,17 +612,24 @@ def playwright_summary(result, sensitive):
+@@ -636,17 +617,24 @@ def playwright_summary(result, sensitive):
 
  def playwright(directory, spec, sensitive):
      # Playwright takes positional file filters as regexes. Match the literal spec.
@@ -421,6 +466,35 @@ index d258694..2477160 100644
      except subprocess.TimeoutExpired:
          run(['docker', 'container', 'rm', '--force', name], check=False)
          return None
+@@ -727,10 +715,17 @@ def deploy(directory, sha, spec, crates):
+         progress(directory, sha, 'qualifying source')
+         qualify(sha)
+         checkout = source(sha)
+-        build_context(checkout, pg=bool(crates))
++        browser_requested = spec != DEPLOY_ONLY
++        pg_requested = browser_requested and bool(crates)
++        build_context(checkout, pg=pg_requested, browser=browser_requested)
+         require_capacity()
+         production_idle()
+-        for target in ('runtime', 'browser', 'builder') if crates else ('runtime', 'browser'):
++        targets = ['runtime']
++        if browser_requested:
++            targets.append('browser')
++        if pg_requested:
++            targets.append('builder')
++        for target in targets:
+             progress(directory, sha, f'building {target}')
+             build(checkout, sha, target)
+         progress(directory, sha, 'starting fresh staging stack')
+@@ -746,7 +741,7 @@ def deploy(directory, sha, spec, crates):
+             progress(directory, sha, 'running Playwright')
+             browser_ok, lines = playwright(directory, spec, sensitive)
+             summary.extend(lines)
+-        if crates and spec != DEPLOY_ONLY:
++        if pg_requested:
+             progress(directory, sha, 'running PostgreSQL tests')
+             pg_ok, lines = pg_tests(directory, crates, test_password, sensitive)
+             summary.extend(lines)
 diff --git a/deploy/oracle/staging.Dockerfile b/deploy/oracle/staging.Dockerfile
 index 6d44a28..8e0d312 100644
 --- a/deploy/oracle/staging.Dockerfile
@@ -533,10 +607,19 @@ index 2dceef9..c65f194 100644
 -  browser_tls:
    pg_target:
 diff --git a/deploy/oracle/test_staging_deploy.py b/deploy/oracle/test_staging_deploy.py
-index f7a1fc9..66d5c4f 100644
+index 0c18b64..1eeadf0 100644
 --- a/deploy/oracle/test_staging_deploy.py
 +++ b/deploy/oracle/test_staging_deploy.py
-@@ -188,11 +188,25 @@ class StagingDeploy(unittest.TestCase):
+@@ -37,6 +37,8 @@ class StagingDeploy(unittest.TestCase):
+         self.assertEqual(staging.parse(['deploy', SHA, 'specs/foo.spec.mjs',
+                                         '--pg-tests', 'oteryn-db,oteryn-web']),
+                          ('deploy', SHA, 'specs/foo.spec.mjs', ['oteryn-db', 'oteryn-web']))
++        self.assertEqual(staging.parse(['deploy', SHA])[2], staging.DEPLOY_ONLY)
++        self.assertEqual(staging.parse(['deploy', SHA, ''])[2], '')
+         self.assertEqual(staging.parse(['status'])[0], 'status')
+         self.assertEqual(staging.parse(['logs'])[0], 'logs')
+         with patch.object(staging, 'production_idle') as idle, patch('sys.stderr', new=io.StringIO()):
+@@ -188,11 +190,25 @@ class StagingDeploy(unittest.TestCase):
                  self.assertGreater(int(service['mem_limit']), 0)
                  for volume in service.get('volumes', []):
                      self.assertEqual(volume['type'], 'volume')
@@ -566,7 +649,7 @@ index f7a1fc9..66d5c4f 100644
          self.assertIn('postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42',
                        services['postgres']['image'])
          self.assertEqual(services['mail']['environment']['MP_SMTP_REQUIRE_STARTTLS'], 'true')
-@@ -353,19 +367,21 @@ class StagingDeploy(unittest.TestCase):
+@@ -353,19 +369,21 @@ class StagingDeploy(unittest.TestCase):
          for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
              self.assertIn(option, self.staging.BROWSER)
 
@@ -597,7 +680,7 @@ index f7a1fc9..66d5c4f 100644
 
      def test_playwright_runs_one_project_within_the_cap(self):
          self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
-@@ -387,8 +403,14 @@ class StagingDeploy(unittest.TestCase):
+@@ -387,8 +405,14 @@ class StagingDeploy(unittest.TestCase):
          self.assertEqual(summary, ['Playwright passed 3, failed 1, skipped 2',
                                     'specs/a.spec.mjs: can register [en-390] — Expected [redacted]',
                                     'skipped 2 in specs/a.spec.mjs'])
@@ -614,7 +697,7 @@ index f7a1fc9..66d5c4f 100644
          report.update(suites=[], stats={'expected': 1, 'unexpected': 0, 'flaky': 0, 'skipped': 0})
          self.assertTrue(staging.playwright_summary(
              subprocess.CompletedProcess([], 0, stdout=json.dumps(report).encode()), [])[0])
-@@ -424,11 +446,13 @@ class StagingDeploy(unittest.TestCase):
+@@ -424,11 +448,13 @@ class StagingDeploy(unittest.TestCase):
      def test_timeout_removes_only_the_named_test_container(self):
          staging = self.staging
          timeout = subprocess.TimeoutExpired(['docker'], 3600)
@@ -630,3 +713,16 @@ index f7a1fc9..66d5c4f 100644
          self.assert_isolated([item.args[0] for item in command.call_args_list])
 
      def test_deploy_rechecks_boundaries_before_replacement_and_saves_both_results(self):
+@@ -469,9 +495,11 @@ class StagingDeploy(unittest.TestCase):
+                 sequence.attach_mock(method, name)
+             methods['source'].return_value = checkout
+             self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db']))
++            methods['build_context'].assert_called_once_with(checkout, pg=False, browser=False)
++            methods['build'].assert_called_once_with(checkout, SHA, 'runtime')
+         self.assertEqual([item[0] for item in sequence.mock_calls], [
+             'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
+-            'build', 'build', 'build', 'qualify', 'production_idle', 'replace_stack',
++            'build', 'qualify', 'production_idle', 'replace_stack',
+         ])
+         self.assertEqual((directory / 'summary.txt').read_text(), 'Deployed without test runs\n')
+         self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'passed')
