@@ -146,7 +146,7 @@ async fn host_flag_session_and_mfa_boundaries() {
 #[test]
 fn localized_responsive_labelled_template() {
     for lang in ["pl", "en"] {
-        let html = Page {
+        let mut page = Page {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
@@ -180,9 +180,8 @@ fn localized_responsive_labelled_template() {
             manage: true,
             next: None,
             invitations_label: None,
-        }
-        .render()
-        .unwrap();
+        };
+        let html = page.render().unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
         assert!(html.contains("href=\"/admin/moderation/reports\""));
@@ -232,6 +231,8 @@ fn localized_responsive_labelled_template() {
         )));
         assert!(!html.contains("<unsafe>"));
         assert!(html.contains("href=\"/admin/news\""));
+        page.pages_link = None;
+        let html = page.render().unwrap();
         assert!(!html.contains("href=\"/admin/pages\""));
         std::fs::write(format!("/tmp/t10b-{lang}.html"), &html).unwrap();
         assert!(!text(lang, "mfa").is_empty());
