@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="{{ lang.code() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ self.text("native-devices-title") }} · Oteryn</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack" id="main" tabindex="-1">
+<h1>{{ self.text("native-devices-title") }}</h1>
+<p>{{ self.text("native-devices-intro") }}</p>
+{% if revoked %}<p role="status">{{ self.text("native-devices-done") }}</p>{% endif %}
+{% if let Some(confirm) = confirm %}
+<p><a class="op-button op-button--secondary" href="{{ confirm }}">{{ self.text("native-devices-confirm") }}</a></p>
+{% endif %}
+{% if entries.is_empty() %}
+<p>{{ self.text("native-devices-empty") }}</p>
+{% else %}
+<ul class="op-stack">
+{% for entry in entries %}
+<li class="op-card op-stack" data-native-family="{{ entry.id }}">
+<h2>{{ self.text("native-devices-family") }} <code>{{ entry.id }}</code></h2>
+<dl>
+<dt>{{ self.text("native-devices-state") }}</dt><dd data-native-state="{{ entry.state().code() }}">{{ self.text(entry.state().label()) }}</dd>
+<dt>{{ self.text("native-devices-binding") }}</dt>
+<dd>{% if entry.bound %}{{ self.text("native-devices-bound") }}{% else %}{{ self.text("native-devices-unbound") }}{% endif %}</dd>
+<dt>{{ self.text("native-devices-enrolled") }}</dt><dd>{{ entry.enrolled }}</dd>
+<dt>{{ self.text("native-devices-expires") }}</dt><dd>{{ entry.expires }}</dd>
+</dl>
+{% if recent && entry.can_revoke() %}
+<form method="post" action="{{ action }}">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="family" value="{{ entry.id }}">
+<button class="op-button" type="submit">{{ self.text("native-devices-revoke") }}</button>
+</form>
+{% endif %}
+</li>
+{% endfor %}
+</ul>
+{% endif %}
+{% if let Some(cursor) = next %}<p><a href="{{ path }}?before={{ cursor }}">{{ self.text("native-devices-older") }}</a></p>{% endif %}
+{% if older %}<p><a href="{{ path }}">{{ self.text("native-devices-newest") }}</a></p>{% endif %}
+<section class="op-stack" aria-labelledby="native-enrollment">
+<h2 id="native-enrollment">{{ self.text("native-devices-service") }}</h2>
+<p data-native-enrollment>{{ self.text(lane) }}</p>
+<p>{{ self.text("native-devices-game") }} {{ lang.text("online-unavailable") }}</p>
+</section>
+<p><a href="/{{ lang.code() }}/account/security">{{ lang.text("shell-account-security") }}</a></p>
+</main>
+</body>
+</html>

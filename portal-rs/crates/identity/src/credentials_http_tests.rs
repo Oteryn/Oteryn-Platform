@@ -87,8 +87,22 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
             .map_err(|e| e.to_string())?,
         }),
     };
-    let app = router(service.clone());
     let cookie = format!("{}={raw}", session::COOKIE_NAME);
+    let disabled = router(Credentials {
+        enabled: false,
+        ..service.clone()
+    });
+    for prefix in ["", "/pl", "/en"] {
+        let path = format!("{prefix}/account/security/native-devices");
+        for method in ["GET", "POST"] {
+            let response = disabled
+                .clone()
+                .oneshot(request(method, &path, &cookie, &csrf, "")?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+    }
+    let app = router(service.clone());
     let malformed = "/en/account/sudo?return_to=https%3A%2F%2Fexample.invalid";
     for method in ["GET", "POST"] {
         let response = app
@@ -492,17 +506,22 @@ async fn audit3_sudo_trusted_proxy_shares_client_security_budget()
         .await?;
     sqlx::query("INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count) SELECT limiter_name,key_hash,window_start+interval '60 seconds',count FROM web_rate_limits ON CONFLICT DO NOTHING").execute(&db.pool).await?;
     let app = router(service).layer(Extension(limiter));
-    for (method, path) in [
-        ("POST", "/en/account/sudo"),
-        ("POST", "/en/password/change"),
-        ("PUT", "/en/password/change"),
+    for (method, path, body) in [
+        ("POST", "/en/account/sudo", "current_password=wrong"),
+        ("POST", "/en/password/change", "current_password=wrong"),
+        ("PUT", "/en/password/change", "current_password=wrong"),
+        (
+            "POST",
+            "/en/account/security/native-devices",
+            "family=invalid",
+        ),
     ] {
         let mut req = request(
             method,
             path,
             &format!("{}={raw}", session::COOKIE_NAME),
             &csrf,
-            "current_password=wrong",
+            body,
         )?;
         req.headers_mut()
             .insert("x-forwarded-for", "203.0.113.72".parse()?);

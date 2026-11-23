@@ -14,6 +14,8 @@ pub mod abuse;
 pub mod breach;
 
 pub mod credentials;
+#[cfg(test)]
+mod credentials_test_db;
 pub mod email_change;
 pub mod export;
 pub mod login;
@@ -45,3 +47,5 @@ mod native_recovery_test_support;
 pub mod mutation_actor;
 pub mod newsletter_mail;
 pub mod notification_preferences;
+
+pub mod native_devices;

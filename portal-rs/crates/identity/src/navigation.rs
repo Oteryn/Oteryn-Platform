@@ -98,6 +98,17 @@ fn action_sections(registry: &mut Registry, pending_closure: bool) {
     }
 }
 
+fn native_devices(registry: &mut Registry) {
+    registry.section(
+        sudo_enabled(),
+        "account-native-devices",
+        "shell-account-native-devices",
+        "account/security/native-devices",
+        Group::Account,
+        false,
+    );
+}
+
 pub fn register(registry: &mut Registry) {
     registry.section(
         overview_enabled(),
@@ -148,6 +159,7 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    native_devices(registry);
 }
 
 pub fn overview_actions(
@@ -157,6 +169,7 @@ pub fn overview_actions(
 ) -> Vec<NavLink> {
     let mut registry = Registry::default();
     action_sections(&mut registry, pending_closure);
+    native_devices(&mut registry);
     registry
         .chrome(
             lang,
@@ -176,6 +189,8 @@ pub enum SudoReturn {
     Security,
     Export,
     Closure,
+    #[serde(rename = "native-devices")]
+    NativeDevices,
 }
 
 impl SudoReturn {
@@ -184,6 +199,7 @@ impl SudoReturn {
             Self::Security => "account/security",
             Self::Export => "account/privacy/export",
             Self::Closure => "account/privacy/delete",
+            Self::NativeDevices => "account/security/native-devices",
         };
         format!("/{lang}/{path}")
     }
@@ -193,6 +209,7 @@ impl SudoReturn {
             Self::Security => "",
             Self::Export => "?return_to=export",
             Self::Closure => "?return_to=closure",
+            Self::NativeDevices => "?return_to=native-devices",
         }
     }
 

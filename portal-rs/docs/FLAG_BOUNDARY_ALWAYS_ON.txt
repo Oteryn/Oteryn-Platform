@@ -188,3 +188,9 @@ public P /{lang}/unsubscribe/confirm
 internal G /admin/public-projections
 native G /admin/public-projections
 public G /admin/public-projections
+public G /account/security/native-devices
+public G /en/account/security/native-devices
+public G /pl/account/security/native-devices
+public P /account/security/native-devices
+public P /en/account/security/native-devices
+public P /pl/account/security/native-devices

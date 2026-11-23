@@ -408,3 +408,4 @@ discovery-duplicate = The menu key or position is already in use.
 discovery-navigation = Editorial links
 rankings-computed-at = Ranking calculated at (UTC)
 shell-public-characters = Characters
+shell-account-native-devices = Native remembered devices
