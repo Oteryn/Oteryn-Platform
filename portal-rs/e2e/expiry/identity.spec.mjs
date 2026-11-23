@@ -1,4 +1,4 @@
-import { login, logout, submit, mailLink, password, seedPasswordRange, waitForLoginBudget } from '../helpers.mjs';
+import { exportOptions, login, logout, submit, mailLink, password, seedPasswordRange, waitForLoginBudget } from '../helpers.mjs';
 import { enrollMfa, unique } from '../staff-rbac-helpers.mjs';
 import { after, before, digest, expect, formPost, one, redirected, sweep, test, text } from './fixtures.mjs';
 
@@ -9,7 +9,7 @@ async function cookieDigest(context, name) {
 }
 
 const sessionDigest = context => cookieDigest(context, '__Host-oteryn_session');
-const loginTitle = lang => text(lang, 'Account security', 'Bezpieczeństwo konta');
+const loginTitle = lang => text(lang, 'Sign in', 'Zaloguj się');
 
 const sessionDeadlineUpdates = {
   idle: `UPDATE web_sessions SET idle_expires_at=clock_timestamp()+make_interval(secs=>$3)
@@ -57,7 +57,7 @@ for (const [kind, updateDeadline] of Object.entries(sessionDeadlineUpdates)) {
     expect(mutation.status()).toBe(403);
     await page.goto(path);
     await expect(page.locator('main h1')).toHaveText(loginTitle(lang));
-    await expect(page.locator('main form button')).toHaveText(text(lang, 'Sign in', 'Zaloguj się'));
+    await expect(page.locator('main form button')).toHaveText(loginTitle(lang));
     const expired = async () => (await db.query('SELECT session_id FROM web_sessions WHERE id_hash=$1', [hash])).rows;
     await sweep(db, 'cleanup.sessions', expired, []);
     expect(await one(db, `SELECT account_id FROM web_sessions
@@ -82,16 +82,22 @@ test('sudo expiration prevents export and account closure', async ({ page, conte
   const issued = await one(db, 'SELECT extract(epoch FROM sudo_until-updated_at)::float8 AS seconds FROM web_sessions WHERE id_hash=$1', [hash]);
   expect(issued.seconds).toBeGreaterThan(898);
   expect(issued.seconds).toBeLessThanOrEqual(900);
+  const download = await exportOptions(page, lang);
   expect((await page.goto(`/${lang}/account/privacy/delete`)).status()).toBe(200);
   await move(before);
-  const exported = await page.request.get(exportURL);
+  const exported = await page.request.post(exportURL, download);
   expect(exported.status()).toBe(200);
-  expect((await exported.text()).includes(account.email)).toBe(true);
+  expect(exported.headers()['content-disposition']).toBe('attachment; filename="account-data.json"');
+  const data = await exported.json();
+  expect(data.account?.id === account.id && data.account?.email === account.email).toBe(true);
 
   await move(after);
-  const refusal = await page.request.get(exportURL);
-  expect(refusal.status()).toBe(403);
-  expect((await refusal.text()).includes(account.email)).toBe(false);
+  const confirmation = await page.request.get(exportURL, { maxRedirects: 0 });
+  expect(confirmation.status()).toBe(403);
+  expect((await confirmation.text()).includes(account.email)).toBe(false);
+  const refusedDownload = await page.request.post(exportURL, download);
+  expect(refusedDownload.status()).toBe(403);
+  expect((await refusedDownload.text()).includes(account.email)).toBe(false);
   const closure = await formPost(page, 'main form', {
     current_password: account.password, confirmation: 'TERMINATE',
   });
