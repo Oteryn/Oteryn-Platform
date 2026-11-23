@@ -329,6 +329,10 @@ class StagingDeploy(unittest.TestCase):
                 patch.object(staging.time, 'sleep'), self.assertRaisesRegex(ValueError, 'deadline'):
             staging.wait_ready(1)
 
+    def test_playwright_keeps_no_failure_artifacts_in_the_bounded_tmp(self):
+        for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
+            self.assertIn(option, self.staging.BROWSER)
+
     def test_playwright_runs_one_project_within_the_cap(self):
         self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
 

@@ -518,7 +518,9 @@ async function start() {
     import base from '/workspace/e2e/playwright.config.mjs';
     import { chromium } from '/workspace/e2e/node_modules/playwright/index.mjs';
     export default {...base, testDir: '/workspace/e2e', outputDir: '/tmp/artifacts',
-      use: {...base.use, ignoreHTTPSErrors: false,
+      // Only the JSON report leaves the container: traces and screenshots of
+      // failures filled the 512 MB /tmp and crashed every later page.
+      use: {...base.use, ignoreHTTPSErrors: false, trace: 'off', screenshot: 'off', video: 'off',
         launchOptions: {...base.use.launchOptions, executablePath: chromium.executablePath()}}};
   `);
   // One project: all four run serially for over two hours, past the one-hour cap.
