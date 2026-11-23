@@ -54,10 +54,12 @@ async function seedPuzzles(page, target, catalog) {
         await client.query('BEGIN');
         await client.query('UPDATE world_active_version SET version_id=$1 WHERE singleton AND version_id=$2', [previous, version]);
         await client.query('DELETE FROM puzzles_answers WHERE puzzle_id=ANY($1)', [puzzleIds]);
-        // Remove only our own immutable fixtures. Both trigger changes are in
-        // one local transaction, so portal connections never see it disabled.
+        // Remove only our fixtures while both publication guards are disabled.
+        // Portal connections never see either guard disabled outside this transaction.
         await client.query('ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_immutable');
+        await client.query('ALTER TABLE puzzles_daily DISABLE TRIGGER puzzles_daily_staged_cutoff');
         await client.query('DELETE FROM puzzles_daily WHERE id=ANY($1)', [puzzleIds]);
+        await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_staged_cutoff');
         await client.query('ALTER TABLE puzzles_daily ENABLE TRIGGER puzzles_daily_immutable');
         await client.query('COMMIT');
       } finally {
