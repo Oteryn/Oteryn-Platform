@@ -1,5 +1,8 @@
 use super::{Config, Day, Error, read};
-use crate::store::Visibility;
+use crate::{
+    online::{self, CoveragePolicy, WorldTotal},
+    store::Visibility,
+};
 use askama::Template;
 use axum::{
     Router,
@@ -9,8 +12,8 @@ use axum::{
     routing::get,
 };
 use sqlx::PgPool;
-use std::sync::Arc;
-use time::Date;
+use std::{fmt, sync::Arc, time::Duration};
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 
 /// An unavailable privacy service denies the entire representation.
@@ -27,18 +30,50 @@ struct World {
     db: PgPool,
     config: Config,
     policy: Arc<dyn Policy>,
+    kills: Option<KillFeed>,
 }
+
+/// Accepted feed settings paired with independently qualified retained-set coverage.
+/// A live watermark alone cannot supply this coverage.
+#[derive(Clone)]
+pub struct KillFeed {
+    pub config: online::Config,
+    pub coverage: Arc<dyn CoveragePolicy>,
+}
+
+impl fmt::Debug for KillFeed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("KillFeed").finish_non_exhaustive()
+    }
+}
+
 pub fn router<S: Clone + Send + Sync + 'static>(
     db: PgPool,
     config: Config,
     policy: Arc<dyn Policy>,
 ) -> Router<S> {
+    router_with_kills(db, config, policy, None)
+}
+
+pub fn router_with_kills<S: Clone + Send + Sync + 'static>(
+    db: PgPool,
+    config: Config,
+    policy: Arc<dyn Policy>,
+    kills: Option<KillFeed>,
+) -> Router<S> {
     Router::new()
         .route("/stats/world", get(page))
         .route("/pl/stats/world", get(page))
         .route("/en/stats/world", get(page))
-        .with_state(World { db, config, policy })
+        .with_state(World {
+            db,
+            config,
+            policy,
+            kills,
+        })
 }
+/// G-8 revision 2 is proposed. Service configuration supplies no accepted
+/// world-kill coverage, even when the testing ingest switch is set.
 pub fn configured_router<S: Clone + Send + Sync + 'static>(db: PgPool) -> Router<S> {
     router(
         db.clone(),
@@ -55,15 +90,24 @@ struct Query {
     start: String,
     end: String,
 }
+struct KillDay {
+    date: Date,
+    total: Option<WorldTotal>,
+}
+
 #[derive(Template)]
 #[template(path = "stats/world/index.html", config = "src/world.askama.toml")]
 struct Page {
     lang: &'static str,
     labels: Vec<String>,
-    unavailable: bool,
+    observations_available: bool,
     days: Vec<Day>,
-    picker: bool,
-    worlds: Vec<(Uuid, String)>,
+    kills: Vec<KillDay>,
+    selected: bool,
+    invalid_filter: bool,
+    worlds: Vec<(Uuid, String, bool)>,
+    start: String,
+    end: String,
     today: String,
 }
 fn labels(en: bool) -> Vec<String> {
@@ -96,6 +140,11 @@ fn labels(en: bool) -> Vec<String> {
         "start",
         "end",
         "show",
+        "monsters",
+        "bosses",
+        "complete",
+        "provisional",
+        "invalid-filter",
     ]
     .iter()
     .map(|key| {
@@ -135,84 +184,89 @@ async fn page(
         if !state.config.enabled {
             return StatusCode::NOT_FOUND.into_response();
         }
-        if raw.as_deref().is_none_or(str::is_empty) {
-            let en = uri.path().starts_with("/en/");
-            let worlds: Result<Vec<(Uuid, String)>, _> = sqlx::query_as(
+        let now = OffsetDateTime::now_utc();
+        let today = now.date();
+        let requested = raw
+            .as_deref()
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| parse(raw, today))
+            .transpose();
+        let worlds = tokio::time::timeout(
+            Duration::from_secs(2),
+            sqlx::query_as::<_, (Uuid, String)>(
                 "SELECT id, name FROM world_status ORDER BY name COLLATE \"C\", id LIMIT 1001",
             )
-            .fetch_all(&state.db)
-            .await;
-            let worlds = worlds.unwrap_or_default();
-            if worlds.len() > 1000 {
-                return StatusCode::SERVICE_UNAVAILABLE.into_response();
-            }
-            let unavailable = worlds.is_empty();
-            let page = Page {
-                lang: if en { "en" } else { "pl" },
-                labels: labels(en),
-                unavailable,
-                days: vec![],
-                picker: true,
-                worlds,
-                today: time::OffsetDateTime::now_utc().date().to_string(),
-            };
-            return match page.render() {
-                Ok(body) => (
-                    if unavailable {
-                        StatusCode::SERVICE_UNAVAILABLE
-                    } else {
-                        StatusCode::OK
-                    },
-                    Html(body),
-                )
-                    .into_response(),
-                Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-            };
-        }
-        let Ok(query) = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or_default())
-        else {
-            return StatusCode::BAD_REQUEST.into_response();
-        };
-        let (Ok(start), Ok(end)) = (date(&query.start), date(&query.end)) else {
-            return StatusCode::BAD_REQUEST.into_response();
-        };
-        if query.world.is_nil() || start > end || (end - start).whole_days() > 30 {
-            return StatusCode::BAD_REQUEST.into_response();
-        }
-        let result = if state.policy.available() {
-            read(
-                &state.db,
-                state.config,
-                query.world,
-                start,
-                end,
-                &PolicyRef(state.policy.as_ref()),
-            )
-            .await
-        } else {
-            Err(Error::Unavailable)
-        };
-        let unavailable = result.is_err();
+            .fetch_all(&state.db),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .filter(|worlds| worlds.len() <= 1000);
+        let invalid_filter = requested.is_err()
+            || matches!((&requested, &worlds), (Ok(Some((world, _, _))), Some(worlds))
+                if !worlds.iter().any(|(registered, _)| registered == world));
+        let selection = requested.ok().flatten().filter(|_| !invalid_filter);
+
         let en = uri.path().starts_with("/en/");
-        let page = Page {
+        let mut page = Page {
             lang: if en { "en" } else { "pl" },
             labels: labels(en),
-            unavailable,
-            days: result.map(|r| r.days).unwrap_or_default(),
-            picker: false,
-            worlds: vec![],
-            today: String::new(),
+            observations_available: false,
+            days: Vec::new(),
+            kills: Vec::new(),
+            selected: selection.is_some(),
+            invalid_filter,
+            worlds: worlds
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(id, name)| (id, name, selection.is_some_and(|(world, _, _)| id == world)))
+                .collect(),
+            start: today.to_string(),
+            end: today.to_string(),
+            today: today.to_string(),
+        };
+        if let Some((world, start, end)) = selection {
+            page.start = start.to_string();
+            page.end = end.to_string();
+            if !page.worlds.is_empty() {
+                if state.policy.available()
+                    && let Ok(report) = read(
+                        &state.db,
+                        state.config,
+                        world,
+                        start,
+                        end,
+                        &PolicyRef(state.policy.as_ref()),
+                    )
+                    .await
+                {
+                    page.observations_available = true;
+                    page.days = report.days;
+                }
+                if let Some(feed) = &state.kills {
+                    page.kills = daily_kills(
+                        &state.db,
+                        feed,
+                        world,
+                        start,
+                        end,
+                        OffsetDateTime::now_utc(),
+                    )
+                    .await;
+                }
+            }
+        }
+        let status = if page.invalid_filter {
+            StatusCode::BAD_REQUEST
+        } else if page.worlds.is_empty()
+            || (page.selected && !page.observations_available && page.kills.is_empty())
+        {
+            StatusCode::SERVICE_UNAVAILABLE
+        } else {
+            StatusCode::OK
         };
         match page.render() {
-            Ok(body) => (
-                if unavailable {
-                    StatusCode::SERVICE_UNAVAILABLE
-                } else {
-                    StatusCode::OK
-                },
-                Html(body),
-            )
-                .into_response(),
+            Ok(body) => (status, Html(body)).into_response(),
             Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         }
     }
@@ -245,6 +299,60 @@ async fn page(
     }
     response
 }
+fn parse(raw: &str, today: Date) -> Result<(Uuid, Date, Date), Error> {
+    let query: Query = serde_urlencoded::from_str(raw).map_err(|_| Error::BadInput)?;
+    let (start, end) = (date(&query.start)?, date(&query.end)?);
+    if query.world.get_version_num() != 7
+        || query.world.get_variant() != uuid::Variant::RFC4122
+        || start > end
+        || end > today
+        || (end - start).whole_days() > 30
+    {
+        return Err(Error::BadInput);
+    }
+    Ok((query.world, start, end))
+}
+
+async fn daily_kills(
+    db: &PgPool,
+    feed: &KillFeed,
+    world: Uuid,
+    start: Date,
+    end: Date,
+    now: OffsetDateTime,
+) -> Vec<KillDay> {
+    let dates: Vec<_> = std::iter::successors(Some(start), |date| date.next_day())
+        .take_while(|date| *date <= end)
+        .collect();
+    let days: Vec<_> = dates
+        .iter()
+        .map(|date| date.midnight().assume_utc().unix_timestamp())
+        .collect();
+    let Ok(mut totals) = online::world_totals(
+        db,
+        &feed.config,
+        world,
+        &days,
+        now.unix_timestamp(),
+        feed.coverage.as_ref(),
+    )
+    .await
+    else {
+        return Vec::new();
+    };
+    if totals.is_empty() {
+        return Vec::new();
+    }
+    dates
+        .into_iter()
+        .zip(days)
+        .map(|(date, day)| KillDay {
+            date,
+            total: totals.remove(&day),
+        })
+        .collect()
+}
+
 struct PolicyRef<'a>(&'a dyn Policy);
 impl Visibility for PolicyRef<'_> {
     fn current_permissions(&self, id: Uuid) -> crate::store::PermissionFuture<'_> {

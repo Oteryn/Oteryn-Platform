@@ -18,3 +18,5 @@ distance = Distance fighting
 shielding = Shielding
 fishing = Fishing
 death = Death (time and level)
+
+recent-deaths = Recent deaths

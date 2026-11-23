@@ -41,7 +41,7 @@ Game producer. Game repositories were not accessed.
 
 | Surface (also PL/EN) | Exact blocker and local evidence |
 | --- | --- |
-| `/deaths`, `/characters/{name}/deaths` | G-4 character_deaths is CANDIDATE rev 1, without a producer. Explicit configured contract gate: `crates/community/src/deaths.rs:271`; real privacy is wired. |
+| `/deaths`, `/characters/{name}/deaths` | G-4 revision 4 is accepted. Configured serving holds for Q7 activation qualification in `crates/community/src/deaths.rs`; current privacy is wired. |
 | `/guilds`, `/guilds/{name}` | G-4 guild is CANDIDATE rev 1, without a producer. Gate: `crates/community/src/guilds.rs:221`. Contract refusal is now HTTP 503, replacing the old HTTP 200 unavailable document. |
 | `/houses`, house details | G-4 house is CANDIDATE rev 1, without a producer. Gate: `crates/community/src/houses.rs:160`; no owner identity is inferred from names. |
 | `/stats/guilds`, `/stats/world` | G-8 statistics has no accepted contract/producer. Independent gate: `crates/stats/src/privacy.rs:53`; guild entry point: `crates/stats/src/guilds.rs:62`; world wiring: `crates/stats/src/world/http.rs:22`. Flags cannot bypass it. |

@@ -177,7 +177,7 @@ pub(crate) async fn fresh(
     config: &Config,
     family: Family,
     now: i64,
-    coverage: &impl CoveragePolicy,
+    coverage: &(impl CoveragePolicy + ?Sized),
 ) -> Result<Coverage, Error> {
     if now <= 0 {
         return Err(Error::Invalid);

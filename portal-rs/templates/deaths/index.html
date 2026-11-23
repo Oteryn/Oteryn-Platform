@@ -3,9 +3,16 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ labels[0] }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main class="op-stack">
 <h1>{{ labels[0] }}{% if !character.is_empty() %}: {{ character }}{% endif %}</h1>
-{% if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
+{% if !character.is_empty() %}<a href="/{{ lang }}/deaths">{{ labels[12] }}</a>{% endif %}
+{% if world_stats_enabled %}<a href="/{{ lang }}/stats/world">{{ labels[13] }}</a>{% endif %}
 <p>{{ labels[2] }}</p>
-<form class="op-stack" method="get"><label for="world">{{ labels[4] }}</label><input class="op-input" id="world" name="world" maxlength="96" value="{{ filter }}"><button class="op-button" type="submit">{{ labels[5] }}</button></form>
+<form class="op-card op-stack" method="get">
+{% if character.is_empty() %}<label for="world">{{ labels[4] }}</label><input class="op-input" id="world" name="world" maxlength="96" value="{{ filter }}">{% endif %}
+<label for="start">{{ labels[10] }}</label><input class="op-input" id="start" name="start" type="date" value="{{ start }}" min="{{ first_date }}" max="{{ today }}">
+<label for="end">{{ labels[11] }}</label><input class="op-input" id="end" name="end" type="date" value="{{ end }}" min="{{ first_date }}" max="{{ today }}">
+<button class="op-button" type="submit">{{ labels[5] }}</button>
+</form>
+{% if invalid_filter %}<p role="alert">{{ labels[14] }}</p>{% else if unavailable %}<p role="status">{{ labels[1] }}</p>{% else %}
 {% if entries.is_empty() %}<p role="status">{{ labels[3] }}</p>{% endif %}
-{% for entry in entries %}<article class="op-card op-stack"><h2><a href="{{ entry.href }}">{{ entry.name }}</a></h2><p>{{ entry.world }} · <time datetime="{{ entry.occurred }}">{{ entry.occurred }}</time></p><p>{{ labels[6] }}: {{ entry.level }}{% if entry.pvp %} · {{ labels[9] }}{% endif %}</p>{% if entry.killers.is_empty() %}<p>{{ labels[8] }}</p>{% else %}<p>{{ labels[7] }}: {{ entry.killers }}</p>{% endif %}</article>{% endfor %}
+{% for entry in entries %}<article class="op-card op-stack"><h2>{% if character.is_empty() %}<a href="{{ entry.href }}">{{ entry.name }}</a>{% else %}{{ entry.world }}{% endif %}</h2><p>{% if character.is_empty() %}{{ entry.world }} · {% endif %}<time datetime="{{ entry.occurred }}">{{ entry.occurred }}</time></p><p>{{ labels[6] }}: {{ entry.level }}{% if entry.pvp %} · {{ labels[9] }}{% endif %}</p>{% if entry.killers.is_empty() %}<p>{{ labels[8] }}</p>{% else %}<p>{{ labels[7] }}: {{ entry.killers }}</p>{% endif %}</article>{% endfor %}
 {% endif %}</main></body></html>

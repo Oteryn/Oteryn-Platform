@@ -461,6 +461,29 @@ fn pages_with(db: PgPool, visible: bool, killers: &'static [&'static str]) -> Ro
     )
 }
 #[tokio::test]
+async fn death_filters_refuse_invalid_windows_and_render_controls_during_outage() -> TestResult {
+    let db = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://unused@localhost:1/unused")?;
+    let app = web::router_with_qualification(
+        db,
+        Arc::new(FailClosed),
+        Config {
+            enabled: true,
+            source_authority: AUTHORITY.into(),
+        },
+        false,
+    );
+    let response = get(app.clone(), "/en/deaths?start=2099-01-01&end=2099-01-01").await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let response = get(app, "/en/deaths").await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = text(response).await;
+    assert!(body.contains("name=\"start\""));
+    assert!(body.contains("Death records are currently unavailable."));
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_public_pages_privacy_freshness_names_and_window() -> TestResult {
     let Some(d) = Database::open().await? else {
         return Ok(());
@@ -900,7 +923,13 @@ async fn postgres_killer_visibility_is_enforced_at_serving() -> TestResult {
         return Ok(());
     };
     seed(&d.db).await?;
-    for path in ["/en/deaths", "/pl/deaths", "/en/characters/Aldric/deaths"] {
+    let date = time::OffsetDateTime::from_unix_timestamp(now() as i64 - 10)?.date();
+    let dated_path = format!("/en/deaths?world=Example&start={date}&end={date}");
+    for path in [
+        dated_path.as_str(),
+        "/pl/deaths",
+        "/en/characters/Aldric/deaths",
+    ] {
         // Beren is currently visible, Mira is hidden: Mira's whole object is dropped.
         let r = get(pages_with(d.db.clone(), true, &[BEREN]), path).await;
         assert_eq!(r.status(), StatusCode::OK);
@@ -918,6 +947,12 @@ async fn postgres_killer_visibility_is_enforced_at_serving() -> TestResult {
         assert!(!body.contains("Beren"));
         assert!(!body.contains("Mira"));
     }
+    assert_eq!(
+        get(pages(d.db.clone(), true), "/en/deaths?world=Unknown")
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
     // A hidden victim hides its deaths, killers included.
     let r = get(pages_with(d.db.clone(), false, &[BEREN]), "/en/deaths").await;
     assert_eq!(r.status(), StatusCode::OK);

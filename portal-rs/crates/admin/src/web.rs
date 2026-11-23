@@ -27,6 +27,7 @@ mod invitations;
 
 #[path = "registration_policy.rs"]
 mod registration_policy;
+mod public_projections;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
@@ -354,6 +355,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             std::env::var("OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED")
                 .is_ok_and(|value| value == "true"),
         ))
+        .route("/admin/public-projections", get(public_projections::page))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -487,6 +489,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         session_proof: proof,
     };
     let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
+        ("/admin/public-projections", _) => &[Permission::GameCatalogAccess],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -653,6 +656,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    projections_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -807,6 +811,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let projections_link = match s.auth.check(context, Permission::GameCatalogAccess).await {
+        Ok(()) => Some(text(lang, "public-projections-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -816,6 +825,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        projections_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s

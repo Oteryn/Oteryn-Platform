@@ -1,10 +1,11 @@
 # World statistics
 
 Routes: `/stats/world`, `/pl/stats/world`, `/en/stats/world`.
-Required query: `world` (non-nil UUID), `start` and `end` (UTC dates in
-YYYY-MM-DD form, inclusive, at most 31 days). Unknown parameters are rejected.
+The picker uses the Platform world registry. A selected report requires `world`
+(a registered UUIDv7), `start` and `end` (inclusive UTC dates in YYYY-MM-DD form,
+at most 31 days, ending no later than today). Unknown parameters are rejected.
 `PORTAL_WORLD_STATS_ENABLED=true` enables routing; it defaults to disabled (404).
-The configured privacy adapter denies all representations with localized 503.
+The configured privacy adapter denies character observations with localized 503.
 An application integrating a current privacy provider can use `http::router`
 and implement `http::Policy`; no game request is made during rendering.
 
@@ -19,8 +20,10 @@ bounded to 100,000 observations and fail unavailable above that limit.
 - T65 samples retain raw online totals without privacy subjects. T25 grants no
   independent public aggregate count. Historical chart data therefore remains
   unavailable rather than publishing counts that include hidden characters.
-- Owner-only online sessions await their separate G-8 consumer. World kill
-  snapshots use the V2 repository API below; their display remains unavailable.
+- World kill totals use the single-cut V2 reader in `online`. The browser
+  distinguishes complete, provisional and missing days. Configured serving has
+  no accepted G-8 coverage adapter and shows unavailable. Raw online sessions
+  remain owner-only.
 - T65 daily snapshots do not retain vocation or sex. The pinned Game profile
   includes vocation, but not sex; joining current vocation to historical levels
   would fabricate historical census evidence. These breakdowns remain unavailable.
@@ -59,8 +62,9 @@ belongs to the separate owner-only interval consumer.
 
 The separate `presentation_enabled` flag defaults false. `kills::presentation`
 returns unavailable even if it is set: Q3 still lacks authoritative boss/summon
-classification and physical death dedup evidence. The localized page explicitly
-renders monster/boss totals unavailable without reading these payloads.
+classification and physical death dedup evidence. The localized page reads from `stats_v2_subjects` through the shared G-8
+reader when composed with accepted settings and independently qualified
+coverage. The older repository API in this section remains separate.
 
 T69B cannot yet provide the requested public online-player chart or authoritative
 world player-death totals. G-8 section 1 explicitly says current population and

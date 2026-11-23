@@ -10,7 +10,12 @@ world-count = Postacie
 world-kills = Zgony potworów i bossów (dzień UTC)
 
 world-picker = Świat
-world-select = Wybierz zarejestrowany świat i zakres dat UTC. Statystyki wymagają dostępnych danych o prywatności i obserwacji.
+world-select = Wybierz zarejestrowany świat i zakres dat UTC. Obserwacje postaci wymagają aktualnych danych źródłowych i ustawień prywatności.
 world-start = Od (UTC)
 world-end = Do (UTC)
-world-show = Pokaż obserwacje
+world-show = Pokaż statystyki
+world-monsters = Zabite potwory
+world-bosses = Zabici bossowie
+world-complete = Dane kompletne
+world-provisional = Dane wstępne
+world-invalid-filter = Wybierz zarejestrowany świat i zakres do 31 kolejnych dni UTC, kończący się dziś lub wcześniej.

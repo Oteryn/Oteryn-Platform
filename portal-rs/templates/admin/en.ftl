@@ -274,3 +274,16 @@ cms-news = News
 cms-pages = Pages
 cms-events = Events
 cms-announcements = Announcements
+
+public-projections-title = Public world projections
+public-projections-environment = Qualification environment
+public-projections-master = Public projections switch
+public-projections-deaths = G-4 · Character deaths and killers
+public-projections-deaths-hold = Revision 4 wire accepted. Public data is unavailable pending Q7 activation qualification.
+public-projections-kills = G-8 · Daily monster and boss kills
+public-projections-kills-hold = Revision 2 wire proposed. Daily kill data is unavailable pending contract acceptance and qualified coverage.
+public-projections-ingest = Ingest requested
+public-projections-view = Death list requested
+public-projections-stats = World statistics page requested
+public-projections-on = On
+public-projections-off = Off
