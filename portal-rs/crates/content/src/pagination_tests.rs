@@ -70,7 +70,7 @@ async fn postgres_a3_staff_libraries_reach_records_beyond_each_cap()
         .fetch_one(&pool)
         .await?;
     assert!(seeded < 500);
-    sqlx::query("WITH created AS (INSERT INTO pages(id,slug) SELECT uuidv7(),'archive-'||n FROM generate_series($1,501) n RETURNING id,slug) INSERT INTO editorial_pages(page_id,locale,title,body) SELECT id,'en',slug,'Editorial library content' FROM created").bind(seeded + 1).execute(&pool).await?;
+    sqlx::query("WITH created AS (INSERT INTO pages(id,slug) SELECT uuidv7(),'archive-'||n FROM generate_series($1,501::bigint) n RETURNING id,slug) INSERT INTO editorial_pages(page_id,locale,title,body) SELECT id,'en',slug,'Editorial library content' FROM created").bind(seeded + 1).execute(&pool).await?;
     sqlx::query("INSERT INTO announcements(severity,starts_at,title,body,created_by,updated_by) SELECT 'info',now(),'Library announcement '||n,'Editorial announcement body',$1,$1 FROM generate_series(1,501) n").bind(actor).execute(&pool).await?;
     let image = image::DynamicImage::new_rgb8(1, 1);
     let mut bytes = std::io::Cursor::new(Vec::new());

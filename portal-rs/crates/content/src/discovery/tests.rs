@@ -58,8 +58,16 @@ async fn editorial_discovery_lifecycle() -> crate::last_wait_tests::TestResult {
         title_en: "Editorial calendar".into(),
         ..Settings::default()
     };
-    let start_page: Uuid = sqlx::query_scalar("SELECT id FROM pages WHERE slug='getting-started'")
-        .fetch_one(&db.pool)
+    let start_page: Uuid = sqlx::query_scalar(
+        "INSERT INTO pages (id, slug) VALUES (uuidv7(), 'getting-started')
+         ON CONFLICT (slug) DO UPDATE SET slug=EXCLUDED.slug RETURNING id",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    // Exercise a page without an editorial source, regardless of seeded onboarding.
+    sqlx::query("DELETE FROM editorial_pages WHERE page_id=$1")
+        .bind(start_page)
+        .execute(&db.pool)
         .await?;
     assert!(matches!(
         save(
@@ -217,15 +225,15 @@ async fn sitemap_splits_large_catalogues() -> crate::last_wait_tests::TestResult
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = crate::last_wait_tests::TestDb::open().await?;
     let seeded: i64 =
-        sqlx::query_scalar("SELECT count(DISTINCT (kind,document_id)) FROM editorial_publication")
+        sqlx::query_scalar("SELECT count(DISTINCT (kind, document_id)) FROM editorial_publication")
             .fetch_one(&db.pool)
             .await?;
     assert!(seeded < 1_000);
     sqlx::query(
         "INSERT INTO news(slug,title,body,published_at)
-         SELECT 'discovery-' || n, 'News', 'Body', now() FROM generate_series(1,$1) n",
+         SELECT 'discovery-' || n, 'News', 'Body', now() FROM generate_series($1,1001::bigint) n",
     )
-    .bind(1_001 - seeded)
+    .bind(seeded + 1)
     .execute(&db.pool)
     .await?;
     assert!(matches!(

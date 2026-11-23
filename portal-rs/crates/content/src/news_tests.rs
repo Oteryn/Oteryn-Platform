@@ -865,6 +865,13 @@ async fn postgres_pagination_language_and_caps() {
             .unwrap()
             > 0
     );
+    sqlx::query(
+        "INSERT INTO news(slug,title,body,published_at)
+         VALUES('new-long-horizon','New archive horizon','English body','9999-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let response = admin_listing(
         &pool,
         Options {
@@ -880,6 +887,7 @@ async fn postgres_pagination_language_and_caps() {
     let html = to_bytes(response.into_body(), 100000).await.unwrap();
     let html = String::from_utf8_lossy(&html);
     assert!(html.contains("Long horizon"));
+    assert!(html.contains("New archive horizon"));
     assert!(html.contains("Scheduled"));
 
     for number in [100000, 4] {
