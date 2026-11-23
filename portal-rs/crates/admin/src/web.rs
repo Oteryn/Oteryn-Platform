@@ -787,8 +787,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     Extension(session): Extension<BrowserSession>,
     navigation: Option<Extension<PortalNavigation>>,
     account_reads: Option<Extension<AccountReadStatus>>,
-    OriginalUri(uri): OriginalUri,
-    headers: axum::http::HeaderMap,
+    (OriginalUri(uri), headers): (OriginalUri, axum::http::HeaderMap),
     Query(query): Query<RolePageQuery>,
 ) -> Response {
     let manage = match s.auth.check(context, Permission::ManageRoles).await {

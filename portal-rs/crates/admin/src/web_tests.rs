@@ -207,9 +207,8 @@ fn localized_responsive_labelled_template() {
             invitations_label: None,
             hireling_status: None,
             translations: messages(lang).unwrap(),
-        }
-        .render()
-        .unwrap();
+        };
+        let html = page.render().unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
         assert!(html.contains("href=\"/admin/operational-mail\""));
