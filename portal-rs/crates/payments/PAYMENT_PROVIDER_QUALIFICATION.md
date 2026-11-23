@@ -14,7 +14,7 @@ Live provider activation is pending provider selection and approval. The Platfor
 
 The full browser rehearsal is `portal-rs/e2e/specs/gap-41.spec.mjs` in the stock local runner. Supply a disposable webhook secret and a valid package catalogue to the launcher before starting it. For example, one catalogue entry can have ID `01934f10-7c02-7001-805b-3b1122334402`, title `Sandbox coins`, 500 coins, `price` of `{"minor_units":499,"currency":"EUR","exponent":2}` and `valid_for_seconds` of 120. See the runner README for launcher and test commands. With the standard unconfigured checkout and webhook, the spec checks refusal for those paths and uses the existing Store test bank to prove staff payment lookup.
 
-[Provider webhook contract](../contracts/OTERYN_PAYMENT_PROVIDER_WEBHOOK_V1.md) · [Portal E2E runner](../../portal-rs/e2e/README.md)
+[Provider webhook contract](../../../docs/contracts/OTERYN_PAYMENT_PROVIDER_WEBHOOK_V1.md) · [Portal E2E runner](../../e2e/README.md)
 
 ## Activation decision and remaining ownership
 

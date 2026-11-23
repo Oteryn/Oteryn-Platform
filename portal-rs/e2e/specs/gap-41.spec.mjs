@@ -1,7 +1,9 @@
 import { createHmac, randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { login, pool, register, submit } from '../helpers.mjs';
-import { paidTopup, staffContext, uuid7 } from '../staff-commerce-helpers.mjs';
+import { pool, submit } from '../helpers.mjs';
+import { messages } from '../public-depth-helpers.mjs';
+import { paidTopup } from '../staff-commerce-helpers.mjs';
+import { seededAccount, seededLogin, seededStaff } from '../staff-rbac-helpers.mjs';
 
 const webhook = '/api/v1/payments/provider-webhook';
 
@@ -16,15 +18,19 @@ test('payer follows checkout and staff looks up the settlement evidence', async 
   const lang = info.project.metadata.locale;
   const checkout = `/${lang}/panel/payments/coin-checkout`;
   const pl = lang === 'pl';
-  const account = await register(page, lang);
-  await login(page, lang, account);
-  const staff = await staffContext(browser, info);
+  await seededLogin(page, lang, await seededAccount(lang));
+  const staff = await browser.newContext({
+    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true,
+    locale: lang, viewport: info.project.use.viewport,
+  });
   const db = pool();
   try {
     const admin = await staff.newPage();
-    await admin.setViewportSize(info.project.use.viewport);
-    await admin.setExtraHTTPHeaders({ 'Accept-Language': lang });
+    await seededStaff(admin, lang, 'platform_admin');
+    await admin.setExtraHTTPHeaders({ 'Accept-Language': pl ? 'en' : 'pl' });
+    await admin.goto(`/language/${lang}`);
     expect((await admin.goto('/admin/commerce')).status()).toBe(200);
+    await expect(admin.locator('html')).toHaveAttribute('lang', lang);
     await admin.locator('a[href="#payment-qualification"]').click();
     const title = admin.locator('#payment-qualification');
     await expect(title).toBeVisible();
@@ -49,13 +55,13 @@ test('payer follows checkout and staff looks up the settlement evidence', async 
       await page.locator(`main nav a[href="${checkout}"]`).click();
       await expect(page).toHaveURL(new RegExp(`${checkout}$`));
       await fitsViewport(page);
+      const quote = 'main form:has(input[name=action][value=quote])';
+      const order = 'form:has(input[name=action][value=order])';
+      const csrf = await page.locator(quote).first().locator('[name=_csrf]').inputValue();
       expect((await page.request.post(checkout, {
         headers: { origin: new URL(page.url()).origin },
-        form: { action: 'quote', package: uuid7() },
-      })).status()).toBe(403);
-
-      const quote = 'form:has(input[name=action][value=quote])';
-      const order = 'form:has(input[name=action][value=order])';
+        form: { action: 'quote', package: 'invalid', _csrf: csrf },
+      })).status()).toBe(400);
       await submit(page, quote);
       await expect(page.locator(order)).toBeVisible();
       await submit(page, order);
@@ -67,6 +73,7 @@ test('payer follows checkout and staff looks up the settlement evidence', async 
         [orderId],
       );
       intent = payment.id;
+      await expect(page.locator('html')).toHaveAttribute('lang', lang);
       const pay = 'form:has(input[name=action][value=pay])';
       await submit(page, pay);
       await expect(page.locator('[data-payment-state]')).toHaveText(pl ? 'Opłacona' : 'Paid');
@@ -120,14 +127,32 @@ test('payer follows checkout and staff looks up the settlement evidence', async 
     await expect(evidence).toContainText(eventId
       ? (pl ? 'Zastosowano' : 'Applied')
       : (pl ? 'Opłacona' : 'Paid'));
-    await expect(evidence).toContainText(pl ? 'Identyfikator rachunku' : 'Receipt ID');
+    const { rows: [receipt] } = await db.query('SELECT id FROM invoices WHERE intent_id=$1', [intent]);
+    expect(receipt?.id).toBeTruthy();
+    await expect(evidence.getByText(receipt.id, { exact: true })).toBeVisible();
     await fitsViewport(admin);
     expect((await admin.request.get('/admin/commerce?intent=invalid')).status()).toBe(422);
     const refused = await page.request.get(`/admin/commerce?intent=${intent}`, { maxRedirects: 0 });
-    expect([303, 403, 404]).toContain(refused.status());
+    expect(refused.status()).toBe(403);
     expect(await refused.text()).not.toContain(intent);
   } finally {
     await staff.close();
     await db.end();
+  }
+});
+
+test('i18n-parity for sandbox checkout and payment qualification', () => {
+  for (const [directory, required] of [
+    ['crates/payments/templates/account', /^(sandbox-|awaiting_payment$|processing$|paid$)/],
+    ['crates/admin/src/commerce', /^qualification-/],
+  ]) {
+    const [en, pl] = ['en', 'pl'].map(lang => messages(directory, lang));
+    const keys = Object.keys(en).filter(key => required.test(key)).sort();
+    expect(keys.length).toBeGreaterThan(10);
+    expect(Object.keys(pl).filter(key => required.test(key)).sort()).toEqual(keys);
+    for (const key of keys) {
+      expect(en[key]).toBeTruthy();
+      expect(pl[key]).toBeTruthy();
+    }
   }
 });

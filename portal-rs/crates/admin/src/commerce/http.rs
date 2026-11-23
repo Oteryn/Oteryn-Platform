@@ -124,6 +124,17 @@ fn enabled(name: &str) -> bool {
 pub(super) struct Locale(&'static str);
 impl Locale {
     fn from_headers(headers: &HeaderMap) -> Self {
+        for header in headers.get_all(axum::http::header::COOKIE) {
+            if let Ok(cookies) = header.to_str() {
+                for cookie in cookies.split(';') {
+                    match cookie.trim() {
+                        "portal_language=en" => return Self("en"),
+                        "portal_language=pl" => return Self("pl"),
+                        _ => {}
+                    }
+                }
+            }
+        }
         Self(
             if headers
                 .get("accept-language")
@@ -159,6 +170,7 @@ impl Locale {
             .unwrap_or_default()
     }
 }
+
 struct Action {
     key: &'static str,
     title: String,
@@ -497,4 +509,22 @@ fn failure(locale: Locale, error: Error) -> Response {
     };
     // Only repository-owned Fluent resources are interpolated.
     (status,axum::response::Html(format!("<!doctype html><html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><main><h1>{}</h1><a href=\"/admin/commerce\">{}</a></main></html>",locale.0,locale.text(key),locale.text("back")))).into_response()
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+    use axum::http::{HeaderValue, header};
+
+    #[test]
+    fn commerce_uses_the_selected_portal_language() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("en"));
+        assert_eq!(Locale::from_headers(&headers).0, "en");
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("other=1; portal_language=pl"),
+        );
+        assert_eq!(Locale::from_headers(&headers).0, "pl");
+    }
 }
