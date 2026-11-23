@@ -456,6 +456,16 @@ where
             permission,
         ));
     }
+    if flags.console {
+        routes = routes.merge(crate::web::guarded(
+            super::sanctions::routes(pool.clone(), accounts.clone()),
+            pool,
+            panel,
+            identity,
+            accounts,
+            Permission::Access,
+        ));
+    }
     routes
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
@@ -538,6 +548,7 @@ pub(crate) struct Page {
     pub audit: String,
     pub access: String,
     pub approvals: String,
+    pub sanction_reviews: Option<String>,
     pub search: bool,
     pub csrf: String,
     pub filters: bool,
@@ -565,6 +576,7 @@ impl Page {
             audit: tr(lang, "audit"),
             access: tr(lang, "access"),
             approvals: tr(lang, "approvals"),
+            sanction_reviews: None,
             search: false,
             csrf: String::new(),
             filters: false,

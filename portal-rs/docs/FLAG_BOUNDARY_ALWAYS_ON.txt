@@ -133,3 +133,12 @@ public S /static
 public S /static/
 public S /static/{*__private__axum_nest_tail_param}
 admission G /health
+internal G /admin/console/sanctions
+internal P /admin/console/sanctions
+internal P /admin/console/sanctions/{id}
+native G /admin/console/sanctions
+native P /admin/console/sanctions
+native P /admin/console/sanctions/{id}
+public G /admin/console/sanctions
+public P /admin/console/sanctions
+public P /admin/console/sanctions/{id}

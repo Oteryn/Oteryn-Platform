@@ -1,0 +1,19 @@
+# GAP-12 staff sanction reviews
+
+Staff can review a proposed ban, mute or jail and then review lifting that same proposal. Open **Sanction reviews** from **Players** in the staff console. Keep the local decision ID from the detail URL for audit correlation. The detail shows the report, world, account, character, proposed expiry, reason and who carried out each step.
+
+## Operator setup and states
+
+- The existing admin panel and console switches control access. Staff need `admin.access`, confirmed MFA, and `game.sanction.read`. Propose and review require `game.sanction.ban` for ban/unban or `game.sanction.write` for mute/jail. Enable the existing account credentials flow (`OTERYN_ACCOUNT_CREDENTIALS`) so staff can confirm their passwords immediately before a mutation. The review accepts confirmation from the previous five minutes.
+- Use the Platform operational change process to provision a target in `admin_sanction_review_targets` from a confirmed world, Platform account and native character reference. Grant that exact target to each assigned staff account in `admin_sanction_review_grants`. Give staff the target ID and player report ID. Remove a row from the grants table to revoke the assignment. The target is a scope reference for case review and carries no Game authority. Preserve used target rows for history. Use a fresh target record for a different subject or world.
+- A proposal requires an eligible player report referencing the assigned account or character and a bounded reason category. Timed proposals have a future UTC expiry within 30 days. A permanent ban may omit expiry. The same report, target and profile identify one review. There is a limit of 20 new reviews per actor per hour.
+- The workflow moves from apply pending to apply approved, lift pending and lift approved. Each approval must come from another currently scoped staff member with the same operation permission. Approval windows are 30 minutes and never extend beyond the proposed term. Expired reviews retain their history. State changes are versioned and recorded in the Platform audit log under the review ID.
+- **Game state and receipts** shows **Unavailable** for this workflow. The existing Game dossier remains available to staff with its separate read grant. Its signed snapshots, if available, have their own provenance and do not establish that this review caused a Game effect. Platform review approval authorizes neither dispatch nor a Game effect.
+
+## Game qualification required
+
+- Ban/unban require an accepted ADM staff effect and result profile with canonical target resolution, revision fences, environment-bound signed receipts and an authoritative verification of current permission and scope at commit. Permanent bans also require a Game dry run and separate approval bound to its verified preview, with the ratified approval policy and commit-time fences.
+- Mute/jail require a qualified Game producer and consumer for the accepted enforcement wire. Establish the allowed reason-code mapping and jail policy, capability advertisement, target identity, ordering and active-session semantics. Prove apply, replace, revoke, expire, retry and owner-change behavior with current authoritative receipts.
+- Before enabling dispatch, qualify authorization revocation, no-effect proof, lost-result recovery and exact receipt-to-intent correlation on both sides. The existing ADM staff operation allowlist and Game enforcement exchange/profile switches default off. The review ledger has no dispatch integration. Real Game apply and lift acceptance remains pending.
+
+[Proposed panel operations](../contracts/PANEL_PROPOSED_GAME_OPERATIONS.md) · [Game enforcement authority](../contracts/OTERYN_V2_GAME_ENFORCEMENT_COMMAND_CONTRACT.md) · [Enforcement wire](../contracts/OTERYN_V2_ENFORCEMENT_AND_ENTITLEMENT_WIRE_CONTRACT_PROPOSAL.md)
