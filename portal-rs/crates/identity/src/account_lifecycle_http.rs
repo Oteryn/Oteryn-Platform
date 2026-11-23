@@ -463,9 +463,7 @@ async fn unsubscribe_page(
         return Ok(response);
     }
     let action = format!("/{}/unsubscribe/confirm", l.code());
-    Ok(render(
-        page(l, &s, &action, false, true, q.token).await?,
-    ))
+    Ok(render(page(l, &s, &action, false, true, q.token).await?))
 }
 
 #[derive(serde::Deserialize)]

@@ -149,7 +149,13 @@ fn app_with_scope(
     allowed_worlds: Vec<String>,
     allowed_nodes: Vec<String>,
 ) -> Router {
-    app_with_scope_and_key(pool, enabled, allowed_worlds, allowed_nodes, Some(result_key()))
+    app_with_scope_and_key(
+        pool,
+        enabled,
+        allowed_worlds,
+        allowed_nodes,
+        Some(result_key()),
+    )
 }
 
 fn result_key() -> (ed25519_dalek::VerifyingKey, signer::Validity) {

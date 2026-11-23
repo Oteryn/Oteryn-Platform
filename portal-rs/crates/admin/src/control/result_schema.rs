@@ -1,6 +1,6 @@
 //! ADM-01 receipts selected by the stored operation and version.
-use super::{signer, store};
 use super::catalog::{ECONOMY_QUERIES, GAME_OPERATIONS};
+use super::{signer, store};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::LazyLock};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
@@ -143,7 +143,11 @@ pub(crate) fn valid_receipt(
     }
 }
 
-pub(crate) fn matches_detail_target(operation: &str, target: &super::Target, payload: &Value) -> bool {
+pub(crate) fn matches_detail_target(
+    operation: &str,
+    target: &super::Target,
+    payload: &Value,
+) -> bool {
     let matches = |field, expected| payload.get(field).and_then(Value::as_str) == Some(expected);
     match operation {
         "world.get" => target

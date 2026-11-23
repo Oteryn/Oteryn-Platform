@@ -488,7 +488,10 @@ impl StoredChannel {
         if !current_delivery {
             return Ok(None);
         }
-        if matches!(result.status, signer::Status::Failed | signer::Status::Rejected) {
+        if matches!(
+            result.status,
+            signer::Status::Failed | signer::Status::Rejected
+        ) {
             return match result.error.as_ref().map(|error| error.code.as_str()) {
                 Some("ADM_INVALID_PARAMS") => Err(Error::Read(GameReadError::InvalidTarget)),
                 Some("ADM_PRECONDITION_FAILED")
