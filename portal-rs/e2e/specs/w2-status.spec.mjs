@@ -37,11 +37,17 @@ test('staff publish an incident and maintenance for players', async ({page, brow
     });
   };
   expect((await post(create, {...draft, message_pl: ' '})).status()).toBe(422);
+  const publication_key = await page.locator(`${create} input[name=publication_key]`).inputValue();
   await action(page, create, draft);
   await expect(page.locator('main')).toContainText(title);
   const id = new URL(page.url()).hash.slice('#incident-'.length);
   expect(id).toMatch(/^[a-f0-9-]{36}$/);
   const incident = `#incident-${id}`;
+  const retry = await post(create, {...draft, publication_key});
+  expect(retry.status()).toBe(303);
+  expect(retry.headers().location).toBe(`${admin}${incident}`);
+  expect((await post(create, {...draft, publication_key, title_en: 'A different title'})).status()).toBe(409);
+  await expect(page.locator('#active-incidents h3').filter({hasText: title})).toHaveCount(1);
 
   const minute = offset => new Date(Date.now() + offset * 60_000).toISOString().slice(0, 16);
   await action(page, '#schedule-maintenance', {
@@ -64,6 +70,13 @@ test('staff publish an incident and maintenance for players', async ({page, brow
     const banner = viewer.locator('#status-notices');
     await expect(banner).toContainText(title);
     await expect(banner).toContainText(message);
+    const notices = `${status}/notices`;
+    const current = await (await viewer.request.get(notices)).json();
+    const dismiss = form => viewer.request.post(notices, {
+      form, headers: {origin: new URL(viewer.url()).origin}, maxRedirects: 0,
+    });
+    expect((await dismiss({edition: current.edition})).status()).toBe(403);
+    expect((await dismiss({_csrf: current.csrf, edition: 'invalid'})).status()).toBe(422);
     await banner.getByRole('button').click();
     await expect(banner).toBeHidden();
     const reloadedNotices = viewer.waitForResponse(response =>
@@ -72,14 +85,30 @@ test('staff publish an incident and maintenance for players', async ({page, brow
     expect((await reloadedNotices).status()).toBe(204);
     await expect(banner).toBeHidden();
 
-    await viewer.goto(status);
-    await expect(viewer.getByRole('link', {name: 'Atom'})).toBeVisible();
+    if (info.project.use.viewport.width <= 960) {
+      await viewer.locator('#portal-menu-toggle').click();
+    }
+    await viewer.locator('#portal-world-button').click();
+    await viewer.locator(`#portal-navigation a[href="${status}"]`).click();
+    await expect(viewer).toHaveURL(new URL(status, viewer.url()).href);
+    await expect(viewer.getByRole('link', {name: t('Kanał Atom', 'Atom feed')})).toBeVisible();
+    await expect(viewer.locator('#portal-header')).toBeVisible();
+    await expect(viewer.locator('footer.foot')).toBeVisible();
+    await viewer.locator('a.skip').focus();
+    await viewer.keyboard.press('Enter');
+    await expect(viewer.locator('#main')).toBeFocused();
+    await expect(viewer.locator(`#portal-navigation a[href="${status}"]`)).toHaveAttribute('aria-current', 'page');
     const component = viewer.locator(`[data-component="${world}"]`);
     await expect(component).toContainText(`Aster ${suffix}`);
     await expect(component).toContainText(t('Poważna awaria', 'Major outage'));
     await expect(component).toContainText('%');
     const localTime = viewer.locator('#maintenance article').filter({hasText: message}).locator('time').first();
-    await expect(localTime).not.toContainText('UTC');
+    const displayedTime = await localTime.evaluate((time, locale) =>
+      new Intl.DateTimeFormat(locale, {
+        year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric',
+        minute: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short',
+      }).format(new Date(time.dateTime)), t('pl-PL', 'en'));
+    await expect(localTime).toHaveText(displayedTime);
     await expect(viewer.locator('#active-incidents')).toContainText(update);
     await fitsViewport(viewer);
     await viewer.getByRole('link', {name: title}).click();
@@ -95,6 +124,7 @@ test('staff publish an incident and maintenance for players', async ({page, brow
     await expect(viewer.locator('#incident-history')).toContainText(title);
     await expect(viewer.locator(`[data-component="${world}"]`)).toContainText(t('Działa', 'Operational'));
     const feed = await viewer.request.get(`${status}/incidents.atom`);
+    expect(feed.status()).toBe(200);
     expect(feed.headers()['content-type']).toContain('application/atom+xml');
     const xml = await feed.text();
     const entry = await viewer.evaluate(({source, id}) => {
@@ -108,6 +138,13 @@ test('staff publish an incident and maintenance for players', async ({page, brow
       };
     }, {source: xml, id});
     expect(entry).toEqual({title, message: resolution});
+    expect((await viewer.request.get(`${status}?page=4294967295`)).status()).toBe(404);
+    expect((await viewer.request.get(`${status}?page=-1`)).status()).toBe(400);
+    expect((await viewer.request.get(`${status}/incidents/not-a-uuid`)).status()).toBe(400);
+    const directory = await viewer.request.get(`/${lang}/worlds`);
+    expect(directory.status()).toBe(200);
+    expect(directory.headers()['content-security-policy']).toContain("default-src 'none'");
+    expect(await directory.text()).not.toContain('src="/static/status/status.js"');
   } finally {
     await player.close();
   }

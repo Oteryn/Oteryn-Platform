@@ -1,13 +1,26 @@
-use super::{store::*, text};
+use super::{
+    store::{self, *},
+    text,
+};
 use crate::{
     rbac::{Authorizer, CheckContext, Permission},
     web::PortalIdentity,
 };
+use axum::{
+    body::Body,
+    extract::ConnectInfo,
+    http::{Request, StatusCode, header},
+};
+use oteryn_web::ratelimit::{Keys, NamedPolicy, RateLimiter};
 use serde_json::json;
 use sqlx::{AssertSqlSafe, PgPool, postgres::PgPoolOptions};
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, net::SocketAddr};
 use time::Duration;
+use tower::ServiceExt;
 use uuid::Uuid;
+
+#[path = "../../../../test-support/rate_clock.rs"]
+mod rate_clock;
 
 #[test]
 fn both_locales_define_the_same_labels() {
@@ -50,6 +63,15 @@ fn window(scope: &str, starts: &str, ends: &str) -> Result<Command, serde_json::
     .map(Command::Schedule)
 }
 
+async fn mutate(
+    pool: &PgPool,
+    context: CheckContext,
+    auth: &Authorizer<PortalIdentity>,
+    command: Command,
+) -> Result<Uuid, Error> {
+    store::mutate(pool, context, auth, Uuid::now_v7(), command).await
+}
+
 #[tokio::test]
 async fn staff_actions_enforce_grants_lifecycle_limits_and_input()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -62,7 +84,7 @@ async fn staff_actions_enforce_grants_lifecycle_limits_and_input()
     sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
         .execute(&root)
         .await?;
-    let search_path = schema.clone();
+    let search_path = format!("{schema}, pg_catalog");
     let db = PgPoolOptions::new()
         .after_connect(move |db, _| {
             let path = search_path.clone();
@@ -118,13 +140,26 @@ async fn staff_actions_enforce_grants_lifecycle_limits_and_input()
             Err(Error::Invalid)
         ));
     }
-    let id = mutate(
-        &db,
-        context,
-        &auth,
-        create(&world.to_string(), "Investigating")?,
-    )
-    .await?;
+    let publication_key = Uuid::now_v7();
+    let scope = world.to_string();
+    let (first, second) = tokio::join!(
+        store::mutate(
+            &db,
+            context,
+            &auth,
+            publication_key,
+            create(&scope, "Investigating")?,
+        ),
+        store::mutate(
+            &db,
+            context,
+            &auth,
+            publication_key,
+            create(&scope, "Investigating")?,
+        ),
+    );
+    let id = first?;
+    assert_eq!(second?, id);
     for action in [Transition::Update, Transition::Resolve] {
         assert!(matches!(
             mutate(&db, context, &auth, transition(id, action)?).await,
@@ -241,6 +276,44 @@ async fn staff_actions_enforce_grants_lifecycle_limits_and_input()
     .await?;
     let current = components(&mut connection, now).await?;
     assert!((current[0].uptime - 100.0 * (1.0 - 3.0 / (90.0 * 24.0))).abs() < 0.00001);
+
+    // The publication budget is shared across all status actions for this actor.
+    sqlx::query(
+        "INSERT INTO status_publications (actor_id, publication_key, command_digest, result_id)
+         SELECT $1, uuidv7(), decode(repeat('00', 32), 'hex'), $2 FROM generate_series(1, 12)",
+    )
+    .bind(actor)
+    .bind(id)
+    .execute(&mut *connection)
+    .await?;
+    assert!(matches!(
+        mutate(&db, context, &auth, create("", "Valid")?).await,
+        Err(Error::Limited)
+    ));
+    let incident_count: i64 = sqlx::query_scalar("SELECT count(*) FROM status_incidents")
+        .fetch_one(&mut *connection)
+        .await?;
+    assert_eq!(incident_count, 3);
+
+    rate_clock::install(&db).await?;
+    let limiter = RateLimiter::new(db.clone());
+    let peer = SocketAddr::from(([192, 0, 2, 100], 49152));
+    let policy = NamedPolicy::PublicGameData;
+    let source = Keys::source(peer.ip());
+    for _ in 0..policy.limit() {
+        limiter.check(policy, std::slice::from_ref(&source)).await?;
+    }
+    let response = super::public::router(db.clone())
+        .layer(axum::Extension(limiter))
+        .oneshot(
+            Request::get("/en/status/incidents.atom")
+                .extension(ConnectInfo(peer))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(response.headers()[header::CONTENT_LANGUAGE], "en");
+    assert!(response.headers().contains_key(header::RETRY_AFTER));
 
     drop(connection);
     db.close().await;

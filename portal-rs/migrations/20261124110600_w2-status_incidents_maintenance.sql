@@ -124,3 +124,14 @@ CREATE TABLE status_maintenance (
 );
 
 CREATE INDEX status_maintenance_ends ON status_maintenance (ends_at);
+
+CREATE TABLE status_publications (
+    actor_id uuid NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    publication_key uuid NOT NULL,
+    command_digest bytea NOT NULL CHECK (octet_length(command_digest) = 32),
+    result_id uuid NOT NULL,
+    published_at timestamptz NOT NULL DEFAULT statement_timestamp(),
+    PRIMARY KEY (actor_id, publication_key)
+);
+
+CREATE INDEX status_publications_actor_recent ON status_publications (actor_id, published_at);

@@ -7,11 +7,14 @@ use axum::{
     Extension, Form, Json, Router,
     extract::{Path, Query, State},
     http::{HeaderValue, StatusCode, Uri, header},
-    middleware,
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
 };
-use oteryn_web::session::{BrowserSession, SessionKey, SessionLayer};
+use oteryn_web::{
+    ratelimit::{ClientSource, Keys, NamedPolicy, RateLimiter},
+    session::{BrowserSession, SessionKey, SessionLayer},
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Transaction};
@@ -51,10 +54,59 @@ pub(super) fn router(db: PgPool) -> Router {
         .route("/{lang}/status", get(page))
         .route("/{lang}/status/incidents/{id}", get(detail))
         .route("/{lang}/status/incidents.atom", get(feed))
+        .route_layer(middleware::from_fn(public_budget))
+        .route("/static/status/{asset}", get(asset))
         .with_state(Site {
             db,
             origin: origin.trim_end_matches('/').to_owned(),
         })
+}
+
+async fn public_budget(
+    Extension(limiter): Extension<RateLimiter>,
+    source: Result<ClientSource, StatusCode>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    let Some(lang) = request.uri().path().split('/').nth(1).and_then(language) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let ClientSource(ip) = match source {
+        Ok(source) => source,
+        Err(status) => return localized(status.into_response(), lang),
+    };
+    match limiter
+        .check(NamedPolicy::PublicGameData, &[Keys::source(ip)])
+        .await
+    {
+        Ok(()) => next.run(request).await,
+        Err(error) => {
+            let locale = if lang == "pl" {
+                oteryn_web::Language::Pl
+            } else {
+                oteryn_web::Language::En
+            };
+            localized(error.response(locale, false), lang)
+        }
+    }
+}
+
+async fn asset(Path(asset): Path<String>) -> Response {
+    let (content_type, source) = match asset.as_str() {
+        "notices.css" => ("text/css", include_str!("notices.css")),
+        "status.css" => ("text/css", include_str!("status.css")),
+        "status.js" => ("text/javascript", include_str!("status.js")),
+        _ => return StatusCode::NOT_FOUND.into_response(),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, content_type),
+            (header::CACHE_CONTROL, "no-cache"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        ],
+        source,
+    )
+        .into_response()
 }
 
 fn language(lang: &str) -> Option<&'static str> {
@@ -121,6 +173,9 @@ async fn load_page(db: &PgPool, lang: &'static str, page: u32) -> Result<StatusP
     let offset = i64::from(page) * HISTORY_PAGE_SIZE as i64;
     let mut history = store::incidents(&mut tx, lang, now, Incidents::History(offset)).await?;
     tx.commit().await?;
+    if page > 0 && history.is_empty() {
+        return Err(Error::MissingPage);
+    }
     let next = (history.len() > HISTORY_PAGE_SIZE).then(|| page.saturating_add(1));
     history.truncate(HISTORY_PAGE_SIZE);
     Ok(StatusPage {
@@ -206,9 +261,10 @@ struct Atom {
 }
 
 async fn load_feed(site: Site, lang: &'static str) -> Result<Atom, Error> {
-    let mut db = site.db.acquire().await?;
-    let now = store::clock(&mut db).await?;
-    let incidents = store::incidents(&mut db, lang, now, Incidents::Feed).await?;
+    let mut tx = snapshot(&site.db).await?;
+    let now = store::clock(&mut tx).await?;
+    let incidents = store::incidents(&mut tx, lang, now, Incidents::Feed).await?;
+    tx.commit().await?;
     let updated = incidents
         .first()
         .map_or(OffsetDateTime::UNIX_EPOCH, |i| i.posted_at);

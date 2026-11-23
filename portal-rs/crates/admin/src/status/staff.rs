@@ -86,6 +86,19 @@ struct StatusAdmin {
     can_schedule: bool,
 }
 
+impl StatusAdmin {
+    fn publication_key(&self) -> Uuid {
+        Uuid::now_v7()
+    }
+}
+
+#[derive(Deserialize)]
+struct Publication<T> {
+    publication_key: Uuid,
+    #[serde(flatten)]
+    input: T,
+}
+
 async fn allowed(
     auth: &Authorizer<PortalIdentity>,
     context: CheckContext,
@@ -154,6 +167,7 @@ async fn publish(
     db: PgPool,
     context: CheckContext,
     authorization: MutationAuthorization,
+    publication_key: Uuid,
     command: Command,
     lang: &'static str,
 ) -> Response {
@@ -162,7 +176,7 @@ async fn publish(
         Command::Transition(_, Transition::Resolve, _) => "resolved",
         Command::Schedule(_) => "maintenance",
     };
-    match store::mutate(&db, context, &authorization, command).await {
+    match store::mutate(&db, context, &authorization, publication_key, command).await {
         Ok(_) if anchor == "resolved" => {
             Redirect::to(&format!("/admin/status?lang={lang}#active-incidents")).into_response()
         }
@@ -177,13 +191,14 @@ async fn create(
     Extension(authorization): Extension<MutationAuthorization>,
     Query(query): Query<LanguageQuery>,
     headers: HeaderMap,
-    Form(form): Form<CreateIncident>,
+    Form(form): Form<Publication<CreateIncident>>,
 ) -> Response {
     publish(
         db,
         context,
         authorization,
-        Command::Create(form),
+        form.publication_key,
+        Command::Create(form.input),
         query.language(&headers),
     )
     .await
@@ -196,13 +211,14 @@ async fn transition(
     Path(id): Path<Uuid>,
     Query(query): Query<LanguageQuery>,
     headers: HeaderMap,
-    Form(form): Form<Message>,
+    Form(form): Form<Publication<Message>>,
 ) -> Response {
     publish(
         db,
         context,
         authorization,
-        Command::Transition(id, transition, form),
+        form.publication_key,
+        Command::Transition(id, transition, form.input),
         query.language(&headers),
     )
     .await
@@ -214,13 +230,14 @@ async fn schedule(
     Extension(authorization): Extension<MutationAuthorization>,
     Query(query): Query<LanguageQuery>,
     headers: HeaderMap,
-    Form(form): Form<ScheduleMaintenance>,
+    Form(form): Form<Publication<ScheduleMaintenance>>,
 ) -> Response {
     publish(
         db,
         context,
         authorization,
-        Command::Schedule(form),
+        form.publication_key,
+        Command::Schedule(form.input),
         query.language(&headers),
     )
     .await

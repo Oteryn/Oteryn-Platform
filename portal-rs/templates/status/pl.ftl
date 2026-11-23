@@ -44,3 +44,6 @@ missing = Nie znaleziono incydentu.
 conflict = Ten incydent jest zakończony lub osiągnięto limit publikacji.
 forbidden = Nie masz uprawnień do tej zmiany.
 unavailable = Status usług jest chwilowo niedostępny.
+limited = Spróbuj ponownie opublikować za minutę.
+feed-link = Kanał Atom
+missing-page = Ta strona historii incydentów nie istnieje.

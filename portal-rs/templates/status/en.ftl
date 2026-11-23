@@ -44,3 +44,6 @@ missing = This incident could not be found.
 conflict = This incident is closed or the publication limit has been reached.
 forbidden = You do not have permission to make this change.
 unavailable = Service status is temporarily unavailable.
+limited = Try publishing again in one minute.
+feed-link = Atom feed
+missing-page = This page of incident history does not exist.

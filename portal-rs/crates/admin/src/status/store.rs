@@ -2,8 +2,9 @@ use crate::{
     audit::{self, AuditContext, Entry},
     rbac::{self, CheckContext, MutationCheck, Permission},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgConnection, PgPool};
 use time::{Duration, OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
@@ -11,6 +12,7 @@ use uuid::Uuid;
 const MAX_OPEN_INCIDENTS: i64 = 50;
 const MAX_MAINTENANCE_WINDOWS: i64 = 100;
 const MAX_TIMELINE_ENTRIES: i16 = 100;
+const PUBLICATIONS_PER_MINUTE: i64 = 12;
 pub const HISTORY_PAGE_SIZE: usize = 20;
 
 #[derive(Debug, thiserror::Error)]
@@ -19,15 +21,21 @@ pub enum Error {
     Invalid,
     #[error("status record was not found")]
     Missing,
+    #[error("incident history page was not found")]
+    MissingPage,
     #[error("status record is closed or the publication limit was reached")]
     Conflict,
+    #[error("publication rate limit reached")]
+    Limited,
+    #[error(transparent)]
+    Encoding(#[from] serde_json::Error),
     #[error(transparent)]
     Authorization(#[from] rbac::Error),
     #[error(transparent)]
     Storage(#[from] sqlx::Error),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Message {
     message_pl: String,
     message_en: String,
@@ -40,7 +48,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Severity {
     Minor,
@@ -56,7 +64,7 @@ impl Severity {
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct CreateIncident {
     scope: String,
     severity: Severity,
@@ -66,7 +74,7 @@ pub struct CreateIncident {
     message: Message,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ScheduleMaintenance {
     scope: String,
     starts_at: String,
@@ -75,12 +83,13 @@ pub struct ScheduleMaintenance {
     message: Message,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Serialize)]
 pub enum Transition {
     Update,
     Resolve,
 }
 
+#[derive(Serialize)]
 pub enum Command {
     Create(CreateIncident),
     Transition(Uuid, Transition, Message),
@@ -179,9 +188,14 @@ pub async fn mutate(
     db: &PgPool,
     context: CheckContext,
     authority: &dyn MutationCheck,
+    publication_key: Uuid,
     mut command: Command,
 ) -> Result<Uuid, Error> {
+    if publication_key.get_version_num() != 7 {
+        return Err(Error::Invalid);
+    }
     command.validate()?;
+    let digest = Sha256::digest(serde_json::to_vec(&command)?);
     let world = command.world()?;
     let incident = command.incident();
     let permission = command.permission();
@@ -218,6 +232,31 @@ pub async fn mutate(
         &[Permission::Access, permission],
     )
     .await?;
+    if let Some((id, previous_digest)) = sqlx::query_as::<_, (Uuid, Vec<u8>)>(
+        "SELECT result_id, command_digest FROM status_publications
+         WHERE actor_id=$1 AND publication_key=$2",
+    )
+    .bind(context.account)
+    .bind(publication_key)
+    .fetch_optional(&mut *tx)
+    .await?
+    {
+        if previous_digest != digest[..] {
+            return Err(Error::Conflict);
+        }
+        tx.commit().await?;
+        return Ok(id);
+    }
+    let recent: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM status_publications
+         WHERE actor_id=$1 AND published_at > statement_timestamp() - interval '1 minute'",
+    )
+    .bind(context.account)
+    .fetch_one(&mut *tx)
+    .await?;
+    if recent >= PUBLICATIONS_PER_MINUTE {
+        return Err(Error::Limited);
+    }
     let (id, before, after) = match command {
         Command::Create(form) => create_incident(&mut tx, world, form).await?,
         Command::Transition(id, transition, message) => {
@@ -225,6 +264,16 @@ pub async fn mutate(
         }
         Command::Schedule(form) => schedule_maintenance(&mut tx, world, form).await?,
     };
+    sqlx::query(
+        "INSERT INTO status_publications (actor_id, publication_key, command_digest, result_id)
+         VALUES ($1,$2,$3,$4)",
+    )
+    .bind(context.account)
+    .bind(publication_key)
+    .bind(&digest[..])
+    .bind(id)
+    .execute(&mut *tx)
+    .await?;
     audit::append(
         &mut tx,
         Entry {

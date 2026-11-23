@@ -73,7 +73,19 @@ fn failure(error: Error, lang: &str) -> Response {
             (StatusCode::UNPROCESSABLE_ENTITY, "invalid")
         }
         Error::Missing => (StatusCode::NOT_FOUND, "missing"),
+        Error::MissingPage => (StatusCode::NOT_FOUND, "missing-page"),
         Error::Conflict => (StatusCode::CONFLICT, "conflict"),
+        Error::Limited => {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [
+                    (header::CONTENT_LANGUAGE, lang),
+                    (header::RETRY_AFTER, "60"),
+                ],
+                text(lang, "limited"),
+            )
+                .into_response();
+        }
         Error::Authorization(crate::rbac::Error::Denied) => (StatusCode::FORBIDDEN, "forbidden"),
         error => {
             tracing::warn!(%error, "status request unavailable");

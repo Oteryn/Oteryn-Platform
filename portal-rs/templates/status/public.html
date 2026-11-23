@@ -6,13 +6,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ labels.get("title") }} · Oteryn</title>
   <link rel="stylesheet" href="/static/status/status.css">
+  <script src="/static/status/status.js" defer></script>
   <link rel="alternate" type="application/atom+xml" title="{{ labels.get("feed") }}" href="/{{ lang }}/status/incidents.atom">
 </head>
 <body>
-<main id="main" class="status-page">
+<main id="main" class="status-page" tabindex="-1">
   <header class="status-heading">
     <div><h1>{{ labels.get("title") }}</h1><p>{{ labels.get("status-explainer") }}</p></div>
-    <a class="op-button op-button--secondary" href="/{{ lang }}/status/incidents.atom">Atom</a>
+    <a class="op-button op-button--secondary" href="/{{ lang }}/status/incidents.atom">{{ labels.get("feed-link") }}</a>
   </header>
   <section aria-labelledby="components-title">
     <h2 id="components-title">{{ labels.get("components") }}</h2>
