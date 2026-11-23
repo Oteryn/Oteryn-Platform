@@ -253,7 +253,6 @@ test('moderator creates sanctions, revokes them, and adjudicates requested appea
       const sanction = staffForm(staff, 'sanction');
       const appeal = staffForm(staff, 'appeal');
       for (const decision of ['accepted', 'rejected', 'revoked', 'expired']) {
-        if (decision === 'expired') values.expires_at = String(now - 1);
         values.public_reason = `Sanction ${decision} ${randomUUID()}`;
         await open(staff, enforcement);
         await staff.getByRole('link', { name: a.create }).click();
@@ -268,6 +267,15 @@ test('moderator creates sanctions, revokes them, and adjudicates requested appea
         await submitForm(sanction, values, { bad: { expires_at: values.effective_at } });
         await expect(staff).toHaveURL(new RegExp(`${enforcement}/[a-f0-9-]+$`));
         const id = recordId(staff);
+        if (decision === 'expired') {
+          values.effective_at = String(now - 7200);
+          values.expires_at = String(now - 3600);
+          expect(await query(
+            'UPDATE sanctions SET effective_at=to_timestamp($2),expires_at=to_timestamp($3) WHERE id=$1 RETURNING status',
+            [id, values.effective_at, values.expires_at],
+          )).toEqual([{ status: 'active' }]);
+          await staff.reload();
+        }
         await expect(staff.locator('main > p').first()).toHaveText(a[decision === 'expired' ? 'expired' : 'active']);
         await expect(sanction.locator('button')).toHaveText(a.sanction);
         await open(staff, enforcement);

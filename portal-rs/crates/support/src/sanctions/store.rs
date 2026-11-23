@@ -656,7 +656,6 @@ impl Service {
                 return Err(StaffError::Conflict);
             }
         }
-        let typed_create = matches!(command, Command::ApplySanction { .. });
         let timed_command;
         let command = if let Command::ApplySanction {
             target,
@@ -729,18 +728,17 @@ impl Service {
                     }
                     if version != 1
                         || status != "active"
-                        || (typed_create
-                            && !oteryn_admin::support::valid_sanction_duration(
-                                expires_at - effective_at,
-                            ))
+                        || !oteryn_admin::support::valid_sanction_duration(
+                            expires_at - effective_at,
+                        )
                     {
                         return Err(StaffError::Invalid);
                     }
                     command.transition("absent")?;
                     let inserted = sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) SELECT $1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8
-                        WHERE NOT $9 OR to_timestamp($7::bigint::double precision/1000)>clock_timestamp()
+                        WHERE to_timestamp($7::bigint::double precision/1000)>clock_timestamp()
                         ON CONFLICT (id) DO NOTHING")
-                        .bind(id).bind(target).bind(category).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).bind(typed_create).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                        .bind(id).bind(target).bind(category).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
                     if inserted.rows_affected() != 1 {
                         return Err(StaffError::Conflict);
                     }
