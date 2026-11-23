@@ -5,7 +5,7 @@ import { csrfPage } from './actors.mjs';
 
 export const recoveryMethods = [
   ['POST', '', 200], ['POST', '/confirm', 200],
-  ['POST', '/revoke', 302], ['DELETE', '', 302],
+  ['POST', '/revoke', 302], ['DELETE', '', 303],
 ];
 export const emailChangeRoutes = ['', '/pl', '/en'].map(prefix => ['POST', `${prefix}/account/security/email`]);
 
