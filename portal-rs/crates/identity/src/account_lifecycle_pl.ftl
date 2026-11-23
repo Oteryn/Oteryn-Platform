@@ -2,8 +2,8 @@ preferences = Preferencje powiadomień
 unsubscribe = Wypisz się
 unsubscribe-info = Wyłącz opcjonalne wiadomości e-mail w tej kategorii. Powiadomienia bezpieczeństwa pozostają włączone.
 security = Powiadomienia bezpieczeństwa są zawsze włączone w obu kanałach.
-news = Aktualności
-support = Pomoc
+news = Aktualności i newsletter
+support = Konto i pomoc
 email = E-mail
 portal = Portal
 save = Zapisz
@@ -16,3 +16,6 @@ delete = Poproś o usunięcie konta
 unsubscribed = Opcjonalne wiadomości e-mail są wyłączone.
 
 restoration-pending = Usunięcie anulowano. Przywracanie konta w grze trwa; stare sesje gry pozostają unieważnione.
+mail-language = Język wiadomości e-mail
+events = Wydarzenia
+forum-digest = Podsumowanie forum

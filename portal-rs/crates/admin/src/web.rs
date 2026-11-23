@@ -167,8 +167,9 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
-    ))
+        PortalIdentity::configured(pool.clone()),
+    )
+    .merge(crate::newsletter::configured_router(pool)?))
 }
 
 /// [`guarded`] with the panel's environment configuration and the server-side
@@ -427,7 +428,7 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
-fn language(headers: &axum::http::HeaderMap) -> &'static str {
+pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())
@@ -466,6 +467,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    newsletter_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -539,6 +541,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        newsletter_label: s
+            .auth
+            .check(context, Permission::NewsletterView)
+            .await
+            .is_ok()
+            .then(|| crate::newsletter::label(lang, "title")),
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

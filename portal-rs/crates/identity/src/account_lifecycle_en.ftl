@@ -2,8 +2,8 @@ preferences = Notification preferences
 unsubscribe = Unsubscribe
 unsubscribe-info = Disable optional e-mail for this category. Security messages remain enabled.
 security = Security notifications are always enabled in both channels.
-news = News
-support = Support
+news = News and newsletter
+support = Account and support
 email = E-mail
 portal = Portal
 save = Save
@@ -16,3 +16,6 @@ delete = Request account deletion
 unsubscribed = Optional e-mail disabled.
 
 restoration-pending = Deletion was cancelled. Game restoration is pending; old game sessions stay revoked.
+mail-language = Email language
+events = Events
+forum-digest = Forum digest

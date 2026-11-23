@@ -8,6 +8,7 @@ use axum::{
     routing::get,
 };
 use oteryn_identity::{
+    notification_preferences::{self, Choices, MailLanguage},
     sessions::NotificationAccounts as AccountState,
     termination::{self, ActorProof, BoundaryFuture},
 };
@@ -134,6 +135,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
         .into_iter()
         .collect();
     let mut routes = Router::new()
+        .route("/{lang}/account/notifications", get(preferences).post(save))
         .route("/{lang}/account/privacy/delete", get(deletion))
         .route(
             "/{lang}/account/privacy/delete/cancel",
@@ -146,9 +148,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
         );
     }
     if notifications.is_some() {
-        routes = routes
-            .route("/{lang}/account/notifications", get(preferences).post(save))
-            .route("/{lang}/unsubscribe", get(unsubscribe_page));
+        routes = routes.route("/{lang}/unsubscribe", get(unsubscribe_page));
     }
     let mut routes = routes.route_layer(axum::middleware::from_fn_with_state(
         sessions,
@@ -205,10 +205,8 @@ struct Page {
     restoration_pending: bool,
     unsubscribe: bool,
     token: String,
-    news_email: bool,
-    news_portal: bool,
-    support_email: bool,
-    support_portal: bool,
+    mail_locale: String,
+    choices: Choices,
 }
 impl Page {
     fn text(&self, key: &str) -> String {
@@ -253,10 +251,8 @@ async fn page(
         restoration_pending: false,
         unsubscribe,
         token,
-        news_email: false,
-        news_portal: true,
-        support_email: false,
-        support_portal: true,
+        mail_locale: l.code().into(),
+        choices: Choices::default(),
     })
 }
 fn render(p: Page) -> Response {
@@ -274,20 +270,12 @@ async fn preferences(
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
     let mut p = page(l, &s, "", false, false, false, String::new()).await?;
-    (p.news_email, p.news_portal) = st
-        .notifications
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .preference(id, oteryn_notify::Category::News)
+    let preferences = notification_preferences::current(&st.pool, id)
         .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    (p.support_email, p.support_portal) = st
-        .notifications
-        .as_ref()
-        .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-        .preference(id, oteryn_notify::Category::Support)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::FORBIDDEN)?;
+    p.mail_locale = preferences.language;
+    p.choices = preferences.choices;
     Ok(render(p))
 }
 #[derive(serde::Deserialize)]
@@ -298,6 +286,9 @@ struct PreferenceInput {
     news_portal: Option<String>,
     support_email: Option<String>,
     support_portal: Option<String>,
+    events_email: Option<String>,
+    forum_digest_email: Option<String>,
+    mail_locale: Option<MailLanguage>,
 }
 fn boolean(v: Option<String>) -> Result<bool, StatusCode> {
     match v.as_deref() {
@@ -354,51 +345,32 @@ async fn save(
     {
         return Ok(r);
     }
-    let mut tx = st
-        .pool
-        .begin()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    sqlx::query("SELECT id FROM accounts WHERE id=$1 FOR UPDATE")
-        .bind(id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    if input.mail_locale.is_none()
+        && (input.events_email.is_some() || input.forum_digest_email.is_some())
+    {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    let choices = Choices {
+        news: (boolean(input.news_email)?, boolean(input.news_portal)?),
+        support: (
+            boolean(input.support_email)?,
+            boolean(input.support_portal)?,
+        ),
+        events: boolean(input.events_email)?,
+        forum_digest: boolean(input.forum_digest_email)?,
+    };
     let actor = oteryn_identity::mutation_actor::MutationActor::browser(
         id,
         s.csrf_token()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
     );
-    if !actor
-        .live(&mut tx)
+    if !notification_preferences::save(&st.pool, &actor, input.mail_locale, choices)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     {
         return Err(StatusCode::FORBIDDEN);
     }
-    for (category, email, portal) in [
-        (
-            oteryn_notify::Category::News,
-            input.news_email,
-            input.news_portal,
-        ),
-        (
-            oteryn_notify::Category::Support,
-            input.support_email,
-            input.support_portal,
-        ),
-    ] {
-        st.notifications
-            .as_ref()
-            .ok_or(StatusCode::SERVICE_UNAVAILABLE)?
-            .preferences(&mut tx, id, category, boolean(email)?, boolean(portal)?)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    }
-    tx.commit()
-        .await
-        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(Redirect::to(&format!("/{}/account/notifications", l.code())).into_response())
 }
 #[derive(serde::Deserialize, Default)]
@@ -411,10 +383,15 @@ async fn unsubscribe_page(
     Extension(s): Extension<BrowserSession>,
     axum::extract::Query(q): axum::extract::Query<Token>,
 ) -> Result<Response, StatusCode> {
-    if q.token.len() > 512 {
+    if q.token.len() > 256 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    Ok(render(page(l, &s, "", false, false, true, q.token).await?))
+    let mut response = render(page(l, &s, "", false, false, true, q.token).await?);
+    response.headers_mut().insert(
+        "referrer-policy",
+        axum::http::HeaderValue::from_static("no-referrer"),
+    );
+    Ok(response)
 }
 async fn unsubscribe(
     State(st): State<Services>,

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.text("title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <nav><a href="/admin">{{ self.text("staff-panel") }}</a></nav>
+  <h1>{{ self.text("title") }}</h1>
+  {% if compose %}
+  <section class="op-stack">
+    <h2>{{ self.text("compose") }}</h2>
+    <form class="op-stack" method="post" action="/admin/newsletter">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label class="op-field">{{ self.text("audience") }}
+        <select class="op-input" name="audience">
+          <option value="all">{{ self.text("all-languages") }}</option>
+          <option value="pl">{{ self.text("polish") }}</option>
+          <option value="en">{{ self.text("english") }}</option>
+        </select>
+      </label>
+      <p id="newsletter-markdown" class="op-hint">{{ self.text("markdown-help") }}</p>
+      <fieldset class="op-stack">
+        <legend>{{ self.text("polish") }}</legend>
+        <label class="op-field">{{ self.text("subject") }}<input class="op-input" name="subject_pl" maxlength="200" lang="pl" required></label>
+        <label class="op-field">{{ self.text("body") }}<textarea class="op-input" name="body_pl" rows="6" maxlength="8000" lang="pl" aria-describedby="newsletter-markdown" required></textarea></label>
+      </fieldset>
+      <fieldset class="op-stack">
+        <legend>{{ self.text("english") }}</legend>
+        <label class="op-field">{{ self.text("subject") }}<input class="op-input" name="subject_en" maxlength="200" lang="en" required></label>
+        <label class="op-field">{{ self.text("body") }}<textarea class="op-input" name="body_en" rows="6" maxlength="8000" lang="en" aria-describedby="newsletter-markdown" required></textarea></label>
+      </fieldset>
+      <div><button class="op-button" type="submit">{{ self.text("save-preview") }}</button></div>
+    </form>
+  </section>
+  {% endif %}
+  <section class="op-stack">
+    <h2>{{ self.text("campaigns") }}</h2>
+    {% if campaigns.is_empty() %}<p>{{ self.text("no-campaigns") }}</p>{% else %}
+    <ul>
+      {% for (id, pl, en, state) in campaigns %}
+      <li><a href="/admin/newsletter/{{ id }}">{% if lang == "pl" %}{{ pl }}{% else %}{{ en }}{% endif %}</a> · {{ self.text(state) }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    {% if let Some(after) = next %}<a href="/admin/newsletter?after={{ after }}">{{ self.text("older") }}</a>{% endif %}
+  </section>
+</main>
+</body>
+</html>

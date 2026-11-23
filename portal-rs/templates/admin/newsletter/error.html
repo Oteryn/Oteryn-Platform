@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ self.text("title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.text("title") }}</h1>
+  <p role="alert">{{ self.text(description) }}</p>
+  {% if let Some(id) = campaign %}
+  <p><a href="/admin/newsletter/{{ id }}">{{ self.text("back-preview") }}</a></p>
+  {% else %}
+  <p><a href="/admin/newsletter">{{ self.text("back-list") }}</a></p>
+  {% endif %}
+</main>
+</body>
+</html>
