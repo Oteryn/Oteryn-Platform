@@ -739,9 +739,9 @@ test('support ticket staff reply and status enforce RBAC and stale writes', asyn
        FROM tickets t WHERE t.id=$1 AND t.account_id=$2`, [id, owner.id],
     );
     const cases = [
-      { action: 'reply', fields: { body: 'Support answer' }, invalidFields: [{ body: '' }, { body: 'x'.repeat(8001) }],
+      { action: 'reply', fields: { body: 'Support answer', reason: 'Review the support request' }, invalidFields: [{ body: '' }, { body: 'x'.repeat(8001) }],
         result: { status: 'waiting_user', lock_version: '2', messages: ['Player question', 'Support answer'] } },
-      { action: 'ticket_status', fields: { status: 'resolved' }, invalidFields: [{ status: '' }, { status: 'not-a-status' }],
+      { action: 'ticket_status', fields: { status: 'resolved', reason: 'Resolve the support request' }, invalidFields: [{ status: '' }, { status: 'not-a-status' }],
         result: { status: 'resolved', lock_version: '3', messages: ['Player question', 'Support answer'] } },
     ];
     for (const scenario of cases) {
