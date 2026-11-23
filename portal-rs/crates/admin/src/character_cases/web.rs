@@ -10,18 +10,20 @@ use axum::{
         Query, State,
         rejection::{FormRejection, QueryRejection},
     },
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use oteryn_characters::commands::{Sex, Vocation};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
+use sqlx::PgPool;
 use std::sync::Arc;
 use uuid::Uuid;
 
 const PATH: &str = "/admin/character-cases";
 const PAGE_SIZE: usize = 30;
+pub(super) const WRITES_PER_MINUTE: i64 = 30;
 
 pub(crate) fn routes<I: StaffSession, A: crate::rbac::AccountStateReader + 'static>()
 -> Router<Arc<Panel<I, A>>> {
@@ -66,6 +68,7 @@ enum View {
     Queue {
         entries: Vec<ListEntry>,
         ticket: Option<Uuid>,
+        can_submit: bool,
         next: Option<Uuid>,
     },
     Intake {
@@ -123,6 +126,17 @@ fn failure(lang: &'static str, error: Error) -> Response {
         Error::Denied => (StatusCode::FORBIDDEN, "denied"),
         Error::Missing => (StatusCode::NOT_FOUND, "missing"),
         Error::Conflict => (StatusCode::CONFLICT, "conflict"),
+        Error::Limited(retry_after) => {
+            let mut response = (
+                StatusCode::TOO_MANY_REQUESTS,
+                render(lang, View::Failure { key: "limited" }),
+            )
+                .into_response();
+            if let Ok(delay) = HeaderValue::from_str(&retry_after.to_string()) {
+                response.headers_mut().insert(header::RETRY_AFTER, delay);
+            }
+            return response;
+        }
         Error::Storage(_) => (StatusCode::SERVICE_UNAVAILABLE, "storage"),
     };
     // Preserve an SSR return path even when a case changes between view and submit.
@@ -153,9 +167,6 @@ async fn view<I, A: crate::rbac::AccountStateReader>(
     filter: Filters,
 ) -> Result<View, Error> {
     let ticket = filter.ticket;
-    if let Some(ticket) = ticket {
-        super::ticket_account(&panel.pool, ticket).await?;
-    }
     match (filter.id, filter.operation, filter.after, ticket) {
         (Some(id), None, None, None) if !id.is_nil() => {
             let case = load(&panel.pool, actor.account, id).await?;
@@ -163,7 +174,8 @@ async fn view<I, A: crate::rbac::AccountStateReader>(
                 if !can_review(panel, actor).await? {
                     return Err(Error::Missing);
                 }
-                if case.decision.is_none() {
+                if case.decision.is_none() && open_ticket(&panel.pool, Some(case.ticket_id)).await?
+                {
                     Some(session.csrf_token().await?)
                 } else {
                     None
@@ -176,13 +188,19 @@ async fn view<I, A: crate::rbac::AccountStateReader>(
                 review_csrf,
             })
         }
-        (None, Some(operation), None, _) => Ok(View::Intake {
-            operation,
-            ticket,
-            id: Uuid::now_v7(),
-            csrf: session.csrf_token().await?,
-        }),
+        (None, Some(operation), None, _) => {
+            if !open_ticket(&panel.pool, ticket).await? {
+                return Err(Error::Conflict);
+            }
+            Ok(View::Intake {
+                operation,
+                ticket,
+                id: Uuid::now_v7(),
+                csrf: session.csrf_token().await?,
+            })
+        }
         (None, None, after, _) => {
+            let can_submit = open_ticket(&panel.pool, ticket).await?;
             let mut entries: Vec<ListEntry> = sqlx::query_as(
                 "SELECT id, ticket_id, operation, COALESCE(decision, 'pending') AS state
                  FROM staff_character_cases
@@ -206,11 +224,42 @@ async fn view<I, A: crate::rbac::AccountStateReader>(
             Ok(View::Queue {
                 entries,
                 ticket,
+                can_submit,
                 next,
             })
         }
         _ => Err(Error::Invalid),
     }
+}
+
+async fn open_ticket(pool: &PgPool, ticket: Option<Uuid>) -> Result<bool, Error> {
+    match ticket {
+        Some(id) if id.is_nil() => Err(Error::Invalid),
+        Some(id) => {
+            let (_, status) = super::ticket_details(pool, id).await?;
+            Ok(super::ticket_is_open(&status))
+        }
+        None => Ok(true),
+    }
+}
+
+pub(super) async fn charge_write(pool: &PgPool, actor: Uuid) -> Result<(), Error> {
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES('staff-character-case-write',sha256(uuid_send($1)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$2+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(actor)
+    .bind(WRITES_PER_MINUTE)
+    .fetch_one(pool)
+    .await?;
+    if count > WRITES_PER_MINUTE {
+        return Err(Error::Limited(retry_after));
+    }
+    Ok(())
 }
 
 async fn can_review<I, A: crate::rbac::AccountStateReader>(
@@ -232,6 +281,9 @@ async fn create<I: StaffSession, A: crate::rbac::AccountStateReader>(
     form: Result<Form<Submission>, FormRejection>,
 ) -> Response {
     let lang = web::language(&headers);
+    if let Err(error) = charge_write(&panel.pool, actor.account).await {
+        return failure(lang, error);
+    }
     let Ok(Form(form)) = form else {
         return failure(lang, Error::Invalid);
     };
@@ -250,6 +302,9 @@ async fn review<I: StaffSession, A: crate::rbac::AccountStateReader>(
     form: Result<Form<Review>, FormRejection>,
 ) -> Response {
     let lang = web::language(&headers);
+    if let Err(error) = charge_write(&panel.pool, actor.account).await {
+        return failure(lang, error);
+    }
     let Ok(Form(form)) = form else {
         return failure(lang, Error::Invalid);
     };

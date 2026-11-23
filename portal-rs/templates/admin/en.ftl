@@ -127,3 +127,5 @@ character-case-denied = You cannot submit or review this request with the select
 character-case-missing = The ticket or character case is unavailable to you.
 character-case-conflict = The request or ticket has changed. Reopen the case queue to see its current state.
 character-case-storage = Character case storage is temporarily unavailable.
+character-case-ticket-closed = This ticket is closed or resolved. Existing cases remain available below.
+character-case-limited = Too many case submissions or reviews. Wait a moment and try again.

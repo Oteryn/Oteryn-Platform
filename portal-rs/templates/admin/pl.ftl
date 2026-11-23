@@ -127,3 +127,5 @@ character-case-denied = Wybrane konta i uprawnienia nie pozwalają złożyć lub
 character-case-missing = Zgłoszenie lub sprawa postaci jest dla Ciebie niedostępna.
 character-case-conflict = Wniosek lub zgłoszenie uległo zmianie. Otwórz ponownie kolejkę spraw, aby sprawdzić aktualny stan.
 character-case-storage = Rejestr spraw postaci jest tymczasowo niedostępny.
+character-case-ticket-closed = To zgłoszenie jest zamknięte lub rozwiązane. Dotychczasowe sprawy są dostępne poniżej.
+character-case-limited = Zbyt wiele zgłoszeń lub ocen spraw. Odczekaj chwilę i spróbuj ponownie.

@@ -16,12 +16,13 @@
   </nav>
 
   {% match view %}
-  {% when View::Queue { entries, ticket, next } %}
+  {% when View::Queue { entries, ticket, can_submit, next } %}
     <p>{{ self.label("purpose") }}</p>
     <section class="op-stack" aria-labelledby="game-status">
       <h2 id="game-status">{{ self.label("game-status") }}</h2>
       <p>{{ unavailable }}</p>
     </section>
+    {% if can_submit %}
     <form class="op-stack" method="get" action="/admin/character-cases">
       {% if let Some(id) = ticket %}<input type="hidden" name="ticket" value="{{ id }}">{% endif %}
       <label for="case-operation">{{ self.label("operation") }}</label>
@@ -33,6 +34,9 @@
       </select>
       <button class="op-button">{{ self.label("start") }}</button>
     </form>
+    {% else %}
+    <p>{{ self.label("ticket-closed") }}</p>
+    {% endif %}
     <section aria-labelledby="assigned-cases" class="op-stack">
       <h2 id="assigned-cases">{{ self.label("assigned") }}</h2>
       {% if entries.is_empty() %}
@@ -139,7 +143,7 @@
       <dt>{{ self.label("evidence") }}</dt><dd>{{ case.evidence_ref }}</dd>
       <dt>{{ self.label("filed") }}</dt><dd>{{ case.created_at }}</dd>
       <dt>{{ self.label("review") }}</dt><dd>{{ self.label(case.state()) }}</dd>
-      {% if let Some(note) = case.decision_note %}<dt>{{ self.label("note") }}</dt><dd>{{ note }}</dd>{% endif %}
+      {% if let Some(note) = case.decision_note %}<dt>{{ self.label("note") }}</dt><dd>{% for line in note.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</dd>{% endif %}
       {% if let Some(value) = case.decided_at %}<dt>{{ self.label("reviewed") }}</dt><dd>{{ value }}</dd>{% endif %}
     </dl>
     <section aria-labelledby="game-status" class="op-stack">

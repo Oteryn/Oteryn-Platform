@@ -437,7 +437,12 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         "/admin/mail-outbox/cancel" => Permission::MailCancel,
         _ => Permission::Access,
     });
-    for required in [Permission::Access, permission] {
+    let ticket_review = (request.uri().path() == "/admin/character-cases/review")
+        .then_some(Permission::ManageSupportTickets);
+    for required in [Some(Permission::Access), ticket_review, Some(permission)]
+        .into_iter()
+        .flatten()
+    {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();

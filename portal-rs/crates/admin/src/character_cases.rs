@@ -23,6 +23,8 @@ pub(crate) enum Error {
     Missing,
     #[error("character case state changed")]
     Conflict,
+    #[error("character case submission limit reached")]
+    Limited(i64),
     #[error("character case storage unavailable")]
     Storage(#[from] sqlx::Error),
 }
@@ -179,6 +181,18 @@ fn bounded(value: &str, max: usize) -> Result<&str, Error> {
     Ok(value)
 }
 
+fn review_note(value: &str) -> Result<String, Error> {
+    let normalized = value.replace("\r\n", "\n");
+    let note = normalized.trim();
+    if note.is_empty()
+        || note.chars().count() > 500
+        || note.chars().any(|ch| ch.is_control() && ch != '\n')
+    {
+        return Err(Error::Invalid);
+    }
+    Ok(note.to_owned())
+}
+
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Decision {
@@ -240,12 +254,16 @@ async fn load(pool: &PgPool, actor: Uuid, id: Uuid) -> Result<Case, Error> {
     .ok_or(Error::Missing)
 }
 
-async fn ticket_account(pool: &PgPool, ticket: Uuid) -> Result<Uuid, Error> {
-    sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1 AND category='character'")
+async fn ticket_details(pool: &PgPool, ticket: Uuid) -> Result<(Uuid, String), Error> {
+    sqlx::query_as("SELECT account_id, status FROM tickets WHERE id=$1 AND category='character'")
         .bind(ticket)
         .fetch_optional(pool)
         .await?
         .ok_or(Error::Missing)
+}
+
+fn ticket_is_open(status: &str) -> bool {
+    matches!(status, "open" | "waiting_user" | "waiting_staff")
 }
 
 async fn lock_ticket(c: &mut PgConnection, ticket: Uuid, account: Uuid) -> Result<(), Error> {
@@ -257,7 +275,7 @@ async fn lock_ticket(c: &mut PgConnection, ticket: Uuid, account: Uuid) -> Resul
     .fetch_optional(c)
     .await?;
     match status.as_deref() {
-        Some("open" | "waiting_user" | "waiting_staff") => Ok(()),
+        Some(status) if ticket_is_open(status) => Ok(()),
         Some(_) => Err(Error::Conflict),
         None => Err(Error::Missing),
     }
@@ -272,7 +290,7 @@ async fn submit<A: AccountStateReader>(
 ) -> Result<Uuid, Error> {
     let profile = form.validate()?;
     let evidence = bounded(&form.evidence, 160)?;
-    let account = ticket_account(pool, form.ticket).await?;
+    let (account, _) = ticket_details(pool, form.ticket).await?;
     if form.reviewer == actor.account || [actor.account, form.reviewer].contains(&account) {
         return Err(Error::Denied);
     }
@@ -367,7 +385,7 @@ async fn decide<A: AccountStateReader>(
     if id.is_nil() || form.revision <= 0 {
         return Err(Error::Invalid);
     }
-    let note = bounded(&form.note, 500)?;
+    let note = review_note(&form.note)?;
     let case = load(pool, actor.account, id).await?;
     if case.reviewer != actor.account || case.requester == actor.account {
         return Err(Error::Denied);

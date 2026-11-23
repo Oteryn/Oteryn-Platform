@@ -1,6 +1,6 @@
 CREATE TABLE staff_character_cases (
     id uuid PRIMARY KEY,
-    ticket_id uuid NOT NULL REFERENCES tickets(id),
+    ticket_id uuid NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
     account_id uuid NOT NULL REFERENCES accounts(id),
     requester uuid NOT NULL REFERENCES accounts(id),
     reviewer uuid NOT NULL REFERENCES accounts(id),
@@ -20,6 +20,7 @@ CREATE TABLE staff_character_cases (
 
 CREATE INDEX staff_character_cases_requester ON staff_character_cases(requester, id DESC);
 CREATE INDEX staff_character_cases_reviewer ON staff_character_cases(reviewer, id DESC);
+CREATE INDEX staff_character_cases_ticket ON staff_character_cases(ticket_id);
 
 -- Extend the existing permission vocabulary without assigning the grant.
 ALTER TABLE role_permissions DROP CONSTRAINT role_permissions_permission_check;

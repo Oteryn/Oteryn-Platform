@@ -53,6 +53,18 @@ fn the_five_profiles_require_their_exact_fields() {
 }
 
 #[test]
+fn review_note_preserves_paragraphs_within_the_length_limit() -> Result<(), Error> {
+    assert_eq!(
+        review_note("Review summary\r\n\r\nSecond paragraph")?,
+        "Review summary\n\nSecond paragraph"
+    );
+    for invalid in [" \r\n ", "Summary\0detail", &"a".repeat(501)] {
+        assert!(matches!(review_note(invalid), Err(Error::Invalid)));
+    }
+    Ok(())
+}
+
+#[test]
 fn case_translations_match() {
     let locales = [
         include_str!("../../../templates/admin/en.ftl"),
@@ -265,6 +277,46 @@ async fn postgres_character_case_scope_review_and_audit() -> Result<(), Box<dyn 
             "staff.character_case.reviewed"
         ]
     );
+
+    sqlx::query(
+        "UPDATE tickets SET status='closed', closed_at=now()-interval '181 days' WHERE id=$1",
+    )
+    .bind(ticket)
+    .execute(&pool)
+    .await?;
+    let deleted = sqlx::query(
+        "DELETE FROM tickets WHERE id=$1 AND status IN ('resolved','closed')
+         AND closed_at < now()-interval '180 days'",
+    )
+    .bind(ticket)
+    .execute(&pool)
+    .await?;
+    assert_eq!(deleted.rows_affected(), 1);
+    assert!(matches!(
+        load(&pool, requester, id).await,
+        Err(Error::Missing)
+    ));
+    assert!(matches!(
+        load(&pool, reviewer, replacement).await,
+        Err(Error::Missing)
+    ));
+
+    sqlx::query(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT 'staff-character-case-write', sha256(uuid_send($1)), window_start, $2
+         FROM generate_series(date_trunc('minute',statement_timestamp()),
+           date_trunc('minute',statement_timestamp()) + interval '1 minute', interval '1 minute') AS window_start",
+    )
+    .bind(requester)
+    .bind(web::WRITES_PER_MINUTE)
+    .execute(&pool)
+    .await?;
+    assert!(matches!(
+        web::charge_write(&pool, requester).await,
+        Err(Error::Limited(1..=60))
+    ));
+    web::charge_write(&pool, reviewer).await?;
+
     pool.close().await;
     sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
         .execute(&root)
