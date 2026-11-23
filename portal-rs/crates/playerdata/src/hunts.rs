@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 use uuid::Uuid;
 
+#[path = "hunts_journal.rs"]
+pub(crate) mod journal;
+#[path = "hunt_prices.rs"]
+mod prices;
 #[path = "hunts_store.rs"]
 pub mod store;
 #[path = "hunts_web.rs"]
@@ -163,7 +167,11 @@ impl Session {
             || self.experience_lost < 0
             || self.healing_done < 0
             || self.healing_received < 0
-            || !rows(&self.places, 256, true)
+            || self.places.len() > 256
+            || self
+                .places
+                .iter()
+                .any(|(place, seconds)| *seconds < 0 || (!place.is_empty() && !key(place)))
             || sum != Some(self.duration_seconds)
             || !rows(&self.loot, 4096, false)
             || !rows(&self.supplies, 4096, false)
@@ -203,6 +211,10 @@ pub struct Quote {
 }
 pub trait Pricing: Send + Sync {
     fn quote(&self, item: &str, character: Uuid) -> Option<Quote>;
+
+    fn quote_for(&self, item: &str, character: Uuid, _supplies: bool) -> Option<Quote> {
+        self.quote(item, character)
+    }
 }
 #[derive(Debug)]
 pub struct Unpriced;
@@ -224,9 +236,10 @@ fn value(
     character: Uuid,
     prices: &dyn Pricing,
     provenance: &mut BTreeSet<String>,
+    supplies: bool,
 ) -> Option<i128> {
     rows.iter().try_fold(0_i128, |total, (item, quantity)| {
-        let quote = prices.quote(item, character)?;
+        let quote = prices.quote_for(item, character, supplies)?;
         if !(0..=999_999_999_999).contains(&quote.unit_gold) || quote.provenance.is_empty() {
             return None;
         }
@@ -237,12 +250,19 @@ fn value(
 pub fn valuation(session: &Session, prices: &dyn Pricing) -> Option<Valuation> {
     session.validate().ok()?;
     let mut provenance = BTreeSet::new();
-    let loot = value(&session.loot, session.character_id, prices, &mut provenance)?;
+    let loot = value(
+        &session.loot,
+        session.character_id,
+        prices,
+        &mut provenance,
+        false,
+    )?;
     let supplies = value(
         &session.supplies,
         session.character_id,
         prices,
         &mut provenance,
+        true,
     )?;
     let balance = loot - supplies;
     Some(Valuation {
@@ -272,10 +292,21 @@ pub fn split_loot(
     }
     session.validate()?;
     let party = session.party.as_ref().ok_or(Error::Invalid)?;
+    split_party(party, session.character_id, prices)
+}
+
+fn split_party(
+    party: &Party,
+    character: Uuid,
+    prices: &dyn Pricing,
+) -> Result<Vec<Transfer>, Error> {
+    if party.members.is_empty() {
+        return Err(Error::Invalid);
+    }
     let mut balances = Vec::new();
     let mut total = 0_i128;
     for (slot, items) in &party.members {
-        let gold = value(items, session.character_id, prices, &mut BTreeSet::new())
+        let gold = value(items, character, prices, &mut BTreeSet::new(), false)
             .ok_or(Error::Unavailable)?;
         total = total.checked_add(gold).ok_or(Error::Invalid)?;
         balances.push((*slot, gold));
@@ -350,7 +381,7 @@ impl Filter {
     pub fn validate(&self) -> Result<(), Error> {
         if self.character.is_some_and(|id| !v7(id))
             || self.place.as_ref().is_some_and(|p| !key(p))
-            || self.from.is_some_and(|n| n < 1)
+            || self.from.is_some_and(|n| !(1..=253402300799).contains(&n))
             || self.until.is_some_and(|n| !(1..=253402300799).contains(&n))
             || matches!((self.from, self.until), (Some(a), Some(b)) if a >= b)
             || self.offset.is_some_and(|n| !(0..=10000).contains(&n))

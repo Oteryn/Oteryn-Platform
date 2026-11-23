@@ -2193,7 +2193,7 @@ async fn session_fixture(db: &Db, revision: u64) -> (axum::Router, String) {
         }])
         .unwrap(),
     );
-    let app = crate::sessions::router(
+    let app = crate::sessions::router_with_party(
         db.pool.clone(),
         crate::sessions::Settings {
             ingest: true,
@@ -2201,6 +2201,7 @@ async fn session_fixture(db: &Db, revision: u64) -> (axum::Router, String) {
             source: "game.test".into(),
         },
         identities,
+        true,
     );
     let doc = fixture("..", "OTERYN_V2_GAME_JOURNAL_SESSIONS_CONTRACT_PROPOSAL.md");
     let golden = doc
@@ -3090,5 +3091,94 @@ async fn collection_evidence_requires_current_ownership_and_valid_character_id()
             .unwrap()
             .is_empty()
     );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn hunt_journal_reads_only_the_complete_owner_prefix() {
+    use crate::hunts::{Error as HuntError, Filter, journal::Journal};
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::open().await else { return };
+    seller(&db).await;
+    let (app, segment) = session_fixture(&db, 9).await;
+    let party = r#"{"party_id":"019a5000-0000-7000-8000-000000000010","members":[{"member_slot":0,"is_subject":true,"active_seconds":"60"},{"member_slot":1,"is_subject":false,"active_seconds":"60"}],"loot":[{"member_slot":0,"item_key":"item:ruby","quantity":"1"},{"member_slot":1,"item_key":"item:ruby","quantity":"3"}]}"#;
+    let segment = segment.replace(r#""party":null"#, &format!(r#""party":{party}"#));
+    let codec = oteryn_internal_api::playerdata::sessions::record_with_party;
+    assert!(matches!(
+        codec(segment.as_bytes(), false),
+        Err(oteryn_internal_api::playerdata::Error::Unavailable)
+    ));
+    let bad = segment.replace(
+        r#""item_key":"item:ruby","quantity":"3""#,
+        r#""item_key":"item:ruby","quantity":"0""#,
+    );
+    assert!(matches!(
+        codec(bad.as_bytes(), true),
+        Err(oteryn_internal_api::playerdata::Error::Invalid)
+    ));
+    let other = BUYER.parse().unwrap();
+    let account = SELLER.parse().unwrap();
+    let session_id = "019a5000-0000-7000-8000-000000000003".parse().unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&segment).unwrap();
+    let end = payload["record"]["ended_at"]
+        .as_str()
+        .unwrap()
+        .parse::<i64>()
+        .unwrap();
+    let journal = Journal {
+        pool: db.pool.clone(),
+        source: "game.test".to_owned(),
+    };
+    let read = |actor| {
+        let journal = journal.clone();
+        async move {
+            journal
+                .read(actor, end + 1, &Filter::default(), &[session_id])
+                .await
+        }
+    };
+    assert_eq!(publish_segment(&app, &segment).await, StatusCode::OK);
+    assert!(matches!(read(account).await, Err(HuntError::NotFound)));
+    assert!(matches!(read(other).await, Err(HuntError::Unavailable)));
+    assert!(matches!(
+        journal
+            .read(account, end, &Filter::default(), &[session_id, session_id])
+            .await,
+        Err(HuntError::Invalid)
+    ));
+    db.exec(
+        "INSERT INTO pd_g9_catalogue_keys VALUES('game.test','fixture.v1','rarity:rare')",
+        &[],
+    )
+    .await;
+    let source = fixture("..", "OTERYN_V2_GAME_JOURNAL_SESSIONS_CONTRACT_PROPOSAL.md");
+    let drop = source
+        .lines()
+        .find(|line| line.starts_with('{') && line.contains(r#""record_kind":"RARE_DROP""#))
+        .unwrap()
+        .replace("019a5000-0000-7000-8000-000000000002", SELLER)
+        .replace("019a5000-0000-7000-8000-000000000005", CHARACTER)
+        .replace(r#""character_revision":"1""#, r#""character_revision":"9""#)
+        .replace("1793836830", &(end - 30).to_string());
+    assert_eq!(publish_segment(&app, &drop).await, StatusCode::OK);
+    assert_eq!(publish_segment(&app, &segment).await, StatusCode::OK);
+    let hunts = read(account).await.unwrap();
+    let [hunt] = hunts.as_slice() else {
+        panic!("one completed hunt expected")
+    };
+    assert_eq!(hunt.session.duration_seconds, 60);
+    assert_eq!(hunt.session.experience_per_hour(), Some(6000));
+    assert_eq!(hunt.session.loot["item:ruby"], 1);
+    assert_eq!(hunt.parties[0].ledger.members[&1]["item:ruby"], 3);
+    let drops = hunt.drops.as_deref().unwrap();
+    assert_eq!(drops[0].item_key, "item:ruby");
+    assert_eq!(drops.len(), 1);
+
+    let changed = segment.replace(
+        r#""experience_gained":"100""#,
+        r#""experience_gained":"101""#,
+    );
+    assert_eq!(publish_segment(&app, &changed).await, StatusCode::CONFLICT);
+    assert!(matches!(read(account).await, Err(HuntError::Unavailable)));
     db.close().await;
 }

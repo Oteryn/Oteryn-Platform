@@ -1,0 +1,7 @@
+<!doctype html>
+<html lang="{{ lang }}" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title></head>
+<body class="op-theme"><main class="hunts">
+<h1>{{ title }}</h1><p>{{ note }}</p>
+<dl>{% for row in rows %}<dt>{{ row.label }}</dt><dd>{{ row.value }}</dd>{% endfor %}</dl>
+</main></body></html>

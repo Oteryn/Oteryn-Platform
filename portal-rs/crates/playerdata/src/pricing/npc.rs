@@ -21,7 +21,7 @@ struct Offer {
     currency: Option<DefinitionRef>,
 }
 
-pub(super) fn select(
+pub(crate) fn select(
     npc: &Value,
     service: &Value,
     item: &Item,

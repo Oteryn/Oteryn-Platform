@@ -1,6 +1,8 @@
 //! SSR owner routes. Authentication is resolved by the shared browser middleware.
+use super::journal::{Hunt, Journal, PartySegment};
 use super::store::Repository;
-use super::{Error, Filter, Flags, Pricing, Session, Unpriced, compare, split_loot, valuation};
+use super::{Error, Filter, Flags, Pricing, Session, Unpriced, compare, split_party, valuation};
+use super::{prices, v7};
 use askama::Template;
 use axum::{
     Extension, Router,
@@ -22,22 +24,44 @@ use uuid::Uuid;
 
 #[derive(Clone)]
 struct Web {
-    repo: Repository,
+    journal: Journal,
+    projected: Option<Repository>,
     flags: Flags,
     prices: Arc<dyn Pricing>,
 }
 
-/// Prices are injected through T74's interface. Until then values stay unavailable.
-/// Party capture remains off until its privacy scope has been accepted.
+/// Mount the owner views over the reconciled projection API for embedded callers.
 pub fn router(pool: PgPool, flags: Flags, prices: Arc<dyn Pricing>) -> Router {
-    let sessions = SessionLayer::new(pool.clone());
+    let projected = Some(Repository::new(pool.clone(), flags));
+    mount(
+        Journal {
+            pool,
+            source: String::new(),
+        },
+        projected,
+        flags,
+        prices,
+    )
+}
+
+fn mount(
+    journal: Journal,
+    projected: Option<Repository>,
+    flags: Flags,
+    prices: Arc<dyn Pricing>,
+) -> Router {
+    let sessions = SessionLayer::new(journal.pool.clone());
     let mut app = Router::new()
         .route("/{lang}/account/hunts", get(index))
         .route("/{lang}/account/hunts/compare", get(comparison))
         .route("/{lang}/account/hunts/{id}", get(detail))
-        .route("/{lang}/account/hunts/{id}/share", get(share).post(share))
+        .route(
+            "/{lang}/account/hunts/{id}/share",
+            get(private_link).post(share),
+        )
         .with_state(Web {
-            repo: Repository::new(pool, flags),
+            journal,
+            projected,
             flags,
             prices,
         })
@@ -47,7 +71,10 @@ pub fn router(pool: PgPool, flags: Flags, prices: Arc<dyn Pricing>) -> Router {
         ))
         .route_layer(middleware::from_fn(
             move |request: axum::extract::Request, next: Next| async move {
-                if !flags.read || request.uri().path().ends_with("/share") {
+                if !flags.read
+                    || request.method() == axum::http::Method::POST
+                        && request.uri().path().ends_with("/share")
+                {
                     StatusCode::SERVICE_UNAVAILABLE.into_response()
                 } else {
                     next.run(request).await
@@ -61,14 +88,61 @@ pub fn router(pool: PgPool, flags: Flags, prices: Arc<dyn Pricing>) -> Router {
 }
 
 pub fn configured_router(pool: PgPool) -> Router {
-    router(
-        pool,
+    let settings = crate::sessions::Settings::from_lookup(|key| std::env::var(key).ok());
+    mount(
+        Journal {
+            pool,
+            source: settings.source,
+        },
+        None,
         Flags {
             read: std::env::var("OTERYN_PLAYERDATA_HUNTS_READ").is_ok_and(|v| v == "true"),
-            party: false,
+            party: crate::sessions::party_privacy_accepted(),
         },
         Arc::new(Unpriced),
     )
+}
+impl Web {
+    async fn read(
+        &self,
+        account: Uuid,
+        now: i64,
+        filter: &Filter,
+        ids: &[Uuid],
+    ) -> Result<Vec<Hunt>, Error> {
+        let Some(projected) = &self.projected else {
+            return self.journal.read(account, now, filter, ids).await;
+        };
+        let sessions = if ids.is_empty() {
+            projected.list(account, now, filter).await?
+        } else {
+            let mut sessions = Vec::new();
+            for id in ids {
+                sessions.push(projected.detail(account, now, *id).await?);
+            }
+            sessions
+        };
+        Ok(sessions
+            .into_iter()
+            .map(|session| {
+                let parties = session
+                    .party
+                    .iter()
+                    .map(|party| PartySegment {
+                        started_at: session.started_at,
+                        ended_at: session.ended_at,
+                        ledger: party.clone(),
+                    })
+                    .collect();
+                Hunt {
+                    session,
+                    catalogue: None,
+                    parties,
+                    drops: None,
+                }
+            })
+            .collect())
+    }
 }
 async fn private_headers(request: axum::extract::Request, next: Next) -> Response {
     let mut response = next.run(request).await;
@@ -148,12 +222,24 @@ struct Line {
 struct Card {
     id: Uuid,
     lines: Vec<Line>,
+    drops: Vec<String>,
+    journal: bool,
 }
 #[derive(Template)]
 #[template(path = "playerdata/hunts.html", config = "src/hunts.askama.toml")]
 struct Page {
     lang: String,
     title: String,
+    list: bool,
+    state: String,
+    first: String,
+    second: String,
+    drop_history: String,
+    private_link: String,
+    price_label: String,
+    price_help: String,
+    price_amounts: String,
+    back: String,
     empty: String,
     unavailable: String,
     character: String,
@@ -168,15 +254,24 @@ struct Page {
     no: String,
     details: String,
     compare: String,
-    share: String,
     split: String,
     cards: Vec<Card>,
 }
-fn page(lang: &str, cards: Vec<Card>) -> Response {
+fn page(lang: &str, cards: Vec<Card>, list: bool, state: &str, price_amounts: String) -> Response {
     let page = Page {
         lang: lang.to_owned(),
         title: text(lang, "title"),
-        empty: text(lang, "empty"),
+        list,
+        state: text(lang, state),
+        first: text(lang, "compare-first"),
+        second: text(lang, "compare-second"),
+        drop_history: text(lang, "drop-history"),
+        private_link: text(lang, "private-link"),
+        price_label: text(lang, "custom-prices"),
+        price_help: text(lang, "custom-prices-help"),
+        price_amounts,
+        back: text(lang, "back"),
+        empty: text(lang, "drops-empty"),
         unavailable: text(lang, "derived"),
         character: text(lang, "character"),
         offset: text(lang, "offset"),
@@ -190,7 +285,6 @@ fn page(lang: &str, cards: Vec<Card>) -> Response {
         no: text(lang, "no"),
         details: text(lang, "details"),
         compare: text(lang, "compare"),
-        share: text(lang, "share-disabled"),
         split: text(lang, "split-note"),
         cards,
     };
@@ -199,7 +293,8 @@ fn page(lang: &str, cards: Vec<Card>) -> Response {
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
-fn card(lang: &str, session: &Session, prices: &dyn Pricing, flags: Flags) -> Card {
+fn card(lang: &str, hunt: &Hunt, prices: &dyn Pricing, flags: Flags, full: bool) -> Card {
+    let session = &hunt.session;
     let mut lines = Vec::new();
     let mut add = |label: &str, value: String| {
         lines.push(Line {
@@ -227,7 +322,12 @@ fn card(lang: &str, session: &Session, prices: &dyn Pricing, flags: Flags) -> Ca
         ("kills", &session.monsters_killed),
     ] {
         for (key, amount) in rows {
-            add(label, format!("{key}: {amount}"));
+            let name = if key.is_empty() {
+                text(lang, "unavailable")
+            } else {
+                key.clone()
+            };
+            add(label, format!("{name}: {amount}"));
         }
     }
     for (label, rows) in [
@@ -271,29 +371,77 @@ fn card(lang: &str, session: &Session, prices: &dyn Pricing, flags: Flags) -> Ca
             value.provenance.into_iter().collect::<Vec<_>>().join(", "),
         );
     } else {
-        add("balance", text(lang, "unavailable"));
+        for label in ["loot-value", "supplies-value", "balance", "profit-rate"] {
+            add(label, text(lang, "unavailable"));
+        }
     }
-    if session.party.is_some() {
-        match split_loot(session, flags, prices) {
-            Ok(transfers) => {
-                for transfer in transfers {
-                    add(
-                        "transfer",
-                        format!(
-                            "{} → {}: {}",
-                            transfer.from_slot, transfer.to_slot, transfer.gold
-                        ),
-                    );
+    if full && flags.party {
+        for segment in &hunt.parties {
+            let party = &segment.ledger;
+            add(
+                "party-interval",
+                format!("{} – {}", segment.started_at, segment.ended_at),
+            );
+            for (slot, loot) in &party.members {
+                let owner = if *slot == party.subject_slot {
+                    text(lang, "your-slot")
+                } else {
+                    String::new()
+                };
+                add(
+                    "party-slot",
+                    format!("{slot} {owner}").trim_end().to_owned(),
+                );
+                for (key, quantity) in loot {
+                    add("loot", format!("{key}: {quantity}"));
                 }
             }
-            Err(_) => add("transfer", text(lang, "unavailable")),
+            match split_party(party, session.character_id, prices) {
+                Ok(transfers) if transfers.is_empty() => add("transfer", text(lang, "settled")),
+                Ok(transfers) => {
+                    for transfer in transfers {
+                        add(
+                            "transfer",
+                            format!(
+                                "{} → {}: {}",
+                                transfer.from_slot, transfer.to_slot, transfer.gold
+                            ),
+                        );
+                    }
+                }
+                Err(_) => add("transfer", text(lang, "unavailable")),
+            }
         }
     }
     Card {
         id: session.session_id,
         lines,
+        journal: hunt.drops.is_some(),
+        drops: hunt
+            .drops
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|drop| {
+                let unknown = text(lang, "unavailable");
+                format!(
+                    "{} × {} · {} · {} · {} · {}",
+                    drop.quantity,
+                    drop.item_key,
+                    drop.occurred_at,
+                    drop.place_key.as_deref().unwrap_or(&unknown),
+                    drop.monster_key.as_deref().unwrap_or(&unknown),
+                    drop.rarity_rule_key
+                )
+            })
+            .collect(),
     }
 }
+
+fn unavailable_page(lang: &str, list: bool) -> Response {
+    page(lang, Vec::new(), list, "unavailable", String::new())
+}
+
 async fn index(
     State(state): State<Web>,
     Path(lang): Path<String>,
@@ -312,18 +460,149 @@ async fn index(
         Ok(n) => n,
         Err(e) => return e.into_response(),
     };
-    match state.repo.list(account, now, &filter).await {
-        Ok(sessions) => page(
+    match state.read(account, now, &filter, &[]).await {
+        Ok(hunts) => page(
             &lang,
-            sessions
+            hunts
                 .iter()
-                .map(|s| card(&lang, s, state.prices.as_ref(), state.flags))
+                .map(|hunt| card(&lang, hunt, state.prices.as_ref(), state.flags, false))
                 .collect(),
+            true,
+            if hunts.is_empty() {
+                "unavailable"
+            } else {
+                "applied-prefix"
+            },
+            String::new(),
         ),
+        Err(Error::Unavailable) => unavailable_page(&lang, true),
         Err(error) => status(error).into_response(),
     }
 }
+
+#[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DetailQuery {
+    #[serde(default)]
+    prices: Option<String>,
+}
+
 async fn detail(
+    State(state): State<Web>,
+    Path((lang, id)): Path<(String, Uuid)>,
+    Extension(session): Extension<BrowserSession>,
+    query: Result<Query<DetailQuery>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let account = match owner(&state, &lang, &session).await {
+        Ok(id) => id,
+        Err(r) => return r,
+    };
+    let raw = match query {
+        Ok(Query(q)) => q.prices.unwrap_or_default(),
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let quotes = match prices::parse(&raw) {
+        Ok(quotes) => quotes,
+        Err(error) => return status(error).into_response(),
+    };
+    let now = match now() {
+        Ok(n) => n,
+        Err(e) => return e.into_response(),
+    };
+    match state.read(account, now, &Filter::default(), &[id]).await {
+        Ok(mut hunts) => {
+            let [hunt] = hunts.as_mut_slice() else {
+                return StatusCode::NOT_FOUND.into_response();
+            };
+            if !state.flags.party {
+                hunt.parties.clear();
+            }
+            let prices = prices::Prices::for_hunt(
+                &state.journal.pool,
+                hunt,
+                &quotes,
+                state.prices.as_ref(),
+                &prices::Labels {
+                    custom: text(&lang, "custom-provenance"),
+                    npc: text(&lang, "npc-provenance"),
+                    bazaar: text(&lang, "bazaar-provenance"),
+                },
+            )
+            .await;
+            page(
+                &lang,
+                vec![card(&lang, hunt, &prices, state.flags, true)],
+                false,
+                "applied-prefix",
+                raw,
+            )
+        }
+        Err(error) => status(error).into_response(),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Selection {
+    ids: Option<String>,
+    first: Option<Uuid>,
+    second: Option<Uuid>,
+}
+impl Selection {
+    fn ids(self) -> Result<Vec<Uuid>, Error> {
+        let ids = match (self.ids, self.first, self.second) {
+            (Some(ids), None, None) if ids.len() <= 8 * 37 => ids
+                .split(',')
+                .map(|id| Uuid::parse_str(id).map_err(|_| Error::Invalid))
+                .collect::<Result<Vec<_>, _>>()?,
+            (None, Some(first), Some(second)) => vec![first, second],
+            _ => return Err(Error::Invalid),
+        };
+        if !(2..=8).contains(&ids.len()) || ids.iter().any(|id| !v7(*id)) {
+            return Err(Error::Invalid);
+        }
+        Ok(ids)
+    }
+}
+async fn comparison(
+    State(state): State<Web>,
+    Path(lang): Path<String>,
+    Extension(session): Extension<BrowserSession>,
+    query: Result<Query<Selection>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    let account = match owner(&state, &lang, &session).await {
+        Ok(id) => id,
+        Err(r) => return r,
+    };
+    let ids = match query.ok().and_then(|Query(q)| q.ids().ok()) {
+        Some(ids) => ids,
+        None => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let now = match now() {
+        Ok(n) => n,
+        Err(e) => return e.into_response(),
+    };
+    let hunts = match state.read(account, now, &Filter::default(), &ids).await {
+        Ok(hunts) => hunts,
+        Err(error) => return status(error).into_response(),
+    };
+    let sessions: Vec<Session> = hunts.iter().map(|hunt| hunt.session.clone()).collect();
+    if let Err(error) = compare(&sessions, state.prices.as_ref()) {
+        return status(error).into_response();
+    }
+    page(
+        &lang,
+        hunts
+            .iter()
+            .map(|hunt| card(&lang, hunt, state.prices.as_ref(), state.flags, false))
+            .collect(),
+        false,
+        "comparison-results",
+        String::new(),
+    )
+}
+
+async fn private_link(
     State(state): State<Web>,
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
@@ -336,63 +615,72 @@ async fn detail(
         Ok(n) => n,
         Err(e) => return e.into_response(),
     };
-    match state.repo.detail(account, now, id).await {
-        Ok(s) => page(
-            &lang,
-            vec![card(&lang, &s, state.prices.as_ref(), state.flags)],
-        ),
+    if state.projected.is_some() {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    match state.read(account, now, &Filter::default(), &[id]).await {
+        Ok(_) => {
+            axum::response::Redirect::to(&format!("/{lang}/account/hunts/{id}")).into_response()
+        }
         Err(error) => status(error).into_response(),
     }
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Selection {
-    ids: String,
-}
-async fn comparison(
-    State(state): State<Web>,
-    Path(lang): Path<String>,
-    Extension(session): Extension<BrowserSession>,
-    query: Result<Query<Selection>, axum::extract::rejection::QueryRejection>,
-) -> Response {
-    let account = match owner(&state, &lang, &session).await {
-        Ok(id) => id,
-        Err(r) => return r,
-    };
-    let selection = match query {
-        Ok(Query(s)) => s,
-        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
-    };
-    let ids: Result<Vec<Uuid>, _> = selection.ids.split(',').map(str::parse).collect();
-    let ids = match ids {
-        Ok(ids) if (2..=8).contains(&ids.len()) => ids,
-        _ => return StatusCode::BAD_REQUEST.into_response(),
-    };
-    let now = match now() {
-        Ok(n) => n,
-        Err(e) => return e.into_response(),
-    };
-    let mut sessions = Vec::new();
-    for id in ids {
-        match state.repo.detail(account, now, id).await {
-            Ok(s) => sessions.push(s),
-            Err(error) => return status(error).into_response(),
-        }
-    }
-    if let Err(error) = compare(&sessions, state.prices.as_ref()) {
-        return status(error).into_response();
-    }
-    page(
-        &lang,
-        sessions
-            .iter()
-            .map(|s| card(&lang, s, state.prices.as_ref(), state.flags))
-            .collect(),
-    )
-}
-/// G-9 expressly denies bearer disclosure under v1, regardless of any flag.
+
+/// G-9 v1 permits only owner navigation.
 async fn share() -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
+}
+
+/// Mount under the existing staff guard. This page reports configuration only.
+pub fn status_router() -> Router {
+    Router::new()
+        .route("/admin/hunt-journal", get(operator_status))
+        .layer(middleware::from_fn(private_headers))
+}
+
+#[derive(Template)]
+#[template(path = "playerdata/hunt_status.html", config = "src/hunts.askama.toml")]
+struct OperatorPage<'a> {
+    lang: &'a str,
+    title: String,
+    rows: Vec<Line>,
+    note: String,
+}
+
+async fn operator_status(chrome: Option<Extension<oteryn_ui::Chrome>>) -> Response {
+    let lang = chrome
+        .as_ref()
+        .map_or("pl", |Extension(chrome)| chrome.lang.as_str());
+    let settings = crate::sessions::Settings::from_lookup(|key| std::env::var(key).ok());
+    let page = OperatorPage {
+        lang,
+        title: text(lang, "operator-title"),
+        rows: [
+            ("operator-ingest", settings.ingest),
+            ("operator-replay", settings.commands),
+            ("operator-source", !settings.source.is_empty()),
+            ("operator-party", crate::sessions::party_privacy_accepted()),
+            (
+                "operator-peer",
+                std::env::var(crate::sessions::IDENTITY).is_ok_and(|s| !s.is_empty()),
+            ),
+            (
+                "title",
+                std::env::var("OTERYN_PLAYERDATA_HUNTS_READ").as_deref() == Ok("true"),
+            ),
+        ]
+        .into_iter()
+        .map(|(label, enabled)| Line {
+            label: text(lang, label),
+            value: text(lang, if enabled { "yes" } else { "no" }),
+        })
+        .collect(),
+        note: text(lang, "operator-note"),
+    };
+    match page.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 async fn styles() -> impl IntoResponse {
@@ -414,6 +702,8 @@ mod tests {
         ] {
             let cards = vec![Card {
                 id: Uuid::now_v7(),
+                drops: Vec::new(),
+                journal: true,
                 lines: vec![
                     Line {
                         label: text(lang, "provenance"),
@@ -425,7 +715,7 @@ mod tests {
                     },
                 ],
             }];
-            let response = page(lang, cards);
+            let response = page(lang, cards, true, "applied-prefix", String::new());
             let html = String::from_utf8(
                 axum::body::to_bytes(response.into_body(), 1024 * 1024)
                     .await?

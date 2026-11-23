@@ -479,3 +479,10 @@ async fn postgres_http_owner_details_comparison_and_bad_query()
     cleanup(&pool, &schema).await?;
     Ok(())
 }
+
+#[test]
+fn unclassified_place_preserves_measured_duration() {
+    let mut session = fixture();
+    session.places = [("".to_owned(), session.duration_seconds)].into();
+    assert_eq!(session.validate(), Ok(()));
+}
