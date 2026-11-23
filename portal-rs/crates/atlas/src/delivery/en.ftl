@@ -1,4 +1,3 @@
-title = Quest delivery and item sources
 unavailable = Unavailable
 invalid = Invalid filters
 version = World version

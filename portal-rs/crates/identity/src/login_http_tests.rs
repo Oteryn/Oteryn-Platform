@@ -74,7 +74,7 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
     assert_eq!(response.status(), StatusCode::OK);
     let guest = cookie(&response)?;
     let html = body(response).await?;
-    assert!(html.contains("Log in"));
+    assert!(html.contains("<h1>Sign in</h1>"));
     let token = csrf(&html)?;
     let response = app
         .clone()
@@ -279,7 +279,7 @@ async fn postgres_source_limit_bad_input_and_missing_transport() -> TestResult {
         .await?;
     let guest = cookie(&response)?;
     let html = body(response).await?;
-    assert!(html.contains("Logowanie"));
+    assert!(html.contains("<h1>Zaloguj się</h1>"));
     assert!(html.contains("autocomplete=\"current-password\""));
     let token = csrf(&html)?;
     let form = format!("_csrf={token}&email=bad&password=");

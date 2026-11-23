@@ -1,4 +1,3 @@
-title = World events and guild seasons
 unavailable = Authoritative results are currently unavailable.
 pending = Predictions remain closed. These results carry no rewards or stakes.
 outcomes = Decided world events

@@ -545,6 +545,7 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
             session_layer,
             session::middleware,
         ))
+        .merge(surface::shop_fallback_routes())
         // Static page dependencies must not refresh a browser session.
         .nest_service("/static", ServeDir::new(static_dir))
         .method_not_allowed_fallback(|| async { StatusCode::METHOD_NOT_ALLOWED })
@@ -722,7 +723,8 @@ mod tests {
         let body = to_bytes(response.into_body(), MAX_BODY_BYTES).await?;
         let html = String::from_utf8(body.to_vec())?;
         assert!(html.contains("<html lang=\"pl\" data-theme=\"dark\">"));
-        assert!(html.contains("<h1 id=\"hero-title\">Aktualności</h1>"));
+        assert!(html.contains("<h1 id=\"hero-title\">Strona główna</h1>"));
+        assert!(html.contains("<h2>Aktualności</h2>"));
         Ok(())
     }
 

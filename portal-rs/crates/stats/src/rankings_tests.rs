@@ -284,6 +284,10 @@ async fn http_success_refusal_bad_query_localization_and_escaping() -> Result {
         assert_eq!(r.headers()["cache-control"], "no-store, private");
         let body = String::from_utf8(to_bytes(r.into_body(), 100_000).await?.to_vec())?;
         assert!(body.contains(needle), "{body}");
+        assert_eq!(body.contains("<form"), enabled);
+        if url.contains("/oldest") {
+            assert_eq!(body.matches("aria-current=\"page\"").count(), 1);
+        }
     }
     Ok(())
 }
@@ -311,6 +315,9 @@ async fn unavailable_catalog_never_serves_prior_allow_or_empty_success() -> Resu
     assert_eq!(response.status().as_u16(), 503);
     let body = String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
     assert!(body.contains("Statistics are unavailable"));
+    assert!(body.contains("aria-disabled=\"true\" aria-current=\"page\""));
+    assert!(body.contains("href=\"/en/stats/rankings/anniversaries\""));
+    assert!(!body.contains("<form"));
     assert!(!body.contains("No matching public records"));
     Ok(())
 }

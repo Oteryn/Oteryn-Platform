@@ -135,16 +135,14 @@
           {% endif %}
         {% else %}
           {% if chrome.login_mounted %}
-          <a class="om-login" href="/{{ chrome.lang }}/login">
-            <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("stage-login") }}
+          <a class="om-login" href="/{{ chrome.lang }}/login"{% if chrome.login_current %} aria-current="page"{% endif %}>
+            <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-user"></use></svg>{{ chrome.text("shell-login") }}
           </a>
           {% endif %}
         {% endif %}
-        {% if let Some(link) = chrome.link("shop") && (chrome.signed_in() || chrome.login_mounted) %}
-        <a class="om-shop" href="{% if chrome.signed_in() %}{{ link.url }}{% else %}/{{ chrome.lang }}/login{% endif %}"{% if link.current %} aria-current="page"{% endif %}>
-          <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>{{ link.label }}
+        <a class="om-shop" href="{% if chrome.shop_fallback %}/static/thais/shop-{{ chrome.lang }}.html{% else if let Some(link) = chrome.link("shop") %}{% if chrome.signed_in() %}{{ link.url }}{% else if chrome.login_mounted %}/{{ chrome.lang }}/login{% else %}/static/thais/shop-{{ chrome.lang }}.html{% endif %}{% else %}/static/thais/shop-{{ chrome.lang }}.html{% endif %}"{% if chrome.shop_fallback || chrome.current_section == "shop" %} aria-current="page"{% endif %}>
+          <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>{{ chrome.text("shell-shop") }}
         </a>
-        {% endif %}
       </div>
     </nav>
   </div>

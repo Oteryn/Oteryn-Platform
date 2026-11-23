@@ -193,9 +193,15 @@ impl Registry {
                 })
             })
             .collect();
+        let shop_fallback = matches!(
+            clean,
+            "/static/thais/shop-pl.html" | "/static/thais/shop-en.html"
+        );
         Chrome {
             lang: lang.to_owned(),
-            alternate_url: if let Some(rest) = clean
+            alternate_url: if shop_fallback {
+                format!("/static/thais/shop-{other}.html")
+            } else if let Some(rest) = clean
                 .strip_prefix("/admin/pl/")
                 .or_else(|| clean.strip_prefix("/admin/en/"))
             {
@@ -216,6 +222,9 @@ impl Registry {
             current_section,
             service_status_current: suffix == "status" || suffix.starts_with("status/"),
             account,
+            login_current: suffix == "login",
+            help_current: matches!(suffix, "help" | "support"),
+            shop_fallback,
             login_mounted: self.login,
             registration_mounted: self.registration,
             account_mounted: self.account,
@@ -266,6 +275,9 @@ pub struct Chrome {
     pub home_current: bool,
     pub service_status_current: bool,
     pub account: Account,
+    pub login_current: bool,
+    pub help_current: bool,
+    pub shop_fallback: bool,
     pub login_mounted: bool,
     pub registration_mounted: bool,
     pub account_mounted: bool,
@@ -356,6 +368,18 @@ impl<'a> Home<'a> {
 pub fn home(chrome: &Chrome, data: &HomeData) -> Response {
     render(&Home::new(chrome, data), StatusCode::OK)
 }
+
+#[derive(Template)]
+#[template(path = "pages/shop-fallback.html")]
+struct ShopFallback<'a> {
+    chrome: &'a Chrome,
+}
+
+/// Render the localized landing page for an unavailable shop.
+pub fn shop_fallback(chrome: &Chrome) -> Response {
+    render(&ShopFallback { chrome }, StatusCode::OK)
+}
+
 #[derive(Template)]
 #[template(path = "components/shell-header.html")]
 struct ShellHeader<'a> {
@@ -567,7 +591,7 @@ mod tests {
                 assert!(html.contains(&format!("<html lang=\"{lang}\" data-theme=\"dark\">")));
                 assert!(html.contains(&format!(
                     "<h1 id=\"hero-title\">{}</h1>",
-                    chrome.text("shell-news")
+                    chrome.text("home-link")
                 )));
                 assert!(html.contains("/static/thais/home.css"));
                 assert!(html.contains("class=\"op-theme op-shell\""));
@@ -684,7 +708,7 @@ mod tests {
                 let html = Home::new(&chrome, &data).render()?;
                 assert!(html.contains(&format!(
                     "<h1 id=\"hero-title\">{}</h1>",
-                    chrome.text("shell-news")
+                    chrome.text("home-link")
                 )));
                 assert!(html.contains(&chrome.text(status)));
                 assert!(!html.contains(&chrome.text(other_status)));

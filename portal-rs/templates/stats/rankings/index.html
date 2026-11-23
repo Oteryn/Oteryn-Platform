@@ -1,8 +1,22 @@
 <!doctype html>
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main id="main" class="op-stack"><h1>{{ title }}</h1>
-<nav aria-label="{{ title }}"><ul>{% for (slug, label) in kinds %}<li><a href="/{{ lang }}/stats/rankings/{{ slug }}">{{ label }}</a></li>{% endfor %}</ul></nav>
-<p>{{ hint }}</p><p role="status">{{ message }}</p>
+{% if !message.is_empty() %}<p role="status">{{ message }}</p>{% endif %}
+<nav aria-label="{{ title }}">
+  <ul class="op-tabs">
+    {% for (slug, label) in kinds %}
+    <li>
+      {% if !enabled || (!show_filters && slug.as_str() == kind.as_str()) %}
+      <span aria-disabled="true"{% if slug.as_str() == kind.as_str() %} aria-current="page"{% endif %}>{{ label }}</span>
+      {% else %}
+      <a href="/{{ lang }}/stats/rankings/{{ slug }}"{% if slug.as_str() == kind.as_str() %} aria-current="page"{% endif %}>{{ label }}</a>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</nav>
+{% if show_filters %}
+<p>{{ hint }}</p>
 <form class="op-stack" method="get">
 <p><label for="world">{{ labels[0] }}</label><select class="op-input" id="world" name="world"><option value="">{{ labels[9] }}</option>{% for (id, name) in worlds %}<option value="{{ id }}"{% if world == *id %} selected{% endif %}>{{ name }}</option>{% endfor %}</select></p>
 <p><label for="vocation">{{ labels[1] }}</label><select class="op-input" id="vocation" name="vocation"><option value="">{{ labels[9] }}</option>{% for v in 0..6 %}<option value="{{ v }}"{% if vocation == v.to_string() %} selected{% endif %}>{{ vocations[v] }}</option>{% endfor %}</select></p>
@@ -12,4 +26,5 @@
 <p>{{ labels[8] }} {{ page }}</p>
 {% if page > 1 %}<button class="op-button" name="page" value="{{ page - 1 }}">{{ previous }}</button>{% endif %}
 {% if !next.is_empty() %}<button class="op-button" name="page" value="{{ page + 1 }}">{{ next }}</button>{% endif %}
-</form></main></body></html>
+</form>
+{% endif %}</main></body></html>

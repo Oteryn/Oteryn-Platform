@@ -214,7 +214,7 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         ),
         None => format!("{body_tag} class=\"{}\"", oteryn_ui::SHELL_MARKER),
     };
-    let head = &page[html_end + 1..body_open];
+    let head = brand_title(&page[html_end + 1..body_open]);
     let mut styles = String::new();
     if !lower.contains("/static/css/components.css") {
         styles.push_str("<link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\">");
@@ -238,6 +238,23 @@ pub(crate) fn inject(page: &str, header: &str, footer: &str) -> Option<String> {
         content,
         &page[body_close..]
     ))
+}
+
+fn brand_title(head: &str) -> std::borrow::Cow<'_, str> {
+    const SUFFIX: &str = " · Oteryn";
+    let lower = head.to_ascii_lowercase();
+    if let Some(start) = lower.find("<title>").map(|at| at + "<title>".len())
+        && let Some(end) = lower[start..].find("</title>").map(|at| start + at)
+    {
+        let title = head[start..end].trim_end();
+        if !title.trim_start().is_empty()
+            && !title.ends_with(SUFFIX)
+            && !title.ends_with(" · Oteryn Wiki")
+        {
+            return format!("{}{title}{SUFFIX}{}", &head[..start], &head[end..]).into();
+        }
+    }
+    head.into()
 }
 
 // Inspect only actual attributes of the opening body element.
@@ -397,8 +414,27 @@ mod tests {
             "components.css\"><link rel=\"stylesheet\" href=\"/static/css/home.css\"></head>"
         ));
         assert!(out.contains("<body class=\"op-theme op-shell page\"><header>H</header><div class=\"op-shell__page\"><main id=\"main\" tabindex=\"-1\">tresc</main></div><footer>F</footer></body></html>"));
+        assert!(out.contains("<title>x · Oteryn</title>"));
         assert!(inject(&out, "<header>H</header>", "<footer>F</footer>").is_none());
         Ok(())
+    }
+
+    #[test]
+    fn title_branding_keeps_existing_suffix_and_escaped_text() {
+        use super::brand_title;
+
+        assert_eq!(
+            brand_title("<head><title>News &amp; updates </title></head>"),
+            "<head><title>News &amp; updates · Oteryn</title></head>"
+        );
+        for head in [
+            "<title>Sign in · Oteryn</title>",
+            "<title>Swamp guardian · Oteryn Wiki</title>",
+            "<title> </title>",
+            "<meta charset=\"utf-8\">",
+        ] {
+            assert_eq!(brand_title(head), head);
+        }
     }
 
     #[test]

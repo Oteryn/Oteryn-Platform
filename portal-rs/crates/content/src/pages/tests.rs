@@ -130,6 +130,26 @@ async fn relabeled_placeholder_pages_show_localized_draft_notice()
             }
         }
     }
+    sqlx::query(
+        "UPDATE editorial_pages SET title = CASE WHEN locale = 'pl' THEN $1 ELSE $2 END
+         WHERE page_id = (SELECT id FROM pages WHERE slug = 'terms-of-service')",
+    )
+    .bind("Warunki korzystania z portalu")
+    .bind("Portal Terms and Conditions")
+    .execute(&pool)
+    .await?;
+    for (locale, title) in [
+        ("pl", "Warunki korzystania z portalu"),
+        ("en", "Portal Terms and Conditions"),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(Request::get(format!("/{locale}/legal/terms")).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
+        assert!(html.contains(&format!("<h1>{title}</h1>")));
+    }
     drop_pages_schema(root, pool, &schema).await?;
     Ok(())
 }

@@ -1,0 +1,31 @@
+{% extends "layout.html" %}
+{% block title %}{{ chrome.text("shop-fallback-title") }}{% endblock %}
+{% block head %}
+<meta name="description" content="{{ chrome.text("shop-fallback-intro") }}">
+<link rel="alternate" hreflang="{{ chrome.alternate_lang }}" href="{{ chrome.alternate_url }}">
+<link rel="stylesheet" href="/static/thais/shop.css">
+{% endblock %}
+{% block content %}
+<div class="shop-banner">
+  <div class="shop-content">
+    <h1>{{ chrome.text("shop-fallback-title") }}</h1>
+    <p>{{ chrome.text("shop-fallback-intro") }}</p>
+  </div>
+</div>
+<section class="shop-content shop-wallet" aria-labelledby="coins">
+  <svg class="coin-icon" aria-hidden="true" viewBox="0 0 24 24"><use href="/static/thais/icons.svg#ic-coins"></use></svg>
+  <div>
+    <h2 id="coins">{{ chrome.text("shop-fallback-coins") }}</h2>
+    <p>{{ chrome.text("shop-fallback-description") }}</p>
+    <p class="shop-status" role="status">{{ chrome.text("shop-fallback-closed") }}</p>
+    <div class="shop-actions">
+      {% if chrome.login_mounted %}
+      <a class="op-button op-button--primary" href="/{{ chrome.lang }}/login">{{ chrome.text("shell-login") }}</a>
+      {% endif %}
+      {% if chrome.link("support").is_some() %}
+      <a href="/{{ chrome.lang }}/help">{{ chrome.text("shell-support") }}</a>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

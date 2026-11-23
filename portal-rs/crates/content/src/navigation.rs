@@ -39,7 +39,7 @@ pub fn register(registry: &mut Registry) {
     registry.section(
         true,
         "today",
-        "shell-today",
+        "thais-home-today",
         "today",
         Group::Community,
         false,

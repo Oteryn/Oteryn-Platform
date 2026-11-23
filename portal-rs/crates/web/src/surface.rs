@@ -44,6 +44,17 @@ pub(super) fn module_routes() -> Router<AppState> {
         .merge(crate::entry_points::routes())
 }
 
+pub(super) fn shop_fallback_routes() -> Router<AppState> {
+    Router::new()
+        .route("/static/thais/shop-pl.html", get(shop_fallback))
+        .route("/static/thais/shop-en.html", get(shop_fallback))
+}
+
+async fn shop_fallback(request: Request) -> Response {
+    let lang = path_language(request.uri().path()).unwrap_or_else(|| negotiate(request.headers()));
+    oteryn_ui::shop_fallback(&request_chrome(&request, lang))
+}
+
 /// Build the public surface with explicit transport options.
 pub fn router_with_options(state: AppState, static_dir: &str, options: WebOptions) -> Router {
     crate::router(state, static_dir).layer(middleware::from_fn_with_state(options, transport))
@@ -188,7 +199,11 @@ async fn localized_home(request: Request) -> Response {
     oteryn_ui::home(&chrome, &resolve(data).await)
 }
 pub(crate) fn path_language(path: &str) -> Option<Language> {
-    Language::parse(path.split('/').nth(1).unwrap_or_default())
+    match path {
+        "/static/thais/shop-pl.html" => Some(Language::Pl),
+        "/static/thais/shop-en.html" => Some(Language::En),
+        _ => Language::parse(path.split('/').nth(1).unwrap_or_default()),
+    }
 }
 async fn switch_language(Path(lang): Path<String>) -> Response {
     let Some(language) = Language::parse(&lang) else {
@@ -310,7 +325,10 @@ async fn policy(mut request: Request, next: Next) -> Response {
         header::VARY,
         HeaderValue::from_static("Accept, Accept-Language, Cookie"),
     );
-    let cache = if path.starts_with("/static/") && status.is_success() {
+    let html = headers
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+    let cache = if path.starts_with("/static/") && status.is_success() && !html {
         if hashed_name(&path) {
             "public, max-age=31536000, immutable"
         } else {
@@ -352,6 +370,35 @@ mod tests {
                 .await?
                 .to_vec(),
         )?)
+    }
+
+    #[tokio::test]
+    async fn shop_fallback_serves_a_complete_localized_document() -> TestResult {
+        for lang in ["pl", "en"] {
+            let path = format!("/static/thais/shop-{lang}.html");
+            let app = app()?;
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::get(&path).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            let body = html(response).await?;
+            let title = oteryn_ui::text(lang, "shop-fallback-title");
+            assert!(!title.is_empty());
+            assert!(body.contains(&format!("<h1>{title}</h1>")));
+            assert!(body.contains("id=\"portal-header\""));
+            assert!(body.contains("role=\"status\""));
+
+            let response = app
+                .oneshot(HttpRequest::head(&path).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert!(html(response).await?.is_empty());
+        }
+        Ok(())
     }
     #[tokio::test]
     async fn r7_device_keeps_contract_error() -> TestResult {
@@ -450,7 +497,8 @@ mod tests {
             "<main ",
             "<footer ",
             "href=\"#main\"",
-            "<h1 id=\"hero-title\">News</h1>",
+            "<h1 id=\"hero-title\">Home</h1>",
+            "<h2>News</h2>",
             "href=\"/pl/\"",
         ] {
             assert!(body.contains(expected), "missing {expected}");

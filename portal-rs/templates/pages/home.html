@@ -7,6 +7,7 @@
   <meta name="color-scheme" content="dark">
   <title>{{ chrome.text("home-link") }} · Oteryn</title>
   <meta name="description" content="{{ chrome.text("thais-home-meta") }}">
+  <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/thais/shell.css">
   <link rel="stylesheet" href="/static/thais/home.css">
   <script src="/static/thais/home.js" defer></script>
@@ -34,8 +35,9 @@
     </picture>
     <div class="hero-body wrap" id="aktualnosci">
       {% let news = data.news.as_deref().unwrap_or_default() %}
+      <h1 id="hero-title">{{ chrome.text("home-link") }}</h1>
       <div class="hero-news front-news">
-        <h1 id="hero-title">{{ chrome.text("shell-news") }}</h1>
+        <h2>{{ chrome.text("shell-news") }}</h2>
         {% for item in news.iter().take(3) %}
         <details class="hero-story front-short">
           <summary>

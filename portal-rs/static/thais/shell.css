@@ -257,7 +257,7 @@ body.op-shell a.skip:focus {
     padding-bottom: 7px;
     border-bottom: 1px solid #c9cec2;
   }
-  .om-tools a { font-size: .84rem; min-height: 44px; }
+  .om-tools a { font-size: .84rem; min-width: var(--op-target); min-height: var(--op-target); }
   .om-tools .om-register {
     padding-inline: 14px;
     color: #fffdf4;
@@ -390,8 +390,8 @@ body.op-shell a.skip:focus {
 }
 .foot .foot-langs { gap: 2px; white-space: nowrap; }
 .foot .foot-langs svg { width: 17px; height: 17px; margin-right: 3px; color: #c9d5d0; }
-.foot .foot-langs a { min-width: 36px; justify-content: center; }
-.foot .foot-langs [aria-current] { color: var(--gilt-light); text-decoration: underline; text-underline-offset: 5px; }
+.foot .foot-langs a { min-width: var(--op-target); justify-content: center; }
+.foot :is(.foot-langs, .foot-group) [aria-current] { color: var(--gilt-light); text-decoration: underline; text-underline-offset: 5px; }
 .foot a:focus-visible { outline: 2px solid var(--gilt-light); outline-offset: 3px; border-radius: 2px; }
 @media (max-width: 900px) {
   .foot .foot-inner { grid-template-columns: 1fr; gap: 26px; }
@@ -404,7 +404,10 @@ body.op-shell a.skip:focus {
   .foot .foot-identity { display: block; }
   .foot .foot-tagline { margin: 2px 0 8px; }
   .foot .foot-social { display: flex; flex-wrap: wrap; gap: 0 18px; }
-  .foot .foot-social a, .foot .foot-group a { min-height: 44px; }
+  .foot :is(.foot-social, .foot-group, .foot-legal, .foot-langs) a {
+    min-inline-size: var(--op-target);
+    min-block-size: var(--op-target);
+  }
   .foot .foot-links { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px 22px; }
   .foot .foot-group h2 { margin-bottom: 2px; font-size: 1.22rem; }
   .foot .foot-group:last-child:nth-child(3) { grid-column: 1 / -1; }
@@ -549,7 +552,7 @@ body.op-shell .account-sheet a.account-overview { color: #395644; }
   overflow-wrap: normal;
 }
 @media (max-width: 960px) {
-  .om-mast .om-brand { font-size: 22px; }
+  .om-mast .om-brand { font-size: 22px; min-block-size: var(--op-target); }
 }
 
 .coin-icon {

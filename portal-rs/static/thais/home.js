@@ -105,7 +105,8 @@ function enablePortalNavigation(header) {
   });
 
   document.addEventListener("focusin", event => {
-    if (active && !active.closest(".om-section").contains(event.target)) showGroup(null);
+    // Closing a mobile group moves the next control before its tap can complete.
+    if (!mobile.matches && active && !active.closest(".om-section").contains(event.target)) showGroup(null);
     if (header.classList.contains("is-open") && !header.contains(event.target)) showMobile(false);
   });
 

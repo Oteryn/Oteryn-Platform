@@ -138,9 +138,9 @@ pub(crate) fn escape(s: &str) -> String {
 }
 fn text(lang: &str, key: &str) -> String {
     let source = if lang == "pl" {
-        "today = Dziś\nannouncements = Ogłoszenia\nevents = Wydarzenia\nnews = Aktualności\nliveops = Status świata\nempty = Brak aktualnych treści.\nunavailable = Dane są teraz niedostępne.\npartial = Część źródeł jest niedostępna.\nall-unavailable = Wszystkie źródła są teraz niedostępne.\nview = Zobacz\ninfo = Informacja\nmaintenance = Przerwa techniczna\nwarning = Ostrzeżenie"
+        "announcements = Ogłoszenia\nevents = Wydarzenia\nnews = Aktualności\nliveops = Status świata\nempty = Brak aktualnych treści.\nunavailable = Dane są teraz niedostępne.\npartial = Część źródeł jest niedostępna.\nall-unavailable = Wszystkie źródła są teraz niedostępne.\nview = Zobacz\ninfo = Informacja\nmaintenance = Przerwa techniczna\nwarning = Ostrzeżenie"
     } else {
-        "today = Today\nannouncements = Announcements\nevents = Events\nnews = News\nliveops = World status\nempty = No current content.\nunavailable = Data is currently unavailable.\npartial = Some sources are unavailable.\nall-unavailable = All sources are currently unavailable.\nview = View\ninfo = Information\nmaintenance = Maintenance\nwarning = Warning"
+        "announcements = Announcements\nevents = Events\nnews = News\nliveops = World status\nempty = No current content.\nunavailable = Data is currently unavailable.\npartial = Some sources are unavailable.\nall-unavailable = All sources are currently unavailable.\nview = View\ninfo = Information\nmaintenance = Maintenance\nwarning = Warning"
     };
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
@@ -297,7 +297,7 @@ async fn digest(pool: &PgPool, lang: &str) -> Result<Response, StatusCode> {
     }
     let html = Page {
         lang,
-        title: text(lang, "today"),
+        title: oteryn_ui::text(lang, "thais-home-today"),
         body,
     }
     .render()
@@ -340,8 +340,6 @@ mod tests {
         assert_eq!(page_state(&cards), PageState::Partial);
         cards[0].state = SourceState::Unavailable;
         assert_eq!(page_state(&cards), PageState::Unavailable);
-        assert_eq!(text("pl", "today"), "Dziś");
-        assert_eq!(text("en", "today"), "Today");
         assert!(language("unknown").is_err());
     }
 }

@@ -1,15 +1,15 @@
 {% extends "account/register_base.html" %}
-{% block title %}{% if mode == "login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}{% endblock %}
+{% block title %}{% if mode == "login" %}{{ self.text("shell-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}{% endblock %}
 {% block content %}
-<h1>{% if mode == "login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}</h1>
+<h1>{% if mode == "login" %}{{ self.text("shell-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}</h1>
 {% if failed %}<p class="op-error" role="alert">{{ self.text("mfa-error") }}</p>{% endif %}
 {% if mode == "login" %}
 <form class="op-stack" method="post" action="/{{ lang }}/login">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
-<div class="op-field"><label for="email">{{ self.text("mfa-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required></div>
+<div class="op-field"><label for="email">{{ self.text("register-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required></div>
 <div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
-<button class="op-button op-button--primary">{{ self.text("mfa-login") }}</button></form>
-<p>{{ self.text("mfa-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("mfa-register") }}</a></p>
+<button class="op-button op-button--primary">{{ self.text("shell-login") }}</button></form>
+<p>{{ self.text("mfa-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("register-title") }}</a></p>
 {% else if mode == "challenge" %}
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/challenge">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -27,7 +27,7 @@
 {% else if mode == "codes" %}
 <p>{{ self.text("mfa-save") }}</p>
 {% for code in codes %}<p><textarea class="op-input" readonly aria-label="{{ self.text("mfa-recovery") }}" rows="2">{{ code }}</textarea></p>{% endfor %}
-<a class="op-button" href="/{{ lang }}/login">{{ self.text("mfa-login") }}</a>
+<a class="op-button" href="/{{ lang }}/login">{{ self.text("shell-login") }}</a>
 {% else %}
 {% if mode == "settings" %}
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/enroll"><input type="hidden" name="_csrf" value="{{ csrf }}">

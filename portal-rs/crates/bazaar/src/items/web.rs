@@ -39,6 +39,7 @@ fn text(lang: &str, key: &str) -> String {
 #[template(path = "bazaar/message.html", config = "../web/askama.toml")]
 struct Message<'a> {
     lang: &'a str,
+    title: String,
     message: String,
 }
 fn failure(error: Error, lang: &str) -> Response {
@@ -51,6 +52,7 @@ fn failure(error: Error, lang: &str) -> Response {
     };
     match (Message {
         lang,
+        title: text(lang, "title"),
         message: text(lang, key),
     })
     .render()

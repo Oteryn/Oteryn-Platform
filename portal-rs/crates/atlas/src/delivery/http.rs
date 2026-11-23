@@ -87,10 +87,9 @@ async fn page(
     let Some(t) = Messages::new(&lang) else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let title = escape(&oteryn_ui::text(&lang, "shell-delivery"));
     let mut body = format!(
-        "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{}</title><link rel=\"stylesheet\" href=\"/atlas/delivery.css\"><main><h1>{}</h1>",
-        t.text("title"),
-        t.text("title")
+        "<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><link rel=\"stylesheet\" href=\"/atlas/delivery.css\"><main><h1>{title}</h1>"
     );
     let finish = |status: StatusCode, body: String| {
         (

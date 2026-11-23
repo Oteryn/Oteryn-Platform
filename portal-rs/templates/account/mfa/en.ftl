@@ -1,8 +1,6 @@
 mfa-title = Account security
 mfa-error = The request could not be verified. Check your details and try again.
-mfa-email = Email address
 mfa-password = Current password
-mfa-login = Sign in
 mfa-code = Authenticator, recovery or email code
 mfa-remember = Trust this device for 30 days
 mfa-verify = Verify code

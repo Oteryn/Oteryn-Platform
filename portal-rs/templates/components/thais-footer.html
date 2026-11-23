@@ -36,7 +36,7 @@
         <h2>{{ chrome.text("shell-community") }}</h2>
         <ul>
           {% for key in ["news", "events", "today", "online"] %}
-          {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{% if link.section == "today" %}{{ chrome.text("thais-home-today") }}{% else %}{{ link.label }}{% endif %}</a></li>{% endif %}
+          {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
           {% endfor %}
         </ul>
       </div>
@@ -46,7 +46,7 @@
         <h2>{{ chrome.text("thais-foot-player-help") }}</h2>
         <ul>
           {% if let Some(link) = chrome.link("support") %}
-          <li><a href="/{{ chrome.lang }}/help">{{ chrome.text("shell-support") }}</a></li>
+          <li><a href="/{{ chrome.lang }}/help"{% if chrome.help_current %} aria-current="page"{% endif %}>{{ chrome.text("shell-support") }}</a></li>
           <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ chrome.text("thais-foot-report") }}</a></li>
           {% endif %}
           {% for key in ["rules", "server"] %}
