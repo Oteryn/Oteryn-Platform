@@ -589,6 +589,29 @@ store and payment features are disabled. With no spec argument Playwright
 discovers the full suite, which includes specs that require the local harness's
 Game or commerce fixtures and can fail under this staging profile.
 
+### Staging from GitHub Actions
+
+`oracle-staging.yml` deploys every push to a `staging/**` branch (and, by
+dispatch, any eligible `codex/*` or `staging/*` head) and waits for the
+Playwright result. It runs only on the third runner service in
+`runners.compose.yml`, `oteryn-oracle-staging`, registered in its own org
+runner group `staging-runners` with labels `oteryn-staging` and
+`oteryn-oracle-staging`. That runner volume holds one key,
+`/home/runner/.ssh/oracle-staging`, and no production key; branch code never
+runs on the production runners. Root's `authorized_keys` binds the key with
+`restrict,command="/usr/bin/python3 /opt/oteryn-staging/staging-ssh.py"`.
+The adapter accepts only `status`, `logs` and
+`deploy <sha> [specs/<file>.spec.mjs] [--pg-tests a,b]`, passes an argument
+list to the installed staging CLI, and refuses a deploy while another SHA is
+still pending. Install it next to the CLI:
+
+```sh
+install -m 0755 deploy/oracle/staging-ssh.py /opt/oteryn-staging/
+```
+
+The workflow waits for any pending deploy, queues its own SHA, polls `status`
+until that SHA leaves the pending state, prints `logs` and fails with the run.
+
 Optional PostgreSQL tests run one crate at a time in the staging builder image,
 each with a fresh database and a role that cannot connect to the portal database.
 The stack stays available after testing. The next deployment replaces it and
