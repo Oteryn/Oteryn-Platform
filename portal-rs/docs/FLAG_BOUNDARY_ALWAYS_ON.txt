@@ -211,3 +211,7 @@ public P /{lang}/unsubscribe/confirm
 public G /{lang}/panel/payments/coin-checkout
 public P /{lang}/panel/payments/coin-checkout
 public G /admin/commerce/operation-status
+public G /admin/incidents
+public G /admin/incidents/{id}
+public P /admin/incidents
+public P /admin/incidents/assign

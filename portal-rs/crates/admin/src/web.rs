@@ -28,6 +28,9 @@ mod invitations;
 #[path = "registration_policy.rs"]
 mod registration_policy;
 
+#[path = "incidents/mod.rs"]
+mod incidents;
+
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
     pub account: Uuid,
@@ -354,6 +357,12 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             std::env::var("OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED")
                 .is_ok_and(|value| value == "true"),
         ))
+        .route(
+            "/admin/incidents",
+            get(incidents::index::<I, A>).post(incidents::create::<I, A>),
+        )
+        .route("/admin/incidents/{id}", get(incidents::detail::<I, A>))
+        .route("/admin/incidents/assign", post(incidents::assign::<I, A>))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -509,6 +518,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
             Permission::AdminAnalyticsView,
             Permission::AdminAnalyticsExport,
         ],
+        ("/admin/incidents/assign", _) => &[Permission::ManageRoles],
+        (path, _) if path.starts_with("/admin/incidents") => &[Permission::ViewAudit],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
@@ -653,6 +664,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    incidents_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -807,6 +819,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let incidents_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "incident-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -816,6 +833,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        incidents_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s
