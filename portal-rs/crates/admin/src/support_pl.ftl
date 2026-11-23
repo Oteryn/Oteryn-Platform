@@ -35,3 +35,4 @@ warning = Ostrzeżenie
 restriction = Ograniczenie
 suspension = Zawieszenie
 create = Utwórz karę tymczasową
+screenshots = Zrzuty ekranu

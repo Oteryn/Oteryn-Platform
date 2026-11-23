@@ -19,7 +19,9 @@ oteryn-web.workspace = true
 oteryn-admin.workspace = true
 oteryn-notify.workspace = true
 oteryn-gameauth = { path = "../gameauth" }
+oteryn-content = { path = "../content" }
 axum = "0.8.9"
+axum-extra = { version = "0.12.5", features = ["multipart"] }
 askama = "0.16.1"
 fluent-bundle = "0.16"
 serde = { version = "1", features = ["derive"] }

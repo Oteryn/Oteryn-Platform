@@ -1493,3 +1493,122 @@ async fn postgres_staff_reply_rolls_back_when_grant_expires_during_audit() -> Te
     }
     db.finish().await
 }
+
+#[tokio::test]
+async fn postgres_screenshot_upload_read_and_capacity() -> TestResult {
+    use crate::attachments::{self, AttachmentError, MAX_PER_TICKET};
+    use oteryn_content::media;
+
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let owner = db.account("en").await?;
+    let other = db.account("pl").await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(
+            owner,
+            Uuid::now_v7(),
+            "technical",
+            "Display",
+            "Screenshot attached.",
+        )
+        .await?;
+    let (owner_cookie, csrf) = db.cookie(owner).await?;
+    let (other_cookie, _) = db.cookie(other).await?;
+    let app = router(tickets.clone(), "https://portal.example.test");
+    let submit = |bytes: &[u8]| -> std::result::Result<_, axum::http::Error> {
+        let mut body = format!("--form\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{csrf}\r\n--form\r\nContent-Disposition: form-data; name=\"image\"; filename=\"screen.png\"\r\n\r\n").into_bytes();
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n--form--\r\n");
+        Request::post(format!("/en/support/tickets/{}/attachments", ticket.id))
+            .extension(ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                40000,
+            ))))
+            .header("cookie", &owner_cookie)
+            .header("origin", "https://portal.example.test")
+            .header("content-type", "multipart/form-data; boundary=form")
+            .body(Body::from(body))
+    };
+    assert_eq!(
+        app.clone().oneshot(submit(b"invalid")?).await?.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert!(
+        attachments::ids(&db.pool, owner, false, ticket.id)
+            .await?
+            .is_empty()
+    );
+    // A single RGB pixel in a PNG container.
+    const PNG: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2,
+        0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0,
+        3, 1, 1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+    let normalized = media::process("screen.png", PNG).map_err(|e| e.to_string())?;
+    assert_eq!(
+        app.clone().oneshot(submit(PNG)?).await?.status(),
+        StatusCode::FOUND
+    );
+    let ids = attachments::ids(&db.pool, owner, false, ticket.id).await?;
+    assert_eq!(ids.len(), 1);
+    let path = format!("/en/support/tickets/{}/attachments/{}", ticket.id, ids[0]);
+    let get = |cookie: &str| {
+        Request::get(&path)
+            .header("cookie", cookie)
+            .body(Body::empty())
+    };
+    let response = app.clone().oneshot(get(&owner_cookie)?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await?.as_ref(),
+        normalized.content
+    );
+    assert_eq!(
+        app.clone().oneshot(get(&other_cookie)?).await?.status(),
+        StatusCode::NOT_FOUND
+    );
+    let image = || media::process("screen.png", PNG).map_err(|e| e.to_string());
+    assert!(matches!(
+        attachments::store(&tickets, other, None, ticket.id, image()?).await,
+        Err(AttachmentError::Ticket(Error::NotFound))
+    ));
+    for _ in 1..MAX_PER_TICKET - 1 {
+        attachments::store(&tickets, owner, None, ticket.id, image()?).await?;
+    }
+    let (first, second) = tokio::join!(
+        attachments::store(&tickets, owner, None, ticket.id, image()?),
+        attachments::store(&tickets, owner, None, ticket.id, image()?),
+    );
+    assert!(matches!(
+        (first, second),
+        (Ok(_), Err(AttachmentError::Full)) | (Err(AttachmentError::Full), Ok(_))
+    ));
+    let closed = tickets
+        .create(
+            owner,
+            Uuid::now_v7(),
+            "technical",
+            "Closed",
+            "Closing this ticket.",
+        )
+        .await?;
+    tickets
+        .change(
+            owner,
+            None,
+            closed.id,
+            closed.lock_version,
+            Change::Status("closed"),
+        )
+        .await?;
+    assert!(matches!(
+        attachments::store(&tickets, owner, None, closed.id, image()?).await,
+        Err(AttachmentError::Ticket(Error::Conflict))
+    ));
+    db.finish().await
+}

@@ -3283,8 +3283,10 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
+ "axum-extra",
  "fluent-bundle",
  "oteryn-admin",
+ "oteryn-content",
  "oteryn-core",
  "oteryn-db",
  "oteryn-gameauth",

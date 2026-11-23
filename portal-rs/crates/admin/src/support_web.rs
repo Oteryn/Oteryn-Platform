@@ -296,6 +296,13 @@ async fn render_record(
         escape(&record.title),
         escape(&text(lang, &record.status))
     );
+    if area == Area::Tickets {
+        body.push_str(&format!(
+            "<p><a href=\"/{lang}/admin/support/tickets/{}#screenshots\">{}</a></p>",
+            record.id,
+            escape(&text(lang, "screenshots")),
+        ));
+    }
     for message in record.messages {
         body.push_str(&format!(
             "<article{}><h3>{}</h3><p>{}</p></article>",

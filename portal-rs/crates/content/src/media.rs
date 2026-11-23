@@ -18,7 +18,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use std::io::Cursor;
 use uuid::Uuid;
-const MAX_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_BYTES: usize = 8 * 1024 * 1024;
 static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
     StatusCode::SERVICE_UNAVAILABLE
@@ -333,7 +333,7 @@ async fn upload(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
     let (name, bytes) = image.ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-    let processed = tokio_process(name, bytes.to_vec()).await?;
+    let processed = process_upload(name, bytes.to_vec()).await?;
     // Persist only after processing, with fresh transactional authorization.
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
@@ -395,7 +395,8 @@ async fn upload(
     tx.commit().await.map_err(unavailable)?;
     Ok((StatusCode::FOUND, [(header::LOCATION, "/admin/media")]).into_response())
 }
-async fn tokio_process(name: String, bytes: Vec<u8>) -> Result<ProcessedImage, StatusCode> {
+/// Run the shared image pipeline outside the async runtime with bounded concurrency.
+pub async fn process_upload(name: String, bytes: Vec<u8>) -> Result<ProcessedImage, StatusCode> {
     let permit = DECODERS
         .try_acquire()
         .map_err(|_| StatusCode::TOO_MANY_REQUESTS)?;
