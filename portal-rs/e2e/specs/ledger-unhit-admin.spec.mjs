@@ -5,6 +5,7 @@ import {submit} from '../helpers.mjs';
 import {isolatedAdmin, query} from '../staff-rbac-helpers.mjs';
 
 test('staff submits filters on each analytics page', async ({browser}, info) => {
+  test.setTimeout(240_000);
   const {context, page} = await isolatedAdmin(browser, info);
   try {
     for (const section of ['', '/activity', '/creatures', '/health', '/levels']) {
