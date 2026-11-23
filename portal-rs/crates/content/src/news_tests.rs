@@ -966,3 +966,21 @@ async fn browser_news_submit(
     app.oneshot(Request::post(path).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
         .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&slug=browser-news&title={title}&body=Reviewed+body&published_at="))).unwrap()).await.unwrap().status()
 }
+
+#[tokio::test]
+async fn article_discussion_post_requires_browser_csrf() {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgresql://localhost/unused")
+        .unwrap();
+    let response = configured_router(pool)
+        .unwrap()
+        .oneshot(
+            Request::post("/en/news/published/discussion")
+                .header("content-type", "application/x-www-form-urlencoded")
+                .body(Body::from("body=Reply"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}

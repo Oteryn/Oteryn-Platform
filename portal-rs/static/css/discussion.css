@@ -1,0 +1,7 @@
+.news-discussion {
+  overflow-wrap: anywhere;
+}
+
+.news-discussion .discussion-text {
+  white-space: pre-wrap;
+}

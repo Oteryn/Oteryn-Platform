@@ -18,6 +18,7 @@ use serde_json::json;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+mod discussion;
 mod public;
 
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
@@ -73,6 +74,7 @@ const MAX_PAGE: i64 = 100000;
 struct Options {
     lang: Option<String>,
     page: Option<i64>,
+    status: Option<String>,
     #[serde(default)]
     year: String,
     #[serde(default)]
@@ -187,6 +189,7 @@ fn public_router_at(pool: PgPool, origin: &str) -> Router {
             RateLimiter::new(pool.clone()),
             ratelimit::supply,
         ));
+    let discussion = discussion::public_routes(pool.clone(), origin);
     archive
         .route("/news/{slug}", get(show))
         .route("/{lang}/news/{slug}", get(local_show))
@@ -194,10 +197,12 @@ fn public_router_at(pool: PgPool, origin: &str) -> Router {
         .layer(Extension(public::FeedOrigin(
             origin.trim_end_matches('/').to_owned(),
         )))
+        .merge(discussion)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
 pub fn admin_router(pool: PgPool) -> Router {
+    let discussions = discussion::staff_routes(pool.clone());
     Router::new()
         .route("/admin/news", get(admin_index).post(create))
         .route("/admin/news/create", get(new))
@@ -207,6 +212,7 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news/{id}", post(update).put(update).delete(delete))
         .route("/admin/news/{id}/delete", post(delete))
         .with_state(pool)
+        .merge(discussions)
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(axum::middleware::from_fn(headers))
 }
@@ -311,11 +317,19 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
     } else {
         "news"
     };
+    let discussion_link = if section == "news" {
+        format!(
+            "<p><a href=\"/{lang}/news/{slug}/discussion\">{}</a></p>",
+            label(lang, "discussion-title")
+        )
+    } else {
+        String::new()
+    };
     Ok(page(
         lang,
         row.get("title"),
         format!(
-            "<p><a href=\"/{lang}/{section}\">{}</a></p><article><p>{}</p></article>",
+            "<p><a href=\"/{lang}/{section}\">{}</a></p><article><p>{}</p></article>{discussion_link}",
             label(lang, section),
             escape(row.get("body")).replace('\n', "<br>")
         ),
@@ -339,6 +353,10 @@ async fn admin_index(
         "<a href=\"/admin/news/create?lang={lang}\">{}</a>",
         label(lang, "new")
     );
+    html.push_str(&format!(
+        "<p><a href=\"/admin/news/discussions?lang={lang}\">{}</a></p>",
+        label(lang, "discussion-queue")
+    ));
     let has_next = rows.len() > 25 && q.page.unwrap_or(1) < MAX_PAGE;
     for row in rows.into_iter().take(25) {
         let id: Uuid = row.get("id");
