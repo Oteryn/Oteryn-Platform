@@ -234,6 +234,14 @@ fn fresh_authorized_preflight_and_typed_refusals() -> TestResult {
             bad.state = ObservedState::Collected;
             assert_eq!(check(&bad), Err(Reject::AlreadyCollected));
         } else {
+            let mut revised = r.clone();
+            if let Action::StartHirelingExpedition(binding) = &mut revised.action {
+                binding.reward_table_revision = Positive::new(99)?;
+            }
+            assert_eq!(
+                p.authorize("oteryn:game:primary", account, &revised, a.now, false),
+                Err(Reject::TableUnavailable)
+            );
             bad = p.clone();
             bad.weekly_budget_available = Evidence::Denied;
             assert_eq!(check(&bad), Err(Reject::WeeklyLimit));

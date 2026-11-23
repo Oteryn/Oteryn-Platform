@@ -1,0 +1,23 @@
+<section id="hireling-status" class="op-panel op-stack" aria-labelledby="hireling-status-title">
+  <h2 id="hireling-status-title">{{ self.hireling_text("hireling-status-title") }}</h2>
+  <dl>
+    <dt>{{ self.hireling_text("hireling-status-panel") }}</dt>
+    <dd>{{ self.hireling_text(hirelings.panel_label()) }}</dd>
+    <dt>{{ self.hireling_text("hireling-status-projection") }}</dt>
+    <dd>{{ self.hireling_text("hireling-status-unavailable") }}</dd>
+    <dt>{{ self.hireling_text("hireling-status-store") }}</dt>
+    <dd>{{ self.hireling_text("hireling-status-blocked") }}</dd>
+    <dt>{{ self.hireling_text("hireling-status-commands") }}</dt>
+    <dd>{{ self.hireling_text("hireling-status-blocked") }}</dd>
+    {% if let Some(counts) = hirelings.counts %}
+    <dt>{{ self.hireling_text("hireling-status-intents") }}</dt>
+    <dd data-hireling-count="unresolved">{{ counts.unresolved }}</dd>
+    <dt>{{ self.hireling_text("hireling-status-dispatch") }}</dt>
+    <dd data-hireling-count="dispatch-attention">{{ counts.dispatch_attention }}</dd>
+    {% else %}
+    <dt>{{ self.hireling_text("hireling-status-intents") }}</dt>
+    <dd>{{ self.hireling_text("hireling-status-ledger-unavailable") }}</dd>
+    {% endif %}
+  </dl>
+  <p>{{ self.hireling_text("hireling-status-note") }}</p>
+</section>

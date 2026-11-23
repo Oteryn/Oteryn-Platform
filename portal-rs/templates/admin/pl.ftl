@@ -367,3 +367,16 @@ operational-mail-denied = Brak uprawnień do wykonania tej czynności.
 operational-mail-unavailable = Wiadomości organizacyjne są obecnie niedostępne.
 
 referral-operations = Stan kampanii poleceń
+hireling-status-title = Status pomocników domowych
+hireling-status-panel = Panel gracza
+hireling-status-on = Widoczny
+hireling-status-off = Ukryty
+hireling-status-projection = Zweryfikowana projekcja gry
+hireling-status-store = Zakup pomocników
+hireling-status-commands = Rozpoczęcie wyprawy i odbiór nagród
+hireling-status-unavailable = Niedostępna
+hireling-status-blocked = Wstrzymane do czasu zatwierdzenia kontraktu
+hireling-status-intents = Nierozstrzygnięte zlecenia platformy
+hireling-status-dispatch = Zlecenia z zadaniem przerwanym lub bez zadania w kolejce
+hireling-status-note = Zlecenie platformy ani stan kolejki nie rozstrzygają wyniku w grze.
+hireling-status-ledger-unavailable = Niedostępne

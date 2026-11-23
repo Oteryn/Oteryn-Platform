@@ -367,3 +367,16 @@ operational-mail-denied = You do not have permission to perform this action.
 operational-mail-unavailable = Operational email is currently unavailable.
 
 referral-operations = Referral campaign status
+hireling-status-title = House helper status
+hireling-status-panel = Player panel
+hireling-status-on = Visible
+hireling-status-off = Hidden
+hireling-status-projection = Verified Game projection
+hireling-status-store = Hireling purchases
+hireling-status-commands = Start and claim
+hireling-status-unavailable = Unavailable
+hireling-status-blocked = Closed pending contract qualification
+hireling-status-intents = Unresolved Platform intents
+hireling-status-dispatch = Intents with a dead or missing outbox job
+hireling-status-note = A Platform intent or outbox state does not establish the outcome in Game.
+hireling-status-ledger-unavailable = Unavailable

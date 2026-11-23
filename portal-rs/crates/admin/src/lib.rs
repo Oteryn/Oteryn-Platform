@@ -4,6 +4,7 @@ pub mod audit;
 mod errors;
 pub mod rbac;
 
+mod hireling_status;
 pub mod web;
 
 pub mod bazaar;
