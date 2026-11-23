@@ -41,6 +41,8 @@ pub enum Error {
 pub struct Flags {
     pub players: bool,
     pub characters: bool,
+    /// The existing default-off Game revocation export flag.
+    pub game_revocation_export: bool,
     /// The coin-native purchase flag; coin purchase holds exist only with it.
     pub coin_holds: bool,
 }
@@ -259,6 +261,42 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
         self.record(context, "players.account.view", id).await?;
         Ok(account)
     }
+    pub async fn game_revocations(
+        &self,
+        context: CheckContext,
+        id: Uuid,
+    ) -> Result<Vec<oteryn_identity::security_revocations::RecentRevocation>, Error> {
+        self.check(context, Permission::ManageSupportTickets)
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        let records =
+            oteryn_identity::security_revocations::recent_for_account(&mut tx, id).await?;
+        tx.commit().await?;
+        Ok(records)
+    }
+
+    async fn check_kick(&self, context: CheckContext, id: Uuid) -> Result<(), Error> {
+        self.check(context, Permission::KickAccountSessions).await?;
+        if !self.flags.game_revocation_export {
+            return Err(Error::Unavailable);
+        }
+        if id.get_variant() != uuid::Variant::RFC4122 || id.get_version_num() != 7 {
+            return Err(Error::BadInput);
+        }
+        Ok(())
+    }
+
+    async fn can_kick(&self, context: CheckContext, id: Uuid) -> Result<bool, Error> {
+        match self.check_kick(context, id).await {
+            Ok(()) => Ok(true),
+            Err(
+                Error::Unavailable
+                | Error::BadInput
+                | Error::Authorization(crate::rbac::Error::Denied),
+            ) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
     /// The kick view for staff who may only kick: it proves the target exists
     /// and discloses nothing else about the account or its tickets.
     pub async fn kick_view(&self, context: CheckContext, id: Uuid) -> Result<(), Error> {
@@ -398,7 +436,7 @@ impl<A: AccountStateReader, I: Accounts> Players<A, I> {
     /// the existing trigger). No status, sanction or credential changes. The
     /// audit row (actor, target, time, reason) commits in the same transaction.
     pub async fn kick(&self, context: CheckContext, id: Uuid, reason: &str) -> Result<i64, Error> {
-        self.check(context, Permission::KickAccountSessions).await?;
+        self.check_kick(context, id).await?;
         valid_text(reason, 500)?;
         self.target(id).await?;
         let mut tx = self.pool.begin().await?;

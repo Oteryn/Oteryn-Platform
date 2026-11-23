@@ -9,7 +9,10 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
-use oteryn_identity::staff_account::Field;
+use oteryn_identity::{
+    security_revocations::{RecentRevocation, Settings},
+    staff_account::Field,
+};
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use std::sync::Arc;
@@ -26,6 +29,7 @@ pub(crate) fn configured_router_from(
     let flags = Flags {
         players: lookup("OTERYN_ADMIN_PLAYERS").is_some_and(|v| v == "true"),
         characters: lookup("OTERYN_ADMIN_PLAYER_CHARACTERS").is_some_and(|v| v == "true"),
+        game_revocation_export: Settings::from_lookup(lookup).enabled,
         coin_holds: oteryn_payments::coin::CoinSettings::from_lookup(lookup).enabled,
     };
     if !flags.players {
@@ -139,7 +143,6 @@ struct Page {
     csrf: String,
     add_note: String,
     logout: String,
-    kick: String,
     reason: String,
     reset: String,
     approve: String,
@@ -159,6 +162,9 @@ struct Page {
     coin_hold: Option<CoinHold>,
     /// `Some(id)` when the viewer may only kick that account.
     kick_target: Option<String>,
+    can_kick: bool,
+    revocation_export: Option<bool>,
+    game_revocations: Option<Vec<RecentRevocation>>,
 }
 struct EditField {
     key: &'static str,
@@ -237,7 +243,6 @@ impl Page {
             csrf: String::new(),
             add_note: text(lang, "add-note"),
             logout: text(lang, "logout"),
-            kick: text(lang, "kick"),
             reason: text(lang, "reason"),
             reset: text(lang, "reset"),
             approve: text(lang, "approve"),
@@ -255,6 +260,9 @@ impl Page {
             coin_debt_label: text(lang, "coin-debt"),
             coin_hold: None,
             kick_target: None,
+            can_kick: false,
+            revocation_export: None,
+            game_revocations: None,
         }
     }
 }
@@ -267,6 +275,7 @@ async fn search<A: AccountStateReader, I: Accounts>(
     s.check(context, Permission::ManageSupportTickets).await?;
     let mut page = Page::new(language(&headers));
     page.characters_search = s.flags.characters;
+    page.revocation_export = Some(s.flags.game_revocation_export);
     let Ok(Query(query)) = query else {
         page.feedback = page.t("search-invalid");
         return Ok(render_status(&page, StatusCode::BAD_REQUEST));
@@ -329,6 +338,7 @@ async fn detail<A: AccountStateReader, I: Accounts>(
         Err(Error::Authorization(crate::rbac::Error::Denied)) => {
             s.kick_view(context, id).await?;
             page.kick_target = Some(id.to_string());
+            page.can_kick = s.can_kick(context, id).await?;
             page.csrf = session.csrf_token().await?;
             return Ok(oteryn_web::render(&page));
         }
@@ -354,6 +364,12 @@ async fn detail<A: AccountStateReader, I: Accounts>(
     }
     account.status = text(page.lang, &format!("status-{}", account.status));
     page.account = Some(account);
+    page.can_kick = s.can_kick(context, id).await?;
+    page.game_revocations = match s.game_revocations(context, id).await {
+        Ok(records) => Some(records),
+        Err(Error::Storage(_)) => None,
+        Err(error) => return Err(error),
+    };
     page.notes = s.notes(context, id).await?;
     match s.sessions(context, id).await {
         Ok(rows) => page.sessions = rows,
@@ -436,6 +452,7 @@ async fn change<A: AccountStateReader, I: Accounts>(
         "logout" => s.logout_all(context, id, &form.reason).await?,
         "kick" => {
             s.kick(context, id, &form.reason).await?;
+            location.push_str("#game-revocations");
         }
         "release-coin-hold" => {
             let released = s
@@ -510,6 +527,23 @@ mod tests {
             }
             assert!(html.contains("name=\"_csrf\""));
             assert!(html.contains("for=\"note\""));
+            assert!(html.contains("id=\"game-revocations\""));
+            assert!(!html.contains("value=\"kick\""));
+            assert!(html.contains(&text(lang, "revocation-game-status")));
+            assert!(html.contains(&text(lang, "unavailable")));
+
+            page.can_kick = true;
+            page.game_revocations = Some(Vec::new());
+            let enabled = page.render()?;
+            assert!(enabled.contains("value=\"kick\""));
+            assert!(enabled.contains("for=\"kick-reason\""));
+            assert!(enabled.contains(&text(lang, "revocation-empty")));
+
+            page.account = None;
+            page.revocation_export = Some(false);
+            let disabled = page.render()?;
+            assert!(disabled.contains(&text(lang, "revocation-disabled")));
+            assert!(disabled.contains(&text(lang, "revocation-consumer-status")));
         }
         Ok(())
     }
