@@ -4760,13 +4760,13 @@ test('enforcement forms bind sanctions and appeal decisions to staff authority a
     const verification = lang === 'pl'
       ? 'Niektóre informacje nie zostały zaakceptowane. Sprawdź dane i spróbuj ponownie.'
       : 'Some information could not be accepted. Check your input and try again.';
-    const check = async (input, snapshot, baseline, samples) => {
+    const check = async (input, snapshot, baseline, samples, message = verification) => {
       await rejected({ page, ...input, snapshot, baseline });
       for (const { screen, token } of wrong) {
         expect((await sendForm(screen, input.url, { ...input.fields, _csrf: token })).status()).toBe(403);
         expect(await snapshot()).toEqual(baseline);
       }
-      await invalid({ page, ...input, message: verification, snapshot, baseline, samples });
+      await invalid({ page, ...input, message, snapshot, baseline, samples });
     };
     const form = 'main form:has([name=action][value=sanction])';
     const now = Math.floor(Date.now() / 1000);
@@ -4823,18 +4823,31 @@ test('enforcement forms bind sanctions and appeal decisions to staff authority a
     const appealForm = 'main form:has([name=action][value=appeal])';
     for (const decision of ['accepted', 'rejected']) {
       const created = await issue();
-      const before = await prepare(page, appealForm, { appeal_status: 'reviewing' });
-      expect((await sendForm(page, before.url, before.fields)).status()).toBe(409);
+      await expect(page.locator(appealForm)).toHaveCount(0);
+      const sanctionForm = await prepare(page, form);
+      const premature = {
+        _csrf: sanctionForm.fields._csrf, lock_version: sanctionForm.fields.lock_version,
+        action: 'appeal', appeal_status: 'reviewing', appeal_outcome: '',
+      };
+      expect((await sendForm(page, sanctionForm.url, premature)).status()).toBe(409);
       expect(await created.snapshot()).toEqual([created.record]);
-      // The Portal has no browser route that submits an owner's appeal.
-      // Seed that prerequisite in the disposable database after issuing the real sanction.
+
+      const ownerPath = `/${lang}/support/appeals/${created.id}`;
+      const message = 'Local owner statement for staff review.';
+      expect((await target.screen.goto(ownerPath)).status()).toBe(200);
+      await submit(target.screen, 'main form', { message });
+      await expect(target.screen.locator('main')).toContainText(message);
       expect(await query(
-        `UPDATE support_appeal_workflows SET status='requested',version=version+1,message=$2
-         WHERE sanction_id=$1 AND status='none' RETURNING status`,
-        [created.id, 'Local owner statement for staff review.'],
-      )).toEqual([{ status: 'requested' }]);
-      await page.reload();
+        "SELECT actor FROM audit_log WHERE action='support.enforcement_appeal_submitted' AND target=$1",
+        [created.id],
+      )).toEqual([{ actor: target.account.id }]);
+      expect((await page.reload()).status()).toBe(200);
+      await expect(page.locator('main')).toContainText(message);
       let row = { ...created.record, appeal: 'requested', appeal_version: 2 };
+      expect(await created.snapshot()).toEqual([row]);
+      const appealValidation = lang === 'pl'
+        ? 'Wybierz, czy utrzymać, czy uchylić sankcję, i wpisz uzasadnienie decyzji.'
+        : 'Choose whether to uphold or overturn the sanction and enter a non-blank decision reason';
       for (const appeal_status of ['reviewing', decision]) {
         const appeal_outcome = `Local appeal decision ${appeal_status}.`;
         const offer = await prepare(page, appealForm, { appeal_status, appeal_outcome });
@@ -4843,9 +4856,18 @@ test('enforcement forms bind sanctions and appeal decisions to staff authority a
           { name: 'overlong appeal outcome', patch: { appeal_outcome: 'x'.repeat(4001) } },
           { name: 'wrong appealed state type', patch: { appeal_status: '1' } },
           { name: 'state outside the supported values', patch: { appeal_status: 'accepted ' } },
-        ]);
-        await page.locator(`${appealForm} [name=appeal_status]`).selectOption(appeal_status);
-        await submit(page, appealForm, { appeal_outcome });
+        ], appealValidation);
+        if (appeal_status === 'reviewing') {
+          // The legacy POST still supports a review transition. The form exposes final decisions.
+          await expect(page.locator(`${appealForm} option[value=reviewing]`)).toHaveCount(0);
+          const reviewing = await sendForm(page, offer.url, offer.fields);
+          expect(reviewing.status()).toBe(303);
+          expect(reviewing.headers().location).toBe(`${base}/${created.id}`);
+          expect((await page.reload()).status()).toBe(200);
+        } else {
+          await page.locator(`${appealForm} [name=appeal_status]`).selectOption(appeal_status);
+          await submit(page, appealForm, { appeal_outcome });
+        }
         await expect(page.getByText(appeal_outcome, { exact: false })).toBeVisible();
         row = { ...row, appeal: appeal_status, outcome: appeal_outcome, version: row.version + 1,
           appeal_version: row.appeal_version + 1, status: appeal_status === 'accepted' ? 'revoked' : 'active' };
