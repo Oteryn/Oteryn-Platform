@@ -24,3 +24,17 @@ pending = Oczekuje na drugą osobę z zespołu
 
 cancel = Anuluj wniosek
 next = Następna strona
+premium-status = Status premium na platformie
+lookup-account = Identyfikator konta
+lookup = Sprawdź status
+account-not-found = Nie znaleziono konta.
+entitlement-status = Status uprawnienia
+expiry = Koniec premium (UTC)
+revision = Rewizja uprawnienia
+no-premium = Brak premium
+ACTIVE = Aktywne
+EXPIRED = Wygasłe
+REVOKED = Odebrane
+NOT_YET_EFFECTIVE = Jeszcze nieaktywne
+game-status = Status w grze
+game-unavailable = Tymczasowo niedostępne.

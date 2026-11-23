@@ -2,6 +2,29 @@
 <html lang="{{lang}}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{title}}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme"><main class="op-panel op-stack"><h1>{{title}}</h1><p>{{note}}</p>
+{% if premium_lookup %}
+<section class="op-stack" aria-labelledby="premium-status">
+<h2 id="premium-status">{{ locale.text("premium-status") }}</h2>
+<form class="op-stack" method="get" action="/admin/commerce">
+<input type="hidden" name="lang" value="{{ lang }}">
+<p class="op-field"><label>{{ locale.text("lookup-account") }} <input class="op-input" name="premium_account" required maxlength="36" size="24"></label></p>
+<button class="op-button" type="submit">{{ locale.text("lookup") }}</button>
+</form>
+{% if let Some(status) = premium_status %}
+<dl>
+<dt>{{ locale.text("lookup-account") }}</dt><dd><small>{{ status.account }}</small></dd>
+<dt>{{ locale.text("entitlement-status") }}</dt><dd>{{ locale.text(status.state) }}</dd>
+{% if let Some(expiry) = status.expiry %}
+<dt>{{ locale.text("expiry") }}</dt><dd><time datetime="{{ expiry }}">{{ expiry }}</time></dd>
+{% endif %}
+{% if let Some(revision) = status.revision %}
+<dt>{{ locale.text("revision") }}</dt><dd>{{ revision }}</dd>
+{% endif %}
+<dt>{{ locale.text("game-status") }}</dt><dd>{{ locale.text("game-unavailable") }}</dd>
+</dl>
+{% endif %}
+</section>
+{% endif %}
 {% for action in actions %}
 <section class="op-stack"><h2>{{action.title}}</h2><form class="op-stack" method="post" action="/admin/commerce/{{action.key}}">
 <input type="hidden" name="_csrf" value="{{csrf}}">

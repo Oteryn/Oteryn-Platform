@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="{{ locale.0 }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if receipt.is_some() %}{{ locale.text("purchase-receipt") }}{% else %}{{ locale.text("premium") }}{% endif %} · Oteryn</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <nav class="op-row" aria-label="{{ locale.text("account") }}">
+    <a class="op-button op-button--secondary" href="/{{ locale.0 }}/account">{{ locale.text("account") }}</a>
+    <a class="op-button op-button--secondary" href="/{{ locale.0 }}/panel/premium">{{ locale.text("premium") }}</a>
+    <a class="op-button op-button--secondary" href="/{{ locale.0 }}/panel/payments">{{ locale.text("payments") }}</a>
+  </nav>
+  {% if let Some(purchase) = receipt %}
+  <h1>{{ locale.text("purchase-receipt") }}</h1>
+  <p>{{ locale.text("print") }}</p>
+  <dl>
+    <dt>{{ locale.text("order") }}</dt><dd><small>{{ purchase.order }}</small></dd>
+    <dt>{{ locale.text("date") }}</dt><dd><time datetime="{{ purchase.date }}">{{ purchase.date }}</time></dd>
+    <dt>{{ locale.text("amount") }}</dt><dd>{{ purchase.coins }} {{ locale.text("coins") }}</dd>
+    <dt>{{ locale.text("status") }}</dt><dd>{{ locale.text("settled") }}</dd>
+  </dl>
+  {% else %}
+  <h1>{{ locale.text("premium") }}</h1>
+  {% if available %}
+  <dl>
+    <dt>{{ locale.text("status") }}</dt><dd>{{ status }}</dd>
+    <dt>{{ locale.text("end") }}</dt><dd>{% if let Some(until) = end %}<time datetime="{{ until }}">{{ until }}</time>{% else %}{{ locale.text("none") }}{% endif %}</dd>
+    <dt>{{ locale.text("game-status") }}</dt><dd>{{ game_unavailable }}</dd>
+  </dl>
+  {% else %}
+  <p role="status">{{ status }}</p>
+  {% endif %}
+  {% endif %}
+  {% if available %}
+  <section class="op-stack" aria-labelledby="premium-history">
+    <h2 id="premium-history">{{ locale.text("premium-history") }}</h2>
+    {% for event in events %}
+    <article class="op-card op-stack">
+      <h3>{{ locale.text(event.event) }}</h3>
+      <dl>
+        <dt>{{ locale.text("date") }}</dt><dd><time datetime="{{ event.date }}">{{ event.date }}</time></dd>
+        <dt>{{ locale.text("end") }}</dt><dd><time datetime="{{ event.end }}">{{ event.end }}</time></dd>
+        <dt>{{ locale.text("revision") }}</dt><dd>{{ event.revision }}</dd>
+        {% if let Some(days) = event.days %}<dt>{{ locale.text("days") }}</dt><dd>{{ days }}</dd>{% endif %}
+      </dl>
+      {% if receipt.is_none() %}{% if let Some(order) = event.order %}
+      <a class="op-button op-button--secondary" href="/{{ locale.0 }}/panel/premium?receipt={{ order }}">{{ locale.text("purchase-receipt") }}</a>
+      {% endif %}{% endif %}
+    </article>
+    {% else %}
+    <p>{{ locale.text("empty-premium") }}</p>
+    {% endfor %}
+  </section>
+  {% if previous.is_some() || next.is_some() %}
+  <nav class="op-row" aria-label="{{ locale.text("premium-paging") }}">
+    {% if let Some(number) = previous %}<a class="op-button op-button--secondary" href="?page={{ number }}" rel="prev">{{ locale.text("previous") }}</a>{% endif %}
+    {% if let Some(number) = next %}<a class="op-button op-button--secondary" href="?page={{ number }}" rel="next">{{ locale.text("next") }}</a>{% endif %}
+  </nav>
+  {% endif %}
+  {% endif %}
+</main>
+</body>
+</html>
