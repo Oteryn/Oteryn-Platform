@@ -1756,7 +1756,7 @@ test('native account checkout applies the locked test-provider decision only onc
       expect(order.sandbox).toBe(true);
       expect(order.state).toBe('awaiting_payment');
       expect((await page.goto(order.checkout_url)).status()).toBe(200);
-      await expect(page.locator('main h1')).toHaveText('Sandbox coin checkout');
+      await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Zakup monet w trybie testowym' : 'Sandbox coin checkout');
       const form = `main form:has([name=action][value=${decision}])`;
       const { url, fields } = await prepare(page, form);
       const snapshot = () => query(
@@ -1795,7 +1795,10 @@ test('native account checkout applies the locked test-provider decision only onc
       expect(requestOrigin).toBe(new URL(url).origin);
       const paid = decision === 'pay';
       const state = paid ? 'paid' : 'failed';
-      await expect(page.locator('main dl dd').last()).toHaveText(state);
+      const stateLabel = lang === 'pl'
+        ? (paid ? 'Opłacono' : 'Niepowodzenie')
+        : (paid ? 'Paid' : 'Failed');
+      await expect(page.locator('main dl dd').last()).toHaveText(stateLabel);
       await expect(page.locator(formSelector)).toHaveCount(0);
       const closed = [{ state, receipt: paid, events: 1, credits: paid ? 1 : 0, coins: paid ? String(pkg.coins) : '0' }];
       expect(await snapshot()).toEqual(closed);
