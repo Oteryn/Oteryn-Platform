@@ -71,12 +71,12 @@ export async function exerciseEditorial(request, locale, definition, publicRoute
     await staffRequest('GET', '/admin/news/{id}/edit', `/admin/news/${id}/edit`, 200);
     for (const method of ['POST', 'PUT']) {
       const row = newsAllowed ? await newsRow(news.slug) : null;
-      await staffRequest(method, '/admin/news/{id}', `/admin/news/${id}`, 302, {
+      await staffRequest(method, '/admin/news/{id}', `/admin/news/${id}`, method === 'PUT' ? 303 : 302, {
         form: { ...news, expected_revision: row?.revision || publication },
       });
     }
     const existing = newsAllowed ? await newsRow(news.slug) : null;
-    await staffRequest('DELETE', '/admin/news/{id}', `/admin/news/${id}`, 302, {
+    await staffRequest('DELETE', '/admin/news/{id}', `/admin/news/${id}`, 303, {
       form: { expected_revision: existing?.revision || publication },
     });
     if (newsAllowed) {
@@ -98,7 +98,7 @@ export async function exerciseEditorial(request, locale, definition, publicRoute
     for (const variant of ['content', 'thumbnail']) {
       await staffRequest('GET', `/admin/media/{id}/${variant}`, `/admin/media/${image}/${variant}`, 200);
     }
-    await staffRequest('DELETE', '/admin/media/{id}', `/admin/media/${image}`, 302);
+    await staffRequest('DELETE', '/admin/media/{id}', `/admin/media/${image}`, 303);
     if (mediaAllowed) {
       expect(Boolean(await mediaId()), 'DELETE removes its image fixture').toBe(false);
       await staffRequest('POST', '/admin/media', '/admin/media', 302, upload());
