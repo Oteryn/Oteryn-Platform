@@ -13,6 +13,17 @@ const titles = {
   503: ['Usługa chwilowo niedostępna', 'Temporarily unavailable'],
 };
 
+function rateKey(...parts) {
+  const hash = createHash('sha256');
+  for (const part of parts) {
+    const bytes = Buffer.from(part);
+    const length = Buffer.alloc(8);
+    length.writeBigUInt64BE(BigInt(bytes.length));
+    hash.update(length).update(bytes);
+  }
+  return hash.digest();
+}
+
 async function assertError(page, lang, status, response) {
   expect(response.status()).toBe(status);
   const headers = response.headers();
@@ -34,7 +45,7 @@ async function assertError(page, lang, status, response) {
 
 test('public browser errors use the localized shell and no-store', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
-  const headers = { accept: 'text/html', 'accept-language': lang };
+  const headers = { accept: 'text/html', 'accept-language': lang, connection: 'close' };
   const options = { headers, maxRedirects: 0 };
   await page.goto(`/${lang}/`);
   const missing = `/${lang}/missing-${randomUUID()}`;
@@ -80,7 +91,11 @@ test('public browser errors use the localized shell and no-store', async ({ page
   const unsupported = await page.request.post(`/${lang}/`, options);
   expect(unsupported.headers().allow.split(/,\s*/)).toEqual(expect.arrayContaining(['GET', 'HEAD']));
   await assertError(page, lang, 405, unsupported);
-  const oversized = await page.request.post(`/${lang}/`, {
+  // The portal can reject the known Content-Length before reading the upload.
+  // Send it directly to the disposable listener to observe that early response.
+  const listener = new URL(`http://${process.env.OTERYN_BIND || '127.0.0.1:18080'}`);
+  expect(listener.hostname).toBe('127.0.0.1');
+  const oversized = await page.request.post(new URL(`/${lang}/`, listener).href, {
     ...options, data: Buffer.alloc(1024 * 1024 + 1),
   });
   await assertError(page, lang, 413, oversized);
@@ -98,7 +113,13 @@ test('login throttling and a cold account dependency use localized error pages',
   await page.goto(`/${lang}/login`);
   const token = await page.locator('[name=_csrf]').inputValue();
   const form = { _csrf: token, email: `limit-${randomUUID()}@local.test`, password: 'Wrong local password!' };
-  const headers = { accept: 'text/html', origin: new URL(page.url()).origin };
+  const source = '127.0.0.2';
+  const headers = {
+    accept: 'text/html', origin: new URL(page.url()).origin, connection: 'close',
+    'x-portal-e2e-login-peer': source,
+  };
+  const identityKey = rateKey('identity-login', form.email, source);
+  const sourceKey = rateKey('identity-login-source', source);
   const db = pool();
   try {
     const bucket = async () => {
@@ -107,13 +128,13 @@ test('login throttling and a cold account dependency use localized error pages',
         SELECT extract(epoch FROM date_trunc('minute', now))::text AS window,
                extract(second FROM now)::float8 AS second,
                ARRAY(SELECT count::int FROM web_rate_limits
-                     WHERE limiter_name='identity-login'
+                     WHERE limiter_name='identity-login' AND key_hash=$1
                        AND window_start=date_trunc('minute', now)) AS identities,
                ARRAY(SELECT count::int FROM web_rate_limits
-                     WHERE limiter_name='identity-login-source'
+                     WHERE limiter_name='identity-login-source' AND key_hash=$2
                        AND window_start=date_trunc('minute', now)) AS sources
         FROM clock
-      `);
+      `, [identityKey, sourceKey]);
       return row;
     };
     let start;
