@@ -410,10 +410,7 @@ async fn render_record(
         Area::Reports => vec![("moderate", &["status", "public_outcome", "moderator_notes"])],
         Area::Enforcement if record.status == "pending" => vec![("approve_sanction", &[])],
         Area::Enforcement => {
-            let mut actions = Vec::new();
-            if create || record.status == "active" {
-                actions.push(("sanction", SANCTION_FIELDS));
-            }
+            let mut actions = vec![("sanction", SANCTION_FIELDS)];
             if record
                 .appeal_status
                 .as_deref()
@@ -442,7 +439,11 @@ async fn render_record(
                 ],
                 ("status", Area::Reports) => report_status_choices(&record.status),
                 ("status", Area::Enforcement) if create => &["active"],
-                ("status", Area::Enforcement) => &["active", "expired", "revoked"],
+                ("status", Area::Enforcement) => match record.status.as_str() {
+                    "expired" => &["expired"],
+                    "revoked" => &["revoked"],
+                    _ => &["active", "expired", "revoked"],
+                },
                 ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
                 ("category", _) => &["warning", "restriction", "suspension"],
                 _ => &[],
