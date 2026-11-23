@@ -21,7 +21,9 @@ fn challenge_links_localized_retry_guidance_to_the_code_field() -> Result<(), as
             devices: vec![],
         };
         let rendered = page.render()?;
-        assert!(rendered.contains(&format!("role=\"alert\" id=\"mfa-error\">{message}")));
+        assert!(rendered.contains(&format!(
+            "role=\"alert\" id=\"mfa-error\" tabindex=\"-1\" autofocus>{message}"
+        )));
         assert!(rendered.contains("aria-describedby=\"mfa-error\" aria-invalid=\"true\""));
         page.failed = false;
         let rendered = page.render()?;
