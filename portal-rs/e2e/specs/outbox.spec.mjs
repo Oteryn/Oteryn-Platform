@@ -169,15 +169,6 @@ test('character services retain pending commands, reconcile receipts and settle 
   });
   const name = 'Aldric';
   const url = `/${lang}/account/characters/${character}/services`;
-  const messages = lang === 'pl' ? {
-    pending: 'Oczekuje na potwierdzenie gry',
-    committed: 'Potwierdzone przez grę',
-    rejected: 'Odrzucone przez grę',
-  } : {
-    pending: 'Pending game confirmation',
-    committed: 'Confirmed by the game',
-    rejected: 'Refused by the game',
-  };
 
   async function publishState(revision, characterRevision, deletion = null, currentName = name) {
     const at = sourceTime();
@@ -195,25 +186,20 @@ test('character services retain pending commands, reconcile receipts and settle 
     await gameJson(service, `${servicePath}/watermark`, { ...serviceHead('PublishCharacterServiceWatermarkV2'), ...watermark });
   }
 
-  async function status(id, expected) {
-    expect((await page.goto(url)).status()).toBe(200);
-    await expect(page.locator('[aria-labelledby=history] li').filter({ hasText: id })).toHaveText(`${id}: ${expected}`);
+  async function status(id, outcome = null) {
+    expect(await query(`SELECT state, receipt_json::jsonb->>'outcome' AS outcome
+      FROM character_commands WHERE id=$1 AND account_id=$2`, [id, account.id]))
+      .toEqual([{ state: outcome === null ? 'PENDING' : 'TERMINAL', outcome }]);
   }
 
   async function request(action, commandName, fields = {}) {
-    expect((await page.goto(url)).status()).toBe(200);
-    const selector = `form:has(input[name=action][value=${action}])`;
-    const requestId = await page.locator(`${selector} input[name=request_id]`).inputValue();
-    const accepted = page.waitForResponse(r => r.request().method() === 'POST'
-      && r.request().isNavigationRequest() && new URL(r.url()).pathname === url);
-    await submit(page, selector, { ...fields, confirm: true });
-    expect((await accepted).status()).toBe(202);
-    const [{ operation_id: id }] = await query(
-      'SELECT operation_id FROM character_service_orders WHERE request_id=$1', [requestId],
-    );
-    await expect(page.locator('body')).toHaveText(lang === 'pl'
-      ? 'Zgłoszenie oczekuje na potwierdzenie przez grę. Ponowienie tego samego zgłoszenia nie spowoduje kolejnej opłaty.'
-      : 'Your request is pending confirmation by the game. No further charge will be taken for a retry of this request.');
+    // The closed browser admission gate leaves the historical Game exchange available.
+    const seed = ['seed', 'character-service-order', JSON.stringify({
+      accountId: account.id, characterId: character, requestId: uuid7(), action, ...fields,
+    })];
+    const { operationId: id } = JSON.parse(await portalCommand(seed));
+    expect(id).toMatch(/^[\da-f-]{36}$/);
+    expect(JSON.parse(await portalCommand(seed))).toEqual({ operationId: id });
 
     const pending = await gameJson(command, `${commandPath}/pending`, {
       ...commandHead('ListPendingCharacterCommandsV2'),
@@ -227,7 +213,7 @@ test('character services retain pending commands, reconcile receipts and settle 
     const intent = await command(`${commandPath}/read`, read);
     expect(intent.status).toBe(200);
     expect(JSON.parse(intent.raw)).toMatchObject({ operation_id: id, account_id: account.id, character_id: character, command: commandName });
-    await status(id, messages.pending);
+    await status(id);
     return { id, read, intent };
   }
 
@@ -241,8 +227,11 @@ test('character services retain pending commands, reconcile receipts and settle 
   await page.goto(`/${lang}/account/sudo`);
   await submit(page, 'main form', { current_password: account.password });
   await publishState('1', '8');
+  expect((await page.goto(url)).status()).toBe(404);
+  await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Nie znaleziono strony' : 'Page not found');
+  await expect(page.locator('main form')).toHaveCount(0);
   const renamed = 'Aldric Vale';
-  const rename = await request('rename', 'RenameCharacter', { requested_name: renamed });
+  const rename = await request('rename', 'RenameCharacter', { name: renamed, acceptedPrice: '70' });
   const financialState = async () => query(
     'SELECT financial_state,amount FROM character_service_orders WHERE operation_id=$1', [rename.id],
   );
@@ -276,8 +265,9 @@ test('character services retain pending commands, reconcile receipts and settle 
     { operation_id: settlement, available_delta: '0', reserved_delta: '-70' },
   ]);
   await publishState('2', '9', null, renamed);
-  await status(rename.id, messages.committed);
-  await expect(page.getByRole('heading', { name: renamed, exact: true })).toBeVisible();
+  await status(rename.id, 'COMMITTED');
+  expect(await query(`SELECT snapshot_json::jsonb->>'name' AS name FROM character_service_states
+    WHERE account_id=$1 AND character_id=$2`, [account.id, character])).toEqual([{ name: renamed }]);
   const schedule = await request('schedule', 'ScheduleCharacterDeletion');
 
   // An invalid decision must leave the real pending intent and browser status intact.
@@ -293,7 +283,7 @@ test('character services retain pending commands, reconcile receipts and settle 
   };
   const poison = await command(`${commandPath}/receipt`, { ...receipt, unexpected: true });
   expect(poison.status).toBe(400);
-  await status(schedule.id, messages.pending);
+  await status(schedule.id);
   expect(await query('SELECT state,receipt_json FROM character_commands WHERE id=$1', [schedule.id]))
     .toEqual([{ state: 'PENDING', receipt_json: null }]);
   expect((await command(`${commandPath}/read`, schedule.read)).raw).toBe(schedule.intent.raw);
@@ -301,21 +291,21 @@ test('character services retain pending commands, reconcile receipts and settle 
   const ack = await gameJson(command, `${commandPath}/receipt`, receipt);
   expect(ack).toEqual({ contract_version: 2, result: 'accepted' });
   await publishState('3', '10', deletion, renamed);
-  await status(schedule.id, messages.committed);
+  await status(schedule.id, 'COMMITTED');
   expect(await gameJson(command, `${commandPath}/receipt`, receipt)).toEqual(ack);
   expect(await query('SELECT state,receipt_json FROM character_commands WHERE id=$1', [schedule.id]))
     .toEqual([{ state: 'TERMINAL', receipt_json: JSON.stringify(receipt) }]);
 
-  const cancel = await request('cancel', 'CancelCharacterDeletion');
+  const cancel = await request('cancel', 'CancelCharacterDeletion', { deletionOperationId: schedule.id });
   await gameJson(command, `${commandPath}/receipt`, {
     ...commandHead('PublishCharacterCommandReceiptV2'),
     command: 'CancelCharacterDeletion', operation_id: cancel.id, outcome: 'REJECTED',
     result_code: 'CHAR_CMD_INTENT_EXPIRED', recovery_generation: '1', decided_at: sourceTime(),
   });
-  await status(cancel.id, messages.rejected);
-  await status(schedule.id, messages.committed);
+  await status(cancel.id, 'REJECTED');
+  await status(schedule.id, 'COMMITTED');
 
-  const retry = await request('cancel', 'CancelCharacterDeletion');
+  const retry = await request('cancel', 'CancelCharacterDeletion', { deletionOperationId: schedule.id });
   expect(retry.id).not.toBe(cancel.id);
   const cancelReceipt = {
     ...commandHead('PublishCharacterCommandReceiptV2'),
@@ -328,8 +318,11 @@ test('character services retain pending commands, reconcile receipts and settle 
   expect(cancelAck).toEqual({ contract_version: 2, result: 'accepted' });
   expect(await gameJson(command, `${commandPath}/receipt`, cancelReceipt)).toEqual(cancelAck);
   await publishState('4', '11', null, renamed);
-  await status(retry.id, messages.committed);
-  await expect(page.locator('form:has(input[name=action][value=cancel])')).toHaveCount(0);
+  await status(retry.id, 'COMMITTED');
+  expect(await query(`SELECT snapshot_json::jsonb->>'lifecycle' AS lifecycle,
+    snapshot_json::jsonb->>'deletion_operation_id' AS deletion
+    FROM character_service_states WHERE account_id=$1 AND character_id=$2`, [account.id, character]))
+    .toEqual([{ lifecycle: 'ACTIVE', deletion: null }]);
 });
 
 test('Store delivery receipts reconcile an item and premium entitlement without duplicate effects', async ({ page }, info) => {

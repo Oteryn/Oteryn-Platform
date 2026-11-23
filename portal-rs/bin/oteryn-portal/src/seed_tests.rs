@@ -566,9 +566,17 @@ async fn account_mfa_confirms_when_the_first_code_aged_out() -> TestResult {
 
 #[tokio::test]
 async fn every_seed_action_refuses_outside_testing() -> TestResult {
-    let args = [
-        "account-mfa".to_owned(),
-        r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
+    let cases = [
+        [
+            "account-mfa".to_owned(),
+            r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
+        ],
+        [
+            "character-service-order".to_owned(),
+            json!({"accountId": Uuid::now_v7(), "characterId": Uuid::now_v7(),
+                "requestId": Uuid::now_v7(), "action": "schedule"})
+            .to_string(),
+        ],
     ];
     for environment in [
         None,
@@ -577,12 +585,14 @@ async fn every_seed_action_refuses_outside_testing() -> TestResult {
         Some("preprod"),
         Some("Testing"),
     ] {
-        assert_eq!(
-            run_in(environment, &args).await,
-            Err(SeedError::Unavailable(
-                "seed runs only with OTERYN_ENV=testing"
-            ))
-        );
+        for args in &cases {
+            assert_eq!(
+                run_in(environment, args).await,
+                Err(SeedError::Unavailable(
+                    "seed runs only with OTERYN_ENV=testing"
+                ))
+            );
+        }
     }
     Ok(())
 }

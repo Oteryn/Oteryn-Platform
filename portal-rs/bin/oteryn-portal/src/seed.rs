@@ -13,6 +13,7 @@
 //! | `oauth-native-client` | `oauth_native_clients` | `clientId` and its four flags |
 //! | `signing-trust` | `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, `issuerRevision` |
 //! | `bootstrap-intent` | `character_bootstrap_intents` | `operationId`, `issuerDecisionId`, `sourceRevision`, `issuedAtSource`, `expiresAtSource`, `intentSha256` |
+//! | `character-service-order` | `character_commands` and `character_service_orders` | `operationId` for a historical order pending Game reconciliation |
 //! | `account-mfa` | `account_mfa_totp` (via `oteryn_identity::mfa`) | `accountId`, `totpSecret`, `algorithm`, `digits`, `period`, `recoveryCodes` |
 //! | `channel` | `game_channels` (no route, login disabled) | the channel's current record |
 //! | `route` | `game_channels` route record (gateway contract §7.3, mode 34a) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision`, `nativeLoginEnabled` |
@@ -35,6 +36,8 @@
 //! step exists.
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use oteryn_characters::bootstrap::issue;
+use oteryn_characters::commands::Error as CharacterError;
+use oteryn_characters::services::{self, Action, Request, Services};
 #[cfg(test)]
 use oteryn_gameauth::evidence::{Witness, trust_state_namespace};
 use oteryn_gameauth::{
@@ -184,6 +187,7 @@ pub async fn execute(
         "signing-trust" => signing_trust(pool, settings, &args).await,
         "signing-custody" => signing_custody(pool, settings, &args).await,
         "bootstrap-intent" => bootstrap_intent(pool, &args).await,
+        "character-service-order" => character_service_order(pool, &args).await,
         "account-mfa" => account_mfa(settings, &args).await,
         "channel" => channel(pool, &args).await,
         "route" => route(pool, &args).await,
@@ -192,6 +196,67 @@ pub async fn execute(
         )),
         _ => Err(bad(format!("unknown entity {entity:?}"))),
     }
+}
+
+/// Create a historical order using the real service on the disposable outbox DB.
+async fn character_service_order(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+    let database: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(pool)
+        .await?;
+    if !database.starts_with("portal_e2e_") {
+        return Err(bad(
+            "character-service-order requires a disposable portal_e2e_ database",
+        ));
+    }
+    let id = |key: &str| {
+        args.uuid(key, true)?
+            .ok_or_else(|| bad(format!("{key} is required")))
+    };
+    let mut allowed = vec!["accountId", "characterId", "requestId", "action"];
+    let (action, accepted_price) = match args.required("action")? {
+        "schedule" => (Action::Schedule, None),
+        "cancel" => {
+            allowed.push("deletionOperationId");
+            (
+                Action::Cancel {
+                    deletion_operation_id: id("deletionOperationId")?,
+                },
+                None,
+            )
+        }
+        "rename" => {
+            allowed.extend(["name", "acceptedPrice"]);
+            let price = args
+                .required("acceptedPrice")?
+                .parse()
+                .map_err(|_| bad("acceptedPrice must be a decimal integer"))?;
+            (
+                Action::Rename {
+                    requested_name: args.required("name")?.to_owned(),
+                },
+                Some(price),
+            )
+        }
+        _ => return Err(bad("action must be schedule, cancel or rename")),
+    };
+    args.only(&allowed)?;
+    let request = Request {
+        accepted_price,
+        request_id: id("requestId")?,
+        character_id: id("characterId")?,
+        action,
+    };
+    let order = Services::new(pool.clone(), services::configured())
+        .request(id("accountId")?, request)
+        .await
+        .map_err(|error| match error {
+            CharacterError::BadInput => bad("invalid character service order"),
+            CharacterError::Conflict => {
+                SeedError::Conflict("character service order conflict".into())
+            }
+            _ => SeedError::Unavailable("character service order refused"),
+        })?;
+    Ok(json!({"operationId": order.operation_id}))
 }
 
 /// Import the existing schema-validated WorldStore fixture for browser queries.
