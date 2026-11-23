@@ -344,6 +344,7 @@ body.op-shell::before {
   .om-interior:not(.is-enhanced) :is(.om-nav, .om-sections) { flex-wrap: nowrap; align-items: center; }
   .om-interior:not(.is-enhanced) .om-chevron { display: inline-block; }
   .om-interior .om-section[open] .om-chevron { transform: rotate(225deg); }
+  .om-interior .om-fallback-account .account-grid h3 { color: var(--gilt-light); }
 }
 @media (max-width: 960px) {
   .om-interior .om-fallback-menu:not([open]) + .om-nav { display: none; }
