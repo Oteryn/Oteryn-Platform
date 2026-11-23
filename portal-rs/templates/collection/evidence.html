@@ -4,35 +4,49 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ self.label("title") }}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/app.css">
+<link rel="stylesheet" href="/static/collection/collection.css">
 </head>
-<body>
-<main>
+<body class="op-theme">
+<main id="main" tabindex="-1" class="op-stack">
 <h1>{{ self.label("title") }}</h1>
-{% match evidence %}
-{% when Some with (sources) %}
+{% if evidence.is_some() %}
 <a href="/{{ lang }}/collection">{{ self.label("characters") }}</a>
-<section aria-labelledby="inventory">
-<h2 id="inventory">{{ self.label("inventory") }}</h2>
-<p>{{ self.label("source-unavailable") }}</p>
-<p>{{ self.label("inventory-update") }} {{ self.updated(sources.inventory_updated_ms) }}</p>
+<section class="op-panel" aria-labelledby="cards">
+<h2 id="cards">{{ self.label("cards") }}</h2>
+<p>{{ self.label("unavailable") }}</p>
 </section>
-<section aria-labelledby="bestiary">
-<h2 id="bestiary">{{ self.label("bestiary") }}</h2>
-<p>{{ self.label("source-unavailable") }}</p>
-<p>{{ self.label("bestiary-update") }} {{ self.updated(sources.bestiary_feed_updated_ms) }}</p>
-</section>
-{% when None %}
+{% let journal = self %}
+{% include "collection/sources.html" %}
+{% else %}
 {% if characters.is_empty() %}
 <p>{{ self.label("unavailable") }}</p>
 {% else %}
 <h2>{{ self.label("characters") }}</h2>
 <ul>
 {% for (id, name) in characters %}
-<li><a href="/{{ lang }}/collection/{{ id }}">{{ name }}</a></li>
+<li class="collection-name"><a href="/{{ lang }}/collection/{{ id }}">{{ name }}</a></li>
 {% endfor %}
 </ul>
 {% endif %}
-{% endmatch %}
+{% if let Some(settings) = operator %}
+<section class="op-panel" aria-labelledby="operator-status">
+<h2 id="operator-status">{{ self.label("operator-status") }}</h2>
+<dl>
+<dt>{{ self.label("operator-journal") }}</dt>
+<dd>{% if settings.journal_reads %}{{ self.label("operator-enabled") }}{% else %}{{ self.label("operator-disabled") }}{% endif %}</dd>
+<dt>{{ self.label("operator-source") }}</dt>
+<dd>{% if settings.progress_source %}{{ self.label("operator-configured") }}{% else %}{{ self.label("source-unavailable") }}{% endif %}</dd>
+<dt>{{ self.label("operator-catalogue") }}</dt>
+<dd>{% if settings.mapping_accepted %}{{ self.label("operator-accepted") }}{% else %}{{ self.label("operator-awaiting-mapping") }}{% endif %}</dd>
+<dt>{{ self.label("operator-publication") }}</dt>
+<dd>{% if let Some(published) = settings.published_cards %}{% if published %}{{ self.label("operator-published") }}{% else %}{{ self.label("empty") }}{% endif %}{% else %}{{ self.label("source-unavailable") }}{% endif %}</dd>
+</dl>
+</section>
+{% endif %}
+{% endif %}
 </main>
 </body>
 </html>

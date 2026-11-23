@@ -1,6 +1,9 @@
 use super::*;
 use oteryn_identity::accounts::Accounts;
-use oteryn_playerdata::progress::{Actor, Authority, Payload, ProgressStore, ReadScope};
+use oteryn_playerdata::{
+    authority::CollectionEvidence,
+    progress::{Actor, Payload, ProgressStore, ReadScope},
+};
 use oteryn_world::WorldStore;
 use sqlx::{PgPool, Row};
 
@@ -8,18 +11,102 @@ use sqlx::{PgPool, Row};
 pub struct Collection {
     pool: PgPool,
     world: WorldStore,
-    progress: ProgressStore,
+    source: BestiarySource,
     flags: Flags,
 }
+#[derive(Debug, Clone)]
+enum BestiarySource {
+    Projection(ProgressStore, Ownership),
+    Journal(Option<String>),
+}
+
 impl Collection {
-    pub fn new(pool: PgPool, world: WorldStore, progress: ProgressStore, flags: Flags) -> Self {
+    pub fn new(
+        pool: PgPool,
+        world: WorldStore,
+        progress: ProgressStore,
+        flags: Flags,
+        ownership: Ownership,
+    ) -> Self {
         Self {
             pool,
             world,
-            progress,
+            source: BestiarySource::Projection(progress, ownership),
             flags,
         }
     }
+
+    pub(super) fn with_journal(
+        pool: PgPool,
+        world: WorldStore,
+        source: Option<String>,
+        flags: Flags,
+    ) -> Self {
+        Self {
+            pool,
+            world,
+            source: BestiarySource::Journal(source),
+            flags,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn with_ownership(mut self, ownership: Ownership) -> Self {
+        if let BestiarySource::Projection(_, current) = &mut self.source {
+            *current = ownership;
+        }
+        self
+    }
+
+    async fn progress(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        account: Uuid,
+        character: Uuid,
+        now: u64,
+    ) -> Result<Vec<Payload>> {
+        match &self.source {
+            BestiarySource::Journal(Some(source)) => {
+                CollectionEvidence::bestiary(tx, account, character, source)
+                    .await
+                    .map_err(journal_error)
+            }
+            BestiarySource::Journal(None) => Err(Error::Unavailable),
+            BestiarySource::Projection(store, authority) => store
+                .read_locked(
+                    tx,
+                    Actor::Owner(account),
+                    &ReadScope {
+                        account,
+                        character: Some(character),
+                        family: "bestiary",
+                    },
+                    authority,
+                    now,
+                )
+                .await
+                .map_err(|e| match e {
+                    oteryn_playerdata::progress::Error::Denied => Error::Denied,
+                    _ => Error::Unavailable,
+                }),
+        }
+    }
+
+    pub(super) async fn published_cards(&self) -> Option<bool> {
+        let active = self.world.active_version_id().await.ok().flatten()?;
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM collection_cards c
+             JOIN world_entities e
+               ON e.kind=c.definition->>'kind' AND e.key=c.definition->>'key'
+             JOIN world_visibility v ON v.kind=e.kind AND v.key=e.key AND v.allowed
+             WHERE e.version_id=$1 AND e.publishable AND c.definition->>'world_version'=$1::uuid::text)",
+        )
+        .bind(active)
+        .fetch_one(&self.pool)
+        .await
+        .ok()
+    }
+
     fn enabled(&self) -> Result<()> {
         if self.flags.collection {
             Ok(())
@@ -46,6 +133,11 @@ impl Collection {
         account: Uuid,
     ) -> Result<()> {
         self.enabled()?;
+        if let BestiarySource::Journal(Some(source)) = &self.source {
+            CollectionEvidence::lock_bestiary(tx, account, source)
+                .await
+                .map_err(journal_error)?;
+        }
         let state: Option<(String, bool)> = sqlx::query_as(
             "SELECT status,email_verified_at IS NOT NULL FROM accounts WHERE id=$1 FOR UPDATE",
         )
@@ -94,24 +186,9 @@ impl Collection {
         account: Uuid,
         character: Uuid,
         ids: &[Uuid],
-        authority: &impl Authority,
         now: u64,
     ) -> Result<()> {
-        let progress = self
-            .progress
-            .read_locked(
-                tx,
-                Actor::Owner(account),
-                &ReadScope {
-                    account,
-                    character: Some(character),
-                    family: "bestiary",
-                },
-                authority,
-                now,
-            )
-            .await
-            .map_err(|_| Error::Unavailable)?;
+        let progress = self.progress(tx, account, character, now).await?;
         // Stable UUID order for overlapping decks. Immutable publications and
         // stream/adapter fences keep all evidence valid through commit.
         let mut ids = ids.to_vec();
@@ -124,7 +201,7 @@ impl Collection {
                     .await?
                     .ok_or(Error::Denied)?;
             self.visible_locked(tx, &card).await?;
-            if !progress.iter().any(|p| matches!(p, Payload::Bestiary(b) if b.race_key==card.race_key && b.race_definition_revision==card.race_revision && b.final_kill_threshold==card.final_kill_threshold && b.kill_count>=b.final_kill_threshold)) { return Err(Error::Denied); }
+            require_unlocked(card_state(&card, &progress))?;
         }
         Ok(())
     }
@@ -161,34 +238,35 @@ impl Collection {
     }
     /// Current owner-only G-11 reads, not historical unlocks retained after sale.
     /// Unknown ownership, baseline, revision, freshness or catalog state denies.
-    pub async fn cards(
-        &self,
-        account: Uuid,
-        character: Uuid,
-        authority: &impl Authority,
-        now: u64,
-    ) -> Result<Vec<OwnedCard>> {
+    pub async fn cards(&self, account: Uuid, character: Uuid, now: u64) -> Result<Vec<OwnedCard>> {
         self.eligible(account).await?;
         if character.get_version_num() != 7 {
             return Err(Error::BadInput);
         }
-        let progress = self
-            .progress
-            .read(
-                Actor::Owner(account),
-                &ReadScope {
-                    account,
-                    character: Some(character),
-                    family: "bestiary",
-                },
-                authority,
-                now,
-            )
-            .await
-            .map_err(|e| match e {
-                oteryn_playerdata::progress::Error::Denied => Error::Denied,
-                _ => Error::Unavailable,
-            })?;
+        let progress = match &self.source {
+            BestiarySource::Projection(store, authority) => store
+                .read(
+                    Actor::Owner(account),
+                    &ReadScope {
+                        account,
+                        character: Some(character),
+                        family: "bestiary",
+                    },
+                    authority,
+                    now,
+                )
+                .await
+                .map_err(|e| match e {
+                    oteryn_playerdata::progress::Error::Denied => Error::Denied,
+                    _ => Error::Unavailable,
+                })?,
+            BestiarySource::Journal(_) => {
+                let mut tx = crate::browser::begin(&self.pool).await?;
+                let progress = self.progress(&mut tx, account, character, now).await?;
+                tx.commit().await?;
+                progress
+            }
+        };
         let active = self
             .world
             .active_version_id()
@@ -220,13 +298,11 @@ impl Collection {
                 continue;
             }
             self.visible(&card).await?;
-            let unlocked = progress.iter().any(|p| {
-                matches!(p, Payload::Bestiary(b)
-                if b.race_key == card.race_key && b.race_definition_revision == card.race_revision
-                    && b.final_kill_threshold == card.final_kill_threshold
-                    && b.kill_count >= b.final_kill_threshold)
-            });
-            cards.push(OwnedCard { card, unlocked });
+            let state = card_state(&card, &progress);
+            cards.push(OwnedCard { card, state });
+        }
+        if cards.is_empty() && matches!(self.source, BestiarySource::Journal(_)) {
+            return Err(Error::Unavailable);
         }
         Ok(cards)
     }
@@ -244,32 +320,19 @@ impl Collection {
             })
             .collect()
     }
-    pub async fn save_deck(
-        &self,
-        account: Uuid,
-        deck: Deck,
-        authority: &impl Authority,
-        now: u64,
-    ) -> Result<()> {
+    pub async fn save_deck(&self, account: Uuid, deck: Deck, now: u64) -> Result<()> {
         self.enabled()?;
         valid_deck(&deck.name, &deck.cards)?;
         if deck.id.get_version_num() != 7 {
             return Err(Error::BadInput);
         }
-        let owned = self.cards(account, deck.character, authority, now).await?;
+        let owned = self.cards(account, deck.character, now).await?;
         require_cards(&owned, &deck.cards)?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         // Lock the owning account, serializing quota checks, edits and battle starts.
         self.lock_account(&mut tx, account).await?;
-        self.require_locked(
-            &mut tx,
-            account,
-            deck.character,
-            &deck.cards,
-            authority,
-            now,
-        )
-        .await?;
+        self.require_locked(&mut tx, account, deck.character, &deck.cards, now)
+            .await?;
         let owner: Option<Uuid> =
             sqlx::query_scalar("SELECT account_id FROM collection_decks WHERE id=$1")
                 .bind(deck.id)
@@ -296,13 +359,7 @@ impl Collection {
         tx.commit().await?;
         Ok(())
     }
-    pub async fn start(
-        &self,
-        account: Uuid,
-        deck_id: Uuid,
-        authority: &impl Authority,
-        now: u64,
-    ) -> Result<Uuid> {
+    pub async fn start(&self, account: Uuid, deck_id: Uuid, now: u64) -> Result<Uuid> {
         self.eligible(account).await?;
         let deck = self
             .decks(account)
@@ -310,7 +367,7 @@ impl Collection {
             .into_iter()
             .find(|d| d.id == deck_id)
             .ok_or(Error::Denied)?;
-        let cards = self.cards(account, deck.character, authority, now).await?;
+        let cards = self.cards(account, deck.character, now).await?;
         let player = require_cards(&cards, &deck.cards)?;
         // Symmetric mirrored encounter: no purchases, loot, ratings or currency.
         let enemy = player.clone();
@@ -319,19 +376,12 @@ impl Collection {
         let id = Uuid::now_v7();
         let mut tx = crate::browser::begin(&self.pool).await?;
         self.lock_account(&mut tx, account).await?;
-        let current: (Uuid,Vec<Uuid>) = sqlx::query_as("SELECT character_id,cards FROM collection_decks WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(deck_id).bind(account).fetch_one(&mut *tx).await?;
+        let current: (Uuid,Vec<Uuid>) = sqlx::query_as("SELECT character_id,cards FROM collection_decks WHERE id=$1 AND account_id=$2 FOR UPDATE").bind(deck_id).bind(account).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
         if current.0 != deck.character || current.1 != deck.cards {
             return Err(Error::Conflict);
         }
-        self.require_locked(
-            &mut tx,
-            account,
-            deck.character,
-            &deck.cards,
-            authority,
-            now,
-        )
-        .await?;
+        self.require_locked(&mut tx, account, deck.character, &deck.cards, now)
+            .await?;
         let recent: i64 = sqlx::query_scalar("SELECT count(*) FROM collection_battles WHERE account_id=$1 AND created_at > clock_timestamp() - interval '1 hour'").bind(account).fetch_one(&mut *tx).await?;
         if recent >= 30 {
             return Err(Error::Conflict);
@@ -344,13 +394,7 @@ impl Collection {
         tx.commit().await?;
         Ok(id)
     }
-    pub async fn battle(
-        &self,
-        account: Uuid,
-        id: Uuid,
-        authority: &impl Authority,
-        now: u64,
-    ) -> Result<Battle> {
+    pub async fn battle(&self, account: Uuid, id: Uuid, now: u64) -> Result<Battle> {
         self.eligible(account).await?;
         let (character, state): (Uuid, sqlx::types::Json<Battle>) = sqlx::query_as(
             "SELECT character_id,state FROM collection_battles WHERE id=$1 AND account_id=$2",
@@ -360,7 +404,7 @@ impl Collection {
         .fetch_optional(&self.pool)
         .await?
         .ok_or(Error::Denied)?;
-        self.validate_battle(account, character, &state.0, authority, now)
+        self.validate_battle(account, character, &state.0, now)
             .await?;
         Ok(state.0)
     }
@@ -369,10 +413,9 @@ impl Collection {
         account: Uuid,
         character: Uuid,
         state: &Battle,
-        authority: &impl Authority,
         now: u64,
     ) -> Result<()> {
-        let cards = self.cards(account, character, authority, now).await?;
+        let cards = self.cards(account, character, now).await?;
         require_cards(
             &cards,
             &state.player.iter().map(|f| f.card).collect::<Vec<_>>(),
@@ -385,11 +428,10 @@ impl Collection {
         id: Uuid,
         expected: u32,
         action: Action,
-        authority: &impl Authority,
         now: u64,
     ) -> Result<()> {
         // Check ownership and freshness before exposing or changing any private state.
-        let checked = self.battle(account, id, authority, now).await?;
+        let checked = self.battle(account, id, now).await?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         self.lock_account(&mut tx, account).await?;
         let sqlx::types::Json(mut state): sqlx::types::Json<Battle> = sqlx::query_scalar(
@@ -417,7 +459,6 @@ impl Collection {
             account,
             character,
             &state.player.iter().map(|f| f.card).collect::<Vec<_>>(),
-            authority,
             now,
         )
         .await?;
@@ -438,11 +479,10 @@ impl Collection {
         account: Uuid,
         character: Uuid,
         id: Uuid,
-        authority: &impl Authority,
         now: u64,
     ) -> Result<Vec<u8>> {
         if !self
-            .cards(account, character, authority, now)
+            .cards(account, character, now)
             .await?
             .iter()
             .any(|c| c.card.id == id)
@@ -460,11 +500,12 @@ fn require_cards(cards: &[OwnedCard], ids: &[Uuid]) -> Result<Vec<Fighter>> {
     valid_deck("deck", ids)?;
     ids.iter()
         .map(|id| {
-            cards
+            let owned = cards
                 .iter()
-                .find(|c| c.card.id == *id && c.unlocked)
-                .map(|c| c.card.fighter())
-                .ok_or(Error::Denied)
+                .find(|c| c.card.id == *id)
+                .ok_or(Error::Denied)?;
+            require_unlocked(owned.state)?;
+            Ok(owned.card.fighter())
         })
         .collect()
 }
@@ -512,5 +553,42 @@ impl Collection {
         .fetch_optional(&self.pool)
         .await?
         .ok_or(Error::Denied)
+    }
+}
+
+fn card_state(card: &Card, progress: &[Payload]) -> CardState {
+    progress
+        .iter()
+        .find_map(|p| match p {
+            Payload::Bestiary(b)
+                if b.race_key == card.race_key
+                    && b.race_definition_revision == card.race_revision
+                    && b.final_kill_threshold == card.final_kill_threshold =>
+            {
+                Some(if b.kill_count >= b.final_kill_threshold {
+                    CardState::Unlocked
+                } else {
+                    CardState::Locked
+                })
+            }
+            _ => None,
+        })
+        .unwrap_or(CardState::Unavailable)
+}
+
+fn require_unlocked(state: CardState) -> Result<()> {
+    match state {
+        CardState::Unlocked => Ok(()),
+        CardState::Locked => Err(Error::Denied),
+        CardState::Unavailable => Err(Error::Unavailable),
+    }
+}
+
+pub(super) fn journal_error(error: oteryn_playerdata::store::Error) -> Error {
+    use oteryn_playerdata::store::Error as JournalError;
+    match error {
+        JournalError::Invalid => Error::BadInput,
+        JournalError::Denied => Error::Denied,
+        JournalError::Conflict | JournalError::Unavailable => Error::Unavailable,
     }
 }

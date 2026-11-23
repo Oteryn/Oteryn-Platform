@@ -1,0 +1,7 @@
+.collection-name {
+    overflow-wrap: anywhere;
+}
+
+#decks-heading ~ form fieldset {
+    min-inline-size: 0;
+}

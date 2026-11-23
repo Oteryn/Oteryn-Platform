@@ -32,9 +32,9 @@ Publication is immutable and idempotent. A missing mapping is unavailable.
 
 `OTERYN_COLLECTION_ENABLED` and `OTERYN_WORLD_ENABLED` accept only exact `true`;
 both default off. Disabled collection mounts no routes. The separate journal
-read flag controls the character selector and private source availability view.
-Card unlocks still require a verified catalogue mapping and a configured progress
-store.
+read flag controls the character selector, private source availability view and
+G-11 card eligibility. Card unlocks require a published world card and a matching
+record in the current T72 bestiary cut.
 
 Every private card/deck/battle action requires an active verified account.
 Card unlocks are derived anew from complete fresh owner-only T77 progress with
@@ -95,6 +95,9 @@ a cancelled operation rolls back its transaction.
 view when `OTERYN_COLLECTION_ENABLED=true`. It uses the configured T72 G-10 and
 G-11 source authorities and displays the time of the completed inventory
 snapshot at the current custody cut and the account-wide bestiary watermark.
-Both sources display unavailable while the catalogue mapping remains a
+The bestiary data remains unavailable while its catalogue mapping is a
 candidate. Missing evidence has an unknown update time. The read flag defaults
-to off and the view performs only local PostgreSQL reads.
+to off and the journal adapter performs only local PostgreSQL reads. Operators
+with `admin.access` and `game.world.admin` can see the collection readiness summary
+on the landing page. The activation dependencies are in
+[`GAP-61_COLLECTION.md`](../../../../../docs/product/GAP-61_COLLECTION.md).

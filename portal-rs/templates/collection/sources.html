@@ -1,0 +1,12 @@
+{% if let Some(observation) = journal.evidence %}
+<section class="op-panel" aria-labelledby="inventory">
+<h2 id="inventory">{{ journal.label("inventory") }}</h2>
+<p>{{ journal.label("source-unavailable") }}</p>
+<p>{{ journal.label("inventory-update") }} {{ journal.updated(observation.inventory_updated_ms) }}</p>
+</section>
+<section class="op-panel" aria-labelledby="bestiary">
+<h2 id="bestiary">{{ journal.label("bestiary") }}</h2>
+{% if !journal.verified_progress %}<p>{{ journal.label("source-unavailable") }}</p>{% endif %}
+<p>{{ journal.label("bestiary-update") }} {{ journal.updated(observation.bestiary_feed_updated_ms) }}</p>
+</section>
+{% endif %}

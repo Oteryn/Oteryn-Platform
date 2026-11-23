@@ -153,7 +153,13 @@ impl Card {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OwnedCard {
     pub card: Card,
-    pub unlocked: bool,
+    pub state: CardState,
+}
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CardState {
+    Unlocked,
+    Locked,
+    Unavailable,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Deck {
