@@ -180,9 +180,10 @@ fn write_tls_config(
 fn tls_credential_configuration() -> TestResult {
     use std::{fs, os::unix::fs::PermissionsExt};
     let dir = tempfile::tempdir()?;
-    let config = write_tls_config(dir.path(), &Authority::new()?)?;
+    let mut config = write_tls_config(dir.path(), &Authority::new()?)?;
     assert!(config.server_config().is_ok());
     fs::set_permissions(&config.key_file, fs::Permissions::from_mode(0o640))?;
+    config.cert_file = config.key_file.clone();
     let error = config
         .server_config()
         .err()
