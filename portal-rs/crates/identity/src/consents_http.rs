@@ -79,6 +79,7 @@ pub async fn show(
     account: Option<uuid::Uuid>,
     lang: &str,
     csrf: &str,
+    chrome: Option<oteryn_ui::Chrome>,
 ) -> Response {
     let account = match access(config, account, lang) {
         Ok(id) => id,
@@ -102,7 +103,7 @@ pub async fn show(
         });
     }
     match (Page {
-        chrome: oteryn_ui::Chrome {
+        chrome: chrome.unwrap_or_else(|| oteryn_ui::Chrome {
             lang: lang.into(),
             alternate_lang: if lang == "en" { "pl" } else { "en" }.into(),
             alternate_url: format!(
@@ -114,7 +115,7 @@ pub async fn show(
                 passkeys_eligible: false,
             },
             ..oteryn_ui::Chrome::default()
-        },
+        }),
         lang,
         csrf,
         items,

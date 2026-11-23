@@ -595,7 +595,7 @@ supportTest.describe('support email and ticket errors', () => {
     const reviewFields = await reviewForm.evaluate(form => Object.fromEntries(new FormData(form)));
     const staffPath = new URL(staffPage.url()).pathname;
     const reviewResponse = await staffPage.request.post(staffPath, {
-      headers: { origin: new URL(staffPage.url()).origin },
+      headers: { origin: new URL(staffPage.url()).origin, connection: 'close' },
       form: { ...reviewFields, appeal_status: 'reviewing', appeal_outcome: '' },
       maxRedirects: 0,
     });

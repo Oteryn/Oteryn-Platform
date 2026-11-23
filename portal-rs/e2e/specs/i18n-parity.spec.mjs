@@ -287,6 +287,22 @@ const shellControls = [
 ];
 
 async function assertShellCopy(page, locale, target, actor) {
+  const path = new URL(page.url()).pathname;
+  if (path === `/static/thais/shop-${locale}.html`) {
+    const labels = locale === 'pl'
+      ? ['Nawigacja sklepu', 'Strona główna', 'Aktualności', 'Zaloguj się', 'English', 'Regulamin', 'Polityka prywatności']
+      : ['Shop navigation', 'Home', 'News', 'Log in', 'Polski', 'Terms of service', 'Privacy policy'];
+    await expect(page.locator('a.skip[href="#main"]')).toHaveCount(1);
+    await expect(page.locator('header .brand')).toHaveAttribute('href', `/${locale}/`);
+    const navigation = page.getByRole('navigation', { name: labels[0], exact: true });
+    await expect(navigation.getByRole('link')).toHaveText(labels.slice(1, 5));
+    await expect(navigation.getByRole('link', { name: labels[4], exact: true }))
+      .toHaveAttribute('hreflang', opposite(locale));
+    await expect(page.locator('footer .foot-legal a')).toHaveText(labels.slice(5));
+    await expect(page.locator('footer .foot-legal a').first()).toHaveAttribute('href', `/${locale}/legal/terms`);
+    await expect(page.locator('footer .foot-legal a').last()).toHaveAttribute('href', `/${locale}/legal/privacy`);
+    return;
+  }
   const home = /^\/(?:pl|en)\/?$/u.test(new URL(page.url()).pathname);
   const mobile = page.viewportSize().width <= 960;
   const shell = await page.evaluate(({ controls, home, mobile, signedIn, interiorWorld, interiorCommunity }) => {

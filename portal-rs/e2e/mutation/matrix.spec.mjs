@@ -2005,7 +2005,9 @@ test('editorial event forms enforce publishing authority through creation, edits
     };
     const title = 'Matrix event version one';
     const dateInput = hours => new Date(Date.now() + hours * 3600000).toISOString().slice(0, 16);
+    const reason = 'Verify the planned schedule and the published event details';
     const draft = {
+      reason,
       starts_at: dateInput(1), ends_at: dateInput(24),
       en_title: title, en_slug: slug, en_summary: 'Local event', en_body: 'English event description',
       pl_title: 'Lokalne wydarzenie', pl_slug: slug, pl_summary: 'Wydarzenie testowe', pl_body: 'Opis wydarzenia',
@@ -2035,7 +2037,7 @@ test('editorial event forms enforce publishing authority through creation, edits
 
     for (const method of ['POST', 'PUT']) {
       const nextTitle = `Matrix title edited through ${method}`;
-      const data = { en_title: nextTitle };
+      const data = { en_title: nextTitle, reason };
       const form = await reject(detailsSelector, data, invalidDraft, method);
       await useFormMethod(page, form.url, method, () => submit(page, detailsSelector, data));
       await expect(page.locator('[name=en_title]')).toHaveValue(nextTitle);
@@ -2049,7 +2051,7 @@ test('editorial event forms enforce publishing authority through creation, edits
       ['scheduled', 'POST'], ['published', 'PUT'], ['archived', 'POST'], ['draft', 'PUT'],
     ]) {
       const selector = 'main form[action$="/status"]';
-      const form = await reject(selector, { status }, [
+      const form = await reject(selector, { status, reason }, [
         { name: 'empty target status', patch: { status: '' } },
         { name: 'overlong target status', patch: { status: 'x'.repeat(512) } },
         { name: 'numeric target status', patch: { status: '1' } },
@@ -2057,7 +2059,7 @@ test('editorial event forms enforce publishing authority through creation, edits
         { name: 'unknown status beyond the accepted values', patch: { status: 'archived ' } },
       ], method);
       await page.locator(`${selector} select[name=status]`).selectOption(status);
-      await useFormMethod(page, form.url, method, () => submit(page, selector));
+      await useFormMethod(page, form.url, method, () => submit(page, selector, { reason }));
       await expect(page).toHaveURL(new URL(edit, form.url).href);
       stored = {
         ...stored, status, published_by: status === 'draft' ? null : editor.id,
