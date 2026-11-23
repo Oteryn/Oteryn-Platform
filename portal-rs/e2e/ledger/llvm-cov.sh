@@ -67,7 +67,7 @@ PORTAL_E2E_BINARY="$run_dir/portal" node "$e2e/local.mjs" >"$run_dir/harness.log
 launcher=$!
 
 # The browser launcher exposes an HTTPS proxy in front of the portal's HTTP listener.
-if ! curl --fail --silent --insecure --retry 30 --retry-connrefused --retry-all-errors \
+if ! curl --fail --silent --cacert "$run_dir/harness/ca.pem" --retry 30 --retry-connrefused --retry-all-errors \
     --retry-max-time 90 --max-time 5 https://localhost:18443/healthz -o /dev/null ||
     ! kill -0 "$launcher" 2>/dev/null; then
     echo 'Browser harness failed readiness. See harness.log and harness/serve.log in the run directory.' >&2
