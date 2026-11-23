@@ -165,7 +165,7 @@ async fn snapshot(
     if value.source_authority != s.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
     }
-    if let Err(response) = crate::ingest::budget::check(
+    if let Err(denial) = crate::ingest::budget::check(
         &s.db,
         &publisher,
         "v2/character-deaths",
@@ -173,7 +173,7 @@ async fn snapshot(
     )
     .await
     {
-        return response;
+        return denial.response();
     }
     result(storage::snapshot(&s.db, &value).await)
 }
@@ -199,7 +199,7 @@ async fn watermark(
     if value.source_authority != s.config.source_authority {
         return guard::failure(StatusCode::UNAUTHORIZED);
     }
-    if let Err(response) = crate::ingest::budget::check(
+    if let Err(denial) = crate::ingest::budget::check(
         &s.db,
         &publisher,
         "v2/watermark",
@@ -207,7 +207,7 @@ async fn watermark(
     )
     .await
     {
-        return response;
+        return denial.response();
     }
     result(storage::watermark(&s.db, &value).await)
 }

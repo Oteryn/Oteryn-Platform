@@ -10,6 +10,8 @@ pub mod reports;
 /// Shared portal navigation registration.
 pub mod navigation;
 
+mod browser_error;
+
 #[cfg(test)]
 #[path = "../../admin/src/test_staff.rs"]
 pub mod test_staff;

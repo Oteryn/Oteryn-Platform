@@ -169,9 +169,9 @@ async fn limit(
     headers: &HeaderMap,
     account: Option<Uuid>,
     token: Option<&str>,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
-        return Err(Denial::Unavailable.response(l, false));
+        return Err(Box::new(Denial::Unavailable.response(l, false)));
     };
     let source = limiter
         .trusted_proxies
@@ -190,7 +190,7 @@ async fn limit(
             &[keys],
         )
         .await
-        .map_err(|e| e.response(l, false))
+        .map_err(|e| Box::new(e.response(l, false)))
 }
 fn redirect(path: &str) -> Response {
     let mut r = Redirect::to(path).into_response();
@@ -233,7 +233,7 @@ async fn request(
         return Ok(redirect(&format!("/{}/login", l.code())));
     };
     if let Err(r) = limit(l, &limiter, peer, &headers, Some(account), None).await {
-        return Ok(r);
+        return Ok(*r);
     }
     let outcome = match form {
         Ok(Form(input)) => service
@@ -295,7 +295,7 @@ macro_rules! token_handler {
             Path(token): Path<String>,
         ) -> Result<Response, StatusCode> {
             if let Err(r) = limit(l, &limiter, peer, &headers, None, Some(&token)).await {
-                return Ok(r);
+                return Ok(*r);
             }
             if !valid_token(&token) {
                 return finish(

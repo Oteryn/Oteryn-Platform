@@ -66,7 +66,7 @@ impl CoinHost for TestHost {
         Box::pin(async move {
             let result = self.host.restriction_in(connection, payer).await;
             if let Some(pause) = &self.pause
-                && pause.remaining.fetch_update(
+                && pause.remaining.try_update(
                     std::sync::atomic::Ordering::SeqCst,
                     std::sync::atomic::Ordering::SeqCst,
                     |remaining| remaining.checked_sub(1),

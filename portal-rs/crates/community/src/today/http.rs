@@ -104,10 +104,10 @@ async fn ingest(
     } else {
         ("v2/world-daily", 120)
     };
-    if let Err(response) =
+    if let Err(denial) =
         crate::ingest::budget::check(&state.surface.db, &publisher, route, limit).await
     {
-        return response;
+        return denial.response();
     }
     match store::apply(&state.surface.db, &state.surface.config, &publication).await {
         Ok(result) => {

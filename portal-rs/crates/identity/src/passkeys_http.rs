@@ -168,9 +168,9 @@ async fn charge(
     peer: Option<Extension<ConnectInfo<SocketAddr>>>,
     headers: &HeaderMap,
     lang: Language,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
-        return Err(Denial::Unavailable.response(lang, true));
+        return Err(Box::new(Denial::Unavailable.response(lang, true)));
     };
     let ip = limiter
         .trusted_proxies
@@ -257,7 +257,7 @@ macro_rules! endpoint {
             };
             if let Err(response) = charge(&service, &limiter, &session, peer, &headers, lang).await
             {
-                return response;
+                return *response;
             }
             let result = async {
                 let Json(input) = payload.map_err(|_| Error::Refused)?;

@@ -379,9 +379,9 @@ async fn charge(
     language: Language,
     scopes: (Option<String>, Option<String>, Option<String>),
     policies: &[NamedPolicy],
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
-        return Err(Denial::Unavailable.response(language, false));
+        return Err(Box::new(Denial::Unavailable.response(language, false)));
     };
     let source = limiter
         .trusted_proxies
@@ -511,7 +511,7 @@ async fn login(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     if session.account_id().await.is_some() {
         return Ok(redirect(language, "/"));
@@ -538,7 +538,7 @@ async fn login(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     if let Some(challenge) = context.mfa.begin_login(&input).await.map_err(unavailable)? {
         // The logout rotation drops the session; the challenge session keeps
@@ -646,7 +646,7 @@ async fn challenge(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let Some(token) = pending(&context, &session).await? else {
         return Ok(redirect(language, "/login"));
@@ -670,7 +670,7 @@ async fn challenge(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let input = form.map(|v| v.0).unwrap_or_default();
     if let Some(auth) = context
@@ -711,7 +711,7 @@ async fn email(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let Some(token) = pending(&context, &session).await? else {
         return Ok(redirect(language, "/login"));
@@ -735,7 +735,7 @@ async fn email(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     // SMTP must be configured before creating a fallback code; no browser response contains it.
     let host = std::env::var("OTERYN_SMTP_HOST").map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
@@ -856,7 +856,7 @@ async fn enroll(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let input = form.map(|v| v.0).unwrap_or_default();
     if let Some(enrollment) = context
@@ -912,7 +912,7 @@ async fn confirm(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let input = form.map(|v| v.0).unwrap_or_default();
     if let Some(codes) = context
@@ -970,7 +970,7 @@ async fn remove_device(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     if !session_satisfied(&context.mfa, &session).await {
         return Err(StatusCode::FORBIDDEN);
@@ -1057,7 +1057,8 @@ impl axum::extract::FromRequestParts<Context> for SecurityRequest {
             (Some(id.to_string()), None, None),
             &[NamedPolicy::IdentitySecurityMutation],
         )
-        .await?;
+        .await
+        .map_err(|response| *response)?;
         Ok(Self {
             language,
             session,

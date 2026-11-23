@@ -1,5 +1,6 @@
 //! Localized SSR routes with server-side sessions and synchronizer-token CSRF.
 use super::*;
+use crate::browser_error::BrowserError;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -185,11 +186,11 @@ impl Page {
 fn redirect(location: &str) -> Response {
     (StatusCode::FOUND, [(header::LOCATION, location)]).into_response()
 }
-async fn owner(session: &BrowserSession, locale: Locale) -> Result<AccountId, Response> {
+async fn owner(session: &BrowserSession, locale: Locale) -> Result<AccountId, BrowserError> {
     session
         .account_id()
         .await
-        .ok_or_else(|| redirect(&format!("/{}/login", locale.0)))
+        .ok_or_else(|| redirect(&format!("/{}/login", locale.0)).into())
 }
 fn status(error: Error) -> StatusCode {
     match error {
@@ -214,38 +215,32 @@ async fn index(
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
     Query(paging): Query<Paging>,
-) -> Result<Response, Response> {
-    let locale = Locale::parse(&lang).map_err(IntoResponse::into_response)?;
+) -> Result<Response, BrowserError> {
+    let locale = Locale::parse(&lang)?;
     let owner = owner(&session, locale).await?;
     let mut page = Page::new(locale);
     page.page = paging.page;
-    page.reports = service
-        .list(owner, paging.page)
-        .await
-        .map_err(|e| status(e).into_response())?;
-    page.render().map_err(IntoResponse::into_response)
+    page.reports = service.list(owner, paging.page).await.map_err(status)?;
+    page.render().map_err(Into::into)
 }
 async fn create(
     State(service): State<Reports>,
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
-) -> Result<Response, Response> {
-    let locale = Locale::parse(&lang).map_err(IntoResponse::into_response)?;
+) -> Result<Response, BrowserError> {
+    let locale = Locale::parse(&lang)?;
     let owner = owner(&session, locale).await?;
-    service
-        .list(owner, 1)
-        .await
-        .map_err(|e| status(e).into_response())?;
+    service.list(owner, 1).await.map_err(status)?;
     let mut page = Page::new(locale);
     page.form = true;
     page.csrf = session
         .csrf_token()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     if let Some(flash) = session
         .get(FLASH)
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .flatten()
     {
         page.input = flash.input;
@@ -255,7 +250,7 @@ async fn create(
         page.input.report_type = "player".to_owned();
         page.input.category = "harassment".to_owned();
     }
-    page.render().map_err(IntoResponse::into_response)
+    page.render().map_err(Into::into)
 }
 async fn store(
     State(service): State<Reports>,
@@ -263,8 +258,8 @@ async fn store(
     Extension(session): Extension<BrowserSession>,
     chrome: Option<Extension<oteryn_ui::Chrome>>,
     input: Result<Form<Input>, axum::extract::rejection::FormRejection>,
-) -> Result<Response, Response> {
-    let locale = Locale::parse(&lang).map_err(IntoResponse::into_response)?;
+) -> Result<Response, BrowserError> {
+    let locale = Locale::parse(&lang)?;
     let owner = owner(&session, locale).await?;
     let input = input.map(|Form(input)| input).unwrap_or_default();
     let request_key = input.request_key.parse().unwrap_or(Uuid::nil());
@@ -285,7 +280,7 @@ async fn store(
     match result {
         Ok(report) => {
             sqlx::query("UPDATE web_sessions SET data=data-'support.reports.flash' WHERE id_hash=$1 AND data #>> '{support.reports.flash,input,request_key}'=$2")
-                .bind(session.identity_hash().await).bind(&input.request_key).execute(&service.pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+                .bind(session.identity_hash().await).bind(&input.request_key).execute(&service.pool).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
             Ok(redirect(&format!(
                 "/{}/support/reports/{}",
                 locale.0, report.id
@@ -310,7 +305,7 @@ async fn store(
             response
                 .headers_mut()
                 .insert(header::RETRY_AFTER, header::HeaderValue::from_static("60"));
-            Err(response)
+            Err(response.into())
         }
         Err(error @ (Error::Invalid | Error::PendingLimit | Error::UnjustifiedLimit)) => {
             let key = match error {
@@ -341,31 +336,24 @@ async fn store(
                     }),
                 )
                 .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())?;
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             Ok(redirect(&format!("/{}/support/reports/create", locale.0)))
         }
-        Err(e) => Err(status(e).into_response()),
+        Err(e) => Err(status(e).into()),
     }
 }
 async fn show(
     State(service): State<Reports>,
     Path((lang, id)): Path<(String, String)>,
     Extension(session): Extension<BrowserSession>,
-) -> Result<Response, Response> {
-    let locale = Locale::parse(&lang).map_err(IntoResponse::into_response)?;
+) -> Result<Response, BrowserError> {
+    let locale = Locale::parse(&lang)?;
     let owner = owner(&session, locale).await?;
-    let id = id
-        .parse()
-        .map_err(|_| StatusCode::NOT_FOUND.into_response())?;
+    let id = id.parse().map_err(|_| StatusCode::NOT_FOUND)?;
     let mut page = Page::new(locale);
     page.detail = true;
-    page.reports = vec![
-        service
-            .get(owner, id)
-            .await
-            .map_err(|e| status(e).into_response())?,
-    ];
-    page.render().map_err(IntoResponse::into_response)
+    page.reports = vec![service.get(owner, id).await.map_err(status)?];
+    page.render().map_err(Into::into)
 }
 async fn private_headers(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;

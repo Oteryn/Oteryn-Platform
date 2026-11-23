@@ -221,7 +221,7 @@ async fn handle(
             if snapshot.source_authority != state.config.source_authority {
                 return guard::failure(StatusCode::UNAUTHORIZED);
             }
-            if let Err(response) = crate::ingest::budget::check(
+            if let Err(denial) = crate::ingest::budget::check(
                 &state.db,
                 &publisher,
                 &format!("v2/{}", family.path()),
@@ -229,7 +229,7 @@ async fn handle(
             )
             .await
             {
-                return response;
+                return denial.response();
             }
             let body = match family {
                 Family::Skills => serde_json::to_value(&snapshot.skills),
@@ -271,7 +271,7 @@ async fn handle(
             if mark.source_authority != state.config.source_authority {
                 return guard::failure(StatusCode::UNAUTHORIZED);
             }
-            if let Err(response) = crate::ingest::budget::check(
+            if let Err(denial) = crate::ingest::budget::check(
                 &state.db,
                 &publisher,
                 "v2/watermark",
@@ -279,7 +279,7 @@ async fn handle(
             )
             .await
             {
-                return response;
+                return denial.response();
             }
             let Ok(through) =
                 wire::decimal(&mark.complete_through, 0, i64::MAX as u64).map(|n| n as i64)

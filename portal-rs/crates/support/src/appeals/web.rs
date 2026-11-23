@@ -1,4 +1,5 @@
 use super::{Entry, Error, browser_session_expiry, player_entries, submit_player};
+use crate::browser_error::BrowserError;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -136,13 +137,13 @@ fn refusal(lang: &str, path: &str, status: StatusCode, message: Option<&str>) ->
     }
 }
 
-fn reauthenticate(lang: &str, path: &str) -> Response {
+fn reauthenticate(lang: &str, path: &str) -> BrowserError {
     let message = if lang == "pl" {
         "Zaloguj się ponownie, aby skorzystać z odwołań."
     } else {
         "Sign in again to use appeals."
     };
-    refusal(lang, path, StatusCode::FORBIDDEN, Some(message))
+    refusal(lang, path, StatusCode::FORBIDDEN, Some(message)).into()
 }
 
 async fn actor(
@@ -151,9 +152,9 @@ async fn actor(
     lang: &str,
     path: &str,
     deadline: Option<&SessionMutationDeadline>,
-) -> Result<(Uuid, Vec<u8>), Response> {
+) -> Result<(Uuid, Vec<u8>), BrowserError> {
     if !matches!(lang, "en" | "pl") {
-        return Err(StatusCode::NOT_FOUND.into_response());
+        return Err(StatusCode::NOT_FOUND.into());
     }
     let id = session
         .account_id()
@@ -190,12 +191,12 @@ async fn index(
     Path(lang): Path<String>,
     Extension(session): Extension<BrowserSession>,
     Query(paging): Query<Paging>,
-) -> Result<Response, Response> {
+) -> Result<Response, BrowserError> {
     let path = format!("/{lang}/support/appeals");
     let (actor, _) = actor(&pool, &session, &lang, &path, None).await?;
     let mut rows = player_entries(&pool, actor, None, i64::from(paging.page) * 20)
         .await
-        .map_err(|error| status(error).into_response())?;
+        .map_err(status)?;
     let next = if rows.len() > 20 {
         rows.truncate(20);
         paging.page.checked_add(1)
@@ -217,21 +218,19 @@ async fn detail(
     Path((lang, id)): Path<(String, Uuid)>,
     Extension(session): Extension<BrowserSession>,
     Extension(submissions): Extension<Submissions>,
-) -> Result<Response, Response> {
+) -> Result<Response, BrowserError> {
     let path = format!("/{lang}/support/appeals/{id}");
     let (actor, _) = actor(&pool, &session, &lang, &path, None).await?;
     let mut rows = player_entries(&pool, actor, Some(id), 0)
         .await
-        .map_err(|error| status(error).into_response())?;
-    let row = rows
-        .first_mut()
-        .ok_or_else(|| StatusCode::NOT_FOUND.into_response())?;
+        .map_err(status)?;
+    let row = rows.first_mut().ok_or(StatusCode::NOT_FOUND)?;
     row.can_submit &= submissions.0;
     let csrf = if row.can_submit {
         session
             .csrf_token()
             .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
     } else {
         String::new()
     };
@@ -261,21 +260,21 @@ async fn submit(
     peer: Option<ClientSource>,
     deadline: Option<Extension<SessionMutationDeadline>>,
     request: Request,
-) -> Result<Redirect, Response> {
-    let Path((lang, id)) = target.map_err(|rejection| {
+) -> Result<Redirect, BrowserError> {
+    let Path((lang, id)) = target.map_err(|rejection| -> BrowserError {
         let path = request.uri().path();
         match path.split('/').nth(1) {
-            Some(lang @ ("pl" | "en")) => refusal(lang, path, rejection.status(), None),
-            _ => StatusCode::NOT_FOUND.into_response(),
+            Some(lang @ ("pl" | "en")) => refusal(lang, path, rejection.status(), None).into(),
+            _ => StatusCode::NOT_FOUND.into(),
         }
     })?;
     let language = match lang.as_str() {
         "pl" => Language::Pl,
         "en" => Language::En,
-        _ => return Err(StatusCode::NOT_FOUND.into_response()),
+        _ => return Err(StatusCode::NOT_FOUND.into()),
     };
     let path = format!("/{lang}/support/appeals/{id}");
-    let error = |status| refusal(&lang, &path, status, None);
+    let error = |status| BrowserError::from(refusal(&lang, &path, status, None));
     let Extension(deadline) = deadline.ok_or_else(|| error(StatusCode::SERVICE_UNAVAILABLE))?;
     let Form(input) = deadline
         .read_request(Form::<Input>::from_request(request, &pool))
@@ -326,6 +325,7 @@ async fn submit(
                 &destination,
                 &chrome.text(label),
             )
+            .into()
         }
         other => error(status(other)),
     })?;

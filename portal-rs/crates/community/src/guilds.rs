@@ -110,7 +110,7 @@ async fn handle(
     } else {
         "v2/guild"
     };
-    if let Err(response) = crate::ingest::budget::check(
+    if let Err(denial) = crate::ingest::budget::check(
         &state.db,
         &publisher,
         route,
@@ -118,7 +118,7 @@ async fn handle(
     )
     .await
     {
-        return response;
+        return denial.response();
     }
     match apply(&state.db, &publication).await {
         Ok(result) => {

@@ -175,10 +175,10 @@ async fn handle(
         return guard::failure(StatusCode::UNAUTHORIZED);
     }
     let route = format!("v1/{}", state.family.map_or("watermark", |f| f.path));
-    if let Err(response) =
+    if let Err(denial) =
         budget::check(&state.db, &publisher, &route, budget::configured_limit()).await
     {
-        return response;
+        return denial.response();
     }
     match apply(&state.db, &publication).await {
         Ok(result) => {

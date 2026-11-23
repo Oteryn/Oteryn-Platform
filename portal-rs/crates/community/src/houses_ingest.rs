@@ -36,7 +36,7 @@ pub(super) async fn handle(
     } else {
         "v2/house"
     };
-    if let Err(response) = crate::ingest::budget::check(
+    if let Err(denial) = crate::ingest::budget::check(
         &state.db,
         &publisher,
         route,
@@ -44,7 +44,7 @@ pub(super) async fn handle(
     )
     .await
     {
-        return response;
+        return denial.response();
     }
     match apply(&state.db, &v, watermark).await {
         Ok(result) => {

@@ -679,8 +679,8 @@ fn hex32(raw: &str) -> Result<[u8; 32], SeedError> {
         _ => Err(bad("publicKeyHex must be 64 hex digits")),
     };
     let mut out = [0u8; 32];
-    for (index, pair) in digits.chunks_exact(2).enumerate() {
-        out[index] = (nibble(pair[0])? << 4) | nibble(pair[1])?;
+    for (byte, [high, low]) in out.iter_mut().zip(digits.as_chunks::<2>().0) {
+        *byte = (nibble(*high)? << 4) | nibble(*low)?;
     }
     Ok(out)
 }

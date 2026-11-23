@@ -318,9 +318,11 @@ async fn rate(
     l: Language,
     policy: NamedPolicy,
     token: Option<&str>,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     let Some(Extension(ConnectInfo(peer))) = peer else {
-        return Err(oteryn_web::ratelimit::Denial::Unavailable.response(l, false));
+        return Err(Box::new(
+            oteryn_web::ratelimit::Denial::Unavailable.response(l, false),
+        ));
     };
     let source = limiter
         .trusted_proxies
@@ -332,7 +334,7 @@ async fn rate(
     limiter
         .check(policy, &[keys])
         .await
-        .map_err(|e| e.response(l, false))
+        .map_err(|e| Box::new(e.response(l, false)))
 }
 async fn save(
     State(st): State<Services>,
@@ -356,7 +358,7 @@ async fn save(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let mut tx = st
         .pool
@@ -440,7 +442,7 @@ async fn unsubscribe(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     let mut tx = st
         .pool
@@ -538,7 +540,7 @@ async fn delete(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     st.termination
         .request(
@@ -576,7 +578,7 @@ async fn cancel(
     )
     .await
     {
-        return Ok(r);
+        return Ok(*r);
     }
     st.termination
         .cancel(id, &proof(&headers), &input.current_password)
