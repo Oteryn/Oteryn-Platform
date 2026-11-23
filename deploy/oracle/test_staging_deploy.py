@@ -242,6 +242,11 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
         self.assertIn('OTERYN_WEBAUTHN_RP_ID=staging.example.com\n', public)
         self.assertIn('OTERYN_NOTIFY_UNSUBSCRIBE_URL=https://staging.example.com/en/unsubscribe\n', public)
+        self.assertIn('OTERYN_ADMIN_HOST=staging.example.com\n', public)
+        for flag in staging.ADMIN_FLAGS:
+            self.assertIn(flag + '=true\n', public)
+            self.assertNotIn(flag + '=true\n', (self.root / 'portal.env').read_text())
+        self.assertNotIn('OTERYN_ADMIN_HOST', (self.root / 'portal.env').read_text())
         self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n',
                       (self.root / 'portal.env').read_text())
         for bad in ('http://staging.example.com', 'https://staging.example.com/x',

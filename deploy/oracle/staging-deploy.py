@@ -65,7 +65,13 @@ PUBLIC_FLAGS = (
     'OTERYN_COLLECTION_PVP_ENABLED', 'OTERYN_COLLECTION_SETS_ENABLED',
     'OTERYN_DAILY_PUZZLES_ENABLED', 'OTERYN_DOWNLOADS_ENABLED', 'OTERYN_JOURNAL_REPORTS_ENABLED',
     'OTERYN_LEAGUE_ENABLED', 'OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED', 'OTERYN_REPORTS_ENABLED',
-    'OTERYN_SECURITY_WIZARD_ENABLED', 'OTERYN_WORLD_ENABLED',
+    'OTERYN_SECURITY_WIZARD_ENABLED', 'OTERYN_SUPPORT_TICKETS', 'OTERYN_WORLD_ENABLED',
+)
+# Staff panel on the same tunnel host, so black-box testers can work every staff
+# role. Production has no staff host yet; this is a staging-only surface.
+ADMIN_FLAGS = (
+    'OTERYN_ADMIN_PANEL', 'OTERYN_ADMIN_PLAYERS', 'OTERYN_ADMIN_PLAYER_CHARACTERS',
+    'OTERYN_ADMIN_CONSOLE', 'OTERYN_ADMIN_CONTROL',
 )
 # One staff account per built-in role (staff-<role>@example.invalid, plus
 # founder@example.invalid as platform_admin). Passwords are random and
@@ -353,10 +359,12 @@ def configure(directory, sha):
     })
     env_file(directory, 'portal.env', portal)
     origin = public_origin()
+    host = origin.split('://', 1)[1]
     env_file(directory, 'public.env', {
-        **{flag: 'true' for flag in PUBLIC_FLAGS},
+        **{flag: 'true' for flag in PUBLIC_FLAGS + ADMIN_FLAGS},
+        'OTERYN_ADMIN_HOST': host,
         'OTERYN_PUBLIC_ORIGIN': origin,
-        'OTERYN_WEBAUTHN_RP_ID': origin.split('://', 1)[1].split(':', 1)[0],
+        'OTERYN_WEBAUTHN_RP_ID': host.split(':', 1)[0],
         'OTERYN_NOTIFY_UNSUBSCRIBE_URL': f'{origin}/en/unsubscribe',
     })
     env_file(directory, 'browser.env', {
