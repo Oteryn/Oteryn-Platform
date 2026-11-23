@@ -15,7 +15,7 @@ use sqlx::{PgPool, Postgres, Transaction, types::time::OffsetDateTime};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
-const BATCH_SIZE: i64 = 50;
+const BATCH_SIZE: usize = 50;
 const BATCHES_PER_REQUEST: usize = 20;
 const SEND_AUTH_LIFETIME: Duration = Duration::from_secs(300);
 
@@ -204,18 +204,23 @@ impl Newsletters {
         id: Uuid,
         lock: bool,
     ) -> Result<Campaign, Error> {
-        let query = if lock {
-            "SELECT c.*, EXISTS (SELECT 1 FROM newsletter_campaign_tests WHERE campaign_id = c.id) AS tested
-             FROM newsletter_campaigns c WHERE c.id = $1 FOR UPDATE"
-        } else {
-            "SELECT c.*, EXISTS (SELECT 1 FROM newsletter_campaign_tests WHERE campaign_id = c.id) AS tested
-             FROM newsletter_campaigns c WHERE c.id = $1"
-        };
-        sqlx::query_as(query)
+        if lock {
+            sqlx::query_scalar::<_, Uuid>(
+                "SELECT id FROM newsletter_campaigns WHERE id = $1 FOR UPDATE",
+            )
             .bind(id)
-            .fetch_optional(connection)
+            .fetch_optional(&mut *connection)
             .await?
-            .ok_or(Error::Missing)
+            .ok_or(Error::Missing)?;
+        }
+        sqlx::query_as(
+            "SELECT c.*, EXISTS (SELECT 1 FROM newsletter_campaign_tests WHERE campaign_id = c.id) AS tested
+             FROM newsletter_campaigns c WHERE c.id = $1",
+        )
+        .bind(id)
+        .fetch_optional(connection)
+        .await?
+        .ok_or(Error::Missing)
     }
 
     async fn test(&self, staff: &Staff, id: Uuid, language: MailLanguage) -> Result<(), Error> {
@@ -335,7 +340,7 @@ impl Newsletters {
         } else {
             campaign.eligible_count
         };
-        let recipients: Vec<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+        let mut recipients: Vec<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(
             "SELECT r.account_id, a.email::text, coalesce(a.mail_locale, a.locale)
              FROM newsletter_campaign_recipients r
              LEFT JOIN account_notification_prefs p
@@ -348,11 +353,12 @@ impl Newsletters {
         )
         .bind(id)
         .bind(campaign.cursor)
-        .bind(BATCH_SIZE)
+        .bind(BATCH_SIZE as i64 + 1)
         .bind(&campaign.audience_locale)
         .fetch_all(&mut *tx)
         .await?;
-        let done = recipients.len() < BATCH_SIZE as usize;
+        let done = recipients.len() <= BATCH_SIZE;
+        recipients.truncate(BATCH_SIZE);
         let cursor = recipients.last().map(|r| r.0).or(campaign.cursor);
         let pl = campaign.copy(MailLanguage::Pl)?;
         let en = campaign.copy(MailLanguage::En)?;

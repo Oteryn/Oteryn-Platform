@@ -79,6 +79,7 @@ pub enum EmailTemplate {
     NewDevice { device: String },
     PasswordChanged,
     News { title: String, body: String },
+    Newsletter { title: String, body: String },
     Support { body: String },
 }
 #[derive(Debug, Clone)]
@@ -89,13 +90,14 @@ pub struct Rendered {
 }
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><body><h1>{{ subject }}</h1><p>{{ body }}</p></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><body><h1>{{ subject }}</h1>{% if let Some((label, url)) = footer %}<p>{% for line in body.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p><p><a href=\"{{ url }}\">{{ label }}</a></p>{% else %}<p>{{ body }}</p>{% endif %}</body></html>",
     ext = "html"
 )]
 struct Html<'a> {
     lang: &'a str,
     subject: &'a str,
     body: &'a str,
+    footer: Option<(&'a str, &'a str)>,
 }
 #[derive(Template)]
 #[template(source = "{{ subject }}\n\n{{ body }}\n", ext = "txt")]
@@ -107,11 +109,15 @@ impl EmailTemplate {
     pub fn category(&self) -> Category {
         match self {
             Self::NewDevice { .. } | Self::PasswordChanged => Category::Security,
-            Self::News { .. } => Category::News,
+            Self::News { .. } | Self::Newsletter { .. } => Category::News,
             Self::Support { .. } => Category::Support,
         }
     }
     pub fn render(&self, locale: Locale) -> Result<Rendered> {
+        self.render_for_delivery(locale, None)
+    }
+
+    fn render_for_delivery(&self, locale: Locale, unsubscribe: Option<&str>) -> Result<Rendered> {
         let pl = matches!(locale, Locale::Pl);
         let tr = |key| translate(locale, key);
         let (subject, body) = match self {
@@ -120,7 +126,9 @@ impl EmailTemplate {
                 format!("{}: {device}", tr("device-login")?),
             ),
             Self::PasswordChanged => (tr("password-changed")?, tr("password-body")?),
-            Self::News { title, body } => (title.clone(), body.clone()),
+            Self::News { title, body } | Self::Newsletter { title, body } => {
+                (title.clone(), body.clone())
+            }
             Self::Support { body } => (tr("support")?, body.clone()),
         };
         if subject.trim().is_empty()
@@ -131,15 +139,28 @@ impl EmailTemplate {
         {
             return Err(invalid());
         }
+        let label = if matches!(self, Self::Newsletter { .. }) {
+            unsubscribe
+                .map(|_| tr("newsletter-unsubscribe"))
+                .transpose()?
+        } else {
+            None
+        };
+        let footer = label.as_deref().zip(unsubscribe);
         let html = Html {
             lang: if pl { "pl" } else { "en" },
             subject: &subject,
             body: &body,
+            footer,
         }
         .render()?;
+        let text_body = match footer {
+            Some((label, url)) => format!("{body}\n\n{label}: {url}"),
+            None => body,
+        };
         let text = Text {
             subject: &subject,
-            body: &body,
+            body: &text_body,
         }
         .render()?;
         Ok(Rendered {
@@ -182,6 +203,12 @@ impl Unsubscribe {
             hex::encode(mac.finalize().into_bytes())
         ))
     }
+
+    pub fn link(&self, account: Uuid, category: Category, now: i64) -> Result<String> {
+        let token = self.token(account, category, now + 30 * 86_400)?;
+        Ok(format!("{}?token={token}", self.base))
+    }
+
     pub fn verify(&self, token: &str, now: i64) -> Result<(Uuid, Category)> {
         if token.len() > 256 {
             return Err(invalid());
@@ -303,7 +330,6 @@ impl Notifications {
     ) -> Result<Option<Uuid>> {
         let state = self.account_in(tx, account).await?;
         let _: lettre::message::Mailbox = state.email.parse()?;
-        let rendered = template.render(state.locale)?;
         let category = template.category();
         let pref: Option<(bool,bool)> = outbox::query_as("SELECT email_enabled,portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category.as_str()).fetch_optional(&mut **tx).await?;
         let (email, portal) = if category == Category::Security {
@@ -311,7 +337,21 @@ impl Notifications {
         } else {
             pref.unwrap_or((false, true))
         };
-        if portal {
+        let newsletter = matches!(template, EmailTemplate::Newsletter { .. });
+        if newsletter && !email {
+            return Ok(None);
+        }
+        let now = OffsetDateTime::now_utc();
+        let unsubscribe = if email && category != Category::Security {
+            Some(
+                self.unsubscribe
+                    .link(account, category, now.unix_timestamp())?,
+            )
+        } else {
+            None
+        };
+        let rendered = template.render_for_delivery(state.locale, unsubscribe.as_deref())?;
+        if portal && !newsletter {
             outbox::query(
                 "INSERT INTO notifications(account_id,category,subject,body) VALUES($1,$2,$3,$4)",
             )
@@ -325,17 +365,6 @@ impl Notifications {
         if !email {
             return Ok(None);
         }
-        let now = OffsetDateTime::now_utc();
-        let unsubscribe = if category == Category::Security {
-            None
-        } else {
-            Some(format!(
-                "{}?token={}",
-                self.unsubscribe.base,
-                self.unsubscribe
-                    .token(account, category, now.unix_timestamp() + 30 * 86400)?
-            ))
-        };
         let id: Uuid = outbox::query_scalar("INSERT INTO email_outbox(account_id,category,recipient,subject,text_body,html_body,unsubscribe_url) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id").bind(account).bind(category.as_str()).bind(state.email).bind(rendered.subject).bind(rendered.text).bind(rendered.html).bind(unsubscribe).fetch_one(&mut **tx).await?;
         outbox::enqueue(
             tx,
@@ -494,6 +523,32 @@ fn smtp_message(from: &str, email: &Email) -> Result<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn newsletter_formats_both_parts() -> Result<()> {
+        let template = EmailTemplate::Newsletter {
+            title: "Newsletter".into(),
+            body: "Line one\nLine <two>".into(),
+        };
+        let link = "https://portal.example.invalid/en/unsubscribe?token=fixture";
+        for (locale, language, label) in [
+            (Locale::Pl, "pl", "Wypisz się z newslettera"),
+            (Locale::En, "en", "Unsubscribe from the newsletter"),
+        ] {
+            let rendered = template.render_for_delivery(locale, Some(link))?;
+            assert!(rendered.text.contains(&format!("{label}: {link}")));
+            assert!(rendered.html.contains(&format!("lang=\"{language}\"")));
+            assert!(
+                rendered
+                    .html
+                    .contains(&format!("<a href=\"{link}\">{label}</a>"))
+            );
+            assert!(rendered.html.contains("Line one<br>Line "));
+            assert!(!rendered.html.contains("<two>"));
+        }
+        Ok(())
+    }
+
     #[test]
     fn smtp_headers_and_multipart() -> Result<()> {
         let mut email = Email {

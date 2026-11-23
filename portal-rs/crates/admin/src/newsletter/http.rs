@@ -4,13 +4,13 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use oteryn_web::{
     Language,
-    ratelimit::{ClientSource, Keys, NamedPolicy, RateLimiter},
+    ratelimit::{ClientSource, Denial, Keys, NamedPolicy, RateLimiter},
     session::BrowserSession,
 };
 use std::sync::Arc;
@@ -56,7 +56,7 @@ pub(crate) fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::err
         ),
     ] {
         routes = routes.merge(web::configured_guard(
-            router.with_state(panel.clone()),
+            oteryn_web::ratelimit::finish_routes(router.with_state(panel.clone())),
             pool.clone(),
             permission,
         )?);
@@ -131,10 +131,10 @@ async fn index(
     State(panel): State<Panel>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
-    headers: HeaderMap,
+    Extension(language): Extension<Language>,
     Query(query): Query<PageQuery>,
 ) -> Response {
-    let lang = web::language(&headers);
+    let lang = language.code();
     let result = async {
         let mut campaigns: Vec<(Uuid, String, String, String)> = sqlx::query_as(
             "SELECT id, subject_pl, subject_en,
@@ -173,10 +173,10 @@ async fn preview(
     State(panel): State<Panel>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
-    headers: HeaderMap,
+    Extension(language): Extension<Language>,
     Path(id): Path<Uuid>,
 ) -> Response {
-    let lang = web::language(&headers);
+    let lang = language.code();
     let result = async {
         let campaign =
             Newsletters::load(&mut *panel.service.pool.acquire().await?, id, false).await?;
@@ -213,16 +213,20 @@ async fn create(
     State(panel): State<Panel>,
     Extension(context): Extension<CheckContext>,
     Extension(authorization): Extension<MutationAuthorization>,
-    headers: HeaderMap,
+    Extension(language): Extension<Language>,
+    source: ClientSource,
     Form(draft): Form<Draft>,
 ) -> Response {
+    if let Err(denial) = panel.check_quota(context, source).await {
+        return denial.response(language, false);
+    }
     let staff = Staff {
         context,
         authorization,
         request_id: Uuid::now_v7(),
     };
     outcome(
-        web::language(&headers),
+        language.code(),
         None,
         panel.service.create(&staff, draft).await.map(back_to),
     )
@@ -239,17 +243,21 @@ async fn test(
     State(panel): State<Panel>,
     Extension(context): Extension<CheckContext>,
     Extension(authorization): Extension<MutationAuthorization>,
-    headers: HeaderMap,
+    Extension(language): Extension<Language>,
+    source: ClientSource,
     Path(id): Path<Uuid>,
     Form(input): Form<TestForm>,
 ) -> Response {
+    if let Err(denial) = panel.check_quota(context, source).await {
+        return denial.response(language, false);
+    }
     let staff = Staff {
         context,
         authorization,
         request_id: Uuid::now_v7(),
     };
     outcome(
-        web::language(&headers),
+        language.code(),
         Some(id),
         panel
             .service
@@ -271,27 +279,13 @@ async fn send(
     State(panel): State<Panel>,
     Extension(context): Extension<CheckContext>,
     Extension(authorization): Extension<MutationAuthorization>,
-    ClientSource(source): ClientSource,
-    headers: HeaderMap,
+    Extension(language): Extension<Language>,
+    source: ClientSource,
     Path(id): Path<Uuid>,
     Form(input): Form<SendForm>,
 ) -> Response {
-    let lang = web::language(&headers);
-    let mut keys = Keys::source(source);
-    keys.account = Some(context.account.to_string());
-    if let Err(denial) = panel
-        .limiter
-        .check(NamedPolicy::IdentitySecurityMutation, &[keys])
-        .await
-    {
-        return denial.response(
-            if lang == "pl" {
-                Language::Pl
-            } else {
-                Language::En
-            },
-            false,
-        );
+    if let Err(denial) = panel.check_quota(context, source).await {
+        return denial.response(language, false);
     }
     let staff = Staff {
         context,
@@ -299,7 +293,7 @@ async fn send(
         request_id: Uuid::now_v7(),
     };
     outcome(
-        lang,
+        language.code(),
         Some(id),
         panel
             .service
@@ -307,6 +301,20 @@ async fn send(
             .await
             .map(|()| back_to(id)),
     )
+}
+
+impl Panel {
+    async fn check_quota(
+        &self,
+        context: CheckContext,
+        ClientSource(source): ClientSource,
+    ) -> Result<(), Denial> {
+        let mut keys = Keys::source(source);
+        keys.account = Some(context.account.to_string());
+        self.limiter
+            .check(NamedPolicy::IdentitySecurityMutation, &[keys])
+            .await
+    }
 }
 
 fn back_to(id: Uuid) -> Response {

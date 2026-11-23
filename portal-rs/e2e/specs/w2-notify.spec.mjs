@@ -25,6 +25,7 @@ test('account holder sets email categories and language', async ({ page }, info)
  }
  await form.locator('[name=mail_locale]').selectOption(mailLanguage);
  await csrfRejected(page, path, { mail_locale: mailLanguage, news_email: 'true' });
+ expect((await postForm(page, 'main form', { mail_locale: 'invalid', news_email: 'true' })).status()).toBe(422);
  await form.locator('button[type=submit]').click();
  await expect(page).toHaveURL(new RegExp(`${path}$`));
  await page.reload();
@@ -43,7 +44,7 @@ function assertFits(page) {
 
 async function postForm(page, selector, fields = {}) {
  const form = page.locator(selector);
- const action = await form.getAttribute('action');
+ const action = (await form.getAttribute('action')) || page.url();
  const csrf = await form.locator('[name=_csrf]').inputValue();
  return page.request.post(action, {
   form: { ...fields, _csrf: csrf }, headers: { origin: new URL(page.url()).origin }, maxRedirects: 0,
@@ -85,6 +86,11 @@ test('staff previews, tests and queues a newsletter for the selected subscribers
   await page.locator('main a[href="/admin/newsletter"]').click();
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   expect(await assertFits(page)).toBe(true);
+  for (const language of [targetLanguage, lang]) {
+   await page.context().addCookies([{ name: 'portal_language', value: language, url: page.url() }]);
+   await page.reload();
+   await expect(page.locator('html')).toHaveAttribute('lang', language);
+  }
 
   const marker = crypto.randomUUID();
   const drafts = {
@@ -126,6 +132,18 @@ test('staff previews, tests and queues a newsletter for the selected subscribers
   await csrfRejected(page, `${campaign}/send`);
   expect((await postForm(page, send)).status()).toBe(403);
   expect((await readerPage.request.get(campaign)).status()).toBe(403);
+  const readerCsrf = await readerPage.locator('main form [name=_csrf]').inputValue();
+  const readerHeaders = { origin: new URL(readerPage.url()).origin };
+  for (const [path, fields] of [
+   ['/admin/newsletter', drafts],
+   [`${campaign}/test`, { locale: lang }],
+   [`${campaign}/send`, { current_password: reader.password }],
+  ]) {
+   const response = await readerPage.request.post(path, {
+    form: { ...fields, _csrf: readerCsrf }, headers: readerHeaders, maxRedirects: 0,
+   });
+   expect(response.status()).toBe(403);
+  }
 
   const confirm = { current_password: staff.password };
   const results = await Promise.all([postForm(page, send, confirm), postForm(page, send, confirm)]);
@@ -136,13 +154,16 @@ test('staff previews, tests and queues a newsletter for the selected subscribers
   expect((await sink(staff.email)).length).toBe(1);
 
   const emails = await query(
-   'SELECT recipient, subject, text_body FROM email_outbox WHERE subject IN ($1, $2)',
+   'SELECT recipient, subject, text_body, html_body, unsubscribe_url FROM email_outbox WHERE subject IN ($1, $2)',
    [drafts.subject_pl, drafts.subject_en],
   );
   expect(emails.filter(mail => mail.recipient === reader.email).map(mail => mail.subject)).toEqual([
    drafts[`subject_${targetLanguage}`],
   ]);
   expect(emails.some(mail => [otherLanguage.email, optedOut.email].includes(mail.recipient))).toBe(false);
+  expect(await query('SELECT id FROM notifications WHERE subject IN ($1, $2)', [
+   drafts.subject_pl, drafts.subject_en,
+  ])).toEqual([]);
   const events = await query('SELECT action FROM audit_log WHERE target = $1 AND actor = $2 ORDER BY id', [
    campaign.split('/').at(-1), staff.id,
   ]);
@@ -153,15 +174,42 @@ test('staff previews, tests and queues a newsletter for the selected subscribers
   const message = (await sink(reader.email))[0];
   expect(message.raw.includes('List-Unsubscribe:')).toBe(true);
   expect(message.raw.includes('List-Unsubscribe-Post: List-Unsubscribe=One-Click')).toBe(true);
-  const footer = emails.find(mail => mail.recipient === reader.email).text_body;
-  const link = footer.match(/https:\/\/[^\s]+\/unsubscribe\?token=[^\s]+/)?.[0];
-  expect(Boolean(link)).toBe(true);
+  const delivery = emails.find(mail => mail.recipient === reader.email);
+  const link = delivery.unsubscribe_url;
+  expect(link).toMatch(/^https:\/\/[^\s]+\/unsubscribe\?token=[^\s]+$/);
+  expect(delivery.text_body).toContain(link);
+  expect(delivery.html_body).toContain(`href="${link}"`);
   const anonymous = await browser.newContext({ ignoreHTTPSErrors: true });
   try {
    const screen = await anonymous.newPage();
-   expect((await screen.goto(link)).status()).toBe(200);
+   const invalidLink = new URL(link);
+   invalidLink.searchParams.set('token', 'invalid');
+   const invalid = await screen.goto(invalidLink.href);
+   expect(invalid.status()).toBe(422);
+   expect(invalid.headers()['set-cookie']).toBeUndefined();
+   const opened = await screen.goto(link);
+   expect(opened.status()).toBe(200);
+   expect(opened.headers()['referrer-policy']).toBe('origin');
    await readerPage.reload();
    await expect(readerPage.locator('[name=news_email]')).toBeChecked();
+   const confirmation = screen.locator('main form');
+   await csrfRejected(screen, await confirmation.getAttribute('action'), {
+    token: await confirmation.locator('[name=token]').inputValue(),
+   });
+   expect((await screen.request.post(link, { form: { 'List-Unsubscribe': 'Invalid' } })).status()).toBe(422);
+   await readerPage.reload();
+   await expect(readerPage.locator('[name=news_email]')).toBeChecked();
+   const confirmed = await Promise.all([
+    screen.waitForResponse(response => response.url().endsWith('/unsubscribe/confirm')),
+    confirmation.locator('button[type=submit]').click(),
+   ]);
+   expect(confirmed[0].status()).toBe(200);
+   await readerPage.reload();
+   await expect(readerPage.locator('[name=news_email]')).not.toBeChecked();
+   await readerPage.locator('[name=news_email]').check();
+   await readerPage.locator('main form button').click();
+   await expect(readerPage.locator('[name=news_email]')).toBeChecked();
+   expect((await screen.request.post(link, { multipart: { 'List-Unsubscribe': 'One-Click' } })).status()).toBe(200);
    expect((await screen.request.post(link, { form: { 'List-Unsubscribe': 'One-Click' } })).status()).toBe(200);
    await readerPage.reload();
    await expect(readerPage.locator('[name=news_email]')).not.toBeChecked();
@@ -169,15 +217,34 @@ test('staff previews, tests and queues a newsletter for the selected subscribers
   } finally {
    await anonymous.close();
   }
+
+  await page.goto('/admin/newsletter');
+  let limited = false;
+  for (let attempt = 0; attempt < 21 && !limited; attempt += 1) {
+   const response = await postForm(page, compose, { ...drafts, subject_en: ' ' });
+   expect([422, 429]).toContain(response.status());
+   limited = response.status() === 429;
+  }
+  expect(limited).toBe(true);
+  const csrf = await page.locator(`${compose} [name=_csrf]`).inputValue();
+  let retryAfter = 0;
+  for (let attempt = 0; attempt < 21 && !retryAfter; attempt += 1) {
+   const response = await page.request.post(`${campaign}/test`, {
+    form: { _csrf: csrf, locale: lang }, headers: { origin: new URL(page.url()).origin }, maxRedirects: 0,
+   });
+   expect([409, 429]).toContain(response.status());
+   if (response.status() === 429) retryAfter = Number(response.headers()['retry-after']);
+  }
+  expect(retryAfter).toBeGreaterThan(0);
  } finally {
   await readerContext.close();
  }
 });
 
-test('i18n parity for newsletter and notification preferences', () => {
+test('i18n-parity for newsletter and notification preferences', () => {
  const localeKeys = file => [...readFileSync(new URL(file, import.meta.url), 'utf8')
   .matchAll(/^([a-z][a-z0-9-]*) = \S/gm)].map(match => match[1]).sort();
- for (const path of ['../../crates/admin/src/newsletter/{lang}.ftl',
+ for (const path of ['../../crates/admin/src/newsletter/{lang}.ftl', '../../crates/notify/locales/{lang}.ftl',
   '../../crates/identity/src/account_lifecycle_{lang}.ftl']) {
   const pl = localeKeys(path.replace('{lang}', 'pl'));
   const en = localeKeys(path.replace('{lang}', 'en'));

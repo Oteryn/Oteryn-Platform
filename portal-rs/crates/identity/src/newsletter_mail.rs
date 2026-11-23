@@ -1,17 +1,14 @@
 //! Adapts campaign copy to the existing optional News email outbox.
 use crate::notification_preferences::MailLanguage;
-use oteryn_notify::{
-    Account, AccountState, Category, EmailTemplate, Locale, Notifications, Unsubscribe,
-};
+use oteryn_notify::{Account, AccountState, EmailTemplate, Locale, Notifications, Unsubscribe};
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
-use sqlx::{PgPool, Postgres, Transaction, types::time::OffsetDateTime};
+use sqlx::{PgPool, Postgres, Transaction};
 use std::sync::Arc;
 use url::Url;
 use uuid::Uuid;
 
 const SUBJECT_BYTES: usize = 200;
 const MARKDOWN_BYTES: usize = 8_000;
-const LINK_LIFETIME_SECONDS: i64 = 30 * 86_400;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -94,7 +91,6 @@ fn mail_text(markdown: &str) -> String {
 #[derive(Clone, Debug)]
 pub struct Mailer {
     signer: Unsubscribe,
-    unsubscribe_url: Url,
 }
 
 impl Mailer {
@@ -113,10 +109,7 @@ impl Mailer {
             return Err(Error::Delivery);
         }
         let signer = Unsubscribe::new(key, base).map_err(|_| Error::Delivery)?;
-        Ok(Self {
-            signer,
-            unsubscribe_url,
-        })
+        Ok(Self { signer })
     }
 
     pub async fn enqueue(
@@ -128,14 +121,9 @@ impl Mailer {
         language: MailLanguage,
         copy: &Copy,
     ) -> Result<Option<Uuid>, Error> {
-        let url = self.link(recipient)?;
-        let footer = match language {
-            MailLanguage::Pl => "Wypisz się z newslettera",
-            MailLanguage::En => "Unsubscribe from the newsletter",
-        };
-        let template = EmailTemplate::News {
+        let template = EmailTemplate::Newsletter {
             title: copy.subject.clone(),
-            body: format!("{}\n\n{footer}: {url}", copy.body),
+            body: copy.body.clone(),
         };
         let locale = match language {
             MailLanguage::Pl => Locale::Pl,
@@ -152,17 +140,6 @@ impl Mailer {
         .enqueue(tx, recipient, &template)
         .await
         .map_err(|_| Error::Delivery)
-    }
-
-    fn link(&self, recipient: Uuid) -> Result<Url, Error> {
-        let expires = OffsetDateTime::now_utc().unix_timestamp() + LINK_LIFETIME_SECONDS;
-        let token = self
-            .signer
-            .token(recipient, Category::News, expires)
-            .map_err(|_| Error::Delivery)?;
-        let mut url = self.unsubscribe_url.clone();
-        url.query_pairs_mut().append_pair("token", &token);
-        Ok(url)
     }
 }
 
@@ -187,6 +164,8 @@ impl AccountState for Recipient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use oteryn_notify::Category;
+    use sqlx::types::time::OffsetDateTime;
 
     #[test]
     fn copy_limits_and_readable_markdown() -> Result<(), Error> {
@@ -209,22 +188,17 @@ mod tests {
     fn campaign_link_binds_category_recipient_and_expiry() -> oteryn_notify::Result<()> {
         let mailer = Mailer::new(vec![7; 32], "https://example.org/en/unsubscribe".into())?;
         let recipient = Uuid::now_v7();
-        let url = mailer.link(recipient)?;
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+        let url = Url::parse(&mailer.signer.link(recipient, Category::News, now)?)?;
         let (_, token) = url
             .query_pairs()
             .next()
             .ok_or("missing unsubscribe token")?;
-        let now = OffsetDateTime::now_utc().unix_timestamp();
         assert_eq!(
             mailer.signer.verify(&token, now)?,
             (recipient, Category::News)
         );
-        assert!(
-            mailer
-                .signer
-                .verify(&token, now + LINK_LIFETIME_SECONDS)
-                .is_err()
-        );
+        assert!(mailer.signer.verify(&token, now + 30 * 86_400).is_err());
         Ok(())
     }
 }

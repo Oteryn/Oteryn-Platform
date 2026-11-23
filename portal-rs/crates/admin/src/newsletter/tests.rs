@@ -135,12 +135,12 @@ async fn exercise(pool: &PgPool) -> TestResult {
     let approval = service.authorize_send(&staff, password.into()).await?;
     assert!(!service.batch(&staff, id, &approval).await?);
     let pending = Newsletters::load(&mut *pool.acquire().await?, id, false).await?;
-    assert_eq!(pending.queued_count, BATCH_SIZE);
+    assert_eq!(pending.queued_count, BATCH_SIZE as i64);
     assert_eq!(pending.state(), "queuing");
     service.send(&staff, id, password.into()).await?;
     service.send(&staff, id, password.into()).await?;
     let done = Newsletters::load(&mut *pool.acquire().await?, id, false).await?;
-    assert_eq!(done.queued_count, BATCH_SIZE + 1);
+    assert_eq!(done.queued_count, BATCH_SIZE as i64 + 1);
     assert_eq!(done.state(), "queued");
     let counts: Vec<(String, i64)> = sqlx::query_as(
         "SELECT subject, count(*) FROM email_outbox GROUP BY subject ORDER BY subject",
@@ -149,7 +149,7 @@ async fn exercise(pool: &PgPool) -> TestResult {
     .await?;
     assert_eq!(
         counts,
-        vec![("News".into(), 1), ("Wieści".into(), BATCH_SIZE + 1)]
+        vec![("News".into(), 1), ("Wieści".into(), BATCH_SIZE as i64 + 1)]
     );
     let audit: Vec<String> =
         sqlx::query_scalar("SELECT action FROM audit_log WHERE target = $1 ORDER BY id")
@@ -165,6 +165,58 @@ async fn exercise(pool: &PgPool) -> TestResult {
             "newsletter.campaign.batch_queued",
         ]
     );
+
+    sqlx::query(
+        "UPDATE account_notification_prefs SET email_enabled = false
+         WHERE account_id = (SELECT id FROM accounts WHERE email = 'newsletter-1@example.invalid')",
+    )
+    .execute(pool)
+    .await?;
+    service.test(&staff, untested, MailLanguage::En).await?;
+    let approval = service.authorize_send(&staff, password.into()).await?;
+    assert!(service.batch(&staff, untested, &approval).await?);
+    let exact = Newsletters::load(&mut *pool.acquire().await?, untested, false).await?;
+    assert_eq!(exact.queued_count, BATCH_SIZE as i64);
+    assert_eq!(exact.state(), "queued");
+
+    let pending_test = service.create(&staff, draft()).await?;
+    let mut writer = pool.begin().await?;
+    Newsletters::load(&mut writer, pending_test, true).await?;
+    sqlx::query(
+        "INSERT INTO newsletter_campaign_tests (campaign_id, actor, locale) VALUES ($1, $2, 'en')",
+    )
+    .bind(pending_test)
+    .bind(actor)
+    .execute(&mut *writer)
+    .await?;
+    let mut reader = pool.begin().await?;
+    let reader_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *reader)
+        .await?;
+    let commit_when_blocked = async move {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let blocked: bool =
+                    sqlx::query_scalar("SELECT cardinality(pg_blocking_pids($1)) > 0")
+                        .bind(reader_pid)
+                        .fetch_one(pool)
+                        .await?;
+                if blocked {
+                    return Ok::<_, sqlx::Error>(());
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await??;
+        writer.commit().await?;
+        Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+    };
+    let (committed, campaign) = tokio::join!(
+        commit_when_blocked,
+        Newsletters::load(&mut reader, pending_test, true),
+    );
+    committed?;
+    assert!(campaign?.tested);
     Ok(())
 }
 

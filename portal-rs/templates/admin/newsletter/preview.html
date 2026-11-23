@@ -20,12 +20,12 @@
     {% endif %}
   </dl>
   <section class="op-panel op-stack" lang="pl">
-    <h2>Polski</h2>
+    <h2>{{ self.text("polish-autonym") }}</h2>
     <h3>{{ pl.subject() }}</h3>
     <p>{% for line in pl.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p>
   </section>
   <section class="op-panel op-stack" lang="en">
-    <h2>English</h2>
+    <h2>{{ self.text("english-autonym") }}</h2>
     <h3>{{ en.subject() }}</h3>
     <p>{% for line in en.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</p>
   </section>
