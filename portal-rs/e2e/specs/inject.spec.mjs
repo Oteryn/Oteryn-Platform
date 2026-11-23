@@ -196,9 +196,11 @@ test('editorial media validates image format and size and serves safe image head
   const recoveryCode = await page.locator('main textarea[readonly]').first().inputValue();
   await loginWithRecoveryCode(page, lang, account, recoveryCode);
 
-  const route = '/admin/media';
+  const localeQuery = `?lang=${lang}`;
+  const route = `/admin/media${localeQuery}`;
   expect((await page.goto(route)).status()).toBe(200);
-  const form = page.locator('main form[action="/admin/media"]');
+  const selector = `main form[action="${route}"]`;
+  const form = page.locator(selector);
   const input = form.locator('input[type=file]');
   const alt = 'Diagram "A" with <em>label</em> & detail';
   const origin = new URL(page.url()).origin;
@@ -223,7 +225,7 @@ test('editorial media validates image format and size and serves safe image head
   }
 
   await input.setInputFiles({ name: 'example.png', mimeType: 'image/png', buffer: pngAtSize(maxFileSize) });
-  await submit(page, 'main form[action="/admin/media"]', { alt_text: alt });
+  await submit(page, selector, { alt_text: alt });
   const image = page.getByRole('img', { name: alt, exact: true });
   await expect(image).toBeVisible();
   await expect(image).toHaveAttribute('alt', alt);
@@ -246,6 +248,6 @@ test('editorial media validates image format and size and serves safe image head
     expect(headers['cache-control']).toMatch(/(?:^|,\s*)no-store(?:,|$)/);
     expect((await response.body()).subarray(0, 8)).toEqual(png.subarray(0, 8));
   }
-  await submit(page, `main form[action="${thumbnail.replace(/\/thumbnail$/, '/delete')}"]`);
+  await submit(page, `main form[action="${thumbnail.replace(/\/thumbnail$/, '/delete')}${localeQuery}"]`);
   expect((await page.request.get(content)).status()).toBe(404);
 });
