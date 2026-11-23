@@ -15,6 +15,9 @@
 {% for row in rows %}<p>
 <a href="/admin/announcements/{{ row.0 }}/edit">{{ row.1 }}</a> {{ row.2 }}</p>{% endfor %}
 
+{% if let Some(id) = discovery_id %}
+<p><a href="/admin/discovery/announcements/{{ id }}">{{ oteryn_ui::text("en", "discovery-title") }} / {{ oteryn_ui::text("pl", "discovery-title") }}</a></p>
+{% endif %}
 {% if !action.is_empty() %}<form method="post" action="{{ action }}" class="op-stack">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="lock_version" value="{{ version }}">

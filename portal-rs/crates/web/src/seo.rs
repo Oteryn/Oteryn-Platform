@@ -1,5 +1,5 @@
 //! Explicit-origin SEO documents. Request Host headers never influence absolute URLs.
-use axum::{Router, extract::State, http::header, routing::get};
+use axum::{Extension, Router, extract::State, http::header, routing::get};
 
 #[derive(Clone, Debug)]
 pub struct Seo {
@@ -13,6 +13,30 @@ pub struct Entry {
     pub pl: String,
     pub en: String,
     pub lastmod: String,
+}
+/// A public document can have one or both currently published locales.
+#[derive(Clone, Debug, sqlx::FromRow)]
+pub struct SitemapPage {
+    pub pl: Option<String>,
+    pub en: Option<String>,
+    pub lastmod: String,
+}
+
+/// Publication data provided by the editorial module at request time.
+#[derive(Clone, Debug)]
+pub struct EditorialSitemap(pub Vec<SitemapPage>);
+
+fn valid_date(value: &str) -> bool {
+    let date = value.as_bytes();
+    date.len() == 10
+        && date[4] == b'-'
+        && date[7] == b'-'
+        && date
+            .iter()
+            .enumerate()
+            .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
+        && ("01"..="12").contains(&&value[5..7])
+        && ("01"..="31").contains(&&value[8..10])
 }
 fn path(value: &str) -> bool {
     value.starts_with('/')
@@ -51,19 +75,7 @@ impl Seo {
     }
     /// Modules register only published, enabled public pages, using real modification dates.
     pub fn register(&mut self, entry: Entry) -> Result<(), &'static str> {
-        let date = entry.lastmod.as_bytes();
-        if !path(&entry.pl)
-            || !path(&entry.en)
-            || date.len() != 10
-            || date[4] != b'-'
-            || date[7] != b'-'
-            || !date
-                .iter()
-                .enumerate()
-                .all(|(i, b)| i == 4 || i == 7 || b.is_ascii_digit())
-            || !("01"..="12").contains(&&entry.lastmod[5..7])
-            || !("01"..="31").contains(&&entry.lastmod[8..10])
-        {
+        if !path(&entry.pl) || !path(&entry.en) || !valid_date(&entry.lastmod) {
             return Err("invalid sitemap entry");
         }
         if self
@@ -76,14 +88,16 @@ impl Seo {
         self.entries.push(entry);
         Ok(())
     }
-    pub fn canonical(&self, page: &str) -> Result<String, &'static str> {
+    pub fn absolute(&self, page: &str) -> Result<String, &'static str> {
         if !path(page) {
             return Err("invalid canonical path");
         }
+        Ok(format!("{}{page}", self.origin))
+    }
+    pub fn canonical(&self, page: &str) -> Result<String, &'static str> {
         Ok(format!(
-            "<link rel=\"canonical\" href=\"{}{}\">",
-            escape(&self.origin),
-            escape(page)
+            "<link rel=\"canonical\" href=\"{}\">",
+            escape(&self.absolute(page)?)
         ))
     }
     pub fn hreflang(&self, pl: &str, en: &str) -> Result<String, &'static str> {
@@ -111,29 +125,47 @@ impl Seo {
         )
     }
     pub fn sitemap(&self) -> String {
+        self.sitemap_with(&[])
+    }
+    fn sitemap_with(&self, editorial: &[SitemapPage]) -> String {
         let mut xml = String::from(
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?><urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\" xmlns:xhtml=\"http://www.w3.org/1999/xhtml\">",
         );
         for entry in &self.entries {
-            for page in [&entry.pl, &entry.en] {
-                xml.push_str(&format!(
-                    "<url><loc>{}{}</loc><lastmod>{}</lastmod>",
-                    escape(&self.origin),
-                    escape(page),
-                    entry.lastmod
-                ));
-                for (lang, p) in [("pl", &entry.pl), ("en", &entry.en)] {
-                    xml.push_str(&format!(
-                        "<xhtml:link rel=\"alternate\" hreflang=\"{lang}\" href=\"{}{}\"/>",
-                        escape(&self.origin),
-                        escape(p)
-                    ));
-                }
-                xml.push_str("</url>");
-            }
+            self.write_pages(&mut xml, Some(&entry.pl), Some(&entry.en), &entry.lastmod);
+        }
+        for entry in editorial {
+            self.write_pages(
+                &mut xml,
+                entry.pl.as_deref(),
+                entry.en.as_deref(),
+                &entry.lastmod,
+            );
         }
         xml.push_str("</urlset>");
         xml
+    }
+    fn write_pages(&self, xml: &mut String, pl: Option<&str>, en: Option<&str>, lastmod: &str) {
+        if !valid_date(lastmod) {
+            return;
+        }
+        let pl = pl.and_then(|page| self.absolute(page).ok());
+        let en = en.and_then(|page| self.absolute(page).ok());
+        for page in [pl.as_ref(), en.as_ref()].into_iter().flatten() {
+            xml.push_str(&format!(
+                "<url><loc>{}</loc><lastmod>{lastmod}</lastmod>",
+                escape(page)
+            ));
+            if let (Some(pl), Some(en)) = (&pl, &en) {
+                for (lang, alternate) in [("pl", pl), ("en", en)] {
+                    xml.push_str(&format!(
+                        "<xhtml:link rel=\"alternate\" hreflang=\"{lang}\" href=\"{}\"/>",
+                        escape(alternate)
+                    ));
+                }
+            }
+            xml.push_str("</url>");
+        }
     }
 }
 /// Merge into the application before applying its common response policy.
@@ -150,12 +182,21 @@ pub fn router(config: Seo) -> Router {
         )
         .route(
             "/sitemap.xml",
-            get(async |State(s): State<Seo>| {
-                (
-                    [(header::CONTENT_TYPE, "application/xml; charset=utf-8")],
-                    s.sitemap(),
-                )
-            }),
+            get(
+                async |State(s): State<Seo>, dynamic: Option<Extension<EditorialSitemap>>| {
+                    (
+                        [
+                            (header::CONTENT_TYPE, "application/xml; charset=utf-8"),
+                            (header::CACHE_CONTROL, "no-cache"),
+                        ],
+                        s.sitemap_with(
+                            dynamic
+                                .as_ref()
+                                .map_or(&[], |Extension(entries)| &entries.0),
+                        ),
+                    )
+                },
+            ),
         )
         .with_state(config)
 }

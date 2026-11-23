@@ -1,0 +1,8 @@
+{% if !title.is_empty() %}<title>{{ title }}</title>{% endif %}
+<link rel="canonical" href="{{ canonical }}">
+{% if let Some(other) = alternate %}
+<link rel="alternate" hreflang="{{ lang }}" href="{{ canonical }}">
+<link rel="alternate" hreflang="{{ alternate_lang }}" href="{{ other }}">
+{% endif %}
+{% if !description.is_empty() %}<meta name="description" content="{{ description }}">{% endif %}
+{% if !indexing %}<meta name="robots" content="noindex">{% endif %}

@@ -181,7 +181,10 @@ async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
     response
 }
 
-async fn public_headers(request: axum::extract::Request, next: axum::middleware::Next) -> Response {
+pub(crate) async fn public_headers(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
     let lang = if request.uri().path().starts_with("/en/") {
         "en"
     } else {

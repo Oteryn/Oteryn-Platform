@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.text("discovery-title") }}</title>
+</head>
+<body>
+  <main class="op-stack op-panel">
+    <h1>{{ self.text("discovery-title") }}</h1>
+    <p>{{ document }}</p>
+    <p><a href="{{ back }}">{{ self.text("discovery-back") }}</a></p>
+    {% if saved %}<p role="status">{{ self.text("discovery-saved") }}</p>{% endif %}
+    {% if let Some(message) = error %}<p role="alert">{{ self.text(message) }}</p>{% endif %}
+    <form class="op-stack" data-discovery method="post" action="{{ action }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <input type="hidden" name="revision" value="{{ settings.revision }}">
+      <h2>{{ self.text("discovery-menu") }}</h2>
+      <p>{{ self.text("discovery-menu-help") }}</p>
+      <label for="placement">{{ self.text("discovery-placement") }}</label>
+      <select class="op-input" id="placement" name="placement">
+        <option value=""{% if settings.placement.is_empty() %} selected{% endif %}>{{ self.text("discovery-none") }}</option>
+        <option value="world"{% if settings.placement == "world" %} selected{% endif %}>{{ self.text("thais-nav-world") }}</option>
+        <option value="community"{% if settings.placement == "community" %} selected{% endif %}>{{ self.text("shell-community") }}</option>
+      </select>
+      <label for="menu_key">{{ self.text("discovery-key") }}</label>
+      <input class="op-input" id="menu_key" name="menu_key" maxlength="64" pattern="[a-z0-9]+(-[a-z0-9]+)*" value="{{ settings.menu_key }}">
+      <label for="menu_position">{{ self.text("discovery-position") }}</label>
+      <input class="op-input" id="menu_position" name="menu_position" type="number" min="1" max="8" required value="{{ settings.menu_position }}">
+      <label for="menu_label_pl">{{ self.text("discovery-label-pl") }}</label>
+      <input class="op-input" id="menu_label_pl" name="menu_label_pl" lang="pl" maxlength="80" value="{{ settings.menu_label_pl }}">
+      <label for="menu_label_en">{{ self.text("discovery-label-en") }}</label>
+      <input class="op-input" id="menu_label_en" name="menu_label_en" lang="en" maxlength="80" value="{{ settings.menu_label_en }}">
+      <h2>{{ self.text("discovery-crawl") }}</h2>
+      <label for="indexing">{{ self.text("discovery-indexing") }}</label>
+      <select class="op-input" id="indexing" name="indexing">
+        <option value="index"{% if settings.indexing == "index" %} selected{% endif %}>{{ self.text("discovery-index") }}</option>
+        <option value="noindex"{% if settings.indexing == "noindex" %} selected{% endif %}>{{ self.text("discovery-noindex") }}</option>
+      </select>
+      <label for="title_pl">{{ self.text("discovery-title-pl") }}</label>
+      <input class="op-input" id="title_pl" name="title_pl" lang="pl" maxlength="200" value="{{ settings.title_pl }}">
+      <label for="description_pl">{{ self.text("discovery-description-pl") }}</label>
+      <textarea class="op-input" id="description_pl" name="description_pl" lang="pl" maxlength="320" rows="2">{{ settings.description_pl }}</textarea>
+      <label for="title_en">{{ self.text("discovery-title-en") }}</label>
+      <input class="op-input" id="title_en" name="title_en" lang="en" maxlength="200" value="{{ settings.title_en }}">
+      <label for="description_en">{{ self.text("discovery-description-en") }}</label>
+      <textarea class="op-input" id="description_en" name="description_en" lang="en" maxlength="320" rows="2">{{ settings.description_en }}</textarea>
+      <button class="op-button" type="submit">{{ self.text("discovery-save") }}</button>
+    </form>
+  </main>
+</body>
+</html>

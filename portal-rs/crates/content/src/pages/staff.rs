@@ -14,13 +14,14 @@ use serde_json::json;
 use std::sync::Arc;
 use uuid::Uuid;
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(
-        router(pool.clone()).merge(oteryn_admin::web::configured_guard(
+    let discovery = crate::discovery::configured_router(pool.clone())?;
+    Ok(router(pool.clone())
+        .merge(oteryn_admin::web::configured_guard(
             admin_routes(pool.clone()),
             pool,
             Permission::ManagePages,
-        )?),
-    )
+        )?)
+        .merge(discovery))
 }
 /// Test and authentication-adapter composition through the shared T10B staff guard.
 pub fn staff_router<I: StaffSession, A: AccountStateReader + 'static>(
@@ -55,6 +56,7 @@ struct Editor {
     form: PageForm,
     labels: Vec<String>,
     legal: bool,
+    document_id: Option<Uuid>,
 }
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(super) struct PageForm {
@@ -179,7 +181,12 @@ async fn edit(
     if !valid_slug(&slug) || !matches!(locale.as_str(), "pl" | "en") {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let row=sqlx::query("SELECT e.*,e.updated_at::text AS expected_revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale=$2").bind(&slug).bind(&locale).fetch_optional(&pool).await;
+    let row=sqlx::query("SELECT p.id AS document_id,e.*,e.updated_at::text AS expected_revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale=$2").bind(&slug).bind(&locale).fetch_optional(&pool).await;
+    let document_id = row
+        .as_ref()
+        .ok()
+        .and_then(Option::as_ref)
+        .map(|row| row.get("document_id"));
     let mut form = match row {
         Ok(Some(row)) => PageForm {
             expected_revision: row.get("expected_revision"),
@@ -215,6 +222,7 @@ async fn edit(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     oteryn_web::render(&Editor {
+        document_id,
         title: text(&locale, "pages"),
         labels: [
             "title",

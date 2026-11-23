@@ -392,6 +392,10 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
         label(lang, "save")
     ));
     if let Some(id) = id {
+        html.push_str(&format!(
+            "<p><a href=\"/admin/discovery/news/{id}?lang={lang}\">{}</a></p>",
+            escape(&oteryn_ui::text(lang, "discovery-title"))
+        ));
         html.push_str(&format!("<form class=\"op-stack\" method=\"post\" action=\"/admin/news/{id}/delete\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"expected_revision\" value=\"{}\"><button class=\"op-button\">{}</button></form>",escape(&csrf),escape(&expected_revision),label(lang,"delete")));
     }
     page(lang, &label(lang, "news"), html)

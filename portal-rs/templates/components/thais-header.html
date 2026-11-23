@@ -58,9 +58,19 @@
               </ul>
             </div>
             {% endif %}
+            {% if !chrome.editorial_menu.world.is_empty() %}
+            <div class="om-column om-editorial">
+              <h2 class="om-heading">{{ chrome.text("discovery-navigation") }}</h2>
+              <ul>
+                {% for link in chrome.editorial_menu.world %}
+                <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
           </div>
         {% if interior %}</details>{% else %}</div>{% endif %}
-        {% if chrome.first_link("online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() %}
+        {% if chrome.first_link("online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() || !chrome.editorial_menu.community.is_empty() %}
         {% if interior %}
         <details class="om-section" name="portal-sections">
           <summary class="om-top-link"><span class="om-label">{{ chrome.text("shell-community") }}</span><span class="om-chevron" aria-hidden="true"></span></summary>
@@ -88,6 +98,16 @@
                 {% if let Some(link) = chrome.link("rankings") %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ chrome.text("thais-nav-experience") }}</a></li>{% endif %}
                 {% for key in ["growth-rankings", "guild-stats", "compare"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
+                {% endfor %}
+              </ul>
+            </div>
+            {% endif %}
+            {% if !chrome.editorial_menu.community.is_empty() %}
+            <div class="om-column om-editorial">
+              <h2 class="om-heading">{{ chrome.text("discovery-navigation") }}</h2>
+              <ul>
+                {% for link in chrome.editorial_menu.community %}
+                <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
                 {% endfor %}
               </ul>
             </div>

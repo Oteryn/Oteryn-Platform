@@ -12,11 +12,13 @@ use oteryn_web::session::BrowserSession;
 use sqlx::Row;
 
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    oteryn_admin::web::configured_guard(
+    let public = crate::discovery::public_router(pool.clone());
+    Ok(oteryn_admin::web::configured_guard(
         admin_router(pool.clone()),
         pool,
         Permission::ManagePortalAnnouncements,
-    )
+    )?
+    .merge(public))
 }
 pub fn admin_router(pool: PgPool) -> Router {
     routes(pool.clone(), PortalIdentity::configured(pool))
@@ -55,6 +57,7 @@ struct Page {
     more: bool,
     csrf: String,
     action: String,
+    discovery_id: Option<Uuid>,
     version: i64,
     fields: Vec<(String, String, String)>,
     rows: Vec<(Uuid, String, String)>,
@@ -69,6 +72,7 @@ async fn index(
         more: rows.len() == 500,
         csrf: String::new(),
         action: String::new(),
+        discovery_id: None,
         version: 0,
         fields: vec![],
         rows,
@@ -131,6 +135,7 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
         more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,
         action: "/admin/announcements".into(),
+        discovery_id: None,
         version: 0,
         fields,
         rows: vec![],
@@ -164,6 +169,7 @@ async fn edit(
         more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,
         action: format!("/admin/announcements/{id}/edit"),
+        discovery_id: Some(id),
         version: row.get("lock_version"),
         fields,
         rows: vec![],
