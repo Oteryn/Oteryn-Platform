@@ -56,8 +56,16 @@ services:
       - /tmp:size=64m,uid=10001,gid=10001
   portal:
     <<: *app
-    cpus: 0.3
-    mem_limit: 512m
+    cpus: 0.2
+    mem_limit: 384m
+    command: [serve]
+  # Same database and image; only the browser-facing origin differs. The
+  # tunnel reaches it through ingress, the in-stack E2E keeps using portal.
+  portal-public:
+    <<: *app
+    env_file: [portal.env, public.env]
+    cpus: 0.1
+    mem_limit: 256m
     command: [serve]
   worker:
     <<: *app
@@ -78,7 +86,7 @@ services:
         const http = require('node:http');
         http.createServer((request, response) => {
           const upstream = http.request({
-            hostname: 'portal', port: 8080, method: request.method,
+            hostname: 'portal-public', port: 8080, method: request.method,
             path: request.url, headers: request.headers,
           }, result => {
             response.writeHead(result.statusCode, result.headers);

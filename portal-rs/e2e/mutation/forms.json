@@ -2775,7 +2775,7 @@
       "route": "/admin/pages/{slug}/{locale}",
       "sources": [
         {
-          "source": "crates/content/src/pages/staff.rs:40",
+          "source": "crates/content/src/pages/staff.rs:44",
           "handler": "save"
         }
       ]

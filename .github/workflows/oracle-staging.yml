@@ -1,0 +1,80 @@
+name: Oracle Staging
+run-name: Oracle staging ${{ inputs.source_sha || github.sha }}
+
+# Deploys an exact staging/* (or, by dispatch, codex/*) head to the disposable
+# Oracle staging stack and waits for its Playwright result. It runs only on the
+# dedicated staging runner, which holds one SSH key whose forced command
+# (deploy/oracle/staging-ssh.py) can read staging status/logs or queue a deploy.
+# The production runner and its key are not used.
+on:
+  push:
+    branches: ['staging/**']
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full SHA that is the current head of a codex/* or staging/* branch
+        type: string
+        required: true
+      spec:
+        description: Optional Playwright spec path (specs/<file>.spec.mjs); empty runs the suite
+        type: string
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oracle-staging
+  cancel-in-progress: false
+
+jobs:
+  staging:
+    runs-on:
+      group: staging-runners
+      labels: [oteryn-staging]
+    timeout-minutes: 300
+    env:
+      EXPECTED_RUNNER_NAME: oteryn-oracle-staging
+      SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+      SPEC: ${{ inputs.spec || '' }}
+    steps:
+      - name: Deploy to staging and wait for the result
+        env:
+          ACTUAL_RUNNER_NAME: ${{ runner.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$ACTUAL_RUNNER_NAME" = "$EXPECTED_RUNNER_NAME"
+          test "$(id -u)" = 1001
+          test ! -S /var/run/docker.sock
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "$SPEC" || "$SPEC" =~ ^specs/[A-Za-z0-9_-][A-Za-z0-9._/-]*\.spec\.mjs$ ]]
+          host() {
+            ssh -F /dev/null -i /home/runner/.ssh/oracle-staging \
+              -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes \
+              -o UserKnownHostsFile=/home/runner/.ssh/known_hosts \
+              -o ConnectTimeout=10 root@oteryn-deploy-host "$@"
+          }
+          # Exit codes of status/logs: 0 passed, 1 failed, 2 pending.
+          state() { set +e; host status > "$RUNNER_TEMP/status"; code=$?; set -e; }
+          deadline=$((SECONDS + 4 * 3600))
+          while :; do
+            state
+            [ "$code" != 2 ] && break
+            [ "$SECONDS" -lt "$deadline" ] || { echo 'Another staging deploy is still pending.' >&2; exit 1; }
+            sleep 60
+          done
+          host deploy "$SOURCE_SHA" ${SPEC:+"$SPEC"}
+          while :; do
+            sleep 60
+            state
+            if grep -q "\"sha\": \"$SOURCE_SHA\"" "$RUNNER_TEMP/status" && [ "$code" != 2 ]; then
+              break
+            fi
+            [ "$SECONDS" -lt "$deadline" ] || { echo 'Staging deploy did not finish in time.' >&2; exit 1; }
+          done
+          cat "$RUNNER_TEMP/status"
+          set +e; host logs; logs_code=$?; set -e
+          grep -q "\"sha\": \"$SOURCE_SHA\"" "$RUNNER_TEMP/status"
+          exit "$code"

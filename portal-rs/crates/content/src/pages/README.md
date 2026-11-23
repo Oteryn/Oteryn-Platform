@@ -6,9 +6,10 @@ Public routes are available in Polish and English under `/pl` and `/en`:
 The bug-report page contains editorial instructions; it does not submit tickets.
 Editorial slugs cannot be served through the generic page route.
 
-Content starts empty until an operator installs the legal defaults or staff
-publish a page. Missing, draft, future-dated, or stale translated content
-returns 404 on generic routes. Reserved routes show an unpublished notice or,
+Content starts empty until an operator installs the legal defaults, a host
+operator publishes a legal edition, or staff publish a page. Missing, draft,
+future-dated, or stale translated content returns 404 on generic routes.
+Reserved routes show an unpublished notice or,
 for Help, Support and Report a Bug, localized support links. Database failures
 return 503. English is the source locale. Saving a
 Polish translation binds it to the current English revision. Updating English
@@ -53,6 +54,29 @@ Run `oteryn-portal check-signup-legal` with the candidate's live configuration
 before activating it. This read-only check requires both locales. See the
 [Oracle deployment procedure](../../../../../deploy/oracle/README.md) for upgrades
 from a release whose snapshots lack explicit approval.
+
+Host root can publish a final edition through the same save transaction as the
+staff editor. The command uses the portal's database configuration in every
+supported `OTERYN_ENV`. The actor must be an active, email-verified account
+with `admin.access` and `cms.pages.manage`. Browser MFA cannot apply to a
+host-root CLI. The transaction revalidates both permissions and records the
+actor in `cms.page.saved`.
+
+```sh
+oteryn-portal publish-legal-edition --actor "$actor" \
+  --slug terms-of-service --locale en --title 'Terms of Service' \
+  --body-file ./terms.en.md --version "$version" \
+  --effective "$effective" --final-approved
+```
+
+Supported slugs are `terms-of-service`, `privacy-policy`, and `cookie-policy`.
+Supported locales are `en` and `pl`. Each UTF-8 Markdown file must contain
+the real operator details. A literal `{{operator}}` anywhere in the body is
+refused, and the final approval checks also reject known placeholders in
+rendered content. The command
+publishes immediately. Publish English first, then Polish for each slug.
+An edition's title, body, effective date and approval remain immutable under
+its locale and version.
 
 The editor is `/admin/pages`. Its create form opens
 `/admin/pages/{slug}/{locale}`, which supports GET and CSRF-protected POST.

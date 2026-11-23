@@ -1,9 +1,11 @@
-use super::staff::{PageForm, persist};
+use super::staff::{LegalEdition, PageForm, SaveError, persist, publish_legal_edition};
 use super::*;
 use axum::{
     body::{Body, to_bytes},
     http::Request,
 };
+use oteryn_admin::rbac::Error;
+use oteryn_identity::consents::ConsentConfig;
 use tower::ServiceExt;
 use uuid::Uuid;
 #[test]
@@ -896,4 +898,180 @@ async fn browser_page_submit(
     let version = version.replace('+', "%2B").replace(' ', "%20");
     Ok(app.oneshot(Request::post(format!("/admin/pages/new-page/{locale}")).header("host","staff.test").header("origin","https://staff.test").header("cookie",cookie).header("content-type","application/x-www-form-urlencoded")
         .body(Body::from(format!("_csrf={csrf}&expected_revision={version}&reviewed_source_revision={source}&title={title}&body={title}&action=save&published_at=2020-01-01T00:00:00Z")))?).await?.status())
+}
+
+async fn legal_operator(pool: &PgPool, role: &str) -> Result<Uuid, sqlx::Error> {
+    let actor = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO accounts(id,email,password_hash,status,locale,email_verified_at)
+         VALUES($1,$2,'editor-test-password','active','en',now())",
+    )
+    .bind(actor)
+    .bind(format!("{actor}@example.invalid"))
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key=$2",
+    )
+    .bind(actor)
+    .bind(role)
+    .execute(pool)
+    .await?;
+    Ok(actor)
+}
+
+fn legal_edition(slug: &str, locale: &str, version: &str) -> LegalEdition {
+    LegalEdition {
+        slug: slug.into(),
+        locale: locale.into(),
+        title: if locale == "en" {
+            "Legal edition"
+        } else {
+            "Dokument prawny"
+        }
+        .into(),
+        body: if locale == "en" {
+            "Published service documents."
+        } else {
+            "Opublikowane dokumenty serwisu."
+        }
+        .into(),
+        version: version.into(),
+        effective: "2026-11-23".into(),
+    }
+}
+
+#[tokio::test]
+async fn operator_publishes_bilingual_signup_editions() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let actor = legal_operator(&pool, "content_editor").await?;
+    let terms = "terms-test-edition";
+    let privacy = "privacy-test-edition";
+    let consents = ConsentConfig::published(terms.into(), privacy.into(), false);
+    assert!(consents.check_publication(&pool, "en").await.is_err());
+    for (slug, version) in [("terms-of-service", terms), ("privacy-policy", privacy)] {
+        for locale in ["en", "pl"] {
+            publish_legal_edition(&pool, actor, legal_edition(slug, locale, version)).await?;
+        }
+    }
+    // The check-signup-legal role runs this final-only check for both locales.
+    let mut tx = pool.begin().await?;
+    for locale in ["en", "pl"] {
+        consents.check_publication(&mut *tx, locale).await?;
+    }
+    tx.commit().await?;
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_refuses_polish_before_english() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let actor = legal_operator(&pool, "content_editor").await?;
+    let edition = legal_edition("terms-of-service", "pl", "terms-test-edition");
+    assert!(matches!(
+        publish_legal_edition(&pool, actor, edition).await,
+        Err(SaveError::MissingSource)
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM pages")
+            .fetch_one(&pool)
+            .await?,
+        0
+    );
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_refuses_placeholder_text() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let actor = legal_operator(&pool, "content_editor").await?;
+    for body in [
+        "Operator: {{operator}}",
+        "Legal text.\n\n<!-- {{operator}} -->",
+        "Tax ID (NIP) 000-000-00-00",
+    ] {
+        let mut edition = legal_edition("terms-of-service", "en", "terms-test-edition");
+        edition.body = body.into();
+        assert!(matches!(
+            publish_legal_edition(&pool, actor, edition).await,
+            Err(SaveError::InvalidForm)
+        ));
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_requires_an_account_and_both_grants() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let without_pages = legal_operator(&pool, "moderator").await?;
+    sqlx::query("INSERT INTO roles(key) VALUES('test_page_only')")
+        .execute(&pool)
+        .await?;
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) SELECT id,'cms.pages.manage' FROM roles WHERE key='test_page_only'")
+        .execute(&pool).await?;
+    let without_access = legal_operator(&pool, "test_page_only").await?;
+    for actor in [without_pages, without_access, Uuid::now_v7()] {
+        let edition = legal_edition("terms-of-service", "en", "terms-test-edition");
+        assert!(matches!(
+            publish_legal_edition(&pool, actor, edition).await,
+            Err(SaveError::Authorization(Error::Denied))
+        ));
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_cannot_rewrite_an_immutable_edition() -> Result<(), Box<dyn std::error::Error>> {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let actor = legal_operator(&pool, "content_editor").await?;
+    let version = "terms-test-edition";
+    let edition = legal_edition("terms-of-service", "en", version);
+    let original_body = edition.body.clone();
+    publish_legal_edition(&pool, actor, edition).await?;
+    let mut changed = legal_edition("terms-of-service", "en", version);
+    changed.body.push_str(" Revised text.");
+    assert!(matches!(
+        publish_legal_edition(&pool, actor, changed).await,
+        Err(SaveError::ImmutableVersion)
+    ));
+    let (body, snapshot): (String, String) = sqlx::query_as(
+        "SELECT e.body, v.content->>'body' FROM editorial_pages e JOIN page_legal_versions v
+         ON v.page_id=e.page_id AND v.locale=e.locale AND v.version=e.legal_version",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(body, original_body);
+    assert_eq!(snapshot, original_body);
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
+async fn operator_save_audits_actor_and_publication_time() -> Result<(), Box<dyn std::error::Error>>
+{
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let actor = legal_operator(&pool, "content_editor").await?;
+    let edition = legal_edition("cookie-policy", "en", "cookies-test-edition");
+    publish_legal_edition(&pool, actor, edition).await?;
+    let audit: (Option<Uuid>, bool, bool) = sqlx::query_as(
+        "SELECT a.actor, a.after @> '{\"locale\":\"en\",\"final_approved\":true}'::jsonb,
+                e.published_at = a.created_at AND e.published_at = (a.after->>'published_at')::timestamptz
+         FROM audit_log a JOIN pages p ON p.slug=a.target JOIN editorial_pages e ON e.page_id=p.id
+         WHERE a.action='cms.page.saved' AND a.target='cookie-policy'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(audit, (Some(actor), true, true));
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
 }

@@ -32,6 +32,9 @@ SPEC_RE = re.compile(r'[A-Za-z0-9_./-]{0,200}')
 CRATE_RE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,99}')
 CARGO_FAILURE = re.compile(r'^test (\S{1,500}) \.\.\. FAILED$')
 ORIGIN = 'https://localhost:18443'
+# The owner may put https://<hostname> in ROOT/public-origin for the
+# tunnel-facing portal-public service; without it both use ORIGIN.
+PUBLIC_ORIGIN_RE = re.compile(r'https://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}')
 PORTAL_DB = 'portal_e2e_staging'
 TEST_DB = 'portal_staging_crate_tests'
 OFF = (
@@ -260,6 +263,16 @@ def env_file(directory, filename, values):
     write(directory / filename, ''.join(f'{key}={value}\n' for key, value in values.items()))
 
 
+def public_origin():
+    path = ROOT / 'public-origin'
+    if not path.exists():
+        return ORIGIN
+    value = path.read_text().strip()
+    if not PUBLIC_ORIGIN_RE.fullmatch(value):
+        raise Refusal('public-origin must be https://<hostname>')
+    return value
+
+
 def random_hex_key():
     return hashlib.sha256(secrets.token_urlsafe(32).encode()).hexdigest()
 
@@ -290,6 +303,12 @@ def configure(directory, sha):
         'OTERYN_DATABASE_URL': f'postgres://portal:{db_password}@postgres:5432/{PORTAL_DB}',
     })
     env_file(directory, 'portal.env', portal)
+    origin = public_origin()
+    env_file(directory, 'public.env', {
+        'OTERYN_PUBLIC_ORIGIN': origin,
+        'OTERYN_WEBAUTHN_RP_ID': origin.split('://', 1)[1].split(':', 1)[0],
+        'OTERYN_NOTIFY_UNSUBSCRIBE_URL': f'{origin}/en/unsubscribe',
+    })
     env_file(directory, 'browser.env', {
         'OTERYN_ENV': 'testing', 'APP_ENV': 'testing', 'OTERYN_PUBLIC_ORIGIN': ORIGIN,
         'OTERYN_STATIC_DIR': '/app/static', 'PORTAL_E2E_ORIGIN': ORIGIN,
@@ -372,7 +391,7 @@ def replace_stack(directory, sha, smtp_password, seed_password):
     compose(directory, *oneoff, 'install-legal-pages')
     compose(directory, *oneoff, 'seed', 'account',
             json.dumps({'email': 'player1@example.invalid', 'password': seed_password}))
-    compose(directory, 'up', '-d', 'portal', 'worker', 'ingress')
+    compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress')
     wait_ready()
 
 
