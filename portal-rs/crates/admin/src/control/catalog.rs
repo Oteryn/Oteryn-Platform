@@ -200,7 +200,7 @@ macro_rules! game_operations {
 }
 
 /// Oteryn-Game `crates/admin/contracts/src/catalog.rs` `Operation::ALL` at
-/// b37a0c690264598f0d4d6659bcc6cf41fa6a98b9.
+/// 3d4ea6ed913359c2e5aafb7ab6b890a894ff32fa.
 pub const GAME_OPERATIONS: &[GameOperation] = game_operations! {
     "ops.overview.get", 1, Query, R0, "game.ops.read";
     "world.list", 1, Query, R0, "game.world.read";
@@ -271,7 +271,7 @@ pub const ECONOMY_QUERIES: &[EconomyQuery] = economy_queries! {
     "top_wealth", R1;
 };
 
-/// Phase-1 query operations eligible for agent advertisement and read-result validation.
+/// Phase-1 query schemas.
 pub const READ_OPERATIONS: [&str; 15] = [
     "ops.overview.get",
     "world.list",
@@ -290,11 +290,51 @@ pub const READ_OPERATIONS: [&str; 15] = [
     "analytics.catalog",
 ];
 
+/// Game registrations from `crates/admin/agent/src/read.rs` at the pinned revision.
+pub const REGISTERED_READS: [&str; 13] = [
+    "admin.ledger.query",
+    "admin.policy.get",
+    "db.migrations.list",
+    "db.status",
+    "node.get",
+    "node.list",
+    "ops.overview.get",
+    "player.character.get",
+    "player.inventory.get",
+    "player.search",
+    "sanction.list",
+    "world.get",
+    "world.list",
+];
+
+pub const GLOBAL_READS: [&str; 3] = ["admin.policy.get", "db.migrations.list", "db.status"];
+
+/// Target selectors accepted by the pinned Game read contract.
+pub(crate) fn valid_read_target(operation: &str, target: &super::Target) -> bool {
+    let world = target.world_id.is_some();
+    let node = target.node_id.is_some();
+    let character = target.character_id.is_some();
+    let account = target.account_ref.is_some();
+    if GLOBAL_READS.contains(&operation) {
+        return !world && !node && !character && !account;
+    }
+    match operation {
+        "world.get" => world && !node && !character && !account,
+        "world.list" => !node && !character && !account,
+        "node.get" => node && !character && !account,
+        "node.list" | "ops.overview.get" => !character && !account,
+        "player.character.get" | "player.inventory.get" => world && character && !node,
+        "player.search" => !node,
+        "sanction.list" => (character || account) && !node,
+        _ => true,
+    }
+}
+
 /// Trusted kind of an operation version an agent advertises in hello. The
 /// agent never supplies the kind; an unknown operation or version has none.
 /// A kind is not an advertisement, authorization or enablement.
 pub fn advertised_kind(operation: &str, version: i32) -> Option<signer::Kind> {
-    if READ_OPERATIONS.contains(&operation) {
+    if REGISTERED_READS.contains(&operation) {
         return (version == 1).then_some(signer::Kind::Query);
     }
     StaffOperation::lookup(operation)

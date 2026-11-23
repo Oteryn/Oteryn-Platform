@@ -38,3 +38,7 @@ house = Dom
 bank = Saldo banku
 logins = Czasy ostatnich logowań
 empty = Brak pasujących wpisów.
+
+game-read-invalid-target = Wybrany cel lub filtry są niezgodne z tym odczytem danych gry.
+game-read-character-online = Postać musi być offline. Wyloguj się z postaci i spróbuj ponownie.
+stash = Schowek

@@ -212,6 +212,7 @@ pub(super) fn snapshot(
         observed_at,
         characters: None,
         inventory: None,
+        stash_balances: vec![],
         sanctions: None,
     };
     match operation {
@@ -237,7 +238,16 @@ pub(super) fn snapshot(
                         })
                     })
                     .collect::<Result<_, Error>>()?,
-            )
+            );
+            snapshot.stash_balances = array(v, "stash_balances")?
+                .iter()
+                .map(|balance| {
+                    Ok(players::StashBalance {
+                        type_id: number(balance, "type_id")?,
+                        count: text(balance, "count")?,
+                    })
+                })
+                .collect::<Result<_, Error>>()?;
         }
         "sanction.list" => {
             snapshot.sanctions = Some(

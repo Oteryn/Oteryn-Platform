@@ -230,6 +230,7 @@ async fn postgres_masked_view_writes_exactly_one_read_audit()
             dossier: None,
         }]),
         inventory: Some(vec![]),
+        stash_balances: vec![],
         sanctions: Some(vec![]),
     };
     let state = Console {
@@ -471,6 +472,7 @@ async fn postgres_http_four_pages_filters_host_and_read_only()
                 observed_at: "2026-11-05T19:00:00Z".into(),
                 characters: None,
                 inventory: None,
+                stash_balances: vec![],
                 sanctions: None,
             }),
             ..fake(true, true)
@@ -602,6 +604,7 @@ async fn a2_inventory_and_sanctions_audit_distinct_requests_and_fail_closed()
                     location: "bag".into(),
                     count: "1".into(),
                 }]),
+                stash_balances: vec![],
                 sanctions: Some(vec![]),
             }),
         },

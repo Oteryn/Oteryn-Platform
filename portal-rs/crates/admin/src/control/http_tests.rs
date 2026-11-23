@@ -79,11 +79,15 @@ fn request_for(operation: &str, kind: Kind) -> NewRequest {
         operation: operation.into(),
         operation_version: 1,
         kind,
-        target: Target {
-            world_id: Some("world-a".into()),
-            node_id: None,
-            character_id: None,
-            account_ref: None,
+        target: if catalog::GLOBAL_READS.contains(&operation) {
+            Target::default()
+        } else {
+            Target {
+                world_id: Some("world-a".into()),
+                node_id: None,
+                character_id: None,
+                account_ref: None,
+            }
         },
         params: json!({}),
         params_digest: vec![2; 32],
@@ -185,8 +189,8 @@ async fn post(app: Router, path: &str, value: Value, identity: bool) -> Response
     app.oneshot(request).await.unwrap()
 }
 /// Game agent hello framing, transcribed from Oteryn-Game
-/// `crates/admin/agent/src/channel.rs` L110-119 at
-/// b37a0c690264598f0d4d6659bcc6cf41fa6a98b9 (framing ratified 2026-11-19).
+/// `crates/admin/agent/src/channel.rs` L120-129 at
+/// 3d4ea6ed913359c2e5aafb7ab6b890a894ff32fa (framing ratified 2026-11-19).
 fn game_hello(epoch: i64, operations: Value) -> Value {
     json!({"agent_id":"agent-a","build_revision":"test-build","catalog_digest":URL_SAFE_NO_PAD.encode([1;32]),"operations":operations,"worlds":["world-a"],"nodes":[],"owner_epoch":epoch,"clock":"2026-11-05T23:00:00Z"})
 }
@@ -196,11 +200,11 @@ fn hello_body(epoch: i64) -> Value {
         json!([{"operation":"staff.warning","version":1},{"operation":"admin.policy.get","version":1}]),
     )
 }
-/// Game poll framing (`channel.rs` L287 at the same commit).
+/// Game poll framing (`channel.rs` L329 at the same commit).
 fn game_poll(epoch: i64, wait_seconds: u8) -> Value {
     json!({"agent_id":"agent-a","owner_epoch":epoch,"wait_seconds":wait_seconds,"limit":32})
 }
-/// Game heartbeat framing (`channel.rs` L121 and L280 at the same commit).
+/// Game heartbeat framing (`channel.rs` L131 and L322 at the same commit).
 fn game_heartbeat(epoch: i64) -> Value {
     json!({"agent_id":"agent-a","owner_epoch":epoch,"clock":"2026-11-05T23:00:10Z"})
 }
@@ -787,6 +791,8 @@ async fn game_wire_bad_input_is_refused_before_storage() {
     );
     for operations in [
         json!([{"operation":"unknown.operation","version":1}]),
+        json!([{"operation":"admin.agent.list","version":1}]),
+        json!([{"operation":"analytics.catalog","version":1}]),
         json!([{"operation":"admin.policy.get","version":2}]),
         json!([{"operation":"staff.warning","version":0}]),
     ] {
@@ -892,9 +898,18 @@ async fn postgres_game_hello_registers_catalogue_kinds() {
     .await
     .unwrap();
     assert_eq!(advertised, json!([]));
+    let unadvertised = request_for("db.status", Kind::Query);
+    db.store().enqueue(&unadvertised).await.unwrap();
+    let response = post(app.clone(), "channel", game_poll(2, 0), true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json_body(response).await, json!([]));
 
     let mut operations = operations;
-    operations.push(json!({"operation":"admin.policy.get","version":1}));
+    operations.extend(
+        catalog::REGISTERED_READS
+            .iter()
+            .map(|operation| json!({"operation":operation,"version":1})),
+    );
     let response = post(app.clone(), "hello", game_hello(2, json!(operations)), true).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(json_body(response).await, json!({"status":"registered"}));
@@ -913,7 +928,14 @@ async fn postgres_game_hello_registers_catalogue_kinds() {
     assert!(row.get::<Vec<String>, _>("served_nodes").is_empty());
     assert_eq!(
         row.get::<Value, _>("advertised_operations"),
-        json!([{"operation":"admin.policy.get","operation_version":1,"kind":"query"}])
+        json!(
+            catalog::REGISTERED_READS
+                .iter()
+                .map(|operation| {
+                    json!({"operation":operation,"operation_version":1,"kind":"query"})
+                })
+                .collect::<Vec<_>>()
+        )
     );
     let mut outside = game_hello(3, json!([{"operation":"admin.policy.get","version":1}]));
     outside["worlds"] = json!(["outside"]);
@@ -938,7 +960,8 @@ async fn postgres_agent_channel_follows_configured_scope() {
         .expect("PORTAL_TEST_DATABASE_URL required");
     let world_router = app(db.pool.clone(), true);
     let node_router = app_with_scope(db.pool.clone(), true, vec![], vec!["node-a".into()]);
-    let mut node_hello = hello_body(1);
+    let advertised = json!([{"operation":"ops.overview.get","version":1},{"operation":"db.status","version":1},{"operation":"db.migrations.list","version":1}]);
+    let mut node_hello = game_hello(1, advertised.clone());
     node_hello["nodes"] = json!(["node-a"]);
     assert_eq!(
         post(node_router.clone(), "hello", node_hello.clone(), true)
@@ -947,13 +970,18 @@ async fn postgres_agent_channel_follows_configured_scope() {
         StatusCode::FORBIDDEN
     );
     assert_eq!(
-        post(world_router.clone(), "hello", hello_body(1), true)
-            .await
-            .status(),
+        post(
+            world_router.clone(),
+            "hello",
+            game_hello(1, advertised),
+            true
+        )
+        .await
+        .status(),
         StatusCode::OK
     );
 
-    let delivered = request_for("admin.policy.get", Kind::Query);
+    let delivered = request_for("ops.overview.get", Kind::Query);
     db.store().enqueue(&delivered).await.unwrap();
     let response = post(world_router, "channel", game_poll(1, 0), true).await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -962,7 +990,7 @@ async fn postgres_agent_channel_follows_configured_scope() {
         json!(delivered.request_id)
     );
 
-    let queued = request_for("admin.policy.get", Kind::Query);
+    let queued = request_for("ops.overview.get", Kind::Query);
     db.store().enqueue(&queued).await.unwrap();
     assert_eq!(
         post(node_router.clone(), "channel", game_poll(1, 0), true)
@@ -1001,6 +1029,37 @@ async fn postgres_agent_channel_follows_configured_scope() {
             .await
             .unwrap();
     assert_eq!(status, "queued");
+    let global_app = app_with_scope(db.pool.clone(), true, vec![], vec![]);
+    let mut global_hello = game_hello(
+        3,
+        json!([{"operation":"db.status","version":1},{"operation":"db.migrations.list","version":1},{"operation":"ops.overview.get","version":1}]),
+    );
+    global_hello["worlds"] = json!([]);
+    assert_eq!(
+        post(global_app.clone(), "hello", global_hello, true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    for operation in ["db.status", "db.migrations.list"] {
+        let input = request_for(operation, Kind::Query);
+        let mut scoped = input.clone();
+        scoped.target.world_id = Some("world-a".into());
+        assert!(matches!(
+            db.store().enqueue(&scoped).await,
+            Err(Error::InvalidInput)
+        ));
+        db.store().enqueue(&input).await.unwrap();
+    }
+    let response = post(global_app, "channel", game_poll(3, 0), true).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let batch: Vec<signer::RequestEnvelope> =
+        serde_json::from_value(json_body(response).await).unwrap();
+    assert_eq!(batch.len(), 2);
+    for envelope in batch {
+        assert!(["db.status", "db.migrations.list"].contains(&envelope.operation.as_str()));
+        assert!(envelope.target.world_id.is_none() && envelope.target.node_id.is_none());
+    }
     db.close().await;
 }
 

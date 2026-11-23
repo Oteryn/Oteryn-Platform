@@ -1,7 +1,7 @@
 # Agent HTTP transport
 
 ADM-01 `oteryn.admin-control.v1`, pinned Game contract commit
-`b37a0c690264598f0d4d6659bcc6cf41fa6a98b9`. Platform only accepts incoming
+`3d4ea6ed913359c2e5aafb7ab6b890a894ff32fa`. Platform only accepts incoming
 agent requests; it never connects to Game. No operation is emulated.
 The pin includes the Game ADM-G3 read contract. Portal agent transport and
 console query submission require their existing opt-in flags, which default
@@ -11,7 +11,7 @@ to false. Phase-2 entries and the named `analytics.query` forms are contract met
 `PORTAL_ADMIN_CONTROL_ENABLED` defaults to false (all six routes return 404).
 When enabled, `PORTAL_ADMIN_CONTROL_AGENTS_JSON` must be a nonempty array of
 closed objects: `cn`, `identity`, `allowed_worlds`, `allowed_nodes`, optional `result_key`.
-Both scope arrays are required, with at least one identifier between them.
+Both scope arrays are required.
 Each contains exact identifiers the peer can claim in hello or continue using
 from a stored registration. An empty array grants no scope of that type.
 For example, `"allowed_worlds":["world-a"],"allowed_nodes":[]` grants only
@@ -57,13 +57,16 @@ framing ratified by the owner on 2026-11-19
 - `hello`: `agent_id`, `build_revision`, `catalog_digest` (32 bytes, unpadded
   base64url), `operations` (`operation`, `version`), `worlds`, `nodes`, positive
   `owner_epoch`, RFC3339 `clock`. Phase-2 catalog entries are omitted from the
-  registered capabilities. Each accepted operation's kind comes from the
+  registered capabilities. Game advertises the 13 registered read executors at
+  this pin. Each accepted operation's kind comes from the
   trusted catalog (`catalog::advertised_kind`). Other unknown operations or
   versions are refused with 400 `ADM_UNKNOWN_OPERATION`.
 - `channel`: `agent_id`, `owner_epoch`, optional `wait_seconds` (0–25, default 0),
   optional `limit` (1–32, default 32). Returns a JSON array of at most `limit`
   signed request envelopes. Delivery is claimed once and records the owner epoch;
   expired requests are never returned. Disconnected or ambiguous owners deny.
+  `db.status`, `db.migrations.list`, and `admin.policy.get` are global reads
+  with an empty signed target. Other Game reads require World scope.
 - `results`: the bare closed ADM-01 result envelope. Agent ID must match TLS
   evidence. A configured result key verifies the signature before storage. The
   result is bound to the epoch its request was delivered under; if that agent no
@@ -135,6 +138,12 @@ window come from `PORTAL_ADMIN_CONTROL_SIGNER_KEY_ID`,
 `PORTAL_ADMIN_CONTROL_SIGNER_NOT_AFTER` (Unix seconds). Each agent needs its
 configured result verification key. Missing custody or verification authority
 refuses queries. No private material is included in browser responses.
+
+Game migration 3076 creates the curated `admin_read` views and the
+`oteryn_game_admin_read` NOLOGIN role. The deployed Game read login must have
+`CONNECT` on the Game database and membership in `oteryn_game_admin_read`.
+Enable individual reads in the pinned Game policy and keep the portal staff
+console flag off unless this access is intended.
 
 Admission rechecks staff permissions and the browser's durable MFA grant, live
 agent scope and query capability, and the four-query per-actor limit. The signed

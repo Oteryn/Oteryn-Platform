@@ -71,3 +71,6 @@ failed = Query failed
 rejected = Query rejected
 expired = Query expired
 cancelled = Query cancelled
+
+game-read-invalid-target = The selected target or filters are incompatible with this Game read.
+game-read-character-online = The character must be offline. Sign out of the character and try again.

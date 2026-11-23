@@ -677,9 +677,6 @@ pub(crate) fn configured_bindings() -> Result<Vec<AgentBinding>, Box<dyn std::er
     let bindings = bindings
         .into_iter()
         .map(|b| {
-            if b.allowed_worlds.is_empty() && b.allowed_nodes.is_empty() {
-                return Err(guard::ConfigError);
-            }
             let peer = VerifiedAgent::from_verified_certificate_cn(&b.cn)
                 .map_err(|_| guard::ConfigError)?;
             let identity = match b.identity {

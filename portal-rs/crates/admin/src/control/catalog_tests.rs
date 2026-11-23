@@ -291,10 +291,26 @@ fn game_catalog_preserves_agent_advertisement_scope() {
         .map(|op| op.name)
         .collect();
     assert_eq!(phase_1, BTreeSet::from(READ_OPERATIONS));
+    let expected = BTreeSet::from([
+        "admin.ledger.query",
+        "admin.policy.get",
+        "db.migrations.list",
+        "db.status",
+        "node.get",
+        "node.list",
+        "ops.overview.get",
+        "player.character.get",
+        "player.inventory.get",
+        "player.search",
+        "sanction.list",
+        "world.get",
+        "world.list",
+    ]);
+    assert_eq!(BTreeSet::from(REGISTERED_READS), expected);
     for op in GAME_OPERATIONS {
         assert_eq!(
             advertised_kind(op.name, 1),
-            (op.phase == 1).then_some(op.kind),
+            expected.contains(op.name).then_some(op.kind),
             "{}",
             op.name
         );
