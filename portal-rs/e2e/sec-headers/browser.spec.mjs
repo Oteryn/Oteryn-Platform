@@ -271,6 +271,10 @@ test('anonymous form refusals do not create session rows or issue cookies', asyn
 test('League HEAD keeps the GET content length and security headers', async ({ request }, info) => {
   const path = '/' + info.project.metadata.locale + '/league';
   const options = { headers: { accept: 'text/html' }, maxRedirects: 0 };
+  await expect.poll(async () => (await getFromPortal(request, path, options)).status(), {
+    message: 'League has received its initial publication',
+    timeout: 15_000,
+  }).toBe(200);
   const get = await getFromPortal(request, path, options);
   const head = await request.head(path, options)
     .catch(() => { throw new Error('Portal HEAD failed for League'); });
