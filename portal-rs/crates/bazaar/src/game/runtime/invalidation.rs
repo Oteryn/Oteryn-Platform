@@ -9,11 +9,15 @@ const APPROVED: &str = "FROM bazaar_moderation_outbox o
     WHERE o.kind='reconcile_invalidation' AND r.state='approved'";
 
 pub(super) async fn approved(db: &mut PgConnection, listing: Uuid) -> Result<bool, Error> {
+    Ok(approved_request(db, listing).await?.is_some())
+}
+
+async fn approved_request(db: &mut PgConnection, listing: Uuid) -> Result<Option<Uuid>, Error> {
     Ok(sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
-        "SELECT EXISTS(SELECT 1 {APPROVED} AND o.listing_id=$1)"
+        "SELECT r.id {APPROVED} AND o.listing_id=$1"
     )))
     .bind(listing)
-    .fetch_one(db)
+    .fetch_optional(db)
     .await?)
 }
 
@@ -65,7 +69,7 @@ impl Runtime {
         Ok(())
     }
 
-    async fn invalidate(&self, request: Uuid, id: Uuid) -> Result<(), Error> {
+    pub(crate) async fn invalidate(&self, request: Uuid, id: Uuid) -> Result<(), Error> {
         let mut tx = self.pool.begin().await?;
         crate::locking::listing_gate(&mut tx).await?;
         let listing: Listing =
@@ -73,7 +77,9 @@ impl Runtime {
                 .bind(id)
                 .fetch_one(&mut *tx)
                 .await?;
-        if !matches!(listing.state, State::Draft | State::Active) || !approved(&mut tx, id).await? {
+        if !matches!(listing.state, State::Draft | State::Active)
+            || approved_request(&mut tx, id).await? != Some(request)
+        {
             return Ok(());
         }
         let settling: bool = sqlx::query_scalar(

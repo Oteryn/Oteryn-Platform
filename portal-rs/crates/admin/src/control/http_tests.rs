@@ -1106,3 +1106,164 @@ async fn postgres_result_is_bound_to_its_delivery_epoch() {
     );
     db.close().await;
 }
+
+#[tokio::test]
+async fn postgres_adm_results_validate_signed_payload_against_stored_operation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let app = app(db.pool.clone(), true);
+    assert_eq!(
+        post(
+            app.clone(),
+            "hello",
+            game_hello(
+                1,
+                json!([
+                    {"operation":"node.list","version":1},
+                    {"operation":"ops.overview.get","version":1}
+                ])
+            ),
+            true,
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    let request = request_for("node.list", Kind::Query);
+    db.store().enqueue(&request).await.unwrap();
+    let claimed = post(app.clone(), "channel", game_poll(1, 0), true).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(claimed).await[0]["request_id"],
+        request.request_id.to_string()
+    );
+    let payload = json!({"nodes":[{
+        "node_id":"node-test", "host":"node.internal", "build":"test-build",
+        "uptime_seconds":12, "worlds":[], "ready":true, "cpu_percent":18.5, "memory_bytes":"1024"
+    }]});
+    let result = signed_result(&request, "succeeded", payload.clone(), Value::Null);
+    assert_eq!(
+        post(app.clone(), "results", result, true).await.status(),
+        StatusCode::OK
+    );
+    let stored = db.store().results(request.request_id, 1).await.unwrap();
+    assert_eq!(stored[0].payload["result"], payload);
+
+    let overview = request_for("ops.overview.get", Kind::Query);
+    db.store().enqueue(&overview).await.unwrap();
+    let claimed = post(app.clone(), "channel", game_poll(1, 0), true).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(claimed).await[0]["request_id"],
+        overview.request_id.to_string()
+    );
+    let mut counts = json!({
+        "agents":[], "worlds":[], "nodes":[], "players_online":18.5,
+        "db_available":true, "alerts":[]
+    });
+    let mut overflow = counts.clone();
+    overflow["players_online"] = json!(u64::from(u32::MAX) + 1);
+    for invalid in [counts.clone(), overflow, payload, Value::Null] {
+        let result = signed_result(&overview, "succeeded", invalid, Value::Null);
+        let refused = post(app.clone(), "results", result, true).await;
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            json_body(refused).await["error"]["code"],
+            "ADM_INVALID_PARAMS"
+        );
+        assert!(
+            db.store()
+                .results(overview.request_id, 1)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            db.store()
+                .get(overview.request_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            Status::Delivered
+        );
+    }
+    counts["players_online"] = json!(u32::MAX);
+    let result = signed_result(&overview, "succeeded", counts.clone(), Value::Null);
+    assert_eq!(
+        post(app, "results", result, true).await.status(),
+        StatusCode::OK
+    );
+    let stored = db.store().results(overview.request_id, 1).await.unwrap();
+    assert_eq!(stored[0].payload["result"], counts);
+    db.close().await;
+}
+
+#[tokio::test]
+async fn exact_legacy_read_retry_is_acknowledged_only_by_its_delivery_owner() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let db = Database::open().await.expect("PostgreSQL required");
+    let app = app(db.pool.clone(), true);
+    assert_eq!(
+        post(app.clone(), "hello", hello_body(1), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    let request = request_for("admin.policy.get", Kind::Query);
+    db.store().enqueue(&request).await.unwrap();
+    let claimed = post(app.clone(), "channel", game_poll(1, 0), true).await;
+    assert_eq!(claimed.status(), StatusCode::OK);
+    assert_eq!(
+        json_body(claimed).await[0]["request_id"],
+        request.request_id.to_string()
+    );
+    // Simulate a receipt persisted before operation schemas were enforced.
+    let payload = signed_result(&request, "succeeded", json!({}), Value::Null);
+    db.store()
+        .record_result(
+            &NewResult {
+                request_id: request.request_id,
+                agent_id: "agent-a".into(),
+                status: Status::Succeeded,
+                game_ledger_id: Some("ledger-a".into()),
+                error_code: None,
+                payload: payload.clone(),
+            },
+            1,
+        )
+        .await
+        .unwrap();
+    let audit_count = || {
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM audit_log WHERE request_id=$1")
+            .bind(request.request_id)
+            .fetch_one(&db.pool)
+    };
+    let before = audit_count().await.unwrap();
+    assert_eq!(
+        post(app.clone(), "results", payload.clone(), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(app.clone(), "hello", hello_body(2), true)
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        post(app, "results", payload, true).await.status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        db.store()
+            .results(request.request_id, 32)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(audit_count().await.unwrap(), before);
+    db.close().await;
+}

@@ -79,7 +79,7 @@ pub struct Input {
 #[derive(Template)]
 #[template(
     config = "../ui/askama.toml",
-    source = r##"{% extends "layout.html" %}{% block title %}{{ self.text("title") }}{% endblock %}{% block content %}<section class="op-card op-stack" data-theme="dark"><h1>{{ self.text("title") }}</h1><p role="status">{{ self.text(message) }}</p>
+    source = r##"{% extends "layout.html" %}{% block title %}{{ self.text("title") }}{% endblock %}{% block content %}<section class="op-stack"><h1>{{ self.text("title") }}</h1><p role="status">{{ self.text(message) }}</p>
 {% if mode == "confirm" %}{% if !raw.is_empty() %}<p class="op-code">{{ raw }}</p>{% endif %}{% endif %}
 <form class="op-stack" method="post" action="/{{ context.language }}/{% if mode != "recover" %}account/{% endif %}recovery-key{% if mode == "confirm" %}/confirm{% endif %}"><input type="hidden" name="_csrf" value="{{ context.csrf }}">
 {% if mode == "recover" %}<label class="op-field" for="email">{{ self.text("email") }}<input class="op-input" id="email" name="email" type="email" autocomplete="email" maxlength="254" required></label>{% endif %}

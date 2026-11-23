@@ -483,7 +483,7 @@ fn postgres_a3_processing_releases_rbac_for_other_mutations() {
         tokio::time::timeout(std::time::Duration::from_secs(2),async { while DECODERS.available_permits()!=0 { tokio::task::yield_now().await; } }).await.unwrap();
         tokio::time::timeout(std::time::Duration::from_secs(1),auth.change_from_panel(context,Uuid::now_v7(),Change::CreateRole { key:"decode_parallel",permissions:&[] })).await.unwrap().unwrap();
         let now=time::OffsetDateTime::now_utc();
-        let draft=crate::events::Draft { starts_at:now+time::Duration::hours(1),ends_at:now+time::Duration::hours(2),featured:false,en:crate::events::Translation { title:"Parallel event".into(),slug:"parallel-event".into(),summary:"Editorial save during image processing".into(),body:"Editorial save during image processing".into() },pl:None };
+        let draft=crate::events::Draft { reason: "Editorial test change".into(), starts_at:now+time::Duration::hours(1),ends_at:now+time::Duration::hours(2),featured:false,en:crate::events::Translation { title:"Parallel event".into(),slug:"parallel-event".into(),summary:"Editorial save during image processing".into(),body:"Editorial save during image processing".into() },pl:None };
         tokio::time::timeout(std::time::Duration::from_secs(1),crate::events::Events::new(pool.clone()).save(&auth,context,None,draft)).await.unwrap().unwrap();
         assert_eq!(sqlx::query_scalar::<_,i64>("SELECT count(*) FROM media").fetch_one(&pool).await.unwrap(),0);
         release.send(()).unwrap();

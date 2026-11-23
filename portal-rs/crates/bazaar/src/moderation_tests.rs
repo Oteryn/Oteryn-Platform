@@ -5,7 +5,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-type TestResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 struct Db {
     pool: PgPool,
     admin: PgPool,
@@ -40,7 +40,7 @@ impl Db {
             .connect(&url)
             .await?;
         oteryn_db::migrate(&pool).await?;
-        sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,amount bigint)")
+        sqlx::raw_sql("CREATE TABLE test_promotion_debits(id uuid PRIMARY KEY,actor uuid NOT NULL,amount bigint)")
             .execute(&pool)
             .await?;
         Ok(Some(Self {
@@ -126,12 +126,13 @@ impl PromotionLedger for Ledger {
     async fn debit(
         &self,
         db: &mut PgConnection,
-        _: Uuid,
+        actor: Uuid,
         amount: i64,
         key: Uuid,
     ) -> Result<(), Error> {
-        sqlx::query("INSERT INTO test_promotion_debits VALUES($1,$2)")
+        sqlx::query("INSERT INTO test_promotion_debits(id,actor,amount) VALUES($1,$2,$3)")
             .bind(key)
+            .bind(actor)
             .bind(amount)
             .execute(db)
             .await?;
@@ -162,6 +163,7 @@ fn fees() -> StaffCommand {
 }
 fn suspend(listing: Uuid) -> StaffCommand {
     StaffCommand::Suspend {
+        id: Uuid::now_v7(),
         listing,
         reason: "Review requires suspension".into(),
     }
@@ -273,14 +275,32 @@ async fn postgres_four_eyes_queues_once_and_retains_value() -> TestResult {
     )
     .await?;
     assert!(matches!(
-        db.staff(first, StaffCommand::ApproveInvalidation { id })
-            .await,
+        db.staff(
+            first,
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
     ));
-    db.staff(second, StaffCommand::ApproveInvalidation { id })
-        .await?;
-    db.staff(second, StaffCommand::ApproveInvalidation { id })
-        .await?;
+    db.staff(
+        second,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        second,
+        StaffCommand::ApproveInvalidation {
+            id,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM bazaar_moderation_outbox")
         .fetch_one(&db.pool)
         .await?;
@@ -318,8 +338,14 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     .await?;
     db.staff(first, suspend(listing)).await?;
     assert!(matches!(
-        db.staff(Uuid::now_v7(), StaffCommand::ApproveInvalidation { id })
-            .await,
+        db.staff(
+            Uuid::now_v7(),
+            StaffCommand::ApproveInvalidation {
+                id,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
     ));
     let replacement = Uuid::now_v7();
@@ -334,7 +360,10 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: replacement },
+        StaffCommand::ApproveInvalidation {
+            id: replacement,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     let requests: i64 =
@@ -375,6 +404,156 @@ async fn postgres_changed_hold_and_started_transfer_refuse_invalidation() -> Tes
     Ok(())
 }
 #[tokio::test]
+async fn postgres_promotion_router_binds_session_actor_and_path_listing() -> TestResult {
+    use axum::{
+        Extension, Router,
+        body::{Body, to_bytes},
+        extract::State,
+        http::{Request, StatusCode, header},
+        middleware,
+        routing::get,
+    };
+    use oteryn_web::session::{self, BrowserSession, PrivilegeChange, SessionLayer};
+    use tower::ServiceExt;
+
+    async fn login(
+        State(id): State<Uuid>,
+        Extension(session): Extension<BrowserSession>,
+    ) -> String {
+        session::rotate(&session, PrivilegeChange::Login(id))
+            .await
+            .unwrap();
+        session.csrf_token().await.unwrap()
+    }
+
+    async fn actor(pool: &PgPool) -> TestResult<(Uuid, String, String)> {
+        let id: Uuid = sqlx::query_scalar(
+            "INSERT INTO accounts(email,password_hash,status,email_verified_at,locale)
+             VALUES($1,'unused','active',now(),'en') RETURNING id",
+        )
+        .bind(format!("{}@example.invalid", Uuid::now_v7()))
+        .fetch_one(pool)
+        .await?;
+        let response = Router::new()
+            .route("/test-login", get(login))
+            .route_layer(middleware::from_fn_with_state(
+                SessionLayer::new(pool.clone()),
+                session::middleware,
+            ))
+            .with_state(id)
+            .oneshot(Request::get("/test-login").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::OK);
+        let cookie = response.headers()[header::SET_COOKIE]
+            .to_str()?
+            .split(';')
+            .next()
+            .unwrap()
+            .into();
+        let csrf = String::from_utf8(to_bytes(response.into_body(), 128).await?.to_vec())?;
+        Ok((id, cookie, csrf))
+    }
+
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Db::new().await? else {
+        return Ok(());
+    };
+    let app = web::router(
+        db.pool.clone(),
+        Allow,
+        View::default(),
+        Ledger::default(),
+        Flags {
+            enabled: true,
+            public_profiles: true,
+            promotions: true,
+        },
+    );
+    for lang in ["en", "pl"] {
+        let path = format!("/{lang}/account/bazaar/{}/promote", Uuid::now_v7());
+        let response = app
+            .clone()
+            .oneshot(Request::get(path).body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            format!("/{lang}/login")
+        );
+    }
+
+    db.staff(Uuid::now_v7(), fees()).await?;
+    let (owner, owner_cookie, owner_csrf) = actor(&db.pool).await?;
+    let (foreign, foreign_cookie, foreign_csrf) = actor(&db.pool).await?;
+    let other_listing = db.listing(foreign).await;
+    let effect_counts = || async {
+        sqlx::query_as::<_, (i64, i64)>(
+            "SELECT (SELECT count(*) FROM bazaar_promotions),
+                    (SELECT count(*) FROM test_promotion_debits)",
+        )
+        .fetch_one(&db.pool)
+        .await
+    };
+    for lang in ["en", "pl"] {
+        let listing = db.listing(owner).await;
+        let quote = db
+            .api(View::default(), Ledger::default())
+            .promotion_quote(owner, listing)
+            .await?;
+        let path = format!("/{lang}/account/bazaar/{listing}/promote");
+        let id = Uuid::now_v7();
+        let post = |cookie: &str, csrf: &str, path: &str| {
+            Request::post(path)
+                .header(header::COOKIE, cookie)
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "_csrf={csrf}&id={id}&fee_revision={}&amount={}",
+                    quote.revision, quote.amount
+                )))
+        };
+        let (promotions, debits) = effect_counts().await?;
+        for request in [
+            post(&foreign_cookie, &foreign_csrf, &path)?,
+            post(
+                &owner_cookie,
+                &owner_csrf,
+                &format!("/{lang}/account/bazaar/{other_listing}/promote"),
+            )?,
+        ] {
+            assert_eq!(
+                app.clone().oneshot(request).await?.status(),
+                StatusCode::FORBIDDEN
+            );
+            assert_eq!(effect_counts().await?, (promotions, debits));
+        }
+
+        let response = app
+            .clone()
+            .oneshot(post(&owner_cookie, &owner_csrf, &path)?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers()[header::LOCATION],
+            format!("/{lang}/bazaar/{listing}")
+        );
+        let stored: (Uuid, Uuid, Uuid, Uuid, i64) = sqlx::query_as(
+            "SELECT p.listing_id,p.owner,p.fee_revision,d.actor,d.amount
+             FROM bazaar_promotions p JOIN test_promotion_debits d USING(id) WHERE p.id=$1",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+        assert_eq!(
+            stored,
+            (listing, owner, quote.revision, owner, quote.amount)
+        );
+        assert_eq!(effect_counts().await?, (promotions + 1, debits + 1));
+    }
+    db.end().await;
+    Ok(())
+}
+
+#[tokio::test]
 async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Db::new().await? else {
@@ -386,7 +565,16 @@ async fn postgres_promotion_debit_is_atomic_and_idempotent() -> TestResult {
     let ledger = Ledger::default();
     let api = db.api(View::default(), ledger.clone());
     let id = Uuid::now_v7();
-    let quote = api.promotion_quote().await?;
+    let quote = api.promotion_quote(owner, listing).await?;
+    let foreign = Uuid::now_v7();
+    assert!(matches!(
+        api.promotion_quote(foreign, listing).await,
+        Err(Error::Denied)
+    ));
+    assert!(matches!(
+        api.promote(foreign, listing, id, quote).await,
+        Err(Error::Denied)
+    ));
     ledger.0.store(true, Ordering::SeqCst);
     assert!(matches!(
         api.promote(owner, listing, id, quote).await,
@@ -599,13 +787,36 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
         .report(actor, input)
         .await?;
     assert!(matches!(
-        db.staff(actor, StaffCommand::ReviewReport { id, accepted: true })
-            .await,
+        db.staff(
+            actor,
+            StaffCommand::ReviewReport {
+                id,
+                accepted: true,
+                reason: "Documented moderation decision".into()
+            }
+        )
+        .await,
         Err(Error::Denied)
+    ));
+    assert!(matches!(
+        db.staff(
+            Uuid::now_v7(),
+            StaffCommand::ReviewReport {
+                id,
+                accepted: true,
+                reason: " ".into()
+            },
+        )
+        .await,
+        Err(Error::InvalidInput)
     ));
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ReviewReport { id, accepted: true },
+        StaffCommand::ReviewReport {
+            id,
+            accepted: true,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     assert!(matches!(
@@ -613,7 +824,8 @@ async fn postgres_report_review_requires_independent_staff_and_pending_state() -
             Uuid::now_v7(),
             StaffCommand::ReviewReport {
                 id,
-                accepted: false
+                accepted: false,
+                reason: "Documented moderation decision".into()
             }
         )
         .await,
@@ -803,7 +1015,10 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: approval },
+        StaffCommand::ApproveInvalidation {
+            id: approval,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
 
@@ -822,7 +1037,10 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .await?;
     db.staff(
         Uuid::now_v7(),
-        StaffCommand::ApproveInvalidation { id: stale_request },
+        StaffCommand::ApproveInvalidation {
+            id: stale_request,
+            reason: "Documented moderation decision".into(),
+        },
     )
     .await?;
     db.staff(requester, suspend(stale)).await?;
@@ -844,8 +1062,6 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     .bind(listing)
     .fetch_one(&db.pool)
     .await?;
-    std::fs::remove_dir_all(directory)?;
-    db.end().await;
     assert_eq!(
         state,
         State::Cancelled,
@@ -854,5 +1070,49 @@ async fn postgres_tick_completes_approved_invalidation_once() -> TestResult {
     assert_eq!(stale_state, State::Active);
     assert_eq!(balances, [(200, 0), (200, 0)]);
     assert_eq!(releases, 2);
+
+    // The worker may have selected the old request before a new hold and
+    // approval took effect. Rechecking must match the selected request itself.
+    let current_request = Uuid::now_v7();
+    db.staff(
+        requester,
+        StaffCommand::RequestInvalidation {
+            id: current_request,
+            listing: stale,
+            reason: "Confirmed policy violation".into(),
+        },
+    )
+    .await?;
+    db.staff(
+        Uuid::now_v7(),
+        StaffCommand::ApproveInvalidation {
+            id: current_request,
+            reason: "Documented moderation decision".into(),
+        },
+    )
+    .await?;
+    runtime.invalidate(stale_request, stale).await?;
+    let state = || {
+        sqlx::query_scalar::<_, State>("SELECT state FROM bazaar_listings WHERE id=$1")
+            .bind(stale)
+            .fetch_one(&db.pool)
+    };
+    assert_eq!(state().await?, State::Active);
+    runtime.invalidate(current_request, stale).await?;
+    assert_eq!(state().await?, State::Cancelled);
+    std::fs::remove_dir_all(directory)?;
+    db.end().await;
     Ok(())
+}
+
+#[test]
+fn moderation_reason_fits_persisted_character_limit() {
+    let at_limit = format!("{}{}", "Reason for moderation", " ".repeat(479));
+    assert_eq!(at_limit.chars().count(), 500);
+    assert!(reason_valid(&at_limit).is_ok());
+    let beyond_limit = format!("{at_limit} ");
+    assert!(matches!(
+        reason_valid(&beyond_limit),
+        Err(Error::InvalidInput)
+    ));
 }

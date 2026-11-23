@@ -270,7 +270,7 @@ body.op-shell::before {
 .op-shell .op-shell__page main:has(> form:is([action$="/login"], [action$="/register"])) {
   max-width: 39rem;
 }
-.op-shell__page form[action$="/login"] {
+.op-shell main form:is([action$="/login"], [action$="/register"], [action$="/forgot-password"], [action$="/reset-password"], [action$="/recovery-key"], [action$="/recovery-key/confirm"]) {
   width: min(100%, 28rem);
   gap: 1.15rem;
 }
@@ -334,68 +334,34 @@ body.op-shell::before {
 .om-fallback-menu[open] > summary::after { transform: translateY(.2rem) rotate(225deg); }
 .om-fallback-menu > summary:focus-visible { outline-color: var(--gilt-light); }
 .om-fallback-menu[open] > summary { border-color: var(--gilt-light); color: var(--gilt-light); }
-.om-mast:not(.is-enhanced) .om-fallback-menu[open] > .om-nav {
-  position: absolute;
-  inset: calc(100% + 4px) var(--om-edge) auto auto;
-  display: flex;
-  flex-flow: column nowrap;
-  align-items: stretch;
-  gap: 1.2rem;
-  width: min(54rem, calc(100% - 2 * var(--om-edge)));
-  max-height: calc(100dvh - 100px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 1.15rem 1.25rem;
-  border: 1px solid #bdc0b2;
-  border-radius: 8px;
-  color: #243832;
-  background: #f4f1e7;
-  box-shadow: 0 12px 28px #0005;
-}
-.om-fallback-menu[open] > .om-nav > * { flex-shrink: 0; }
-.om-fallback-menu .om-nav .om-sections { align-items: start; gap: 1rem 2rem; }
-.om-mast:not(.is-enhanced) .om-fallback-menu .om-panel[hidden] {
-  color: inherit;
-  padding: .3rem 0 0;
-  column-gap: 1rem;
-}
-.om-mast:not(.is-enhanced) .om-fallback-menu .om-heading { color: var(--gilt-dark); }
-.om-fallback-menu .om-top-link { color: #293d34; }
-.om-fallback-menu .om-section > button { cursor: default; pointer-events: none; }
-.om-fallback-menu .om-tools {
-  order: -1;
-  justify-content: flex-start;
-  align-items: center;
-  gap: .4rem 1.25rem;
-  margin: 0;
-  padding-bottom: .75rem;
-  border-bottom: 1px solid #c0c6b9;
-}
-body.op-shell .om-fallback-menu .om-tools a.om-register { color: #fffdf4; background: #334e42; }
-.om-fallback-menu .om-nav :is(a, summary, button):focus-visible { outline: 2px solid var(--gilt-dark); outline-offset: 3px; }
+/* The same navigation serves both widths, including routes that forbid scripts. */
+.om-interior .om-section > summary { list-style: none; cursor: pointer; }
+.om-interior .om-section > summary::-webkit-details-marker { display: none; }
+.om-interior .om-section > summary:focus-visible { outline: 2px solid var(--om-gold); outline-offset: 2px; }
+.om-interior .om-section .om-panel .om-heading { color: var(--gilt-dark); }
 @media (min-width: 961px) {
-  .om-mast:not(.is-enhanced) .om-fallback-menu .om-sections {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .om-mast:not(.is-enhanced) .om-fallback-menu .om-panel[hidden] {
-    width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    overflow: visible;
-  }
-  .om-fallback-menu #portal-world-panel .om-column:first-child ul { display: block; }
-  .om-fallback-menu .om-column a { margin-inline: 0; padding-inline: .25rem; overflow-wrap: anywhere; }
-  .om-fallback-menu .om-section::before { display: none; }
+  .om-interior .om-fallback-menu { display: none; }
+  .om-interior:not(.is-enhanced) :is(.om-nav, .om-sections) { flex-wrap: nowrap; align-items: center; }
+  .om-interior:not(.is-enhanced) .om-chevron { display: inline-block; }
+  .om-interior .om-section[open] .om-chevron { transform: rotate(225deg); }
 }
 @media (max-width: 960px) {
-  .om-mast:not(.is-enhanced) .om-fallback-menu[open] > .om-nav {
-    inset-inline-end: max(10px, calc(var(--om-edge) - 10px));
+  .om-interior .om-fallback-menu:not([open]) + .om-nav { display: none; }
+  .om-interior .om-fallback-menu[open] + .om-nav {
+    position: absolute;
+    inset: calc(100% + 4px) var(--om-edge) auto auto;
     width: min(28rem, calc(100% - 24px));
     max-height: calc(100dvh - 76px);
-    gap: .55rem;
+    overflow: auto;
+    flex-flow: column nowrap;
+    align-items: stretch;
+    padding: 1rem;
+    border: 1px solid var(--gilt-dark);
+    border-radius: 8px;
+    background: var(--surface);
   }
-  .om-fallback-menu .om-nav .om-sections { align-items: stretch; gap: .35rem; }
-  .om-fallback-menu .om-tools { gap: .3rem .65rem; }
+  .om-interior .om-nav .om-sections { flex-direction: column; align-items: stretch; }
+  .om-interior .om-section .om-panel { position: static; width: auto; grid-template-columns: 1fr; }
 }
 .om-mast.is-enhanced .om-fallback-account { display: none; }
 .om-mast:not(.is-enhanced) .om-tools:has(.om-fallback-account) .om-login[data-account-link] { display: none; }
@@ -435,7 +401,7 @@ body.op-shell .om-fallback-menu .om-tools a.om-register { color: #fffdf4; backgr
 }
 
 .op-shell__page form:has(input[autocomplete="current-password"]) {
-  width: min(100%, 30rem);
+  width: min(100%, 28rem);
   justify-self: start;
 }
 .op-shell :is(.op-shell__page, main.op-main) .op-input:focus-visible {

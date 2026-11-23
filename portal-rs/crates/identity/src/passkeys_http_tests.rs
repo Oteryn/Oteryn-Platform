@@ -9,10 +9,19 @@ use tower::ServiceExt;
 mod database;
 const CSRF: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const COOKIE: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
-async fn app(db: &database::Database, account: Option<Uuid>) -> Router {
+async fn seed_session(db: &database::Database, account: Option<Uuid>) {
     // Safe synthetic browser material, never a real credential.
-    sqlx::query("INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at) VALUES (sha256($1::bytea),$2,'test',$3,now()+interval '1 hour',now()+interval '1 day')")
+    sqlx::query(
+        "INSERT INTO web_sessions(id_hash,account_id,user_agent_summary,csrf_token,idle_expires_at,absolute_expires_at)
+         VALUES (sha256($1::bytea),$2,'test',$3,now()+interval '1 hour',now()+interval '1 day')",
+    )
         .bind(COOKIE.as_bytes()).bind(account).bind(CSRF).execute(&db.pool).await.unwrap();
+}
+async fn app(db: &database::Database, account: Option<Uuid>) -> Router {
+    seed_session(db, account).await;
+    test_router(db)
+}
+fn test_router(db: &database::Database) -> Router {
     let service = Passkeys::new(db.pool.clone(), "example.test", "https://example.test").unwrap();
     let mut sessions = SessionLayer::new(db.pool.clone());
     sessions.csrf.trusted_origins = vec!["https://example.test".into()];
@@ -212,6 +221,96 @@ async fn postgres_password_confirmation_and_localized_page() {
     .unwrap();
     assert!(body.contains("Klucze dostępu"));
     assert!(body.contains("/static/passkeys.js"));
+    db.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn postgres_passkey_navigation_matches_route_eligibility() {
+    let Some(db) = database::Database::open().await.unwrap() else {
+        return;
+    };
+    let account: Uuid = sqlx::query_scalar(
+        "INSERT INTO accounts(email,password_hash,status,email_verified_at,locale)
+         VALUES ('navigation@example.test','unused','active',now(),'en') RETURNING id",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    let mut registry = oteryn_ui::Registry::default();
+    registry.account = true;
+    registry.section(
+        true,
+        "account-passkeys",
+        "shell-account-passkeys",
+        "account/passkeys",
+        oteryn_ui::Group::Account,
+        false,
+    );
+    let app = test_router(&db)
+        .route(
+            "/en/",
+            get(
+                |Extension(chrome): Extension<oteryn_ui::Chrome>| async move {
+                    oteryn_ui::home(&chrome, &oteryn_ui::HomeData::default())
+                },
+            ),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            oteryn_web::chrome::Shell {
+                registry,
+                sessions: SessionLayer::new(db.pool.clone()),
+            },
+            oteryn_web::chrome::middleware,
+        ));
+    let route = "/en/account/passkeys";
+    let request = |uri| {
+        Request::get(uri)
+            .header("cookie", format!("{}={COOKIE}", session::COOKIE_NAME))
+            .body(Body::empty())
+            .unwrap()
+    };
+    for (status, verified, mfa_required, expected) in [
+        ("active", true, false, StatusCode::OK),
+        ("active", true, true, StatusCode::FORBIDDEN),
+        ("active", false, false, StatusCode::FORBIDDEN),
+        ("suspended", true, false, StatusCode::FORBIDDEN),
+    ] {
+        sqlx::query(
+            "UPDATE accounts SET status=$2,
+             email_verified_at=CASE WHEN $3 THEN now() ELSE NULL END,
+             login_mfa_required=$4 WHERE id=$1",
+        )
+        .bind(account)
+        .bind(status)
+        .bind(verified)
+        .bind(mfa_required)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+        // Account state transitions can revoke sessions. Give each fixture a valid session.
+        seed_session(&db, Some(account)).await;
+        let passkeys = app.clone().oneshot(request(route)).await.unwrap();
+        assert_eq!(
+            passkeys.status(),
+            expected,
+            "{status}, {verified}, {mfa_required}"
+        );
+        let home = app.clone().oneshot(request("/en/")).await.unwrap();
+        assert_eq!(home.status(), StatusCode::OK);
+        let html = to_bytes(home.into_body(), 1024 * 1024).await.unwrap();
+        let html = std::str::from_utf8(&html).unwrap();
+        assert!(html.contains("data-account-link"), "valid signed-in shell");
+        assert_eq!(
+            html.contains("href=\"/en/account/passkeys\""),
+            expected == StatusCode::OK,
+            "{status}, {verified}, {mfa_required}",
+        );
+        sqlx::query("DELETE FROM web_sessions WHERE id_hash=sha256($1::bytea)")
+            .bind(COOKIE.as_bytes())
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
     db.close().await.unwrap();
 }
 

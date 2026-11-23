@@ -6,7 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 process.env.PORTAL_E2E_AUTH_DIRECTORY ||= fs.mkdtempSync(path.join(os.tmpdir(),'portal-e2e-auth-'));
 export default defineConfig({
-  testDir: './specs', timeout: 120_000, expect: { timeout: 10_000 },
+  testDir: '.', testMatch: ['specs/**/*.@(spec|test).?(c|m)[jt]s?(x)', 'bazaar/legacy.spec.mjs', 'security/auth*.spec.mjs'], timeout: 120_000, expect: { timeout: 10_000 },
   fullyParallel: false, workers: 1, retries: 0,
   reporter: [['list'], ['json', { outputFile: 'test-results/results.json' }]],
   use: { baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443', ignoreHTTPSErrors: true,

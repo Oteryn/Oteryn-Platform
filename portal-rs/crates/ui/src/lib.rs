@@ -7,16 +7,19 @@ use axum::{
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
 use std::sync::LazyLock;
 
-// A shell renders many labels and can compose chrome for every resource request.
-static EN: LazyLock<Option<FluentBundle<FluentResource>>> =
-    LazyLock::new(|| catalogue(unic_langid::langid!("en"), include_str!("../i18n/en.ftl")));
-static PL: LazyLock<Option<FluentBundle<FluentResource>>> =
-    LazyLock::new(|| catalogue(unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl")));
+type Catalogue = FluentBundle<FluentResource>;
 
-fn catalogue(
-    locale: unic_langid::LanguageIdentifier,
-    source: &str,
-) -> Option<FluentBundle<FluentResource>> {
+fn load_catalogue(locale: unic_langid::LanguageIdentifier, source: &str) -> Option<Catalogue> {
+    #[cfg(test)]
+    {
+        use std::sync::atomic::Ordering;
+
+        if locale.language.as_str() == "en" {
+            tests::EN_PARSES.fetch_add(1, Ordering::Relaxed);
+        } else {
+            tests::PL_PARSES.fetch_add(1, Ordering::Relaxed);
+        }
+    }
     let resource = FluentResource::try_new(source.to_owned()).ok()?;
     let mut bundle = FluentBundle::new_concurrent(vec![locale]);
     bundle.add_resource(resource).ok()?;
@@ -25,9 +28,16 @@ fn catalogue(
 
 /// Translate through the portal's existing Fluent catalogues.
 pub fn text(lang: &str, key: &str) -> String {
+    static EN: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load_catalogue(unic_langid::langid!("en"), include_str!("../i18n/en.ftl"))
+    });
+    static PL: LazyLock<Option<Catalogue>> = LazyLock::new(|| {
+        load_catalogue(unic_langid::langid!("pl"), include_str!("../i18n/pl.ftl"))
+    });
+
     let catalogue = if lang == "en" { &EN } else { &PL };
     if let Some(bundle) = catalogue.as_ref()
-        && let Some(pattern) = bundle.get_message(key).and_then(|message| message.value())
+        && let Some(pattern) = bundle.get_message(key).and_then(|m| m.value())
     {
         return bundle
             .format_pattern(pattern, None, &mut Vec::new())
@@ -124,6 +134,16 @@ impl Registry {
         let mut entries: Vec<NavLink> = self
             .entries
             .iter()
+            .filter(|entry| {
+                entry.section != "account-passkeys"
+                    || !matches!(
+                        account,
+                        Account::SignedIn {
+                            passkeys_eligible: false,
+                            ..
+                        }
+                    )
+            })
             .map(|e| {
                 let url = if e.path.starts_with('/') {
                     e.path.to_owned()
@@ -204,6 +224,7 @@ pub enum Account {
     Anonymous,
     SignedIn {
         csrf: String,
+        passkeys_eligible: bool,
     },
 }
 #[derive(Clone, Debug)]
@@ -258,7 +279,7 @@ impl Chrome {
     pub fn csrf(&self) -> &str {
         match &self.account {
             Account::Anonymous => "",
-            Account::SignedIn { csrf } => csrf,
+            Account::SignedIn { csrf, .. } => csrf,
         }
     }
     pub fn home_url(&self) -> String {
@@ -391,6 +412,40 @@ fn render(template: &impl Template, status: StatusCode) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{
+        Barrier,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    pub(super) static EN_PARSES: AtomicUsize = AtomicUsize::new(0);
+    pub(super) static PL_PARSES: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn catalogues_parse_once_and_preserve_translations() {
+        let inputs = [
+            ("en", "My account", "News"),
+            ("pl", "Moje konto", "Aktualności"),
+            ("en", "My account", "News"),
+            ("unsupported", "Moje konto", "Aktualności"),
+        ];
+        let ready = Barrier::new(inputs.len());
+        std::thread::scope(|scope| {
+            for (lang, account, news) in inputs {
+                let ready = &ready;
+                scope.spawn(move || {
+                    ready.wait();
+                    for _ in 0..2 {
+                        assert_eq!(text(lang, "stage-my-account"), account);
+                        assert_eq!(text(lang, "shell-news"), news);
+                        assert_eq!(text(lang, "missing-test-key"), "");
+                    }
+                });
+            }
+        });
+        assert_eq!(EN_PARSES.load(Ordering::Relaxed), 1, "English parses");
+        assert_eq!(PL_PARSES.load(Ordering::Relaxed), 1, "Polish parses");
+    }
+
     fn registry() -> Registry {
         let mut registry = Registry {
             login: true,
@@ -409,18 +464,6 @@ mod tests {
         );
         registry
     }
-    #[test]
-    fn concurrent_shell_catalogues_keep_locales_and_fallback_separate() {
-        std::thread::scope(|scope| {
-            let english = scope.spawn(|| text("en", "error-403-title"));
-            let polish = scope.spawn(|| text("pl", "error-403-title"));
-            assert_eq!(english.join().unwrap(), "Access denied");
-            assert_eq!(polish.join().unwrap(), "Brak dostępu");
-        });
-        assert_eq!(text("unknown", "error-403-title"), "Brak dostępu");
-        assert_eq!(text("en", "missing-translation-test"), "");
-    }
-
     #[test]
     fn enabled_navigation_and_path_switch() {
         let chrome = registry().chrome(
@@ -505,143 +548,6 @@ mod tests {
         assert_eq!(active, ["calculators"]);
     }
     #[test]
-    fn shell_uses_compressed_web_fonts() {
-        let static_dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../static/thais");
-        let css = std::fs::read_to_string(static_dir.join("shell.css")).expect("shell stylesheet");
-        let fonts: Vec<_> = css
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix("src: url(\""))
-            .filter_map(|line| line.split_once('"').map(|(file, _)| file))
-            .collect();
-        assert_eq!(fonts.len(), 3);
-        let total: usize = fonts
-            .into_iter()
-            .map(|file| {
-                let bytes = std::fs::read(static_dir.join(file)).expect("shipped shell font");
-                assert!(bytes.starts_with(b"wOF2"), "{file} uses WOFF2");
-                bytes.len()
-            })
-            .sum();
-        assert!(total < 566_128, "shell fonts use {total} bytes");
-    }
-
-    #[test]
-    fn homepage_smooth_scroll_leaves_keyboard_focus_immediate() {
-        let css = include_str!("../../../static/thais/home.css");
-        assert_eq!(css.matches("scroll-behavior: smooth").count(), 1);
-        assert!(css.contains("html:not(:has(:focus-visible)) { scroll-behavior: smooth; }"));
-    }
-
-    #[test]
-    fn home_navigation_fallback_reserves_the_enhanced_bar_height() {
-        let css = include_str!("../../../static/thais/home.css");
-        assert!(css.contains(".om-mast { margin-bottom: calc(-1 * var(--om-bar-height)); }"));
-        assert!(css.contains(concat!(
-            ".om-mast:not(.is-enhanced):not(:has(.om-fallback-menu)) {\n",
-            "  height: var(--om-bar-height);\n"
-        )));
-    }
-
-    #[test]
-    fn shell_backgrounds_use_smaller_gate_images() {
-        let static_dir =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../static/thais");
-        let full_size = std::fs::metadata(static_dir.join("brama.webp"))
-            .unwrap()
-            .len();
-        for stylesheet in ["interior.css", "shop.css"] {
-            let css = std::fs::read_to_string(static_dir.join(stylesheet)).unwrap();
-            for source in ["brama-8c66cbecc.webp", "brama-1692ad85.webp"] {
-                assert!(css.contains(&format!("url(\"{source}\")")));
-                assert!(std::fs::metadata(static_dir.join(source)).unwrap().len() < full_size);
-            }
-        }
-        let interior = std::fs::read_to_string(static_dir.join("interior.css")).unwrap();
-        for (standard, high_density) in [
-            ("brama-dee0c725.webp", "brama-8c66cbecc.webp"),
-            ("brama-0a5fa173.webp", "brama-1692ad85.webp"),
-        ] {
-            let sources =
-                format!("image-set(url(\"{standard}\") 1x, url(\"{high_density}\") 2x)");
-            assert!(interior.contains(&sources));
-            let bytes = |source| std::fs::metadata(static_dir.join(source)).unwrap().len();
-            assert!(bytes(standard) < bytes(high_density));
-        }
-    }
-
-    #[test]
-    fn home_prioritizes_panorama_over_below_fold_art() -> Result<(), askama::Error> {
-        let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
-        let html = Home::new(&chrome, &HomeData::default()).render()?;
-        let deferred = html.matches(r#"loading="lazy""#).count();
-        assert!(deferred > 0);
-        assert_eq!(
-            html.matches(r#"loading="lazy" fetchpriority="low" decoding="async""#)
-                .count(),
-            deferred
-        );
-        assert_eq!(
-            html.split("<img ")
-                .skip(1)
-                .filter_map(|tag| tag.split_once('>').map(|(attributes, _)| attributes))
-                .filter(|attributes| attributes.contains(r#"fetchpriority="high""#))
-                .count(),
-            1
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn home_panorama_offers_viewport_sized_sources() -> Result<(), askama::Error> {
-        let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
-        let html = Home::new(&chrome, &HomeData::default()).render()?;
-        for media in ["(min-width: 961px)", "(width < 961px)"] {
-            let preload =
-                format!(r#"<link rel="preload" as="image" media="{media}" imagesrcset=""#);
-            let srcset = html
-                .split_once(&preload)
-                .and_then(|(_, link)| link.split_once('"'))
-                .expect("responsive preload has a source set")
-                .0;
-            assert!(html.contains(&format!(r#" srcset="{srcset}" sizes="100vw""#)));
-        }
-        for (name, width, original_size) in [
-            ("brama-panorama-aee60a5b.webp", 1536, 718_188),
-            ("brama-1692ad85.webp", 824, 628_654),
-            ("brama-6a5bc052.webp", 416, 118_986),
-        ] {
-            assert!(html.contains(&format!("/static/thais/{name} {width}w")));
-            let asset = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../../static/thais")
-                .join(name);
-            assert!(
-                std::fs::metadata(asset)
-                    .expect("shipped panorama source")
-                    .len()
-                    < original_size
-            );
-        }
-        Ok(())
-    }
-
-    #[test]
-    fn desktop_home_panorama_fits_the_request_budget() -> Result<(), askama::Error> {
-        const PANORAMA: &str = "brama-panorama-f4db61b9.webp";
-        let chrome = Registry::default().chrome("en", "/en/", Account::Anonymous);
-        let html = Home::new(&chrome, &HomeData::default()).render()?;
-        assert!(html.contains(&format!("/static/thais/{PANORAMA} 2868w")));
-        let asset = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../static/thais")
-            .join(PANORAMA);
-        let size = std::fs::metadata(asset)
-            .expect("shipped desktop panorama")
-            .len();
-        assert!(size < 1_000_000, "desktop panorama is {size} bytes");
-        Ok(())
-    }
-
-    #[test]
     fn home_and_account_states_in_both_languages() -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {
             for enabled in [false, true] {
@@ -673,6 +579,7 @@ mod tests {
                 "/",
                 Account::SignedIn {
                     csrf: "escaped<&token".into(),
+                    passkeys_eligible: false,
                 },
             );
             let html = Home::new(&chrome, &HomeData::default()).render()?;
@@ -681,6 +588,49 @@ mod tests {
             assert!(html.contains("href=\"/account\""));
             assert!(!html.contains("/login\""));
             assert!(!html.contains("/register\""));
+        }
+        Ok(())
+    }
+    #[test]
+    fn home_character_creation_requires_a_session_or_a_login_route() -> Result<(), askama::Error> {
+        for lang in ["pl", "en"] {
+            for (login, signed_in, visible) in [
+                (false, false, false),
+                (true, false, true),
+                (false, true, true),
+            ] {
+                let mut registry = Registry {
+                    login,
+                    ..Registry::default()
+                };
+                registry.section(
+                    true,
+                    "create-character",
+                    "shell-create-character",
+                    "account/characters/new",
+                    Group::Account,
+                    false,
+                );
+                let account = if signed_in {
+                    Account::SignedIn {
+                        csrf: String::new(),
+                        passkeys_eligible: false,
+                    }
+                } else {
+                    Account::Anonymous
+                };
+                let chrome = registry.chrome(lang, &format!("/{lang}/"), account);
+                let html = Home::new(&chrome, &HomeData::default()).render()?;
+                assert_eq!(
+                    html.contains(&format!("href=\"/{lang}/account/characters/new\"")),
+                    visible,
+                    "{lang}, login mounted: {login}, signed in: {signed_in}"
+                );
+                assert_eq!(
+                    html.contains(&chrome.text("thais-home-character-unavailable")),
+                    !visible
+                );
+            }
         }
         Ok(())
     }

@@ -3,7 +3,7 @@
 pub mod authority;
 mod http;
 use crate::lcfa::{AccountId, CharacterId, Settings};
-pub use http::{edit, update};
+pub use http::{authorize_update, edit, update};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
@@ -238,17 +238,35 @@ impl Service {
         now: i64,
     ) -> Result<(String, Preferences), Error> {
         let mut tx = self.begin().await?;
-        sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
-            .bind(account)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::NotFound)?;
-        Self::share_feed(&mut tx).await?;
-        let c = self.owned(&mut tx, account, name, now).await?;
+        let c = self.owner_for_edit(&mut tx, account, name, now).await?;
         let p = Self::preferences(&mut tx, account, c.0).await?;
         tx.commit().await?;
         Ok((c.1, p))
     }
+    async fn authorize_update(&self, account: Uuid, name: &str, now: i64) -> Result<(), Error> {
+        let mut tx = self.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        self.owner_for_edit(&mut tx, account, name, now).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn owner_for_edit(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        account: Uuid,
+        name: &str,
+        now: i64,
+    ) -> Result<(Uuid, String), Error> {
+        sqlx::query("SELECT id FROM accounts WHERE id=$1 AND status='active' FOR SHARE")
+            .bind(account)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or(Error::NotFound)?;
+        Self::share_feed(tx).await?;
+        self.owned(tx, account, name, now).await
+    }
+
     pub async fn update(
         &self,
         account: Uuid,
@@ -313,6 +331,10 @@ impl Service {
         if status.as_deref() != Some("active") {
             return Err(SaveError::Domain(Error::NotFound));
         }
+        // Serialize the ownership recheck through commit with receipt publication.
+        sqlx::query("SELECT pg_advisory_xact_lock_shared(22005160000)")
+            .execute(&mut *tx)
+            .await?;
         Self::share_feed(&mut tx).await?;
         let c = self
             .owned(&mut tx, account, name, now)

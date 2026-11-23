@@ -12,3 +12,9 @@ locale = Język
 create = Utwórz lub edytuj
 
 not-published = Ta strona nie została jeszcze opublikowana.
+operator-draft = Wersja robocza — dane operatora zostaną zastąpione.
+final-approval = Zatwierdź tę nową wersję dokumentu jako ostateczną
+support = Pomoc dla graczy
+report-a-bug = Zgłoś błąd
+help-tickets = Wyślij zgłoszenie do pomocy
+help-password = Odzyskaj dostęp do konta

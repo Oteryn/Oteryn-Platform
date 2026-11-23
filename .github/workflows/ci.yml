@@ -275,9 +275,60 @@ jobs:
           --summary "$GITHUB_STEP_SUMMARY"
 
   portal_rs:
-    # Rust portal qualification on the exact merge candidate; platform-gate requires it there.
-    if: ${{ github.event_name == 'merge_group' }}
-    uses: ./.github/workflows/portal-rs-ci.yml
+    # Keep Rust checks on every CI candidate; the heavy workflow owns database and browser tests.
+    name: Portal Rust lint
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: portal-rs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Run clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+  portal_rs_unit:
+    name: Unit tests without PostgreSQL
+    permissions:
+      contents: read
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_BUILD_JOBS: '2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: portal-rs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - name: Run database-free library tests
+        # Keep the fast job on small libraries without a PostgreSQL dependency.
+        # The heavy shards run the complete workspace suite, including gateway capacity tests.
+        run: >-
+          cargo test --locked --lib
+          -p oteryn-core
+          -p oteryn-internal-api
+          -p oteryn-ui
 
   platform_gate:
     name: platform-gate
@@ -288,8 +339,10 @@ jobs:
       - platform_postgres
       - php_coverage
       - portal_rs
+      - portal_rs_unit
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    permissions: {}
     steps:
       - name: Require existing Platform aggregate gates
         shell: bash
@@ -297,17 +350,14 @@ jobs:
           CLASSIFY_CHANGES_RESULT: ${{ needs.classify_changes.result }}
           TEST_RESULT: ${{ needs.test.result }}
           PLATFORM_POSTGRES_RESULT: ${{ needs.platform_postgres.result }}
+          PORTAL_RS_UNIT_RESULT: ${{ needs.portal_rs_unit.result }}
           PHP_COVERAGE_RESULT: ${{ needs.php_coverage.result }}
           PORTAL_RS_RESULT: ${{ needs.portal_rs.result }}
-          EVENT_NAME: ${{ github.event_name }}
         run: |
           set -euo pipefail
           test "$CLASSIFY_CHANGES_RESULT" = success
           test "$TEST_RESULT" = success
           test "$PLATFORM_POSTGRES_RESULT" = success -o "$PLATFORM_POSTGRES_RESULT" = skipped
+          test "$PORTAL_RS_UNIT_RESULT" = success
           test "$PHP_COVERAGE_RESULT" = success -o "$PHP_COVERAGE_RESULT" = skipped
-          if [ "$EVENT_NAME" = merge_group ]; then
-            test "$PORTAL_RS_RESULT" = success
-          else
-            test "$PORTAL_RS_RESULT" = skipped
-          fi
+          test "$PORTAL_RS_RESULT" = success
