@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.t("operations") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="op-theme" data-theme="dark">
+<main class="op-container op-stack">
+  <h1>{{ self.t("operations") }}</h1>
+  <p><a href="/{{ lang }}/pass">{{ self.t("title") }}</a></p>
+  <section class="op-card op-stack">
+    <h2>{{ self.t("availability") }}</h2>
+    <dl>
+      <dt>{{ self.t("portal") }}</dt><dd>{{ self.t("puzzle-challenge") }}</dd>
+      <dt>{{ self.t("journal") }}</dt><dd>{{ self.t("data-unavailable") }}</dd>
+      <dt>{{ self.t("game-delivery") }}</dt><dd>{{ self.t("data-unavailable") }}</dd>
+      <dt>{{ self.t("paid") }}</dt><dd>{% if paid %}{{ self.t("wallet-testing") }}{% else %}{{ self.t("data-unavailable") }}{% endif %}</dd>
+    </dl>
+  </section>
+  <section class="op-card op-stack">
+    <h2>{{ self.t("season-schedule") }}</h2>
+    {% if seasons.is_empty() %}
+    <p>{{ self.t("no-seasons") }}</p>
+    {% else %}
+    <ul class="op-stack">
+      {% for season in seasons %}
+      <li>
+        <strong>{% if season.active %}{{ self.t("season-active") }}{% else %}{{ self.t("season-scheduled") }}{% endif %}</strong>
+        <p>{{ season.id }}</p>
+        <p>{{ self.t("starts") }}: {{ season.starts_at }}</p>
+        <p>{{ self.t("ends") }}: {{ season.ends_at }}</p>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+  </section>
+  <section class="op-card op-stack">
+    <h2>{{ self.t("publish-season") }}</h2>
+    <form class="op-stack" method="post" action="/{{ lang }}/pass/operator">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label for="definition">{{ self.t("definition") }}</label>
+      <textarea class="op-input" id="definition" name="definition" rows="10" spellcheck="false" required></textarea>
+      <p>{{ self.t("definition-help") }}</p>
+      <div><button class="op-button" type="submit">{{ self.t("publish-season") }}</button></div>
+    </form>
+  </section>
+</main>
+</body>
+</html>

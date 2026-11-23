@@ -1,9 +1,12 @@
 //! Season passes use verified journal/portal facts and cosmetic entitlements only.
 //! Definitions are immutable; browser requests cannot submit progress or prices.
+mod operator;
 mod platform;
 mod repository;
 pub mod web;
 pub use repository::Passes;
+
+const PUZZLES_SOLVED: &str = "daily_puzzles.solved";
 use sqlx::{Postgres, Transaction};
 use std::future::Future;
 use time::OffsetDateTime;
@@ -31,7 +34,8 @@ pub enum Error {
     Database(#[from] sqlx::Error),
 }
 pub type Result<T> = std::result::Result<T, Error>;
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Source {
     Journal,
     Portal,
@@ -44,7 +48,8 @@ impl Source {
         }
     }
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Challenge {
     pub id: Uuid,
     pub source: Source,
@@ -52,7 +57,8 @@ pub struct Challenge {
     pub target: i64,
     pub xp: i64,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Reward {
     pub id: Uuid,
     pub paid: bool,
@@ -60,20 +66,31 @@ pub struct Reward {
     pub grant_key: String,
     pub grant_revision: String,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Season {
     pub id: Uuid,
+    #[serde(deserialize_with = "parse_timestamp")]
     pub starts_at: OffsetDateTime,
+    #[serde(deserialize_with = "parse_timestamp")]
     pub ends_at: OffsetDateTime,
     pub price: i64,
     pub challenges: Vec<Challenge>,
     pub rewards: Vec<Reward>,
 }
+fn parse_timestamp<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<OffsetDateTime, D::Error> {
+    let value = <String as serde::Deserialize>::deserialize(deserializer)?;
+    OffsetDateTime::parse(&value, &time::format_description::well_known::Rfc3339)
+        .map_err(serde::de::Error::custom)
+}
+
 impl Season {
     pub fn validate(&self) -> Result<()> {
-        let days = (self.ends_at - self.starts_at).whole_seconds();
+        let duration = self.ends_at - self.starts_at;
         if !valid_id(self.id)
-            || !(42 * 86400..=56 * 86400).contains(&days)
+            || !(time::Duration::days(42)..=time::Duration::days(56)).contains(&duration)
             || self.price <= 0
             || self.challenges.is_empty()
             || self.challenges.len() > 200
@@ -289,11 +306,17 @@ pub struct ChallengeView {
     pub definition: Challenge,
     pub amount: i64,
 }
+impl ChallengeView {
+    fn is_puzzle_progress(&self) -> bool {
+        self.definition.source == Source::Portal && self.definition.metric == PUZZLES_SOLVED
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RewardView {
     pub operation: Uuid,
     pub definition: Reward,
-    pub claimed: bool,
+    pub claim: Option<Claim>,
     pub eligible: bool,
 }
 #[derive(Debug, Clone)]
