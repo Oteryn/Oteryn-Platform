@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import AxeBuilder from '@axe-core/playwright';
 import {test, expect} from '../fixtures.mjs';
 import {action, seededAccount, seededLogin, seededStaff, unique} from '../staff-rbac-helpers.mjs';
 
@@ -24,6 +25,11 @@ test('player acknowledges a restriction and sees the staff appeal decision', asy
   expect(historyResponse.headers()['cache-control'].split(',').map(value => value.trim())).toContain('no-store');
   await expect(page).toHaveURL(new RegExp(`/${lang}/account/sanctions$`));
   await expect(page.getByRole('heading', {name: lang === 'pl' ? 'Historia kar' : 'Sanction history'})).toBeVisible();
+  for (const path of [`${history}?page=0`, `${history}?page=invalid`, `${history}/invalid`]) {
+    const response = await page.request.get(path);
+    expect(response.status()).toBe(400);
+    expect(response.headers()['content-language']).toBe(lang);
+  }
 
   const moderator = await browser.newContext({
     baseURL: new URL(page.url()).origin,
@@ -36,7 +42,7 @@ test('player acknowledges a restriction and sees the staff appeal decision', asy
     const staffPage = await moderator.newPage();
     await seededStaff(staffPage, lang, 'moderator');
     expect((await staffPage.goto(`${enforcement}/create`)).status()).toBe(200);
-    const reason = unique();
+    const reason = unique() + 'x'.repeat(280);
     const notes = unique();
     const now = Math.floor(Date.now() / 1000);
     await action(staffPage, 'form:has(input[value=sanction])', {
@@ -58,11 +64,28 @@ test('player acknowledges a restriction and sees the staff appeal decision', asy
       nodes.map(node => Date.parse(node.dateTime)));
     expect(dates).toEqual([(now - 60) * 1000, (now + 3600) * 1000]);
     await expect(main).not.toContainText(notes);
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
-    expect(overflow).toBe(false);
+    await expect(page.locator('header#portal-header.om-interior')).toHaveCount(1);
+    await expect(page.locator('footer.foot-interior')).toHaveCount(1);
+    await expect(page.locator(`#podglad-konta a[href="${history}"]`)).toHaveAttribute('aria-current', 'page');
+    await page.locator('a[href="#main"]').first().focus();
+    await page.keyboard.press('Enter');
+    await expect(main).toBeFocused();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    const accessibility = await new AxeBuilder({page}).analyze();
+    expect(accessibility.violations.filter(({impact}) => ['serious', 'critical'].includes(impact))).toEqual([]);
 
     await action(page, 'main form[action$="/acknowledge"]');
     await expect(main).toContainText(lang === 'pl' ? 'Potwierdzono zapoznanie się' : 'Acknowledged');
+    const appealForm = main.locator('form[action$="/appeal"]');
+    const fields = await appealForm.evaluate(form => Object.fromEntries(new FormData(form)));
+    const submitAppeal = message => page.request.post(`${detail}/appeal`, {
+      form: {...fields, message},
+      maxRedirects: 0,
+    });
+    const invalid = await submitAppeal('  ');
+    expect(invalid.status()).toBe(422);
+    expect(invalid.headers()['content-language']).toBe(lang);
+
     const message = `Please review ${unique()} <example>`;
     await action(page, 'main form[action$="/appeal"]', {message});
     const requested = lang === 'pl' ? 'Odwołanie złożone' : 'Appeal submitted';
@@ -70,6 +93,21 @@ test('player acknowledges a restriction and sees the staff appeal decision', asy
     await expect(main).toContainText(message);
     await expect(main.locator('example')).toHaveCount(0);
     await expect(main.locator('form[action$="/appeal"]')).toHaveCount(0);
+
+    const stale = await submitAppeal(message);
+    expect(stale.status()).toBe(409);
+    expect(await stale.text()).toContain(`href="${detail}"`);
+    let limited;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const response = await submitAppeal(message);
+      if (response.status() === 429) {
+        limited = response;
+        break;
+      }
+      expect(response.status()).toBe(409);
+    }
+    expect(limited, 'appeal submissions are subject to the portal budget').toBeDefined();
+    expect(Number(limited.headers()['retry-after'])).toBeGreaterThan(0);
 
     expect((await staffPage.goto(enforcement)).status()).toBe(200);
     const queueItem = staffPage.locator('li').filter({has: staffPage.locator(`a[href="${staffPath}"]`)});

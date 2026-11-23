@@ -49,6 +49,7 @@ pub(super) async fn history(pool: &PgPool, owner: Uuid, page: u32) -> Result<Vec
         return Err(Error::Invalid);
     }
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     require_account(&mut tx, owner).await?;
     let history = sqlx::query_as(HISTORY)
         .bind(owner)
@@ -64,6 +65,7 @@ pub(super) async fn history(pool: &PgPool, owner: Uuid, page: u32) -> Result<Vec
 pub(super) async fn detail(pool: &PgPool, owner: Uuid, id: Uuid) -> Result<Sanction, Error> {
     valid_id(id).map_err(|_| Error::Invalid)?;
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     require_account(&mut tx, owner).await?;
     let sanction = sqlx::query_as(HISTORY)
         .bind(owner)
@@ -94,6 +96,7 @@ pub(super) async fn change(
         return Err(Error::Invalid);
     }
     let mut tx = pool.begin().await?;
+    oteryn_db::mutation_budget(&mut tx).await?;
     // Use the same account, sanction, workflow lock order as staff enforcement.
     require_account(&mut tx, owner).await?;
     let (sanction_version, acknowledged_at): (i64, Option<OffsetDateTime>) = sqlx::query_as(
@@ -116,14 +119,21 @@ pub(super) async fn change(
     .bind(acknowledged_at)
     .execute(&mut *tx)
     .await?;
-    let workflow_version: i64 = sqlx::query_scalar(
-        "SELECT version FROM support_appeal_workflows WHERE sanction_id = $1 AND owner_id = $2 FOR UPDATE",
+    let (workflow_version, workflow_acknowledged): (i64, bool) = sqlx::query_as(
+        "SELECT version, acknowledged FROM support_appeal_workflows
+         WHERE sanction_id = $1 AND owner_id = $2 FOR UPDATE",
     )
     .bind(id)
     .bind(owner)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(Error::NotFound)?;
+    if matches!(action, PlayerAction::Acknowledge)
+        && (workflow_acknowledged || acknowledged_at.is_some())
+    {
+        tx.rollback().await?;
+        return Ok(());
+    }
     if sanction_version.checked_add(workflow_version - 1) != Some(expected) {
         return Err(Error::Conflict);
     }

@@ -6,23 +6,25 @@
   <title>{{ self.text("title") }} · Oteryn</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/support/sanctions.css">
 </head>
 <body class="op-theme">
-<main class="op-stack sanction-history">
+<main class="op-stack">
   <h1>{{ self.text("title") }}</h1>
   {% if detail || error.is_some() %}
   <p><a href="{{ locale.base() }}">{{ self.text("back") }}</a></p>
   {% endif %}
   {% if let Some(key) = error %}
   <p class="op-alert op-alert--danger" role="alert">{{ self.text(key) }}</p>
+  {% if let Some(id) = reopen %}
+  <p><a href="{{ self.url(id) }}">{{ self.text("reopen") }}</a></p>
+  {% endif %}
   {% else %}
   {% if rows.is_empty() %}<p class="op-empty">{{ self.text("empty") }}</p>{% endif %}
   {% for row in rows %}
   {% let url = self.url(&row.id) %}
   <article class="op-panel op-stack">
     {% if detail %}
-    <h2>{{ row.public_reason }}</h2>
+    <p>{{ row.public_reason }}</p>
     {% else %}
     <h2><a href="{{ url }}">{{ row.public_reason }}</a></h2>
     {% endif %}
@@ -46,10 +48,10 @@
       </form>
       {% endif %}
       {% if let Some(message) = row.message %}
-      <section class="op-stack"><h3>{{ self.text("your-appeal") }}</h3><p>{{ message }}</p></section>
+      <section><h2>{{ self.text("your-appeal") }}</h2><p>{{ message }}</p></section>
       {% endif %}
       {% if let Some(outcome) = row.outcome %}
-      <section class="op-stack"><h3>{{ self.text("outcome") }}</h3><p>{{ outcome }}</p></section>
+      <section><h2>{{ self.text("outcome") }}</h2><p>{{ outcome }}</p></section>
       {% endif %}
       {% if row.can_appeal() %}
       <form class="op-stack" method="post" action="{{ url }}/appeal">
@@ -57,7 +59,8 @@
         <input type="hidden" name="version" value="{{ row.version }}">
         <div class="op-field">
           <label for="message">{{ self.text("message") }}</label>
-          <textarea class="op-input" id="message" name="message" rows="5" maxlength="4000" required></textarea>
+          <textarea class="op-input" id="message" name="message" rows="5" aria-describedby="message-help" required></textarea>
+          <span class="op-hint" id="message-help">{{ self.text("message-help") }}</span>
         </div>
         <button class="op-button" type="submit">{{ self.text("submit") }}</button>
       </form>

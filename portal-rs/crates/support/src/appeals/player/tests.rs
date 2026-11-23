@@ -98,7 +98,12 @@ async fn postgres_confirmed_sanction_history_and_player_actions()
     .await?;
     assert!(!initialized);
 
-    change(&pool, owner, active, 1, PlayerAction::Acknowledge).await?;
+    let (first, replay) = tokio::join!(
+        change(&pool, owner, active, 1, PlayerAction::Acknowledge),
+        change(&pool, owner, active, 1, PlayerAction::Acknowledge),
+    );
+    first?;
+    replay?;
     let acknowledged = detail(&pool, owner, active).await?;
     assert!(acknowledged.acknowledged_at.is_some());
     assert_eq!(acknowledged.version, 2);
@@ -130,6 +135,32 @@ async fn postgres_confirmed_sanction_history_and_player_actions()
         .await,
         Err(Error::Conflict)
     ));
+
+    let reason = "🌳".repeat(4000);
+    change(&pool, owner, expired, 1, PlayerAction::Appeal(&reason)).await?;
+    let prior = detail(&pool, owner, expired).await?;
+    assert_eq!(prior.message.as_deref(), Some(reason.as_str()));
+    assert_eq!(prior.acknowledged_at, rows[0].acknowledged_at);
+
+    let mut writer = pool.begin().await?;
+    sqlx::query("SELECT id FROM sanctions WHERE id = $1 FOR UPDATE")
+        .bind(active)
+        .execute(&mut *writer)
+        .await?;
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(6),
+        change(
+            &pool,
+            owner,
+            active,
+            filed.version,
+            PlayerAction::Acknowledge,
+        ),
+    )
+    .await?;
+    assert!(matches!(result, Err(Error::Database(_))));
+    writer.rollback().await?;
+    assert_eq!(detail(&pool, owner, active).await?.version, filed.version);
 
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))

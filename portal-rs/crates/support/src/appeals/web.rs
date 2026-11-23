@@ -9,12 +9,13 @@ use axum::{
         DefaultBodyLimit, Path, Query, State,
         rejection::{FormRejection, QueryRejection},
     },
-    http::StatusCode,
+    http::{HeaderValue, StatusCode, header},
     middleware,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
+use oteryn_web::ratelimit::{self, ClientSource, Denial, Keys, NamedPolicy, RateLimiter};
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
 use sqlx::PgPool;
@@ -38,6 +39,10 @@ pub fn router(pool: PgPool, origin: &str) -> Router {
             oteryn_web::session::middleware,
         ))
         .layer(DefaultBodyLimit::max(64 * 1024))
+        .layer(middleware::from_fn_with_state(
+            RateLimiter::new(pool.clone()),
+            ratelimit::supply,
+        ))
         .layer(middleware::from_fn(crate::tickets::private_headers))
         .with_state(pool)
 }
@@ -96,6 +101,7 @@ struct Page {
     previous: Option<u32>,
     next: Option<u32>,
     error: Option<&'static str>,
+    reopen: Option<Uuid>,
 }
 
 impl Page {
@@ -108,6 +114,7 @@ impl Page {
             previous: None,
             next: None,
             error: None,
+            reopen: None,
         }
     }
 
@@ -144,6 +151,10 @@ enum Failure {
     Language,
     Login(Locale),
     Sanction(Locale, Error),
+    Stale(Locale, Uuid),
+    BadRequest(Locale),
+    Form(Locale, StatusCode),
+    Limits(Locale, Denial),
 }
 
 impl IntoResponse for Failure {
@@ -151,6 +162,30 @@ impl IntoResponse for Failure {
         match self {
             Self::Language => StatusCode::NOT_FOUND.into_response(),
             Self::Login(locale) => Redirect::to(&format!("/{}/login", locale.0)).into_response(),
+            Self::Stale(locale, id) => Page {
+                error: Some("conflict"),
+                reopen: Some(id),
+                ..Page::new(locale)
+            }
+            .response(StatusCode::CONFLICT),
+            Self::BadRequest(locale) => {
+                failure_page(locale, "invalid-request", StatusCode::BAD_REQUEST)
+            }
+            Self::Form(locale, status) => failure_page(locale, "invalid-form", status),
+            Self::Limits(locale, denial) => {
+                let (key, retry) = match denial {
+                    Denial::Limited { retry_after } => ("rate-limited", Some(retry_after)),
+                    Denial::Unavailable => ("unavailable", Some(60)),
+                    Denial::BadInput => ("invalid-request", None),
+                };
+                let mut response = failure_page(locale, key, denial.status());
+                if let Some(seconds) = retry
+                    && let Ok(value) = HeaderValue::from_str(&seconds.to_string())
+                {
+                    response.headers_mut().insert(header::RETRY_AFTER, value);
+                }
+                response
+            }
             Self::Sanction(locale, error) => {
                 let message = match error {
                     Error::Invalid => "invalid",
@@ -158,17 +193,23 @@ impl IntoResponse for Failure {
                     Error::Disabled | Error::NotFound => "missing",
                     Error::Database(_) => "unavailable",
                 };
-                Page {
-                    error: Some(message),
-                    ..Page::new(locale)
-                }
-                .response(
+                failure_page(
+                    locale,
+                    message,
                     StatusCode::from_u16(error.status_code())
                         .unwrap_or(StatusCode::SERVICE_UNAVAILABLE),
                 )
             }
         }
     }
+}
+
+fn failure_page(locale: Locale, key: &'static str, status: StatusCode) -> Response {
+    Page {
+        error: Some(key),
+        ..Page::new(locale)
+    }
+    .response(status)
 }
 
 async fn owner(session: &BrowserSession, locale: Locale) -> Result<Uuid, Failure> {
@@ -188,11 +229,14 @@ async fn history(
 ) -> Result<Response, Failure> {
     let locale = Locale::parse(&lang)?;
     let owner = owner(&session, locale).await?;
-    let Query(paging) = paging.map_err(|_| Failure::Sanction(locale, Error::Invalid))?;
+    let Query(paging) = paging.map_err(|_| Failure::BadRequest(locale))?;
     let page = paging.page.unwrap_or(1);
     let mut rows = player::history(&pool, owner, page)
         .await
-        .map_err(|e| Failure::Sanction(locale, e))?;
+        .map_err(|e| match e {
+            Error::Invalid => Failure::BadRequest(locale),
+            _ => Failure::Sanction(locale, e),
+        })?;
     let has_next = rows.len() > PAGE_SIZE as usize && page < LAST_PAGE;
     rows.truncate(PAGE_SIZE as usize);
     Ok(Page {
@@ -211,9 +255,8 @@ async fn target(
 ) -> Result<(Locale, Uuid, Uuid), Failure> {
     let locale = Locale::parse(lang)?;
     let owner = owner(session, locale).await?;
-    let id = raw_id
-        .parse()
-        .map_err(|_| Failure::Sanction(locale, Error::Invalid))?;
+    let id = raw_id.parse().map_err(|_| Failure::BadRequest(locale))?;
+    crate::sanctions::valid_id(id).map_err(|_| Failure::BadRequest(locale))?;
     Ok((locale, owner, id))
 }
 
@@ -260,15 +303,17 @@ async fn acknowledge(
     State(pool): State<PgPool>,
     Path((lang, id)): Path<(String, String)>,
     Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: ClientSource,
     form: Result<Form<Acknowledgment>, FormRejection>,
 ) -> Result<Redirect, Failure> {
-    let (locale, owner, id) = target(&lang, &id, &session).await?;
-    let Form(form) = form.map_err(|_| Failure::Sanction(locale, Error::Invalid))?;
+    let target = target(&lang, &id, &session).await?;
+    let Form(form) = form.map_err(|error| Failure::Form(target.0, error.status()))?;
     change(
         &pool,
-        locale,
-        owner,
-        id,
+        &limiter,
+        source,
+        target,
         form.version,
         PlayerAction::Acknowledge,
     )
@@ -279,15 +324,17 @@ async fn appeal(
     State(pool): State<PgPool>,
     Path((lang, id)): Path<(String, String)>,
     Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: ClientSource,
     form: Result<Form<Appeal>, FormRejection>,
 ) -> Result<Redirect, Failure> {
-    let (locale, owner, id) = target(&lang, &id, &session).await?;
-    let Form(form) = form.map_err(|_| Failure::Sanction(locale, Error::Invalid))?;
+    let target = target(&lang, &id, &session).await?;
+    let Form(form) = form.map_err(|error| Failure::Form(target.0, error.status()))?;
     change(
         &pool,
-        locale,
-        owner,
-        id,
+        &limiter,
+        source,
+        target,
         form.version,
         PlayerAction::Appeal(&form.message),
     )
@@ -296,14 +343,27 @@ async fn appeal(
 
 async fn change(
     pool: &PgPool,
-    locale: Locale,
-    owner: Uuid,
-    id: Uuid,
+    limiter: &RateLimiter,
+    source: ClientSource,
+    (locale, owner, id): (Locale, Uuid, Uuid),
     version: i64,
     action: PlayerAction<'_>,
 ) -> Result<Redirect, Failure> {
+    let policy = match action {
+        PlayerAction::Acknowledge => NamedPolicy::SupportEnforcementAcknowledge,
+        PlayerAction::Appeal(_) => NamedPolicy::SupportEnforcementAppeal,
+    };
+    let mut key = Keys::source(source.0);
+    key.account = Some(owner.to_string());
+    limiter
+        .check(policy, &[key])
+        .await
+        .map_err(|error| Failure::Limits(locale, error))?;
     player::change(pool, owner, id, version, action)
         .await
-        .map_err(|e| Failure::Sanction(locale, e))?;
+        .map_err(|e| match e {
+            Error::Conflict => Failure::Stale(locale, id),
+            _ => Failure::Sanction(locale, e),
+        })?;
     Ok(Redirect::to(&format!("{}/{id}", locale.base())))
 }
