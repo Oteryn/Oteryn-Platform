@@ -583,7 +583,12 @@ same database whose origin comes from `/opt/oteryn-staging/public-origin`
 (one `https://<hostname>` line; without the file it is the loopback origin).
 Put the tunnel hostname there when staging is published behind Cloudflare
 Access, so CSRF, passkeys and mail links match the address people use; the
-in-stack E2E keeps the loopback origin. Mail goes to the stack's authenticated
+in-stack E2E keeps the loopback origin. The staff panel runs only on its own
+host, named in `/opt/oteryn-staging/admin-origin` (one `https://<hostname>`
+line, different from `public-origin`, routed by the same tunnel to port 18080).
+Cookies are host-only, so staff sign in there separately from the player
+portal; without the file the staff panel stays off. Passkeys are bound to the
+public host, so staff use TOTP on the staff host. Mail goes to the stack's authenticated
 STARTTLS catcher. Game,
 store and payment features are disabled. With no spec argument Playwright
 discovers the full suite, which includes specs that require the local harness's

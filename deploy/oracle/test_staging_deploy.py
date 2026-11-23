@@ -242,11 +242,25 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
         self.assertIn('OTERYN_WEBAUTHN_RP_ID=staging.example.com\n', public)
         self.assertIn('OTERYN_NOTIFY_UNSUBSCRIBE_URL=https://staging.example.com/en/unsubscribe\n', public)
-        self.assertIn('OTERYN_ADMIN_HOST=staging.example.com\n', public)
+        # No admin-origin: the staff panel stays off, never on the player host.
+        self.assertNotIn('OTERYN_ADMIN_HOST', public)
+        for flag in staging.ADMIN_FLAGS:
+            self.assertNotIn(flag + '=true\n', public)
+        (self.root / 'admin-origin').write_text('https://staging-admin.example.com\n')
+        staging.configure(self.root, SHA)
+        public = (self.root / 'public.env').read_text()
+        self.assertIn('OTERYN_ADMIN_HOST=staging-admin.example.com\n', public)
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
         for flag in staging.ADMIN_FLAGS:
             self.assertIn(flag + '=true\n', public)
             self.assertNotIn(flag + '=true\n', (self.root / 'portal.env').read_text())
         self.assertNotIn('OTERYN_ADMIN_HOST', (self.root / 'portal.env').read_text())
+        for bad in ('https://staging.example.com', 'http://staging-admin.example.com'):
+            with self.subTest(admin=bad):
+                (self.root / 'admin-origin').write_text(bad)
+                with self.assertRaises(staging.Refusal):
+                    staging.configure(self.root, SHA)
+        (self.root / 'admin-origin').unlink()
         self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n',
                       (self.root / 'portal.env').read_text())
         for bad in ('http://staging.example.com', 'https://staging.example.com/x',

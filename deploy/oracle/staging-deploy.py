@@ -67,8 +67,11 @@ PUBLIC_FLAGS = (
     'OTERYN_LEAGUE_ENABLED', 'OTERYN_PLAYERDATA_PROGRESS_READ_ENABLED', 'OTERYN_REPORTS_ENABLED',
     'OTERYN_SECURITY_WIZARD_ENABLED', 'OTERYN_SUPPORT_TICKETS', 'OTERYN_WORLD_ENABLED',
 )
-# Staff panel on the same tunnel host, so black-box testers can work every staff
-# role. Production has no staff host yet; this is a staging-only surface.
+# Staff panel only on its own host from ROOT/admin-origin (owner decision
+# 2026-11-23: the staff login is never on the player portal's host). Cookies
+# are host-only, so it is a separate login session; without that file, or with
+# the same host as the public portal, the staff panel stays off. Production has
+# no staff host yet; this is a staging-only surface.
 ADMIN_FLAGS = (
     'OTERYN_ADMIN_PANEL', 'OTERYN_ADMIN_PLAYERS', 'OTERYN_ADMIN_PLAYER_CHARACTERS',
     'OTERYN_ADMIN_CONSOLE', 'OTERYN_ADMIN_CONTROL',
@@ -318,14 +321,25 @@ def env_file(directory, filename, values):
     write(directory / filename, ''.join(f'{key}={value}\n' for key, value in values.items()))
 
 
-def public_origin():
-    path = ROOT / 'public-origin'
+def tunnel_origin(name, default):
+    path = ROOT / name
     if not path.exists():
-        return ORIGIN
+        return default
     value = path.read_text().strip()
     if not PUBLIC_ORIGIN_RE.fullmatch(value):
-        raise Refusal('public-origin must be https://<hostname>')
+        raise Refusal(f'{name} must be https://<hostname>')
     return value
+
+
+def public_origin():
+    return tunnel_origin('public-origin', ORIGIN)
+
+
+def admin_origin(public):
+    admin = tunnel_origin('admin-origin', None)
+    if admin is not None and admin == public:
+        raise Refusal('admin-origin must differ from public-origin')
+    return admin
 
 
 def random_hex_key():
@@ -360,9 +374,13 @@ def configure(directory, sha):
     env_file(directory, 'portal.env', portal)
     origin = public_origin()
     host = origin.split('://', 1)[1]
+    admin = admin_origin(origin)
+    staff = {flag: 'true' for flag in ADMIN_FLAGS} if admin else {}
+    if admin:
+        staff['OTERYN_ADMIN_HOST'] = admin.split('://', 1)[1]
     env_file(directory, 'public.env', {
-        **{flag: 'true' for flag in PUBLIC_FLAGS + ADMIN_FLAGS},
-        'OTERYN_ADMIN_HOST': host,
+        **{flag: 'true' for flag in PUBLIC_FLAGS},
+        **staff,
         'OTERYN_PUBLIC_ORIGIN': origin,
         'OTERYN_WEBAUTHN_RP_ID': host.split(':', 1)[0],
         'OTERYN_NOTIFY_UNSUBSCRIBE_URL': f'{origin}/en/unsubscribe',
