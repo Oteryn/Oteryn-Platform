@@ -1,0 +1,9 @@
+.support-ticket-page,
+.support-ticket-page .op-stack {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.support-ticket-page #screenshots img {
+  max-inline-size: 100%;
+  block-size: auto;
+}

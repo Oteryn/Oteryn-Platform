@@ -10,7 +10,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 pub(crate) mod staff;
-mod web;
+pub(super) mod web;
 pub use staff::{StaffSupport, configured_staff_router, configured_staff_router_from};
 pub use web::{configured_router, router, staff_router};
 #[cfg(test)]
@@ -70,7 +70,7 @@ pub struct Tickets {
 fn valid_text(value: &str, max: usize) -> bool {
     !value.trim().is_empty() && value.chars().count() <= max && !value.contains('\0')
 }
-fn active(status: &str) -> bool {
+pub(super) fn active(status: &str) -> bool {
     matches!(status, "open" | "waiting_user" | "waiting_staff")
 }
 enum Acknowledge {
@@ -80,13 +80,13 @@ enum Acknowledge {
 }
 
 impl Tickets {
-    fn enabled(&self) -> Result<()> {
+    pub(super) fn enabled(&self) -> Result<()> {
         if !self.enabled || self.open_limit == 0 {
             return Err(Error::Denied);
         }
         Ok(())
     }
-    async fn lock_account(
+    pub(super) async fn lock_account(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         account: Uuid,

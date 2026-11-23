@@ -1,4 +1,5 @@
 use super::*;
+use crate::attachments;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -83,11 +84,21 @@ pub fn configured_router(pool: PgPool) -> std::result::Result<Router, Box<dyn st
     };
     let staff = oteryn_admin::web::configured_guard(
         staff_routes(tickets.clone()),
-        pool,
+        pool.clone(),
         oteryn_admin::rbac::Permission::ManageSupportTickets,
     )?;
+    let staff =
+        oteryn_admin::web::configured_host_boundary(upload_forms(staff, SessionLayer::new(pool)))?;
     let origin = std::env::var("OTERYN_PUBLIC_ORIGIN")?;
-    Ok(router(tickets, &origin).merge(staff))
+    Ok(router(tickets, &origin).merge(staff).route(
+        "/static/css/support-tickets.css",
+        get(|| async {
+            (
+                [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+                include_str!("page.css"),
+            )
+        }),
+    ))
 }
 /// Player routes always apply session and CSRF middleware.
 pub fn router(tickets: Tickets, origin: &str) -> Router {
@@ -96,10 +107,18 @@ pub fn router(tickets: Tickets, origin: &str) -> Router {
     }
     let mut session = SessionLayer::new(tickets.pool.clone());
     session.csrf.trusted_origins = vec![origin.to_owned()];
-    Router::new()
+    let routes = Router::new()
         .route("/{lang}/support/tickets", get(index).post(create))
         .route("/{lang}/support/tickets/create", get(new_ticket))
         .route("/{lang}/support/tickets/{id}", get(show))
+        .route(
+            "/{lang}/support/tickets/{id}/attachments",
+            axum::routing::post(attachments::upload),
+        )
+        .route(
+            "/{lang}/support/tickets/{id}/attachments/{attachment}",
+            get(attachments::read),
+        )
         .route(
             "/{lang}/support/tickets/{id}/read",
             axum::routing::post(mark_read),
@@ -113,11 +132,24 @@ pub fn router(tickets: Tickets, origin: &str) -> Router {
             axum::routing::put(status).post(status),
         )
         .route_layer(middleware::from_fn_with_state(
-            session,
+            session.clone(),
             oteryn_web::session::middleware,
-        ))
+        ));
+    upload_forms(routes, session)
         .layer(middleware::from_fn(private))
         .with_state(tickets)
+}
+
+fn upload_forms<S: Clone + Send + Sync + 'static>(
+    routes: Router<S>,
+    session: SessionLayer,
+) -> Router<S> {
+    routes
+        .layer(middleware::from_fn(attachments::form_csrf))
+        .layer(middleware::from_fn_with_state(
+            session,
+            attachments::upload_session,
+        ))
 }
 /// The caller must wrap these routes in `oteryn_admin::web::guarded`.
 fn staff_routes(tickets: Tickets) -> Router {
@@ -127,6 +159,14 @@ fn staff_routes(tickets: Tickets) -> Router {
     Router::new()
         .route("/{lang}/admin/support/tickets", get(index))
         .route("/{lang}/admin/support/tickets/{id}", get(show))
+        .route(
+            "/{lang}/admin/support/tickets/{id}/attachments",
+            axum::routing::post(attachments::upload),
+        )
+        .route(
+            "/{lang}/admin/support/tickets/{id}/attachments/{attachment}",
+            get(attachments::read),
+        )
         .route(
             "/{lang}/admin/support/tickets/{id}/reply",
             axum::routing::post(reply),
@@ -149,14 +189,19 @@ pub fn staff_router<
     accounts: A,
 ) -> Router {
     let pool = tickets.pool.clone();
-    oteryn_admin::web::guarded(
+    let routes = oteryn_admin::web::guarded(
         staff_routes(tickets),
-        pool,
+        pool.clone(),
         config,
         identity,
         accounts,
         oteryn_admin::rbac::Permission::ManageSupportTickets,
-    )
+    );
+    upload_forms(routes, SessionLayer::new(pool))
+}
+pub(crate) fn screenshot_error(status: StatusCode, language: &str, key: &str) -> Response {
+    let language = if language == "en" { "en" } else { "pl" };
+    (status, text::text(language, key)).into_response()
 }
 async fn private(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;
@@ -190,7 +235,7 @@ async fn private(request: Request, next: Next) -> Response {
     );
     response
 }
-async fn account(
+pub(crate) async fn account(
     t: &Tickets,
     session: &BrowserSession,
     staff: Option<Extension<CheckContext>>,
@@ -213,14 +258,14 @@ async fn account(
     }
     Ok((id, staff.map(|c| c.0)))
 }
-fn lang(value: &str) -> std::result::Result<&str, StatusCode> {
+pub(crate) fn lang(value: &str) -> std::result::Result<&str, StatusCode> {
     if matches!(value, "pl" | "en") {
         Ok(value)
     } else {
         Err(StatusCode::NOT_FOUND)
     }
 }
-fn fail(error: Error, language: &str) -> Response {
+pub(crate) fn fail(error: Error, language: &str) -> Response {
     let code = match error {
         Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
         Error::NotFound => StatusCode::NOT_FOUND,
@@ -230,7 +275,7 @@ fn fail(error: Error, language: &str) -> Response {
     };
     (code, text::text(language, "error")).into_response()
 }
-async fn limited(
+pub(crate) async fn limited(
     t: &Tickets,
     policy: NamedPolicy,
     account: Uuid,
@@ -244,7 +289,7 @@ async fn limited(
         .await
 }
 
-fn limiter_response(error: Denial, language: &str) -> Response {
+pub(crate) fn limiter_response(error: Denial, language: &str) -> Response {
     if matches!(error, Denial::Limited { .. }) {
         let locale = if language == "pl" {
             Language::Pl
@@ -319,6 +364,13 @@ struct Page {
     version: i64,
     id: Uuid,
     can_reply: bool,
+    can_attach: bool,
+    screenshots: Vec<Uuid>,
+    screenshots_text: String,
+    screenshot_text: String,
+    screenshot_rules: String,
+    screenshot_upload: String,
+    screenshot_full: String,
     previous: u32,
     next: u32,
     has_next: bool,
@@ -377,6 +429,13 @@ impl Page {
             version: 0,
             id: Uuid::nil(),
             can_reply: false,
+            can_attach: false,
+            screenshots: vec![],
+            screenshots_text: tr("screenshots"),
+            screenshot_text: tr("screenshot"),
+            screenshot_rules: tr("screenshot-rules"),
+            screenshot_upload: tr("screenshot-upload"),
+            screenshot_full: tr("screenshot-full"),
             previous: 0,
             next: 1,
             has_next: false,
@@ -544,6 +603,12 @@ async fn show(
     } else {
         matches!(ticket.status.as_str(), "open" | "waiting_user")
     };
+    page.screenshots = match attachments::ids(&t.pool, account, staff.is_some(), id).await {
+        Ok(ids) => ids,
+        Err(error) => return fail(Error::Database(error), &language),
+    };
+    page.can_attach =
+        active(&ticket.status) && page.screenshots.len() < attachments::MAX_PER_TICKET;
     page.messages = messages
         .into_iter()
         .map(|m| DisplayMessage {
@@ -646,7 +711,7 @@ fn form_bool<'de, D: serde::Deserializer<'de>>(
         _ => Err(serde::de::Error::custom("invalid boolean")),
     }
 }
-fn redirect(language: &str, staff: bool, id: Uuid) -> Response {
+pub(crate) fn redirect(language: &str, staff: bool, id: Uuid) -> Response {
     (
         StatusCode::FOUND,
         [(

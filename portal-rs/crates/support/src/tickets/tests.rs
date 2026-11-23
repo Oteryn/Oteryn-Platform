@@ -1493,3 +1493,186 @@ async fn postgres_staff_reply_rolls_back_when_grant_expires_during_audit() -> Te
     }
     db.finish().await
 }
+
+#[tokio::test]
+async fn postgres_screenshot_upload_read_and_capacity() -> TestResult {
+    use crate::attachments::{self, AttachmentError, MAX_PER_TICKET};
+    use oteryn_content::media;
+
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let other = db.account("pl").await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(
+            owner,
+            Uuid::now_v7(),
+            "technical",
+            "Display",
+            "Screenshot attached.",
+        )
+        .await?;
+    let (owner_cookie, csrf) = db.cookie(owner).await?;
+    let (other_cookie, _) = db.cookie(other).await?;
+    let app = router(tickets.clone(), "https://portal.example.test");
+    let request_key = Uuid::now_v7();
+    let submit = |bytes: &[u8]| -> std::result::Result<_, axum::http::Error> {
+        let mut body = format!("--form\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{csrf}\r\n--form\r\nContent-Disposition: form-data; name=\"request_key\"\r\n\r\n{request_key}\r\n--form\r\nContent-Disposition: form-data; name=\"image\"; filename=\"screen.png\"\r\n\r\n").into_bytes();
+        body.extend_from_slice(bytes);
+        body.extend_from_slice(b"\r\n--form--\r\n");
+        Request::post(format!("/en/support/tickets/{}/attachments", ticket.id))
+            .extension(ConnectInfo(std::net::SocketAddr::from((
+                [127, 0, 0, 1],
+                40000,
+            ))))
+            .header("cookie", &owner_cookie)
+            .header("origin", "https://portal.example.test")
+            .header("content-type", "multipart/form-data; boundary=form")
+            .body(Body::from(body))
+    };
+    assert_eq!(
+        app.clone().oneshot(submit(b"invalid")?).await?.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+    assert!(
+        attachments::ids(&db.pool, owner, false, ticket.id)
+            .await?
+            .is_empty()
+    );
+    let normalized = media::process("screen.png", SCREENSHOT_PNG).map_err(|e| e.to_string())?;
+    assert_eq!(
+        app.clone().oneshot(submit(SCREENSHOT_PNG)?).await?.status(),
+        StatusCode::FOUND
+    );
+    let ids = attachments::ids(&db.pool, owner, false, ticket.id).await?;
+    assert_eq!(ids.len(), 1);
+    let path = format!("/en/support/tickets/{}/attachments/{}", ticket.id, ids[0]);
+    let get = |cookie: &str| {
+        Request::get(&path)
+            .header("cookie", cookie)
+            .body(Body::empty())
+    };
+    let response = app.clone().oneshot(get(&owner_cookie)?).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/png");
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(
+        to_bytes(response.into_body(), 1024).await?.as_ref(),
+        normalized.content
+    );
+    assert_eq!(
+        app.clone().oneshot(get(&other_cookie)?).await?.status(),
+        StatusCode::NOT_FOUND
+    );
+    let image = || media::process("screen.png", SCREENSHOT_PNG).map_err(|e| e.to_string());
+    assert!(matches!(
+        attachments::store(&tickets, other, None, ticket.id, request_key, image()?).await,
+        Err(AttachmentError::Ticket(Error::NotFound))
+    ));
+    for _ in 1..MAX_PER_TICKET - 1 {
+        attachments::store(&tickets, owner, None, ticket.id, Uuid::now_v7(), image()?).await?;
+    }
+    let (first, second) = tokio::join!(
+        attachments::store(&tickets, owner, None, ticket.id, Uuid::now_v7(), image()?),
+        attachments::store(&tickets, owner, None, ticket.id, Uuid::now_v7(), image()?),
+    );
+    assert!(matches!(
+        (first, second),
+        (Ok(_), Err(AttachmentError::Full)) | (Err(AttachmentError::Full), Ok(_))
+    ));
+    assert_eq!(
+        app.oneshot(submit(SCREENSHOT_PNG)?).await?.status(),
+        StatusCode::FOUND
+    );
+    let stored = attachments::ids(&db.pool, owner, false, ticket.id).await?;
+    assert_eq!(stored.len(), MAX_PER_TICKET);
+    assert!(stored.contains(&ids[0]));
+    let closed = tickets
+        .create(
+            owner,
+            Uuid::now_v7(),
+            "technical",
+            "Closed",
+            "Closing this ticket.",
+        )
+        .await?;
+    tickets
+        .change(
+            owner,
+            None,
+            closed.id,
+            closed.lock_version,
+            Change::Status("closed"),
+        )
+        .await?;
+    assert!(matches!(
+        attachments::store(&tickets, owner, None, closed.id, Uuid::now_v7(), image()?).await,
+        Err(AttachmentError::Ticket(Error::Conflict))
+    ));
+    db.finish().await
+}
+
+// A single RGB pixel in a PNG container.
+const SCREENSHOT_PNG: &[u8] = &[
+    137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0,
+    0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 248, 207, 192, 0, 0, 3, 1,
+    1, 0, 201, 254, 146, 239, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+];
+
+#[tokio::test]
+async fn postgres_screenshot_transaction() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL required")?;
+    let owner = db.account("en").await?;
+    let actor = db.account("en").await?;
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(actor).execute(&db.pool).await?;
+    let tickets = db.tickets(10)?;
+    let ticket = tickets
+        .create(owner, Uuid::now_v7(), "technical", "Display", "Details")
+        .await?;
+    let context = staff(&db.pool, actor).await.ok_or("staff context")?;
+    let auth = rbac::MutationAuthorization::new(Arc::new(Authorizer::new(
+        db.pool.clone(),
+        PortalIdentity::configured(db.pool.clone()),
+    )));
+    sqlx::raw_sql("CREATE FUNCTION screenshot_audit_fixture() RETURNS trigger LANGUAGE plpgsql AS $$
+        DECLARE deadline timestamptz := clock_timestamp() + interval '30 milliseconds';
+        BEGIN
+            UPDATE account_mfa_tokens SET expires_at=deadline WHERE purpose='grant';
+            PERFORM pg_sleep_until(deadline);
+            RETURN NEW;
+        END $$;
+        CREATE TRIGGER screenshot_audit AFTER INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION screenshot_audit_fixture()")
+        .execute(&db.pool).await?;
+    let image =
+        oteryn_content::media::process("screen.png", SCREENSHOT_PNG).map_err(|e| e.to_string())?;
+    let result = crate::attachments::store(
+        &tickets,
+        actor,
+        Some((context, &auth)),
+        ticket.id,
+        Uuid::now_v7(),
+        image,
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(crate::attachments::AttachmentError::Ticket(Error::Denied))
+    ));
+    assert!(
+        crate::attachments::ids(&db.pool, owner, false, ticket.id)
+            .await?
+            .is_empty()
+    );
+    let entries: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
+        .fetch_one(&db.pool)
+        .await?;
+    assert_eq!(entries, 0);
+    db.finish().await
+}
