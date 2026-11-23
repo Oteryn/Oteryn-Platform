@@ -630,13 +630,12 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
-    let hireling_status = if uri.path() == "/admin"
-        && s.auth
-            .check(context, Permission::AdminAnalyticsView)
-            .await
-            .is_ok()
-    {
-        Some(hireling_status::Status::load(&s.pool).await)
+    let hireling_status = if uri.path() == "/admin" {
+        match s.auth.check(context, Permission::AdminAnalyticsView).await {
+            Ok(()) => Some(hireling_status::Status::load(&s.pool).await),
+            Err(Error::Denied) => None,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
     } else {
         None
     };

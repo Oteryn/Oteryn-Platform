@@ -200,7 +200,14 @@ async fn postgres_read_only_page_authentication_and_localization() -> Result<()>
             .status(),
         StatusCode::NOT_FOUND
     );
-    sqlx::query("UPDATE accounts SET status='suspended' WHERE id=$1")
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(account)
+        .execute(&pool)
+        .await?;
+    let response = app.clone().oneshot(request(path)?).await?;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(response.headers()["cache-control"], "private, no-store");
+    sqlx::query("UPDATE accounts SET status='suspended', email_verified_at=now() WHERE id=$1")
         .bind(account)
         .execute(&pool)
         .await?;

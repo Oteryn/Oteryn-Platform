@@ -1,4 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '../fixtures.mjs';
+import { assertShell } from '../shell.mjs';
 import { query, seededAccount, seededLogin, seededStaff } from '../staff-rbac-helpers.mjs';
 
 test('a player reaches hireling actions and history from account navigation', async ({ page }, info) => {
@@ -25,6 +27,7 @@ test('a player reaches hireling actions and history from account navigation', as
   ]);
   expect(response.status()).toBe(200);
   expect(response.headers()['cache-control']).toContain('no-store');
+  await assertShell(page);
 
   const main = page.locator('main');
   for (const [section, count] of [['purchase', 1], ['hirelings', 2], ['expeditions', 6], ['history', 1]]) {
@@ -35,6 +38,8 @@ test('a player reaches hireling actions and history from account navigation', as
     await expect(values).toHaveText(Array(count).fill(unavailable));
   }
   await expect(main.locator('form[method="post"]')).toHaveCount(0);
+  expect((await page.request.get('/invalid/panel/hirelings')).status()).toBe(404);
+  expect((await page.request.post(target)).status()).toBe(403);
   expect(await query('SELECT operation_id FROM hireling_command_intents WHERE account_id=$1', [account.id])).toEqual([]);
   expect(await page.evaluate(async () => {
     await document.fonts.ready;
@@ -57,8 +62,14 @@ test('an authorized operator opens the hireling ledger summary from the staff pa
   await expect(summary.getByRole('heading')).toHaveText(
     lang === 'pl' ? 'Status pomocników domowych' : 'House helper status',
   );
-  const [{ unresolved }] = await query('SELECT count(*) AS unresolved FROM hireling_command_intents');
+  const [{ unresolved, attention }] = await query(`
+    SELECT count(*) AS unresolved, count(*) FILTER (WHERE NOT EXISTS (
+      SELECT 1 FROM outbox WHERE kind = 'hirelings.command.v1'
+        AND idempotency_key = intent.operation_id::text AND state <> 'dead'
+    )) AS attention FROM hireling_command_intents AS intent
+  `);
   await expect(summary.locator('[data-hireling-count="unresolved"]')).toHaveText(String(unresolved));
+  await expect(summary.locator('[data-hireling-count="dispatch-attention"]')).toHaveText(String(attention));
   await expect(summary).toContainText(lang === 'pl' ? 'Widoczny' : 'Visible');
   await expect(summary).toContainText(lang === 'pl' ? 'Niedostępna' : 'Unavailable');
   await expect(summary.locator('form')).toHaveCount(0);
@@ -66,4 +77,15 @@ test('an authorized operator opens the hireling ledger summary from the staff pa
     await document.fonts.ready;
     return document.documentElement.scrollWidth - innerWidth;
   })).toBeLessThanOrEqual(0);
+});
+
+test('i18n-parity for the hireling views', () => {
+  for (const dir of ['../../crates/hirelings/locales/', '../../templates/admin/']) {
+    const keys = lang => Array.from(readFileSync(new URL(`${dir}${lang}.ftl`, import.meta.url), 'utf8')
+      .matchAll(/^([a-z][\w-]*)\s*=/gm), match => match[1]).sort();
+    const english = keys('en');
+    expect(english.length).toBeGreaterThan(0);
+    expect(new Set(english).size).toBe(english.length);
+    expect(keys('pl')).toEqual(english);
+  }
 });
