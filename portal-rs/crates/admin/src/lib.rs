@@ -7,8 +7,8 @@ pub mod rbac;
 pub mod web;
 
 pub mod bazaar;
-mod client_build;
 mod character_cases;
+mod client_build;
 pub mod commerce;
 mod mail_ops;
 pub use control::controls;

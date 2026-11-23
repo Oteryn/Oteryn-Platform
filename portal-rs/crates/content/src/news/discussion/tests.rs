@@ -302,7 +302,15 @@ async fn lifecycle(pool: &PgPool) -> TestResult {
         .await?;
     assert_eq!(expired.status(), StatusCode::NOT_FOUND);
     assert!(matches!(
-        write(pool, "en", slug, author.account, &author_hash, Write::Reply("Expired reply")).await,
+        write(
+            pool,
+            "en",
+            slug,
+            author.account,
+            &author_hash,
+            Write::Reply("Expired reply")
+        )
+        .await,
         Err(Error::NotFound)
     ));
     let pending: Uuid = sqlx::query_scalar(
@@ -311,11 +319,18 @@ async fn lifecycle(pool: &PgPool) -> TestResult {
     .fetch_one(pool)
     .await?;
     assert!(matches!(
-        moderate(pool, &auth, editor, pending, &Review {
-            decision: Decision::Publish,
-            revision: 1,
-            reason: "Expired article".into(),
-        }).await,
+        moderate(
+            pool,
+            &auth,
+            editor,
+            pending,
+            &Review {
+                decision: Decision::Publish,
+                revision: 1,
+                reason: "Expired article".into(),
+            }
+        )
+        .await,
         Err(Error::Conflict)
     ));
     sqlx::query("UPDATE news SET expires_at=NULL WHERE slug=$1")

@@ -105,10 +105,7 @@ pub(crate) async fn page<B: Backend>(
             entries: rows
                 .into_iter()
                 .map(|(request, admin, operation, target, timestamp)| Entry {
-                    details: format!(
-                        "{request} · {} · {operation} · {target}",
-                        admin
-                    ),
+                    details: format!("{request} · {} · {operation} · {target}", admin),
                     timestamp: super::locale::date(lang, timestamp),
                     datetime: timestamp
                         .to_offset(UtcOffset::UTC)

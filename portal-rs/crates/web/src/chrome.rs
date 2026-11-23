@@ -187,13 +187,11 @@ async fn wrap_document(
     };
     let wrapped = std::str::from_utf8(&bytes).ok().and_then(|page| {
         let lang = document_locale(page);
-        let localized = lang
-            .filter(|lang| *lang != chrome.lang)
-            .map(|lang| {
-                let mut localized = registry.chrome(lang, path, chrome.account.clone());
-                customize(&mut localized);
-                localized
-            });
+        let localized = lang.filter(|lang| *lang != chrome.lang).map(|lang| {
+            let mut localized = registry.chrome(lang, path, chrome.account.clone());
+            customize(&mut localized);
+            localized
+        });
         let (top, bottom) = oteryn_ui::shell_parts(localized.as_ref().unwrap_or(chrome))?;
         Some((inject(page, &top, &bottom)?, lang))
     });

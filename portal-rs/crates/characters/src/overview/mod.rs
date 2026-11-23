@@ -36,7 +36,6 @@ impl AccountStateLookup for Accounts {
     }
 }
 
-
 #[derive(Template)]
 #[template(path = "account/overview.html", config = "src/overview/askama.toml")]
 struct Page {
