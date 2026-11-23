@@ -455,6 +455,27 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual((directory / 'summary.txt').read_text(), 'Playwright failed\nPG oteryn-db PASS\n')
         self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'failed')
 
+    def test_deploy_only_skips_test_suites(self):
+        staging = self.staging
+        parent = self.root / 'run'
+        directory = parent / SHA
+        directory.mkdir(parents=True)
+        checkout = self.root / 'src' / SHA
+        with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
+                            build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT,
+                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods:
+            sequence = Mock()
+            for name, method in methods.items():
+                sequence.attach_mock(method, name)
+            methods['source'].return_value = checkout
+            self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db']))
+        self.assertEqual([item[0] for item in sequence.mock_calls], [
+            'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
+            'build', 'build', 'build', 'qualify', 'production_idle', 'replace_stack',
+        ])
+        self.assertEqual((directory / 'summary.txt').read_text(), 'Deployed without test runs\n')
+        self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'passed')
+
     def test_owner_install_documents_the_direct_host_cli(self):
         staging_section = (HERE / 'README.md').read_text().split('## Staging\n', 1)[1]
         self.assertIn('install -m 0755 deploy/oracle/staging-deploy.py /opt/oteryn-staging/', staging_section)

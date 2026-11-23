@@ -27,6 +27,7 @@ REPO = 'https://github.com/Oteryn/Oteryn-Platform.git'
 REVISION = 'org.opencontainers.image.revision'
 PLAYWRIGHT_VERSION = '1.58.2'
 SHA_RE = re.compile(r'[0-9a-f]{40}')
+DEPLOY_ONLY = 'none'
 SPEC_RE = re.compile(r'[A-Za-z0-9_./-]{0,200}')
 CRATE_RE = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_-]{0,99}')
 CARGO_FAILURE = re.compile(r'^test (\S{1,500}) \.\.\. FAILED$')
@@ -151,7 +152,7 @@ def parse(argv):
     commands = parser.add_subparsers(dest='command', required=True)
     deploy = commands.add_parser('deploy', allow_abbrev=False)
     deploy.add_argument('sha')
-    deploy.add_argument('spec', nargs='?', default='')
+    deploy.add_argument('spec', nargs='?', default=DEPLOY_ONLY)
     deploy.add_argument('--pg-tests', default=None)
     commands.add_parser('status')
     commands.add_parser('logs')
@@ -737,11 +738,15 @@ def deploy(directory, sha, spec, crates):
         production_idle()
         smtp_password, test_password, seed_password, sensitive = configure(directory, sha)
         replace_stack(directory, sha, smtp_password, seed_password)
-        progress(directory, sha, 'running Playwright')
-        browser_ok, lines = playwright(directory, spec, sensitive)
-        summary.extend(lines)
-        pg_ok = True
-        if crates:
+        browser_ok, pg_ok = True, True
+        if spec == DEPLOY_ONLY:
+            # Staging is a deploy target; browser and database suites run separately.
+            summary.append('Deployed without test runs')
+        else:
+            progress(directory, sha, 'running Playwright')
+            browser_ok, lines = playwright(directory, spec, sensitive)
+            summary.extend(lines)
+        if crates and spec != DEPLOY_ONLY:
             progress(directory, sha, 'running PostgreSQL tests')
             pg_ok, lines = pg_tests(directory, crates, test_password, sensitive)
             summary.extend(lines)
