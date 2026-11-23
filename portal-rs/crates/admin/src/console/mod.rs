@@ -493,7 +493,7 @@ struct QueryForm {
     lang: String,
     _csrf: String,
 }
-fn text(lang: &str, key: &str) -> String {
+pub(crate) fn text(lang: &str, key: &str) -> String {
     locale::message(lang, key, None, false).unwrap_or_default()
 }
 fn connected(view: &AgentView, op: Operation, now: SystemTime) -> bool {

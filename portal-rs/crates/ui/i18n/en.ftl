@@ -106,7 +106,6 @@ verify-login = Sign in
 register-errors = Please correct the fields below.
 
 rankings-title = Rankings
-rankings-as-of = Data as of
 rankings-world = World
 rankings-vocation = Vocation
 rankings-apply = Apply filters
@@ -411,3 +410,8 @@ discovery-navigation = Editorial links
 
 shell-item-journal = Inventory and history
 shell-weekly-notes = Private weekly notes
+rankings-computed-at = Ranking calculated at (UTC)
+shell-public-characters = Characters
+shell-account-native-devices = Native remembered devices
+
+shell-player-journal = Player journal

@@ -3375,6 +3375,7 @@ dependencies = [
  "oteryn-identity",
  "oteryn-internal-api",
  "oteryn-ui",
+ "percent-encoding",
  "serde",
  "serde_json",
  "serde_urlencoded",

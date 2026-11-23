@@ -46,7 +46,13 @@ const EXEMPT: &[(&str, usize, &str)] = &[
     ),
 ];
 
-const BUDGETS: &[&str] = &["mutation_budget", "statement_timeout", "lock_timeout"];
+const BUDGETS: &[&str] = &[
+    "mutation_budget",
+    "statement_timeout",
+    "lock_timeout",
+    // This RBAC helper arms the budget before acquiring its first lock.
+    "rbac::lock_accounts_and_mutation(",
+];
 
 fn sources(
     dir: &std::path::Path,

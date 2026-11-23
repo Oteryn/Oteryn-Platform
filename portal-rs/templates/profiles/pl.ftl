@@ -18,3 +18,9 @@ distance = Walka dystansowa
 shielding = Obrona tarczą
 fishing = Wędkarstwo
 death = Zgon (czas i poziom)
+
+recent-deaths = Ostatnie zgony
+portal-search = Znajdź postacie w wyszukiwarce portalu
+compare = Porównaj tę postać
+skills = Umiejętności
+deaths = Ostatnie zgony

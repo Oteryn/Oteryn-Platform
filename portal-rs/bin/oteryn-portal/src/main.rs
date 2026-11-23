@@ -394,9 +394,16 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 app
             };
-            let app = app.merge(oteryn_playerdata::hunts::web::configured_router(db.clone()));
+            let app = app
+                .merge(oteryn_playerdata::hunts::web::configured_router(db.clone()))
+                .merge(oteryn_admin::web::configured_guard(
+                    oteryn_playerdata::hunts::web::status_router(),
+                    db.clone(),
+                    oteryn_admin::rbac::Permission::Access,
+                )?);
             let app = app.merge(oteryn_playerdata::items::configured_router(db.clone()));
             let app = app.merge(oteryn_playerdata::dashboard::configured_router());
+            let app = app.merge(oteryn_playerdata::progress::web::router(db.clone()));
             let app = app.merge(oteryn_playerdata::logins::web::configured_router(
                 db.clone(),
             ));
@@ -404,7 +411,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_web::search::routes(
                 oteryn_web::search::SearchState {
                     pool: db.clone(),
-                    characters: None,
+                    characters: oteryn_community::profiles::configured_search(db.clone()),
                     world: Some(std::sync::Arc::new({
                         let pool = db.clone();
                         let catalog = oteryn_world::catalog::publication_enabled().then(||

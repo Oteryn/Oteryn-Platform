@@ -5,16 +5,45 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{{ title }} · Oteryn</title>
 <link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css">
-</head><body class="op-theme"><a href="#main">{{ skip }}</a>
-<main class="op-stack" id="main" tabindex="-1"><h1>{{ title }}</h1>
-{% if !message.is_empty() %}<p role="status">{{ message }}</p>{% endif %}
-{% if !watermark.is_empty() %}
-<nav class="op-row" aria-label="{{ kind_label }}">{% for (kind,label) in kinds %}<a href="/{{ lang }}/rankings/{{ kind }}?world={{ world }}&amp;vocation={{ vocation }}">{{ label }}</a>{% endfor %}</nav>
-<form class="op-stack" method="get">
-<div class="op-field"><label for="world">{{ world_label }}</label><select class="op-input" id="world" name="world">{% for item in worlds %}<option value="{{ item }}"{% if item.as_str() == world.as_str() %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></div>
-<div class="op-field"><label for="vocation">{{ vocation_label }}</label><select class="op-input" id="vocation" name="vocation">{% for (id,label) in vocations %}<option value="{{ id }}"{% if id.as_str() == vocation.as_str() %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-<button class="op-button" type="submit">{{ apply }}</button></form>
-<p>{{ as_of }} <time datetime="{{ watermark }}">{{ watermark }}</time></p>
-{% call table::table("rankings", title, headings, rows, hint) %}{% endcall %}
-{% call pager::pagination(pagination, previous, previous_url, page, next, next_url) %}{% endcall %}
-{% endif %}</main></body></html>
+</head><body class="op-theme">
+<a class="op-skip" href="#main">{{ skip }}</a>
+<main class="op-panel op-stack" id="main" tabindex="-1">
+  <h1>{{ title }}</h1>
+  {% if filters_available %}
+  <form class="op-stack" method="get" action="/{{ lang }}/rankings/{{ kind }}">
+    <div class="op-field">
+      <label for="skill">{{ kind_label }}</label>
+      <select class="op-input" id="skill" name="skill">
+        {% for (value, label) in kinds %}
+        <option value="{{ value }}"{% if value.as_str() == kind.as_str() %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="op-field">
+      <label for="world">{{ world_label }}</label>
+      <select class="op-input" id="world" name="world"{% if worlds.is_empty() %} disabled{% endif %}>
+        {% for (id, label, _) in worlds %}
+        <option value="{{ id }}"{% if id.as_str() == world.as_str() %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="op-field">
+      <label for="vocation">{{ vocation_label }}</label>
+      <select class="op-input" id="vocation" name="vocation">
+        {% for (id, label) in vocations %}
+        <option value="{{ id }}"{% if id.as_str() == vocation.as_str() %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button class="op-button" type="submit">{{ apply }}</button>
+  </form>
+  {% endif %}
+  {% if !message.is_empty() %}<p role="status">{{ message }}</p>{% endif %}
+  {% if !computed_at.is_empty() %}<p>{{ as_of }} <time datetime="{{ computed_at }}">{{ computed_at }}</time></p>{% endif %}
+  {% if !rows.is_empty() %}
+    {% call table::table("rankings", title, headings, rows, hint) %}{% endcall %}
+    {% if !previous_url.is_empty() || !next_url.is_empty() %}
+      {% call pager::pagination(pagination, previous, previous_url, page, next, next_url) %}{% endcall %}
+    {% endif %}
+  {% endif %}
+</main></body></html>

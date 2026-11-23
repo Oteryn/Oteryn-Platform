@@ -106,7 +106,6 @@ verify-login = Zaloguj się
 register-errors = Popraw poniższe pola.
 
 rankings-title = Rankingi
-rankings-as-of = Dane na dzień
 rankings-world = Świat
 rankings-vocation = Profesja
 rankings-apply = Zastosuj filtry
@@ -411,3 +410,8 @@ discovery-navigation = Odnośniki redakcyjne
 
 shell-item-journal = Przedmioty i historia
 shell-weekly-notes = Prywatne notatki tygodniowe
+rankings-computed-at = Ranking obliczono (UTC)
+shell-public-characters = Postacie
+shell-account-native-devices = Zapamiętane urządzenia klienta gry
+
+shell-player-journal = Dziennik gracza

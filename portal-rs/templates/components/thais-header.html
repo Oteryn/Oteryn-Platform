@@ -71,7 +71,7 @@
             {% endif %}
           </div>
         {% if interior %}</details>{% else %}</div>{% endif %}
-        {% if chrome.first_link("forum,online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare").is_some() || !chrome.editorial_menu.community.is_empty() %}
+        {% if chrome.first_link("forum,online,party,bazaar,guilds,deaths,rankings,growth-rankings,guild-stats,compare,characters").is_some() || !chrome.editorial_menu.community.is_empty() %}
         {% if interior %}
         <details class="om-section" name="portal-sections">
           <summary class="om-top-link"><span class="om-label">{{ chrome.text("shell-community") }}</span><span class="om-chevron" aria-hidden="true"></span></summary>
@@ -82,11 +82,11 @@
           </button>
           {% endif %}
           <div id="portal-community-panel" class="om-panel"{% if !interior %} hidden{% endif %}>
-            {% if chrome.first_link("forum,online,party,bazaar,guilds,deaths").is_some() %}
+            {% if chrome.first_link("forum,online,party,bazaar,guilds,deaths,characters").is_some() %}
             <div class="om-column">
               <h2 class="om-heading">{{ chrome.text("thais-nav-players") }}</h2>
               <ul>
-                {% for key in ["forum", "online", "party", "bazaar", "guilds", "deaths"] %}
+                {% for key in ["forum", "online", "party", "bazaar", "guilds", "deaths", "characters"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
               </ul>

@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% match view %}{% when View::Public(_) %}{{ t.title }}{% when View::Staff(_) %}{{ t.moderation }}{% endmatch %}</title>
+<link rel="stylesheet" href="/static/css/tokens.css">
+<link rel="stylesheet" href="/static/css/components.css">
+<link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body class="op-theme">
+{% macro details(row) %}
+<h3>{{ row.name }}</h3>
+<dl>
+  <dt>{{ t.world }}</dt><dd>{{ row.world.as_deref().unwrap_or(t.data_unavailable.as_str()) }}</dd>
+  <dt>{{ t.purpose }}</dt><dd>{{ row.purpose }}</dd>
+  <dt>{{ t.level }}</dt><dd>{{ row.min }}–{{ row.max }}</dd>
+  <dt>{{ t.profession }}</dt><dd>{{ row.profession }}</dd>
+  <dt>{{ t.starts }}</dt><dd>{{ row.starts }}</dd>
+  <dt>{{ t.expires }}</dt><dd>{{ row.expires }}</dd>
+</dl>
+<div>{% for line in row.note.lines() %}{% if !loop.first %}<br>{% endif %}{{ line }}{% endfor %}</div>
+{% endmacro %}
+<main class="op-party op-stack">
+{% match view %}
+{% when View::Public(public) %}
+  <h1>{{ t.title }}</h1>
+  <p>{{ t.hint }}</p>
+  {% if let Some(url) = public.staff_url %}
+  <p><a href="{{ url }}">{{ t.moderation }}</a></p>
+  {% endif %}
+  <section class="op-panel op-stack" aria-labelledby="party-discovery">
+    <h2 id="party-discovery">{{ t.discoveries }}</h2>
+    <form id="party-filter" class="op-stack" method="get" action="/{{ lang }}/party">
+      <label class="op-field">{{ t.world }}
+        <select class="op-input" name="world">
+          <option value="">{{ t.all }}</option>
+          {% for (id, name) in public.worlds %}
+          <option value="{{ id }}"{% if public.filter.world.as_ref() == Some(id) %} selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+          {% if public.selected_world_missing() %}{% if let Some(id) = public.filter.world %}
+          <option value="{{ id }}" selected>{{ t.data_unavailable }}</option>
+          {% endif %}{% endif %}
+        </select>
+      </label>
+      <label class="op-field">{{ t.purpose }}
+        <select class="op-input" name="purpose">
+          <option value="">{{ t.all }}</option>
+          {% for (code, label) in purposes %}
+          <option value="{{ code }}"{% if public.filter.purpose.as_deref() == Some(*code) %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label class="op-field">{{ t.level }}
+        <input class="op-input" name="level" type="number" min="1" max="100000"{% if let Some(level) = public.filter.level %} value="{{ level }}"{% endif %}>
+      </label>
+      <label class="op-field">{{ t.profession }}
+        <select class="op-input" name="profession">
+          {% for (code, label) in professions %}
+          <option value="{{ code }}"{% if public.filter.profession.as_deref() == Some(*code) %} selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <div class="op-row">
+        <button class="op-button">{{ t.filter }}</button>
+        <a href="/{{ lang }}/party">{{ t.reset }}</a>
+      </div>
+    </form>
+    {% if rows.is_empty() %}<p>{{ t.empty }}</p>{% endif %}
+    {% for row in rows %}
+    <article class="op-panel op-stack">
+      {% call details(row) %}{% endcall %}
+      {% if public.can_report(row.owner) %}
+      <form class="op-stack" method="post" action="/{{ lang }}/party/{{ row.id }}/report">
+        <input type="hidden" name="_csrf" value="{{ token }}">
+        <label class="op-field">{{ t.reason }}<input class="op-input" name="reason" type="text" maxlength="500" required></label>
+        <button class="op-button">{{ t.report }}</button>
+      </form>
+      {% endif %}
+    </article>
+    {% endfor %}
+    {% if public.previous.is_some() || public.next.is_some() %}
+    <div class="op-row">
+      {% if let Some(number) = public.previous %}
+      <button class="op-button" form="party-filter" name="page" value="{{ number }}">{{ t.previous }}</button>
+      {% endif %}
+      {% if let Some(number) = public.next %}
+      <button class="op-button" form="party-filter" name="page" value="{{ number }}">{{ t.next }}</button>
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="party-create">
+    <h2 id="party-create">{{ t.create }}</h2>
+    {% if public.characters.is_empty() %}
+    <p role="status">{{ t.unavailable }}</p>
+    {% else %}
+    <form class="op-stack" method="post" action="/{{ lang }}/party">
+      <input type="hidden" name="_csrf" value="{{ token }}">
+      <label class="op-field">{{ t.character }}
+        <select class="op-input" name="character" required>
+          {% for character in public.characters %}<option value="{{ character.id }}">{{ character.name }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="op-field">{{ t.purpose }}
+        <select class="op-input" name="purpose">
+          {% for (code, label) in purposes %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="op-field">{{ t.min }}<input class="op-input" name="min_level" type="number" min="1" max="100000" required></label>
+      <label class="op-field">{{ t.max }}<input class="op-input" name="max_level" type="number" min="1" max="100000" required></label>
+      <label class="op-field">{{ t.profession }}
+        <select class="op-input" name="profession">
+          {% for (code, label) in professions %}<option value="{{ code }}">{{ label }}</option>{% endfor %}
+        </select>
+      </label>
+      <label class="op-field">{{ t.starts }}<input class="op-input" name="starts_at" type="datetime-local" required></label>
+      <label class="op-field">{{ t.expires }}<input class="op-input" name="expires_at" type="datetime-local" required></label>
+      <label class="op-field">{{ t.note }}<textarea class="op-input" name="note" maxlength="500" required></textarea></label>
+      <button class="op-button">{{ t.create }}</button>
+    </form>
+    {% endif %}
+  </section>
+  {% if public.actor.is_some() %}
+  <section class="op-panel op-stack" aria-labelledby="party-owned">
+    <h2 id="party-owned">{{ t.owned }}</h2>
+    {% if public.owned.is_empty() %}<p>{{ t.no_owned }}</p>{% endif %}
+    {% for row in public.owned %}
+    <article class="op-panel op-stack" data-listing="{{ row.id }}">
+      {% call details(row) %}{% endcall %}
+      <p>{{ t.status }} <strong>{{ row.status }}</strong></p>
+      {% if row.active %}
+      <form method="post" action="/{{ lang }}/party/{{ row.id }}/remove">
+        <input type="hidden" name="_csrf" value="{{ token }}">
+        <button class="op-button">{{ t.remove }}</button>
+      </form>
+      {% endif %}
+    </article>
+    {% endfor %}
+  </section>
+  {% endif %}
+{% when View::Staff((ownership, profile)) %}
+  <h1>{{ t.moderation }}</h1>
+  <section class="op-panel op-stack" aria-labelledby="party-feed-status">
+    <h2 id="party-feed-status">{{ t.feed_status }}</h2>
+    <dl>
+      <dt>{{ t.ownership_feed }}</dt><dd>{% if *ownership %}{{ t.fresh }}{% else %}{{ t.data_unavailable }}{% endif %}</dd>
+      <dt>{{ t.profile_feed }}</dt><dd>{% if *profile %}{{ t.fresh }}{% else %}{{ t.data_unavailable }}{% endif %}</dd>
+    </dl>
+    <p>{{ t.feed_hint }}</p>
+  </section>
+  <section class="op-panel op-stack" aria-labelledby="party-queue">
+    <h2 id="party-queue">{{ t.queue }}</h2>
+    {% if rows.is_empty() %}<p>{{ t.queue_empty }}</p>{% endif %}
+    {% for row in rows %}
+    <article class="op-panel op-stack">
+      {% call details(row) %}{% endcall %}
+      <p>{{ t.status }} <strong>{{ row.status }}</strong></p>
+      <div class="op-prose">{{ row.reports }}</div>
+      {% if row.more_reports > 0 %}<p>{{ row.more_reports }} {{ t.more_reports }}</p>{% endif %}
+      <form class="op-stack" method="post" action="/admin/{{ lang }}/party/{{ row.id }}/moderate">
+        <input type="hidden" name="report_ids" value="{{ row.report_ids }}">
+        <input type="hidden" name="_csrf" value="{{ token }}">
+        <label class="op-field">{{ t.reason }}<input class="op-input" name="reason" type="text" maxlength="500" required></label>
+        <div class="op-row">
+          <button class="op-button" name="action" value="remove">{{ t.remove }}</button>
+          <button class="op-button" name="action" value="dismiss">{{ t.dismiss }}</button>
+        </div>
+      </form>
+    </article>
+    {% endfor %}
+  </section>
+{% endmatch %}
+</main>
+</body>
+</html>

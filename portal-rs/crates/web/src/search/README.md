@@ -1,15 +1,17 @@
 # Portal search (T48)
 
 `GET /search`, `/pl/search` and `/en/search` render the shared component system
-with Polish/English Fluent catalogs. `q` is empty or 2–80 characters after
-whitespace normalization; control characters are rejected. `page` is 1–1000.
+with Polish/English Fluent catalogs. Editorial and world queries use 2–80
+characters after whitespace normalization. Character queries use the public
+profile name rules, including a 64-byte limit. Control characters are rejected
+and `page` is 1–1000.
 Unknown parameters, types and malformed pagination answer 422. Database/source
 failure answers 503. Empty searches do not enumerate documents. Search responses
 are no-store/noindex. The existing locale/source WikiSearch limiter applies.
 
 `kind` selects `news`, `pages`, `events`, `wiki`, `world` or `characters`.
-Omitting it searches editorial sources together. Each page contains 20 results,
-with an extra candidate to detect the next page; sorting has deterministic ties.
+Omitting it searches editorial sources together. Paged sources return up to 20
+results, with an extra candidate to detect the next page and deterministic ties.
 Editorial relevance weights titles above body text. PostgreSQL `simple` full-text
 queries are parameterized; wildcards and SQL syntax are never executed.
 
@@ -34,14 +36,12 @@ Candidate queries read only keys and match presentation names; the binary inject
 name/key matching is repeated after this read, so a changed version cannot retain
 an obsolete name match. Source JSON and arbitrary descriptions are never rendered.
 
-T11 and T14b implementation code is already integrated in main. T24b's remote
-branch and public profile/search API were absent at task admission. Character
-search therefore answers 503 and has no projection-table fallback. `Provider` is
-the isolated integration seam: supply it only behind an off-by-default feature
-gate, and require current accepted source freshness, lifecycle and Platform privacy
-at every search. Never infer stable identity or visibility from a name. The
-provider must return 21 rows for lookahead, enforce bounded full-text matching and
-page limits, and percent-encode locale-prefixed local result destinations.
+Character search requires `PORTAL_PUBLIC_PROFILES_ENABLED=true` (off by
+default). The injected community provider matches a full name case-insensitively
+and preserves internal whitespace. It returns at most one current, public
+profile on the first page, with a percent-encoded local link. Incomplete or
+unavailable source or privacy evidence returns 503. Hidden and unknown
+characters produce an empty result.
 
 Tests use isolated schemas in `PORTAL_TEST_DATABASE_URL`, printing a skip notice
 when unset. Run the optional browser test with Chromium and external

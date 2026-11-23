@@ -47,3 +47,7 @@ data-table = Statistics data
 view-data = Read the chart data as a table
 table-scroll = Use the arrow keys to scroll the table when needed.
 detail = Detail
+compare-title = Compare characters
+compare-hint = Enter two public character names and choose a metric. Results show observed daily values.
+first-character = First character name
+second-character = Second character name

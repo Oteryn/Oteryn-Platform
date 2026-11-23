@@ -3,7 +3,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{OriginalUri, Query, State},
-    http::{HeaderMap, StatusCode},
+    http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
@@ -12,6 +12,7 @@ use oteryn_identity::{
     accounts::Accounts,
     credentials::{self, Credentials, Outcome, PasswordChange},
     export::{EXPORT_REAUTH_QUERY, ExportConfig},
+    native_devices::{self, Device, Revocation},
     navigation::SudoReturn,
 };
 use oteryn_web::{
@@ -107,7 +108,16 @@ pub fn router(service: Credentials) -> Router {
                 get(show_password).post(change).put(change),
             )
             .route(&format!("{prefix}/account/sudo"), get(show_sudo).post(sudo))
-            .route(&format!("{prefix}/account/security"), get(security_landing));
+            .route(&format!("{prefix}/account/security"), get(security_landing))
+            .route(
+                &format!("{prefix}/account/security/native-devices"),
+                get(native_devices_page).post(revoke_native_device).layer(
+                    tower_http::set_header::SetResponseHeaderLayer::overriding(
+                        header::CACHE_CONTROL,
+                        HeaderValue::from_static("no-store, private"),
+                    ),
+                ),
+            );
     }
     let routes = routes
         .route_layer(axum::middleware::from_fn_with_state(
@@ -128,7 +138,7 @@ async fn security_landing(Extension(lang): Extension<Language>) -> Redirect {
 
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form>{% if !back.is_empty() %}<p><a href=\"{{ back }}\">{{ back_label }}</a></p>{% endif %}</main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\" id=\"main\"><h1>{{ title }}</h1>{% if failed %}<p role=\"alert\">{{ error }}</p>{% endif %}<form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\"><p><label for=\"current\">{{ current }}</label><br><input class=\"op-input\" id=\"current\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></p>{% if change %}<p><label for=\"new\">{{ new }}</label><br><input class=\"op-input\" id=\"new\" type=\"password\" name=\"password\" autocomplete=\"new-password\" minlength=\"10\" maxlength=\"256\" required></p><p><label for=\"confirm\">{{ confirm }}</label><br><input class=\"op-input\" id=\"confirm\" type=\"password\" name=\"password_confirmation\" autocomplete=\"new-password\" required></p>{% endif %}<button class=\"op-button op-button--primary\" type=\"submit\">{{ submit }}</button></form>{% if change %}<p><a href=\"{{ native_devices }}\">{{ native_devices_label }}</a></p>{% endif %}{% if !back.is_empty() %}<p><a href=\"{{ back }}\">{{ back_label }}</a></p>{% endif %}</main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -144,6 +154,8 @@ struct Page {
     error: String,
     back: String,
     back_label: String,
+    native_devices: String,
+    native_devices_label: String,
 }
 fn text(lang: Language, key: &str) -> String {
     let source = if lang == Language::En {
@@ -172,6 +184,7 @@ async fn page(
     session: BrowserSession,
     change: bool,
     return_to: SudoReturn,
+    before: Option<uuid::Uuid>,
 ) -> Result<Response, StatusCode> {
     if session.account_id().await.is_none() {
         return Ok(redirect("/login"));
@@ -205,14 +218,23 @@ async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .unwrap_or(false),
-        error: text(lang, if breached { "breached" } else { "refused" }),
+        error: text(
+            lang,
+            match (change, breached) {
+                (false, _) => "sudo-refused",
+                (true, true) => "breached",
+                (true, false) => "refused",
+            },
+        ),
         back: match return_to {
             SudoReturn::Security if oteryn_identity::navigation::overview_enabled() => {
                 "/account".into()
             }
             SudoReturn::Security => String::new(),
-            target => target.path(lang.code()),
+            target => device_page_path(target.path(lang.code()), before),
         },
+        native_devices: SudoReturn::NativeDevices.path(lang.code()),
+        native_devices_label: lang.text("shell-account-native-devices"),
         back_label: match return_to {
             SudoReturn::Security => lang.text("shell-account-overview-back"),
             _ => text(lang, "back-to-action"),
@@ -236,12 +258,23 @@ async fn show_password(
     Extension(lang): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, true, SudoReturn::default()).await
+    page(lang, session, true, SudoReturn::default(), None).await
 }
 #[derive(serde::Deserialize)]
 struct SudoQuery {
     #[serde(default)]
     return_to: SudoReturn,
+    #[serde(flatten)]
+    devices: DeviceQuery,
+}
+
+impl SudoQuery {
+    fn device_cursor(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
+        match self.return_to {
+            SudoReturn::NativeDevices => self.devices.cursor(),
+            _ => Ok(None),
+        }
+    }
 }
 
 async fn show_sudo(
@@ -249,16 +282,23 @@ async fn show_sudo(
     Extension(session): Extension<BrowserSession>,
     OriginalUri(uri): OriginalUri,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, false, sudo_target(&uri)?.0).await
+    let (return_to, _, before) = sudo_target(&uri)?;
+    page(lang, session, false, return_to, before).await
 }
 
-fn sudo_target(uri: &axum::http::Uri) -> Result<(SudoReturn, &'static str), StatusCode> {
+fn sudo_target(
+    uri: &axum::http::Uri,
+) -> Result<(SudoReturn, &'static str, Option<uuid::Uuid>), StatusCode> {
     if ExportConfig::configured().enabled && uri.query() == Some(EXPORT_REAUTH_QUERY) {
-        return Ok((SudoReturn::Export, "?continue=account-export"));
+        return Ok((SudoReturn::Export, "?continue=account-export", None));
     }
     let Query(query) =
         Query::<SudoQuery>::try_from_uri(uri).map_err(|_| StatusCode::BAD_REQUEST)?;
-    Ok((query.return_to, query.return_to.query()))
+    Ok((
+        query.return_to,
+        query.return_to.query(),
+        query.device_cursor()?,
+    ))
 }
 fn session_hash(headers: &HeaderMap) -> Option<Vec<u8>> {
     let mut values = headers
@@ -361,7 +401,7 @@ async fn sudo(
     parts: axum::http::request::Parts,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    let (return_to, query) = sudo_target(&parts.uri)?;
+    let (return_to, query, before) = sudo_target(&parts.uri)?;
     if let Err(response) = check(
         &limiter,
         &session,
@@ -392,7 +432,11 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(lang, &session, &format!("account/sudo{query}")).await;
+        let mut path = format!("account/sudo{query}");
+        if let Some(before) = before {
+            path.push_str(&format!("&before={before}"));
+        }
+        return refuse(lang, &session, &path).await;
     }
     let until = credentials::record_sudo_confirmation(&mut tx, id)
         .await
@@ -404,7 +448,10 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&return_to.path(lang.code())))
+    Ok(redirect(&device_page_path(
+        return_to.path(lang.code()),
+        before,
+    )))
 }
 
 #[cfg(test)]
@@ -428,4 +475,210 @@ async fn refuse(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     Ok(redirect(&format!("/{}/{path}", lang.code())))
+}
+
+const DEVICE_REVOKED: SessionKey<bool> = SessionKey::new("native_device_revoked");
+
+#[derive(Template)]
+#[template(
+    path = "account/native_devices.html",
+    config = "../../templates/account/lifecycle/askama.toml"
+)]
+struct NativeDevicesPage {
+    lang: Language,
+    entries: Vec<Device>,
+    path: String,
+    action: String,
+    next: Option<uuid::Uuid>,
+    older: bool,
+    confirm: Option<String>,
+    recent: bool,
+    csrf: String,
+    revoked: bool,
+    lane: &'static str,
+}
+
+impl NativeDevicesPage {
+    fn text(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct DeviceQuery {
+    before: Option<String>,
+}
+
+impl DeviceQuery {
+    fn cursor(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
+        self.before
+            .as_deref()
+            .map(native_devices::parse_family)
+            .transpose()
+            .map_err(|_| StatusCode::BAD_REQUEST)
+    }
+}
+
+fn device_page_path(path: String, before: Option<uuid::Uuid>) -> String {
+    match before {
+        Some(before) => format!("{path}?before={before}"),
+        None => path,
+    }
+}
+
+fn device_sudo_path(lang: Language, before: Option<uuid::Uuid>) -> String {
+    let path = SudoReturn::NativeDevices.sudo_path(lang.code());
+    match before {
+        Some(before) => format!("{path}&before={before}"),
+        None => path,
+    }
+}
+
+async fn native_devices_page(
+    State(service): State<Credentials>,
+    Extension(lang): Extension<Language>,
+    Extension(session): Extension<BrowserSession>,
+    Query(query): Query<DeviceQuery>,
+) -> Result<Response, StatusCode> {
+    let Some(owner) = session.account_id().await else {
+        return Ok(redirect(&format!("/{}/login", lang.code())));
+    };
+    let hash = session
+        .identity_hash()
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    let before = query.cursor()?;
+    let (entries, next) = native_devices::list(&service.pool, owner, before)
+        .await
+        .map_err(unavailable)?;
+    let recent = service.require_sudo(&hash).await.map_err(unavailable)? == Some(owner);
+    let can_revoke = entries.iter().any(Device::can_revoke);
+    let csrf = if recent && can_revoke {
+        session.csrf_token().await.map_err(unavailable)?
+    } else {
+        String::new()
+    };
+    let revoked = session
+        .get(DEVICE_REVOKED)
+        .await
+        .map_err(unavailable)?
+        .unwrap_or(false);
+    if revoked {
+        session
+            .set(DEVICE_REVOKED, &false)
+            .await
+            .map_err(unavailable)?;
+    }
+    let path = SudoReturn::NativeDevices.path(lang.code());
+    Ok(oteryn_web::render(&NativeDevicesPage {
+        lang,
+        entries,
+        action: device_page_path(path.clone(), before),
+        path,
+        next,
+        older: before.is_some(),
+        confirm: (!recent && can_revoke).then(|| device_sudo_path(lang, before)),
+        recent,
+        csrf,
+        revoked,
+        lane: native_enrollment_status(&service.pool).await,
+    }))
+}
+
+async fn native_enrollment_status(pool: &sqlx::PgPool) -> &'static str {
+    use oteryn_gameauth::devices::{NativeAuthority, PlatformAuthority};
+    let get = |key: &str| std::env::var(key).ok();
+    if get("OTERYN_NATIVE_REMEMBERED_DEVICES_ENABLED").as_deref() != Some("true") {
+        return "native-devices-disabled";
+    }
+    if !oteryn_core::restricted_environment(get)
+        || ![
+            "OTERYN_NATIVE_TLS_BIND",
+            "OTERYN_NATIVE_TLS_CERT_FILE",
+            "OTERYN_NATIVE_TLS_KEY_FILE",
+        ]
+        .iter()
+        .all(|key| get(key).is_some_and(|value| !value.trim().is_empty()))
+    {
+        return "native-devices-restricted";
+    }
+    let authority = PlatformAuthority {
+        oauth: oteryn_gameauth::oauth::Config::from_env(),
+        projection_authority: String::new(),
+    };
+    if authority.deployment_ready().is_err() {
+        return "native-devices-restricted";
+    }
+    let clients: Vec<_> = authority
+        .oauth
+        .clients
+        .iter()
+        .filter_map(|client| native_devices::parse_family(&client.client_id).ok())
+        .filter(|id| {
+            (1..=8).contains(&id.get_version_num()) && id.get_variant() == uuid::Variant::RFC4122
+        })
+        .collect();
+    if matches!(
+        native_devices::has_native_client(pool, &clients).await,
+        Ok(true)
+    ) {
+        "native-devices-enabled"
+    } else {
+        "native-devices-restricted"
+    }
+}
+
+fn unavailable(_: sqlx::Error) -> StatusCode {
+    StatusCode::SERVICE_UNAVAILABLE
+}
+
+#[derive(serde::Deserialize)]
+struct DeviceInput {
+    family: String,
+}
+
+async fn revoke_native_device(
+    State(service): State<Credentials>,
+    Extension(lang): Extension<Language>,
+    Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
+    Query(query): Query<DeviceQuery>,
+    Form(input): Form<DeviceInput>,
+) -> Result<Response, StatusCode> {
+    let owner = session.account_id().await.ok_or(StatusCode::UNAUTHORIZED)?;
+    let hash = session
+        .identity_hash()
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    if let Err(response) = check(
+        &limiter,
+        &session,
+        peer,
+        NamedPolicy::IdentitySecurityMutation,
+        lang,
+    )
+    .await
+    {
+        return Ok(*response);
+    }
+    let family =
+        native_devices::parse_family(&input.family).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let before = query.cursor()?;
+    let target = SudoReturn::NativeDevices;
+    match native_devices::revoke(&service.pool, owner, &hash, family)
+        .await
+        .map_err(unavailable)?
+    {
+        Revocation::Denied => Err(StatusCode::UNAUTHORIZED),
+        Revocation::Confirm => Ok(Redirect::to(&device_sudo_path(lang, before)).into_response()),
+        Revocation::Missing => Err(StatusCode::NOT_FOUND),
+        Revocation::Revoked => {
+            session
+                .set(DEVICE_REVOKED, &true)
+                .await
+                .map_err(unavailable)?;
+            Ok(Redirect::to(&device_page_path(target.path(lang.code()), before)).into_response())
+        }
+    }
 }

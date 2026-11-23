@@ -13,3 +13,4 @@ empty = No results.
 invalid = Use 2–80 characters and a page from 1 to 1000.
 unavailable = This search source is unavailable. Try again later.
 next = Next page
+invalid-character = Enter a valid character name and a page from 1 to 1000.

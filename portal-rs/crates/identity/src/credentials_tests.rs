@@ -1,7 +1,6 @@
 use super::*;
 use crate::breach::tests::{Mock, Reply, range};
-#[path = "credentials_test_db.rs"]
-mod database;
+use crate::credentials_test_db as database;
 #[derive(Debug)]
 struct Accounts(crate::accounts::Accounts);
 impl oteryn_notify::AccountState for Accounts {

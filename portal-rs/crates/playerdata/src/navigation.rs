@@ -53,4 +53,12 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        true,
+        "player-journal",
+        "shell-player-journal",
+        "account/journal",
+        Group::Account,
+        false,
+    );
 }

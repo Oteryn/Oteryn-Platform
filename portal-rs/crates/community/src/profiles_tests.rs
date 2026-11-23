@@ -75,6 +75,8 @@ async fn search_success_refusal_bad_input() -> TestResult {
     for path in [
         "/en/characters?name=a&name=b",
         "/en/characters?name=%FF",
+        "/en/characters?name=Hero%",
+        "/en/characters?name=Hero%2G",
         "/en/characters?name=..",
         "/en/characters?name=a%2Fb",
         "/en/characters?name=",
@@ -175,6 +177,50 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
     let body = String::from_utf8(to_bytes(r.into_body(), 20000).await?.to_vec())?;
     assert!(body.contains("412"));
     assert!(!body.contains("subject-fixture") && !body.contains("world-fixture"));
+    let public_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "UPDATE public_snapshots
+         SET subject=$1,payload=jsonb_set(payload,'{profile,0,name}',to_jsonb('Élodie  Hero'::text))
+         WHERE subject='other-world'",
+    )
+    .bind(public_id.to_string())
+    .execute(&db)
+    .await?;
+    let directory = |privacy: Arc<dyn Privacy>| Directory {
+        db: db.clone(),
+        privacy,
+        details: Arc::new(details::MissingDetails),
+    };
+    let provider = search_provider(directory(Arc::new(Visible(true))));
+    let hits = provider("en".into(), "Élodie  Hero".into(), 1)
+        .await
+        .map_err(|status| status.to_string())?;
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].href, "/en/characters/%C3%89lodie%20%20Hero");
+    assert_eq!(hits[0].title, "Élodie  Hero");
+    let identity = directory(Arc::new(Visible(true)))
+        .identity_by_id(public_id)
+        .await
+        .map_err(|_| "profile unavailable")?
+        .ok_or("profile not found")?;
+    assert_eq!(identity.name, hits[0].title);
+
+    let hidden = search_provider(directory(Arc::new(Visible(false))));
+    assert!(
+        hidden("en".into(), "Élodie  Hero".into(), 1)
+            .await
+            .map_err(|status| status.to_string())?
+            .is_empty()
+    );
+    assert!(matches!(
+        provider("pl".into(), "x".repeat(65), 1).await,
+        Err(StatusCode::UNPROCESSABLE_ENTITY)
+    ));
+    assert!(matches!(
+        provider("pl".into(), "Aldric".into(), 1001).await,
+        Err(StatusCode::UNPROCESSABLE_ENTITY)
+    ));
+
     let detailed = send(
         router_with_details(
             db.clone(),
@@ -194,6 +240,15 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
     );
     assert!(!details_body.contains("<script>"));
     assert!(!body.contains("Fixture Guild"));
+    let missing_details = send(
+        router(db.clone(), true, Arc::new(DetailedPrivacy)),
+        "/en/characters/Aldric",
+    )
+    .await?;
+    let missing_body =
+        String::from_utf8(to_bytes(missing_details.into_body(), 20000).await?.to_vec())?;
+    assert!(missing_body.contains("Guild and rank</dt><dd>Unavailable"));
+    assert!(missing_body.contains("Skills</dt><dd>Unavailable"));
     let denied_fields = send(
         router_with_details(
             db.clone(),
@@ -257,6 +312,10 @@ async fn postgres_profile_success_privacy_fences_and_name_handoff() -> TestResul
         send(app.clone(), "/en/characters/Aldric").await?.status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
+    assert!(matches!(
+        provider("en".into(), "Élodie  Hero".into(), 1).await,
+        Err(StatusCode::SERVICE_UNAVAILABLE)
+    ));
     sqlx::query("UPDATE public_projection_state SET highest_epoch=2")
         .execute(&db)
         .await?;

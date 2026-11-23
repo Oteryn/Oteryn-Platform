@@ -25,6 +25,7 @@ use uuid::Uuid;
 #[path = "staff_web.rs"]
 mod invitations;
 
+mod public_projections;
 #[path = "registration_policy.rs"]
 mod registration_policy;
 
@@ -322,6 +323,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
         )
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
         .merge(crate::character_cases::web::routes::<I, A>())
+        .merge(crate::world_operations::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
             "/admin/mail-outbox/retry",
@@ -357,6 +359,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
             std::env::var("OTERYN_ADMIN_CHARTS_EXTENDED_ENABLED")
                 .is_ok_and(|value| value == "true"),
         ))
+        .route("/admin/public-projections", get(public_projections::page))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -492,6 +495,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
         (crate::client_build::PATH, _) => &[Permission::ManageDownloads],
         ("/admin/character-cases", _) => &[Permission::ManageSupportTickets],
+        ("/admin/public-projections", _) => &[Permission::GameCatalogAccess],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -624,7 +628,9 @@ struct Page {
     client_build_link: Option<String>,
     world_daily_link: Option<String>,
     character_cases_link: Option<String>,
+    projections_link: Option<String>,
     players_label: String,
+    operations_link: Option<String>,
     players: bool,
     registration_policy_label: Option<String>,
     errors_label: Option<String>,
@@ -806,6 +812,16 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         None
     };
+    let projections_link = match s.auth.check(context, Permission::GameCatalogAccess).await {
+        Ok(()) => Some(text(lang, "public-projections-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let operations_link = match crate::world_operations::has_scope(&s.pool, context.account).await {
+        Ok(true) => Some(text(lang, "ops-title")),
+        Ok(false) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -818,6 +834,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         client_build_link,
         world_daily_link,
         character_cases_link: support.then(|| text(lang, "character-case-title")),
+        projections_link,
+        operations_link,
         players_label: text(lang, "players"),
         players: s.players_enabled && support,
         errors_label: s

@@ -1,9 +1,16 @@
 <!doctype html>
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme"><main id="main" class="op-stack"><h1>{{ title }}</h1><p>{{ hint }}</p>{% if !message.is_empty() %}<p {% if invalid %}role="alert" tabindex="-1" autofocus{% else %}role="status"{% endif %}>{{ message }}</p>{% endif %}
+<body class="op-theme"><main id="main" class="op-stack"><h1>{{ title }}</h1><p>{% if comparison %}{{ compare_hint }}{% else %}{{ hint }}{% endif %}</p>{% if !message.is_empty() %}<p {% if invalid %}role="alert" tabindex="-1" autofocus{% else %}role="status"{% endif %}>{{ message }}</p>{% endif %}
 <nav aria-label="{{ title }}"><ul>{% for (url,label) in tabs %}<li><a href="{{ url }}">{{ label }}</a></li>{% endfor %}</ul></nav>
 <form method="get" class="op-stack"><p><label for="start">{{ labels[3] }}</label><input class="op-input" id="start" name="start" type="date" value="{{ start }}" required></p><p><label for="end">{{ labels[4] }}</label><input class="op-input" id="end" name="end" type="date" value="{{ end }}" required></p>
-{% if comparison %}<p><label for="ids">{{ labels[6] }}</label><input class="op-input" id="ids" name="ids" value="{{ ids }}" required></p><p><label for="metric">{{ labels[7] }}</label><select class="op-input" name="metric" id="metric">{% for (key,label) in metrics %}<option value="{{ key }}"{% if selected_metric == *key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></p>{% else %}<p><label for="target">{{ labels[11] }}</label><input class="op-input" id="target" type="number" min="1" max="4294967295" name="target"></p>{% endif %}<button type="submit" class="op-button">{{ labels[5] }}</button></form>
+{% if comparison %}
+{% if ids.is_empty() %}
+<p><label for="first">{{ labels[17] }}</label><input class="op-input" id="first" name="first" value="{{ first }}" maxlength="64" required></p>
+<p><label for="second">{{ labels[18] }}</label><input class="op-input" id="second" name="second" value="{{ second }}" maxlength="64" required></p>
+{% else %}
+<p><label for="ids">{{ labels[6] }}</label><input class="op-input" id="ids" name="ids" value="{{ ids }}" maxlength="184" required></p>
+{% endif %}
+<p><label for="metric">{{ labels[7] }}</label><select class="op-input" name="metric" id="metric">{% for (key,label) in metrics %}<option value="{{ key }}"{% if selected_metric == *key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></p>{% else %}<p><label for="target">{{ labels[11] }}</label><input class="op-input" id="target" type="number" min="1" max="4294967295" name="target"></p>{% endif %}<button type="submit" class="op-button">{{ labels[5] }}</button></form>
 {% if !charts.is_empty() %}
 <figure aria-labelledby="character-chart-caption">
   <figcaption id="character-chart-caption">{{ labels[12] }}</figcaption>

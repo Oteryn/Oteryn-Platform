@@ -11,6 +11,7 @@ mod character_cases;
 mod client_build;
 pub mod commerce;
 mod mail_ops;
+mod world_operations;
 pub use control::controls;
 pub mod players;
 pub mod status;

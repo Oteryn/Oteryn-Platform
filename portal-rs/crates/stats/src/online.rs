@@ -176,34 +176,72 @@ pub async fn world_total(
     now: i64,
     coverage: &impl CoveragePolicy,
 ) -> Result<WorldTotal, Error> {
+    world_totals(db, config, world, &[day_start], now, coverage)
+        .await?
+        .remove(&day_start)
+        .ok_or(Error::Unavailable)
+}
+
+/// Read up to 31 UTC buckets under one current projection cut. Missing,
+/// expired, erased and uncovered buckets have no entry in the result.
+pub(crate) async fn world_totals(
+    db: &PgPool,
+    config: &Config,
+    world: uuid::Uuid,
+    days: &[i64],
+    now: i64,
+    coverage: &(impl CoveragePolicy + ?Sized),
+) -> Result<std::collections::BTreeMap<i64, WorldTotal>, Error> {
     if !config.permits(Family::WorldDailyKills) {
         return Err(Error::Unavailable);
     }
     wire::id(&world.to_string())?;
-    if day_start <= 0 || day_start % 86400 != 0 {
+    if days.is_empty() || days.len() > 31 || days.iter().any(|day| *day <= 0 || day % 86400 != 0) {
         return Err(Error::Invalid);
     }
     let mut tx = storage::read_fence(db).await?;
     let cut = storage::fresh(&mut tx, config, Family::WorldDailyKills, now, coverage).await?;
-    if day_start < cut.start || day_start > cut.through {
-        return Err(Error::Unavailable);
-    }
-    let payload: Option<serde_json::Value> = sqlx::query_scalar("SELECT payload FROM stats_v2_subjects WHERE source_authority=$1 AND family='world_daily_kills' AND subject=$2 AND epoch=$3::numeric AND expires_at>$4 AND NOT erased AND observed_at<=$5")
-        .bind(&config.source_authority).bind(format!("{world}/{day_start}")).bind(&cut.epoch).bind(now).bind(cut.through).fetch_optional(&mut *tx).await?.flatten();
-    let payload = payload.ok_or(Error::Unavailable)?;
-    let day: Day = serde_json::from_value(
-        payload
-            .get("days")
-            .and_then(|v| v.get(0))
-            .cloned()
-            .ok_or(Error::Unavailable)?,
+    let subjects: Vec<_> = days
+        .iter()
+        .filter(|day| (cut.start..=cut.through).contains(day))
+        .map(|day| format!("{world}/{day}"))
+        .collect();
+    let rows: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT subject,payload FROM stats_v2_subjects
+         WHERE source_authority=$1 AND family='world_daily_kills' AND subject=ANY($2)
+         AND epoch=$3::numeric AND expires_at>$4 AND NOT erased AND observed_at<=$5
+         AND payload IS NOT NULL",
     )
-    .map_err(|_| Error::Unavailable)?;
-    let result = WorldTotal {
-        monsters_killed: wire::decimal(&day.monsters_killed, true)?,
-        bosses_killed: wire::decimal(&day.bosses_killed, true)?,
-        complete: day.complete,
-    };
+    .bind(&config.source_authority)
+    .bind(&subjects)
+    .bind(&cut.epoch)
+    .bind(now)
+    .bind(cut.through)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut result = std::collections::BTreeMap::new();
+    for (subject, payload) in rows {
+        let Some(day) = payload.get("days").and_then(|days| days.get(0)) else {
+            continue;
+        };
+        let start = subject
+            .rsplit_once('/')
+            .and_then(|(_, start)| start.parse::<i64>().ok())
+            .ok_or(Error::Unavailable)?;
+        let day: Day = serde_json::from_value(day.clone()).map_err(|_| Error::Unavailable)?;
+        let end = start.checked_add(86400).ok_or(Error::Unavailable)?;
+        if day.complete && end > cut.through {
+            continue;
+        }
+        result.insert(
+            start,
+            WorldTotal {
+                monsters_killed: wire::decimal(&day.monsters_killed, true)?,
+                bosses_killed: wire::decimal(&day.bosses_killed, true)?,
+                complete: day.complete,
+            },
+        );
+    }
     tx.commit().await?;
     Ok(result)
 }

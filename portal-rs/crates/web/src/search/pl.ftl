@@ -13,3 +13,4 @@ empty = Brak wyników.
 invalid = Wpisz 2–80 znaków i numer strony od 1 do 1000.
 unavailable = To źródło wyszukiwania jest niedostępne. Spróbuj ponownie później.
 next = Następna strona
+invalid-character = Podaj prawidłową nazwę postaci i numer strony od 1 do 1000.

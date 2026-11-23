@@ -151,6 +151,8 @@ fn localized_responsive_labelled_template() {
             client_build_link: Some(text(lang, "build-title")),
             world_daily_link: Some(text(lang, "world-daily")),
             character_cases_link: Some(text(lang, "character-case-title")),
+            projections_link: None,
+            operations_link: Some(text(lang, "ops-title")),
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -191,6 +193,7 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains(&text(lang, "world-daily")));
         assert!(html.contains("href=\"/admin/character-cases\""));
         assert!(html.contains(&text(lang, "character-case-title")));
+        assert!(html.contains("href=\"/admin/world-operations\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));

@@ -37,6 +37,7 @@ async fn disabled_unknown_and_bad_input() -> TestResult {
     let app = rankings::router(db, true, Arc::new(Visible));
     for path in [
         "/en/rankings/unknown",
+        "/en/rankings/level?skill=unknown",
         "/en/rankings/level?world=no",
         "/en/rankings/level?vocation=6",
         "/fr/rankings/level",
@@ -59,6 +60,7 @@ async fn disabled_unknown_and_bad_input() -> TestResult {
         "vocation=1&vocation=2",
         "sort=name",
         "page=01",
+        "page=21",
     ] {
         let (status, html) = send(app.clone(), &format!("/pl/rankings/level?{query}")).await?;
         assert_eq!(status, StatusCode::BAD_REQUEST, "{query}");
@@ -85,7 +87,8 @@ async fn seeded() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error
     let db = PgPool::connect_with(options).await?;
     sqlx::raw_sql(concat!(
         include_str!("../../../migrations/20261105180000_t24_public_snapshots.sql"),
-        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql")
+        include_str!("../../../migrations/20261115120019_fix_a2-l8_projection_conflicts.sql"),
+        include_str!("../../../migrations/20261105190000_t25_world_registry.sql")
     ))
     .execute(&db)
     .await?;
@@ -93,12 +96,20 @@ async fn seeded() -> Result<Option<(PgPool, PgPool, String)>, Box<dyn std::error
     sqlx::query("UPDATE public_projection_state SET highest_epoch=1")
         .execute(&db)
         .await?;
-    for world in [WORLD, OTHER] {
+    let now = time::OffsetDateTime::now_utc().unix_timestamp();
+    sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('highscores','',true,1,1,$1,'null')")
+        .bind(now).execute(&db).await?;
+    for (world, label) in [(WORLD, "First World"), (OTHER, "Second World")] {
+        sqlx::query("INSERT INTO world_status(id,name) VALUES($1::uuid,$2)")
+            .bind(world)
+            .bind(label)
+            .execute(&db)
+            .await?;
         for category in 1..=9 {
             for filter in [0, 1] {
-                let rows: Vec<_> = (1..=102).map(|i| serde_json::json!({"rank":i.to_string(),"character_id":format!("01900000-0000-7000-8000-{i:012}"),"name":if i==1 { "HiddenSecret".into() } else if world==OTHER { format!("Other{i}") } else if filter==1 { format!("Druid{i}") } else if i==2 { "<script>alert(1)</script>".into() } else { format!("Player{i}") },"vocation":filter,"level":"200","value":(10000-i).to_string()})).collect();
-                let payload = serde_json::json!({"world_id":world,"category":category,"filter":filter,"computed_at":1790000000,"rows":rows});
-                sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('highscores',$1,false,1,1,1790000000,$2)").bind(format!("{world}:{category}:{filter}")).bind(payload).execute(&db).await?;
+                let rows: Vec<_> = (1..=102).map(|i| serde_json::json!({"rank":if i==3 { "2".into() } else {i.to_string()},"character_id":format!("01900000-0000-7000-8000-{i:012}"),"name":if i==1 { "HiddenSecret".into() } else if world==OTHER { format!("Other{i}") } else if filter==1 { format!("Druid{i}") } else if i==2 { "<script>alert(1)</script>".into() } else { format!("Player{i}") },"vocation":filter,"level":"200","value":(10000-if i==3 {2} else {i}).to_string()})).collect();
+                let payload = serde_json::json!({"world_id":world,"category":category,"filter":filter,"computed_at":(now-5).to_string(),"rows":rows});
+                sqlx::query("INSERT INTO public_snapshots (family,subject,is_watermark,epoch,version,watermark,payload) VALUES ('highscores',$1,false,1,1,$2,$3)").bind(format!("{world}:{category}:{filter}")).bind(now).bind(payload).execute(&db).await?;
             }
         }
     }
@@ -112,12 +123,26 @@ async fn cleanup(pool: PgPool, db: PgPool, schema: String) -> TestResult {
     pool.close().await;
     Ok(())
 }
+async fn fixture_computed_at(
+    db: &PgPool,
+) -> Result<time::OffsetDateTime, Box<dyn std::error::Error>> {
+    let seconds: i64 = sqlx::query_scalar(
+        "SELECT watermark - 5 FROM public_snapshots WHERE family='highscores' AND is_watermark",
+    )
+    .fetch_one(db)
+    .await?;
+    Ok(time::OffsetDateTime::from_unix_timestamp(seconds)?)
+}
+
 #[tokio::test]
 async fn database_categories_locales_privacy_and_escaping() -> TestResult {
     let Some((pool, db, schema)) = seeded().await? else {
         return Ok(());
     };
     let app = rankings::router(db.clone(), true, Arc::new(Visible));
+    let computed_at = fixture_computed_at(&db)
+        .await?
+        .format(&time::format_description::well_known::Rfc3339)?;
     for locale in ["pl", "en"] {
         for kind in [
             "level",
@@ -145,7 +170,7 @@ async fn database_categories_locales_privacy_and_escaping() -> TestResult {
             assert!(html.contains("&#60;script&#62;"));
             assert!(!html.contains("<script>"));
             assert!(!html.contains("character_id"));
-            assert!(html.contains("2026-09-21T14:13:20Z"));
+            assert!(html.contains(&format!(r#"<time datetime="{computed_at}""#)));
         }
     }
     cleanup(pool, db, schema).await
@@ -168,10 +193,19 @@ async fn database_filters_and_pagination() -> TestResult {
     assert!(html.contains("vocation=1&#38;page=3"));
     let (_, html) = send(
         app.clone(),
-        &format!("/en/rankings/magic?world={WORLD}&vocation=1"),
+        &format!("/en/rankings/experience?skill=magic&world={WORLD}&vocation=1"),
     )
     .await?;
-    assert!(html.contains("Druid2"));
+    assert!(html.contains(">First World</option>"));
+    let tied = "<th scope=\"row\">2</th><td>";
+    let first = html
+        .find(&format!("{tied}Druid2"))
+        .ok_or("first tied row")?;
+    let second = html
+        .find(&format!("{tied}Druid3"))
+        .ok_or("second tied row")?;
+    assert!(first < second);
+    assert!(html.contains("<th scope=\"row\">4</th><td>Druid4"));
     assert!(!html.contains("Player"));
     let (status, html) = send(
         app.clone(),
@@ -224,7 +258,7 @@ async fn database_visibility_failure_empty_and_epoch_fence() -> TestResult {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert!(html.contains("Temporarily unavailable"));
     assert!(!html.contains("Player"));
-    sqlx::query("UPDATE public_snapshots SET payload=jsonb_set(payload,'{rows}','[]')")
+    sqlx::query("UPDATE public_snapshots SET payload=jsonb_set(payload,'{rows}','[]') WHERE family='highscores' AND NOT is_watermark")
         .execute(&db)
         .await?;
     let app = rankings::router(db.clone(), true, Arc::new(Visible));
@@ -259,9 +293,16 @@ async fn home_top_skips_hidden_and_fails_closed() -> TestResult {
             "Player6"
         ]
     );
-    assert_eq!(rows[1].rank, "3");
+    assert_eq!(rows[1].rank, "2");
     assert_eq!(rows[1].url.as_deref(), Some("/pl/characters/Player3"));
-    assert_eq!(as_of, "2026-09-21 14:13");
+    assert_eq!(
+        as_of,
+        fixture_computed_at(&db)
+            .await?
+            .format(time::macros::format_description!(
+                "[year]-[month]-[day] [hour]:[minute]"
+            ))?
+    );
     let (rows, _) = rankings::home_top(&db, &Visible, oteryn_web::Language::En, 5, false)
         .await
         .map_err(|_| "home ranking unavailable")?;
@@ -320,7 +361,7 @@ async fn audit06_rankings_recheck_epoch_and_same_epoch_suppression() -> TestResu
                 let query = if self.epoch {
                     "UPDATE public_projection_state SET highest_epoch=2"
                 } else {
-                    "UPDATE public_snapshots SET payload=jsonb_set(payload,'{rows}','[]') WHERE family='highscores'"
+                    "UPDATE public_snapshots SET payload=jsonb_set(payload,'{rows}','[]') WHERE family='highscores' AND NOT is_watermark"
                 };
                 sqlx::query(query)
                     .execute(&self.db)
@@ -387,4 +428,64 @@ async fn audit_w2_c06_targeted_ranking_ignores_unrelated_subject_count() -> Test
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn database_rankings_require_a_recent_publication_cut() -> TestResult {
+    let path = format!("/en/rankings/magic?world={WORLD}&vocation=1");
+    for update in [
+        "UPDATE public_snapshots SET watermark=1 WHERE family='highscores' AND NOT is_watermark",
+        "UPDATE public_snapshots SET watermark=1 WHERE family='highscores' AND is_watermark",
+        "UPDATE public_snapshots SET payload=jsonb_set(payload,'{computed_at}','\"1\"') WHERE family='highscores' AND NOT is_watermark",
+        "DELETE FROM public_snapshots WHERE family='highscores' AND is_watermark",
+    ] {
+        let (pool, db, schema) = seeded().await?.ok_or("PostgreSQL required")?;
+        sqlx::query(sqlx::AssertSqlSafe(update))
+            .execute(&db)
+            .await?;
+        let app = rankings::router(db.clone(), true, Arc::new(Visible));
+        let (status, html) = send(app.clone(), &path).await?;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert!(html.contains("Temporarily unavailable"));
+        assert!(html.contains("First World"));
+        assert!(html.contains("value=\"magic\" selected"));
+        assert!(!html.contains("<table"));
+        assert!(
+            rankings::home_top(&db, &Visible, oteryn_web::Language::En, 5, false)
+                .await
+                .is_err()
+        );
+
+        cleanup(pool, db, schema).await?;
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn default_ranking_selects_a_world_with_current_results() -> TestResult {
+    let (pool, db, schema) = seeded().await?.ok_or("PostgreSQL required")?;
+    sqlx::query(
+        "UPDATE public_snapshots SET payload=jsonb_set(payload,'{computed_at}',to_jsonb('1'::text))
+         WHERE family='highscores' AND NOT is_watermark AND subject=$1",
+    )
+    .bind(format!("{WORLD}:1:0"))
+    .execute(&db)
+    .await?;
+
+    let app = rankings::router(db.clone(), true, Arc::new(Visible));
+    let (status, html) = send(app.clone(), "/en/rankings/level").await?;
+    assert_eq!(status, StatusCode::OK);
+    assert!(html.contains(&format!("value=\"{OTHER}\" selected")));
+    assert!(html.contains("Other2"));
+    assert_eq!(
+        send(app, &format!("/en/rankings/level?world={WORLD}"))
+            .await?
+            .0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    let (home, _) = rankings::home_top(&db, &Visible, oteryn_web::Language::En, 5, false)
+        .await
+        .map_err(|_| "home ranking unavailable")?;
+    assert_eq!(home.first().map(|row| row.name.as_str()), Some("Other2"));
+    cleanup(pool, db, schema).await
 }

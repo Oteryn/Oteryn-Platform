@@ -93,7 +93,7 @@ fn damage(v: &Value) -> Result<()> {
     }
     Ok(())
 }
-fn segment(r: &Value) -> Result<()> {
+fn segment(r: &Value, party_accepted: bool) -> Result<()> {
     fields(
         r,
         "session_id segment_id segment_index character_id world_id channel_id character_revision catalog_revision started_at ended_at duration_seconds end_reason final_segment experience_gained experience_lost level vocation_key places loot supplies damage_dealt damage_taken healing_done healing_received monsters_killed rare_drop_count party",
@@ -168,13 +168,57 @@ fn segment(r: &Value) -> Result<()> {
         require(num(r, "rare_drop_count", 0, 65535)? == 0)?;
     }
 
-    // Party capture has no game-owner privacy acceptance (§5.2). Never invent
-    // a partial anonymous ledger or silently discard it.
-    if !null(get(r, "party")?) {
-        return Err(Error::Unavailable);
+    let party = get(r, "party")?;
+    if !null(party) {
+        if !party_accepted {
+            return Err(Error::Unavailable);
+        }
+        require(start != end || s(r, "end_reason")? != "SESSION_END")?;
+        validate_party(party, get(r, "loot")?, duration)?;
     }
     Ok(())
 }
+
+fn validate_party(party: &Value, owner_loot: &Value, duration: u64) -> Result<()> {
+    use std::collections::BTreeSet;
+
+    fields(party, "party_id members loot")?;
+    id(party, "party_id")?;
+    let mut slots = BTreeSet::new();
+    let mut subject = None;
+    for member in array(get(party, "members")?, 1, 64)? {
+        fields(member, "member_slot is_subject active_seconds")?;
+        let slot = num(member, "member_slot", 0, 63)?;
+        require(slots.last().is_none_or(|prior| *prior < slot))?;
+        slots.insert(slot);
+        require(counter(member, "active_seconds")? <= duration)?;
+        if boolean(get(member, "is_subject")?)? {
+            require(subject.replace(slot).is_none())?;
+        }
+    }
+    let subject = subject.ok_or(Error::Invalid)?;
+    let mut previous = None;
+    let mut personal = Vec::new();
+    for item in array(get(party, "loot")?, 0, 4096)? {
+        fields(item, "member_slot item_key quantity")?;
+        let slot = num(item, "member_slot", 0, 63)?;
+        require(slots.contains(&slot))?;
+        ck(item, "item_key")?;
+        let key = s(item, "item_key")?;
+        let quantity = positive_counter(item, "quantity")?;
+        require(previous.is_none_or(|prior| prior < (slot, key)))?;
+        previous = Some((slot, key));
+        if slot == subject {
+            personal.push((key, quantity));
+        }
+    }
+    let expected = array(owner_loot, 0, 4096)?
+        .iter()
+        .map(|item| Ok((s(item, "item_key")?, positive_counter(item, "quantity")?)))
+        .collect::<Result<Vec<_>>>()?;
+    require(personal == expected)
+}
+
 fn drop_record(r: &Value) -> Result<()> {
     fields(
         r,
@@ -192,6 +236,11 @@ fn drop_record(r: &Value) -> Result<()> {
     ck(r, "rarity_rule_key")
 }
 pub fn record(raw: &[u8]) -> Result<SessionRecord> {
+    record_with_party(raw, false)
+}
+
+/// Only the caller's accepted Game privacy configuration can admit party ledgers.
+pub fn record_with_party(raw: &[u8], party_accepted: bool) -> Result<SessionRecord> {
     let v = decode(raw, 1048576)?;
     fields(
         &v,
@@ -203,7 +252,7 @@ pub fn record(raw: &[u8]) -> Result<SessionRecord> {
     let r = get(&v, "record")?;
     let kind = s(&v, "record_kind")?;
     match kind {
-        "HUNT_SEGMENT" => segment(r)?,
+        "HUNT_SEGMENT" => segment(r, party_accepted)?,
         "RARE_DROP" => drop_record(r)?,
         _ => return Err(Error::Invalid),
     }

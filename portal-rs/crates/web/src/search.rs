@@ -6,7 +6,7 @@ use crate::ratelimit::{RateLimit, RateLimiter, WikiSearch};
 use askama::Template;
 use axum::{
     Extension, Router,
-    extract::{Query, State},
+    extract::{Query, RawQuery, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -24,7 +24,7 @@ pub struct SearchState {
     pub pool: PgPool,
     /// Public world API adapter, supplied by the composition root to avoid cycles.
     pub world: Option<Provider>,
-    /// T24b adapter. Absent until its public privacy/freshness API is available.
+    /// Public character directory adapter, supplied by the composition root.
     pub characters: Option<Provider>,
 }
 impl std::fmt::Debug for SearchState {
@@ -57,8 +57,14 @@ impl Filters {
         if self.q.len() > 1024 || self.q.chars().any(char::is_control) {
             return Err(StatusCode::UNPROCESSABLE_ENTITY);
         }
-        self.q = self.q.split_whitespace().collect::<Vec<_>>().join(" ");
-        if (!self.q.is_empty() && !(2..=80).contains(&self.q.chars().count()))
+        let minimum = if self.kind == "characters" {
+            self.q = self.q.trim().to_owned();
+            1
+        } else {
+            self.q = self.q.split_whitespace().collect::<Vec<_>>().join(" ");
+            2
+        };
+        if (!self.q.is_empty() && !(minimum..=80).contains(&self.q.chars().count()))
             || !(1..=1000).contains(&self.page.unwrap_or(1))
             || !["", "news", "pages", "events", "wiki", "world", "characters"]
                 .contains(&self.kind.as_str())
@@ -195,14 +201,34 @@ async fn show(
     State(state): State<SearchState>,
     Extension(language): Extension<crate::Language>,
     _: RateLimit<WikiSearch>,
+    RawQuery(raw): RawQuery,
     query: Result<Query<Filters>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     let lang = language.code();
     let Ok(Query(mut filters)) = query else {
         return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, "invalid")).into_response();
     };
-    if filters.validate().is_err() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, "invalid")).into_response();
+    let character_search = filters.kind == "characters";
+    let invalid = if character_search {
+        "invalid-character"
+    } else {
+        "invalid"
+    };
+    let malformed = character_search
+        && raw.as_deref().is_some_and(|query| {
+            let bytes = query.as_bytes();
+            percent_encoding::percent_decode(bytes)
+                .decode_utf8()
+                .is_err()
+                || bytes.iter().enumerate().any(|(index, byte)| {
+                    *byte == b'%'
+                        && !bytes
+                            .get(index + 1..index + 3)
+                            .is_some_and(|pair| pair.iter().all(u8::is_ascii_hexdigit))
+                })
+        });
+    if malformed || filters.validate().is_err() {
+        return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, invalid)).into_response();
     }
     let mut hits = vec![];
     let mut unavailable = false;
@@ -227,6 +253,9 @@ async fn show(
         };
         match result {
             Ok(rows) => hits = rows,
+            Err(StatusCode::UNPROCESSABLE_ENTITY) if character_search => {
+                return (StatusCode::UNPROCESSABLE_ENTITY, text(lang, invalid)).into_response();
+            }
             Err(_) => unavailable = true,
         }
     }

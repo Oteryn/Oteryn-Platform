@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
-mod npc;
+pub(crate) mod npc;
 #[cfg(test)]
 mod tests;
 

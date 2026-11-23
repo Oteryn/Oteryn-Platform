@@ -703,6 +703,43 @@ mod tests {
         Ok(())
     }
     #[test]
+    fn account_navigation_displays_both_remembered_device_entries() -> Result<(), askama::Error> {
+        let mut registry = registry();
+        registry.account = true;
+        let links = [
+            (
+                "account-remembered-devices",
+                "shell-account-remembered-devices",
+                "mfa#remembered-devices",
+            ),
+            (
+                "account-native-devices",
+                "shell-account-native-devices",
+                "account/security/native-devices",
+            ),
+        ];
+        for (key, label, path) in links {
+            registry.section(true, key, label, path, Group::Account, false);
+        }
+        for lang in ["pl", "en"] {
+            let chrome = registry.chrome(
+                lang,
+                "/account",
+                Account::SignedIn {
+                    csrf: String::new(),
+                    passkeys_eligible: false,
+                },
+            );
+            let html = ShellHeader { chrome: &chrome }.render()?;
+            for (_, label, path) in links {
+                assert!(html.contains(&format!(r#"href="/{lang}/{path}""#)));
+                assert!(html.contains(&chrome.text(label)));
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
     fn home_distinguishes_empty_and_unavailable_news_without_extra_hero_actions()
     -> Result<(), askama::Error> {
         for lang in ["pl", "en"] {

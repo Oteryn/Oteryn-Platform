@@ -5,3 +5,8 @@
 .hunts article { margin-block: 1rem; }
 .hunts input, .hunts select { max-width: 100%; }
 .hunt-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1rem; }
+.hunts :is(select, input, textarea) { max-inline-size: 100%; min-inline-size: 0; }
+.hunts :is(dt, dd, li, option, h2, p) { overflow-wrap: anywhere; }
+.hunts select { width: min(100%, 28rem); }
+.hunts textarea { display: block; width: min(100%, 32rem); }
+.hunt-cards > article { min-width: 0; }

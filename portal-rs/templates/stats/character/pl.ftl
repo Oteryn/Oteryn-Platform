@@ -47,3 +47,7 @@ data-table = Dane statystyczne
 view-data = Odczytaj dane wykresu w tabeli
 table-scroll = W razie potrzeby przewiń tabelę klawiszami strzałek.
 detail = Szczegóły
+compare-title = Porównaj postacie
+compare-hint = Podaj nazwy dwóch publicznych postaci i wybierz metrykę. Wyniki pokazują dzienne obserwacje.
+first-character = Nazwa pierwszej postaci
+second-character = Nazwa drugiej postaci

@@ -5,6 +5,7 @@ use sqlx::postgres::PgPoolOptions;
 use time::Month;
 struct Source {
     hidden: Option<Uuid>,
+    names: Option<[Uuid; 2]>,
 }
 impl Current for Source {
     fn character(&self, id: Uuid) -> CurrentFuture<'_> {
@@ -22,6 +23,23 @@ impl Current for Source {
             })
         })
     }
+    fn by_name<'a>(&'a self, name: &'a str) -> NamedFuture<'a> {
+        Box::pin(async move {
+            let Some([first, second]) = self.names else {
+                return Err(Error::Unavailable);
+            };
+            let id = match name {
+                "Aldric" => first,
+                "Carina" => second,
+                _ => return Err(Error::NotFound),
+            };
+            if self.hidden == Some(id) {
+                return Err(Error::NotFound);
+            }
+            Ok((id, "<Public>".into()))
+        })
+    }
+
     fn experience_at_level(&self, _: Uuid, _: u32) -> Option<u64> {
         Some(1000)
     }
@@ -78,7 +96,10 @@ async fn disabled_hidden_and_bad_input_refuse_before_database() {
     let mut service = Characters {
         db,
         enabled: false,
-        current: Arc::new(Source { hidden: Some(id) }),
+        current: Arc::new(Source {
+            hidden: Some(id),
+            names: None,
+        }),
     };
     assert!(matches!(
         service.load(id, day(), day(), None).await,
@@ -169,7 +190,10 @@ async fn postgres_character_history_privacy_and_comparison()
     let mut service = Characters {
         db: db.clone(),
         enabled: true,
-        current: Arc::new(Source { hidden: None }),
+        current: Arc::new(Source {
+            hidden: None,
+            names: Some([a, b]),
+        }),
     };
     let report = service
         .load(a, day(), day() + Duration::days(2), None)
@@ -233,6 +257,30 @@ async fn postgres_character_history_privacy_and_comparison()
         assert!(!body.contains("never render"));
         assert!(body.contains("viewBox"));
     }
+    let named_uri = "/en/stats/compare?first=Aldric&second=Carina&start=2026-11-01&end=2026-11-03&metric=experience";
+    let named = app
+        .clone()
+        .oneshot(Request::get(named_uri).body(Body::empty())?)
+        .await?;
+    assert_eq!(named.status(), StatusCode::OK);
+    let body = to_bytes(named.into_body(), 1_000_000).await?;
+    assert!(String::from_utf8_lossy(&body).contains(">300</dd>"));
+
+    let hidden = http::router(Characters {
+        current: Arc::new(Source {
+            hidden: Some(b),
+            names: Some([a, b]),
+        }),
+        ..service.clone()
+    })
+    .oneshot(Request::get(named_uri).body(Body::empty())?)
+    .await?;
+    assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
+    assert!(
+        !String::from_utf8_lossy(&to_bytes(hidden.into_body(), 1_000_000).await?)
+            .contains(">300</dd>")
+    );
+
     let response=app.clone().oneshot(Request::builder().uri(format!("/en/stats/compare?ids={a},{b}&start=2026-11-01&end=2026-11-03&metric=sword_level")).body(Body::empty())?).await?;
     assert_eq!(response.status(), StatusCode::OK);
     let response = app
@@ -256,7 +304,10 @@ async fn postgres_character_history_privacy_and_comparison()
     let body = String::from_utf8(to_bytes(deaths.into_body(), 1_000_000).await?.to_vec())?;
     assert!(body.contains("Death"));
     assert!(!body.contains("never render"));
-    service.current = Arc::new(Source { hidden: Some(b) });
+    service.current = Arc::new(Source {
+        hidden: Some(b),
+        names: Some([a, b]),
+    });
     assert!(matches!(
         service.compare(&[a, b], day(), day()).await,
         Err(Error::NotFound)

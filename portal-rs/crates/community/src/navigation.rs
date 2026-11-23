@@ -56,10 +56,18 @@ pub fn register(registry: &mut Registry) {
         false,
     );
     registry.section(
-        on("PORTAL_DEATHS_ENABLED") && on("PORTAL_PUBLIC_PROJECTIONS_ENABLED") && staging,
+        crate::deaths::serving_requested(),
         "deaths",
         "shell-deaths",
         "deaths",
+        Group::Community,
+        false,
+    );
+    registry.section(
+        crate::profiles::enabled(),
+        "characters",
+        "shell-public-characters",
+        "characters",
         Group::Community,
         false,
     );

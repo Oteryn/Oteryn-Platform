@@ -11,7 +11,8 @@ adapters. No private family is exposed.
 
 `configured_router` registers the internal V2 character-deaths and watermark POST
 routes and `/[pl|en/]deaths`, `/[pl|en/]characters/{name}/deaths` GET routes.
-The optional `world` query is an exact public world name, never a canonical ID.
+The optional `world` query is an exact public world name. Optional paired
+`start` and `end` dates select inclusive UTC dates inside the retention window.
 The list shows the latest 50 visible records; character lists show at most 20
 within 30 days, ordered by descending receipt time and occurrence ID.
 Killers are closed tagged objects (contract revision 4, the Game-owner amendment
@@ -33,24 +34,22 @@ All activation requires `APP_ENV=testing|preproduction` and
   Invalid settings disable ingestion. The shared database budget is per route
   for the entire certificate group, stricter than per-certificate limits.
 
-The binary supplies the real T45/T09c privacy authority, requiring current unique
-LCFA ownership, a saved visible character and deaths permission. It does not yet
-implement `allows_killer`, so the default denies and player killer labels stay
-withheld there; creature names are shown. Unknown/reused names cannot authorize
-disclosure.
+The binary supplies the T45/T09c privacy authority. Victim disclosure requires
+current unique LCFA ownership and a visible character with deaths permission.
+Player killer disclosure uses current visibility of the recorded CharacterId.
 
-The configured public router independently retains a contract-acceptance gate:
-Game main d34807f5bd234ee8318e57ba454ba39be0df113d, public projections rev 2,
-marks deaths CANDIDATE rev 1 with no producer (coordinator update 2026-11-07).
-Enabled pages therefore return localized 503 until Game acceptance and producer
-qualification; environment flags do not bypass the gate. The injectable router
-remains available for isolated consumer qualification tests.
+The configured public router retains the G-4 Q7 activation hold. Revision 4
+accepts the wire and semantics. Enabled pages return localized 503 while the
+producer, retained-set rebuild, privacy revocation and activation qualification
+are pending. The injectable router serves isolated consumer qualification tests.
+See [GAP-16](../../../../../docs/product/GAP-16-PUBLIC-DEATHS-AND-KILLS.md).
 
 Presentation also requires eligible same-epoch T24 profile facts and fresh profile
 and deaths watermarks (`now - complete_through + 1 <= 30`). Missing/stale evidence
 returns 503 with no records; hidden/unknown/ambiguous character lookups return 404.
 This follows the stricter G-4 refusal rule rather than the legacy world's 200
-unavailable page. Disabled public routes return 404; disabled ingest returns 503.
+unavailable page. Unknown/ambiguous world filters and invalid date ranges return 400.
+Disabled public routes return 404; disabled ingest returns 503.
 Every non-200 ingest response has an empty body; oversize requests return 400.
 
 ## Storage and retention
