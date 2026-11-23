@@ -2,6 +2,7 @@
 //! Set OTERYN_ALERT_EMAILS to a comma-separated list of addresses. The optional
 //! OTERYN_ALERT_5XX_THRESHOLD is a count of responses in the preceding five minutes.
 use super::{Handler, HandlerFuture, Registry};
+use fluent_bundle::{FluentBundle, FluentResource};
 use lettre::{
     AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor,
     message::{Mailbox, header::ContentType},
@@ -19,6 +20,7 @@ const FINGERPRINT_BATCH: i64 = 20;
 enum Error {
     Recipients,
     Threshold,
+    Messages,
     SmtpConfig,
     Storage,
     Delivery,
@@ -31,6 +33,7 @@ impl std::fmt::Display for Error {
                 "OTERYN_ALERT_EMAILS must contain 1 to 25 comma-separated email addresses"
             }
             Self::Threshold => "OTERYN_ALERT_5XX_THRESHOLD must be a positive integer",
+            Self::Messages => "operations alert translations are incomplete or invalid",
             Self::SmtpConfig => "operations SMTP configuration is incomplete or invalid",
             Self::Storage => "operations alert storage unavailable",
             Self::Delivery => "operations alert delivery failed",
@@ -63,11 +66,56 @@ fn recipients(input: &str) -> Result<Vec<String>, Error> {
     Ok(recipients)
 }
 
-#[derive(Clone)]
+struct AlertMessages {
+    group: String,
+    spike: String,
+    count: String,
+    threshold: String,
+}
+
+impl AlertMessages {
+    fn load() -> Result<Self, Error> {
+        fn bundle(lang: &str, source: &str) -> Result<FluentBundle<FluentResource>, Error> {
+            let mut bundle = FluentBundle::new(vec![lang.parse().map_err(|_| Error::Messages)?]);
+            bundle
+                .add_resource(
+                    FluentResource::try_new(source.to_owned()).map_err(|_| Error::Messages)?,
+                )
+                .map_err(|_| Error::Messages)?;
+            Ok(bundle)
+        }
+        fn message(bundle: &FluentBundle<FluentResource>, key: &str) -> Result<String, Error> {
+            let pattern = bundle
+                .get_message(key)
+                .and_then(|msg| msg.value())
+                .ok_or(Error::Messages)?;
+            let mut errors = Vec::new();
+            let value = bundle.format_pattern(pattern, None, &mut errors);
+            if errors.is_empty() && !value.trim().is_empty() {
+                Ok(value.into_owned())
+            } else {
+                Err(Error::Messages)
+            }
+        }
+        let en = bundle("en", include_str!("../../../templates/admin/en.ftl"))?;
+        let pl = bundle("pl", include_str!("../../../templates/admin/pl.ftl"))?;
+        let label = |key| -> Result<String, Error> {
+            Ok(format!("{} / {}", message(&en, key)?, message(&pl, key)?))
+        };
+        Ok(Self {
+            group: label("errors-alert-group")?,
+            spike: label("errors-alert-spike")?,
+            count: label("errors-alert-count")?,
+            threshold: label("errors-alert-threshold")?,
+        })
+    }
+}
+
 struct Alerts {
     pool: PgPool,
     recipients: Vec<String>,
     threshold: i64,
+    messages: AlertMessages,
 }
 impl std::fmt::Debug for Alerts {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -90,7 +138,7 @@ impl Alerts {
         for (id, route, kind) in new_groups {
             self.enqueue(
                 &mut tx,
-                "Oteryn Portal | New error group / Nowa grupa błędów",
+                &format!("Oteryn Portal | {}", self.messages.group),
                 &format!("{route} · {kind}\n\n/admin/errors/{id}\n"),
             )
             .await?;
@@ -119,11 +167,10 @@ impl Alerts {
         if send {
             self.enqueue(
                 &mut tx,
-                "Oteryn Portal | Elevated 5xx rate / Wzrost liczby błędów 5xx",
+                &format!("Oteryn Portal | {}", self.messages.spike),
                 &format!(
-                    "5xx responses in the past 5 minutes / Odpowiedzi 5xx w ciągu ostatnich 5 minut: {errors}\n\
-                     Threshold / Próg: {}\n\n/admin/errors\n",
-                    self.threshold,
+                    "{}: {errors}\n{}: {}\n\n/admin/errors\n",
+                    self.messages.count, self.messages.threshold, self.threshold,
                 ),
             )
             .await?;
@@ -273,6 +320,7 @@ pub(super) fn register(
             pool: pool.clone(),
             recipients,
             threshold,
+            messages: AlertMessages::load()?,
         }),
     )?;
     registry.register(MAIL_JOB, Arc::new(Delivery { pool, smtp, from }))?;
@@ -316,6 +364,7 @@ mod tests {
             pool: db.pool.clone(),
             recipients: recipients("ops-en@example.invalid,ops-pl@example.invalid")?,
             threshold: 2,
+            messages: AlertMessages::load()?,
         };
         sqlx::query(
             "INSERT INTO portal_errors(route, error_kind, last_request_id)
@@ -348,7 +397,7 @@ mod tests {
         duplicate?;
         let queued = messages().await?;
         assert_eq!(queued.len(), 1);
-        assert!(queued[0].0.contains("New error group"));
+        assert!(queued[0].0.contains("New error group / Nowa grupa błędów"));
         assert_eq!(queued[0].1, alerts.recipients);
 
         sqlx::query("DELETE FROM portal_error_rate")
@@ -359,7 +408,11 @@ mod tests {
         alerts.scan().await?;
         let queued = messages().await?;
         assert_eq!(queued.len(), 2);
-        assert!(queued[1].0.contains("Elevated 5xx rate"));
+        assert!(
+            queued[1]
+                .0
+                .contains("Elevated 5xx rate / Wzrost liczby błędów 5xx")
+        );
 
         // A second crossing in the active cooldown is suppressed.
         sqlx::query("DELETE FROM portal_error_rate")

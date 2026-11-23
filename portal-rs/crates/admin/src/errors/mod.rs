@@ -27,19 +27,22 @@ pub(super) fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::err
         pool.clone(),
         Permission::ViewPortalErrors,
     )?
-    .merge(web::configured_guard(
+    .merge(web::configured_guard_all(
         Router::new()
             .route("/admin/errors/{id}/resolve", post(resolve))
             .with_state(pool.clone()),
         pool.clone(),
-        Permission::ResolvePortalErrors,
+        &[
+            Permission::ViewPortalErrors,
+            Permission::ResolvePortalErrors,
+        ],
     )?)
-    .merge(web::configured_guard(
+    .merge(web::configured_guard_all(
         Router::new()
             .route("/admin/errors/{id}/ignore", post(ignore))
             .with_state(pool.clone()),
         pool,
-        Permission::IgnorePortalErrors,
+        &[Permission::ViewPortalErrors, Permission::IgnorePortalErrors],
     )?))
 }
 
@@ -105,7 +108,7 @@ struct Filters {
 }
 impl Filters {
     fn validate(&self) -> Result<(), Error> {
-        if self.route.len() > 200 || self.route.chars().any(char::is_control) {
+        if self.route.encode_utf16().count() > 200 || self.route.chars().any(char::is_control) {
             return Err(Error::Invalid);
         }
         Ok(())
@@ -376,18 +379,22 @@ async fn review_group(
         return Err(Error::Invalid);
     }
     let mut tx = pool.begin().await?;
-    oteryn_db::mutation_budget(&mut tx).await?;
-    let current: (String, i64) = sqlx::query_as(
-        "SELECT status, occurrence_count FROM portal_errors WHERE id = $1 FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(Error::Missing)?;
-    // The durable RBAC grant is rechecked after the resource lock.
-    rbac::authorize_mutation(
+    rbac::mutation_budget(&mut tx).await?;
+    rbac::authorize_mutation_with_resources_domain::<Error, _>(
         &mut tx,
-        &[context.account],
+        &[],
+        |connection| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, Uuid>(
+                    "SELECT id FROM portal_errors WHERE id = $1 FOR UPDATE",
+                )
+                .bind(id)
+                .fetch_optional(connection)
+                .await?
+                .ok_or(Error::Missing)?;
+                Ok(())
+            })
+        },
         auth,
         context,
         &[
@@ -397,15 +404,20 @@ async fn review_group(
         ],
     )
     .await?;
-    if current.0 != "open" || current.1 != count {
+    let status = action.status().code();
+    let updated = sqlx::query(
+        "UPDATE portal_errors SET status = $2
+         WHERE id = $1 AND status = 'open' AND occurrence_count = $3",
+    )
+    .bind(id)
+    .bind(status)
+    .bind(count)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated == 0 {
         return Err(Error::Conflict);
     }
-    let status = action.status().code();
-    sqlx::query("UPDATE portal_errors SET status = $2 WHERE id = $1")
-        .bind(id)
-        .bind(status)
-        .execute(&mut *tx)
-        .await?;
     audit::append(
         &mut tx,
         audit::Entry {
@@ -415,7 +427,7 @@ async fn review_group(
             },
             action: action.permission().as_str(),
             target: &id.to_string(),
-            before: json!({"status": current.0, "occurrence_count": count}),
+            before: json!({"status": ReviewStatus::Open.code(), "occurrence_count": count}),
             after: json!({"status": status, "occurrence_count": count}),
         },
     )

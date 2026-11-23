@@ -8,6 +8,7 @@ mfa = Multi-factor authentication required
 
 errors-title = Portal errors
 errors-staff = Staff panel
+errors-skip = Skip to content
 errors-detail = Error group
 errors-status = Status
 errors-all = All statuses
@@ -26,3 +27,7 @@ errors-frame-unavailable = Unavailable
 errors-resolve = Mark resolved
 errors-ignore = Ignore
 errors-next = Next page
+errors-alert-group = New error group
+errors-alert-spike = Elevated 5xx rate
+errors-alert-count = 5xx responses in the past 5 minutes
+errors-alert-threshold = Threshold

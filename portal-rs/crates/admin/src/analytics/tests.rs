@@ -743,19 +743,31 @@ async fn postgres_host_gate_refuses_before_session_and_audit() {
         0
     );
     let support = staff(&pool, "support").await;
+    let request_id = Uuid::now_v7();
+    let response = get(
+        panel(pool.clone(), Some(support), true).layer(axum::Extension(
+            oteryn_web::observability::RequestId(request_id),
+        )),
+        "/admin/analytics",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(
-        get(panel(pool.clone(), Some(support), true), "/admin/analytics")
-            .await
-            .status(),
-        StatusCode::FORBIDDEN
+        response.headers()["x-request-id"].to_str().unwrap(),
+        request_id.to_string()
     );
-    let denied: (Option<Uuid>, String) = sqlx::query_as("SELECT actor,action FROM audit_log")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+    let denied: (Option<Uuid>, String, Uuid) =
+        sqlx::query_as("SELECT actor,action,request_id FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(
         denied,
-        (Some(support.account), "admin.analytics.denied".into())
+        (
+            Some(support.account),
+            "admin.analytics.denied".into(),
+            request_id
+        )
     );
     clean(pool, root, name).await;
 }

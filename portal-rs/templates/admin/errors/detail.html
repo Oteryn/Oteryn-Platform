@@ -8,8 +8,12 @@
   <link rel="stylesheet" href="/static/css/components.css">
 </head>
 <body class="op-theme">
-<main class="op-panel op-stack">
-  <a href="/admin/errors">{{ self.text("errors-title") }}</a>
+<a class="op-skip" href="#main">{{ self.text("errors-skip") }}</a>
+<main id="main" class="op-panel op-stack" tabindex="-1">
+  <nav class="op-tabs" aria-label="{{ self.text("errors-staff") }}">
+    <a href="/admin">{{ self.text("errors-staff") }}</a>
+    <a href="/admin/errors">{{ self.text("errors-title") }}</a>
+  </nav>
   <h1>{{ self.text("errors-detail") }}</h1>
   <div class="op-card op-stack">
     <h2><code>{{ group.route }}</code> · {{ group.error_kind }}</h2>

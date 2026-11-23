@@ -52,7 +52,8 @@ async fn matched_routes_record_errors_and_panics_and_export_metrics() -> TestRes
                 .route("/metrics", get(metrics))
                 .with_state(telemetry.clone()),
         ),
-        telemetry,
+        telemetry.clone(),
+        true,
     );
     let send = async |uri: &str| -> Result<Response, Box<dyn std::error::Error>> {
         Ok(app
@@ -96,29 +97,69 @@ async fn matched_routes_record_errors_and_panics_and_export_metrics() -> TestRes
     assert_eq!(send("/missing/path").await?.status(), StatusCode::NOT_FOUND);
     assert_eq!(send("/metrics").await?.status(), StatusCode::NOT_FOUND);
 
-    let scrape = app
-        .oneshot(
-            HttpRequest::get("/metrics")
-                .header(header::AUTHORIZATION, "Bearer fixture")
-                .body(Body::empty())?,
-        )
+    let internal = observe(Router::new(), telemetry.clone(), false)
+        .oneshot(HttpRequest::get("/missing").body(Body::empty())?)
         .await?;
-    assert_eq!(scrape.status(), StatusCode::OK);
+    assert_eq!(internal.status(), StatusCode::NOT_FOUND);
+    assert!(!internal.headers().contains_key("x-request-id"));
+
+    let slots = telemetry
+        .record_slots
+        .acquire_many(telemetry.record_slots.available_permits() as u32)
+        .await?;
     assert_eq!(
-        scrape.headers()[header::CONTENT_TYPE],
+        send("/items/deferred").await?.status(),
+        StatusCode::BAD_GATEWAY
+    );
+    drop(slots);
+
+    sqlx::query(
+        "INSERT INTO outbox(kind, payload, idempotency_key, state)
+         VALUES ('email.verify', '{}', 'verify', 'pending'),
+                ('email.account_exists', '{}', 'exists', 'pending'),
+                ('email.password-reset', '{}', 'reset', 'pending'),
+                ('notify.email', '{}', 'notify', 'pending'),
+                ('observability.email', '{}', 'operation', 'pending'),
+                ('email.verify', '{}', 'delivered', 'done'),
+                ('fixture.other', '{}', 'other', 'pending')",
+    )
+    .execute(&db.pool)
+    .await?;
+
+    let scrape = async || -> Result<Response, Box<dyn std::error::Error>> {
+        Ok(app
+            .clone()
+            .oneshot(
+                HttpRequest::get("/metrics")
+                    .header(header::AUTHORIZATION, "Bearer fixture")
+                    .body(Body::empty())?,
+            )
+            .await?)
+    };
+    let pending_refresh = telemetry.outbox_snapshot.lock().await;
+    let busy = scrape().await?;
+    assert_eq!(busy.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(busy.headers()[header::RETRY_AFTER], "2");
+    drop(pending_refresh);
+    let scrape_response = scrape().await?;
+    assert_eq!(scrape_response.status(), StatusCode::OK);
+    assert_eq!(
+        scrape_response.headers()[header::CONTENT_TYPE],
         "text/plain; version=0.0.4; charset=utf-8"
     );
-    let body = String::from_utf8(to_bytes(scrape.into_body(), 65536).await?.to_vec())?;
+    let body = String::from_utf8(to_bytes(scrape_response.into_body(), 65536).await?.to_vec())?;
     for sample in [
-        "portal_http_requests_total{route=\"/items/{id}\",status_class=\"5xx\"} 2",
-        "portal_http_requests_total{route=\"<unmatched>\",status_class=\"4xx\"} 1",
-        "portal_http_request_duration_seconds_bucket{route=\"/items/{id}\",le=\"+Inf\"} 2",
-        "portal_http_5xx_total 3",
+        "portal_http_requests_total{route=\"/items/{id}\",status_class=\"5xx\"} 3",
+        "portal_http_requests_total{route=\"<unmatched>\",status_class=\"4xx\"} 2",
+        "portal_http_request_duration_seconds_bucket{route=\"/items/{id}\",le=\"+Inf\"} 3",
+        "portal_http_5xx_total 4",
         "portal_http_in_flight_requests 1",
-        "portal_worker_jobs{state=\"pending\"} 0",
-        "portal_outbox_backlog 0",
-        "portal_outbox_oldest_age_seconds 0",
-        "portal_mail_outbox_backlog 0",
+        "portal_error_records_missed_total 1",
+        "portal_worker_jobs{state=\"pending\"} 6",
+        "portal_worker_jobs{state=\"done\"} 1",
+        "portal_outbox_backlog 6",
+        "portal_outbox_oldest_age_seconds ",
+        "portal_mail_outbox_backlog 5",
         "portal_db_pool_connections{state=\"in_use\"}",
         "portal_metrics_db_up 1",
         "portal_process_uptime_seconds",
@@ -134,5 +175,11 @@ async fn matched_routes_record_errors_and_panics_and_export_metrics() -> TestRes
     ] {
         assert!(!body.contains(input));
     }
+    let snapshot = telemetry.outbox_snapshot.lock().await;
+    assert!(
+        snapshot
+            .as_ref()
+            .is_some_and(|(_, output)| output.contains("portal_mail_outbox_backlog 5"))
+    );
     db.close().await
 }

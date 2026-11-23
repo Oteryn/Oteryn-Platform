@@ -13,6 +13,14 @@ fn filters_accept_status_and_validate_route_and_cursor() -> Result<(), Box<dyn s
     assert!(matches!(invalid.cursor(), Err(Error::Invalid)));
     let invalid: Filters = serde_urlencoded::from_str("route=%0A")?;
     assert!(matches!(invalid.validate(), Err(Error::Invalid)));
+    let mut filters = Filters {
+        route: "ą".repeat(200),
+        status: None,
+        before: None,
+    };
+    filters.validate()?;
+    filters.route.push('ą');
+    assert!(matches!(filters.validate(), Err(Error::Invalid)));
     Ok(())
 }
 
@@ -60,6 +68,10 @@ async fn review_checks_permissions_and_observed_count_and_records_audit()
     ));
     action("platform_admin").await?;
     assert!(matches!(
+        review_group(pool, Uuid::now_v7(), ctx, &auth, None, 1, Action::Resolve).await,
+        Err(Error::Missing)
+    ));
+    assert!(matches!(
         review_group(pool, id, ctx, &auth, None, 0, Action::Resolve).await,
         Err(Error::Invalid)
     ));
@@ -68,10 +80,27 @@ async fn review_checks_permissions_and_observed_count_and_records_audit()
         Err(Error::Conflict)
     ));
     let request = RequestId(Uuid::now_v7());
-    let review = review_group(pool, id, ctx, &auth, Some(request), 1, Action::Resolve)
-        .await?
-        .into_response();
+    let second_request = RequestId(Uuid::now_v7());
+    let (review, duplicate) = tokio::join!(
+        review_group(pool, id, ctx, &auth, Some(request), 1, Action::Resolve),
+        review_group(
+            pool,
+            id,
+            ctx,
+            &auth,
+            Some(second_request),
+            1,
+            Action::Resolve
+        ),
+    );
+    let (winner, other, winning_request) = match (review, duplicate) {
+        (Ok(winner), other) => (winner, other, request),
+        (other, Ok(winner)) => (winner, other, second_request),
+        (Err(error), Err(_)) => return Err(error.into()),
+    };
+    let review = winner.into_response();
     assert_eq!(review.status(), StatusCode::SEE_OTHER);
+    assert!(matches!(other, Err(Error::Conflict)));
     assert!(matches!(
         review_group(pool, id, ctx, &auth, None, 1, Action::Ignore).await,
         Err(Error::Conflict)
@@ -88,7 +117,7 @@ async fn review_checks_permissions_and_observed_count_and_records_audit()
         (
             "admin.errors.resolve".into(),
             actor,
-            request.0,
+            winning_request.0,
             "open".into(),
             "resolved".into()
         )

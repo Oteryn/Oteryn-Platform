@@ -138,7 +138,7 @@ impl PanelConfig {
 struct Panel<I, A> {
     config: PanelConfig,
     /// Set for feature routes wrapped by [`guarded`]; the panel itself picks per path.
-    required: Option<Permission>,
+    required: Vec<Permission>,
     identity: I,
     auth: Arc<Authorizer<A>>,
     pool: PgPool,
@@ -189,14 +189,31 @@ pub fn configured_guard_from(
     permission: Permission,
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(guarded(
+    configured_guard_with_permissions(routes, pool, &[permission], lookup)
+}
+
+fn configured_guard_with_permissions(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Result<Router, Box<dyn std::error::Error>> {
+    Ok(guarded_with_permissions(
         routes,
         pool.clone(),
         config_from(lookup)?,
         PortalIdentity::configured_from(pool.clone(), lookup),
         PortalIdentity::configured_from(pool, lookup),
-        permission,
+        permissions,
     ))
+}
+
+pub(super) fn configured_guard_all(
+    routes: Router,
+    pool: PgPool,
+    permissions: &[Permission],
+) -> Result<Router, Box<dyn std::error::Error>> {
+    configured_guard_with_permissions(routes, pool, permissions, &|key| std::env::var(key).ok())
 }
 
 /// Wrap feature routes mounted under `/admin/...` in the panel's guard: admin host,
@@ -212,12 +229,23 @@ pub fn guarded<I: StaffSession, A: AccountStateReader + 'static>(
     accounts: A,
     permission: Permission,
 ) -> Router {
+    guarded_with_permissions(routes, pool, config, identity, accounts, &[permission])
+}
+
+fn guarded_with_permissions<I: StaffSession, A: AccountStateReader + 'static>(
+    routes: Router,
+    pool: PgPool,
+    config: PanelConfig,
+    identity: I,
+    accounts: A,
+    permissions: &[Permission],
+) -> Router {
     let mut session = SessionLayer::new(pool.clone());
     session.csrf.trusted_origins = vec![config.csrf_origin()];
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: Some(permission),
+        required: permissions.to_vec(),
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -246,7 +274,7 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     let admin_csrf = session.csrf.clone();
     let state = Arc::new(Panel {
         config,
-        required: None,
+        required: Vec::new(),
         identity,
         auth: Arc::new(Authorizer::new(pool.clone(), accounts)),
         pool,
@@ -385,14 +413,12 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
-    for required in [Permission::Access, permission] {
+    let permissions = if s.required.is_empty() && request.uri().path() == "/admin/roles" {
+        &[Permission::ManageRoles][..]
+    } else {
+        &s.required
+    };
+    for required in std::iter::once(Permission::Access).chain(permissions.iter().copied()) {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
                 return StatusCode::SERVICE_UNAVAILABLE.into_response();

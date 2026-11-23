@@ -8,6 +8,7 @@ mfa = Wymagane uwierzytelnianie wieloskładnikowe
 
 errors-title = Błędy portalu
 errors-staff = Panel zespołu
+errors-skip = Przejdź do treści
 errors-detail = Grupa błędów
 errors-status = Stan
 errors-all = Wszystkie stany
@@ -26,3 +27,7 @@ errors-frame-unavailable = Niedostępna
 errors-resolve = Oznacz jako rozwiązany
 errors-ignore = Zignoruj
 errors-next = Następna strona
+errors-alert-group = Nowa grupa błędów
+errors-alert-spike = Wzrost liczby błędów 5xx
+errors-alert-count = Odpowiedzi 5xx w ciągu ostatnich 5 minut
+errors-alert-threshold = Próg

@@ -146,7 +146,10 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
 async fn audit_boundary(State(pool): State<PgPool>, mut request: Request, next: Next) -> Response {
     let context = AuditContext {
         actor: None,
-        request_id: Uuid::now_v7(),
+        request_id: request
+            .extensions()
+            .get::<oteryn_web::observability::RequestId>()
+            .map_or_else(Uuid::now_v7, |id| id.0),
     };
     let attempt = Attempt {
         context: Arc::new(tokio::sync::Mutex::new(context)),
