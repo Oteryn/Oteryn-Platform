@@ -1,9 +1,11 @@
+import { escapeRegex } from '../regex.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { test as base, expect } from '../fixtures.mjs';
 import { password, submit } from '../helpers.mjs';
 import { confirmStaffPassword, membership, queryWith } from '../staff-rbac-helpers.mjs';
 import { fixtureDatabasePool } from '../local-database.mjs';
+import { trustHarnessCa } from '../trust.mjs';
 import {
   adminAgent, agentId, characterId, characterName, ledgerId, nodeId, readStaffFixture, resultRevision, runStaffSeed,
   startStaffConsoleHarness, worldId,
@@ -127,12 +129,20 @@ const test = base.extend({
     const existing = process.env.PORTAL_E2E_ADMIN_AGENT_DIRECTORY;
     const database = process.env.PORTAL_E2E_DATABASE_URL || process.env.OTERYN_DATABASE_URL;
     const managed = existing ? undefined : await startStaffConsoleHarness(database);
+    let releaseCa;
     try {
-      await use(harness(existing || managed.out));
+      const setup = harness(existing || managed.out);
+      releaseCa = trustHarnessCa(setup.caFile);
+      await use(setup);
     } finally {
+      releaseCa?.();
       await managed?.close();
     }
   }, { scope: 'worker', timeout: 600_000 }],
+  browser: [async ({ playwright, browserName, launchOptions, staffHarness: _staffHarness }, use) => {
+    const browser = await playwright[browserName].launch(launchOptions);
+    try { await use(browser); } finally { await browser.close(); }
+  }, { scope: 'worker' }],
   baseURL: async ({ staffHarness }, use) => { await use(staffHarness.origin); },
 });
 
@@ -143,7 +153,7 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
   const copy = copies[lang];
   const agent = adminAgent(setup);
   const contextOptions = {
-    baseURL: setup.origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+    baseURL: setup.origin, locale: lang, viewport: info.project.use.viewport,
   };
   const manager = await browser.newContext(contextOptions);
   const managerPage = await manager.newPage();
@@ -278,7 +288,7 @@ test('staff console forms use the authenticated Admin Agent channel', async ({ p
       });
       await agent.answer(request, 'success');
       expect((await auditPage.reload()).status()).toBe(200);
-      await expect(auditPage.getByText(new RegExp(ledgerId))).toContainText(requestIds.get('world.get'));
+      await expect(auditPage.getByText(new RegExp(escapeRegex(ledgerId)))).toContainText(requestIds.get('world.get'));
       expect((await deniedPage.goto(auditFilter)).status()).toBe(403);
       await form.locator('[name=request_id]').fill('bad-uuid');
       expect((await navigation(auditPage, () => form.getByRole('button').click())).status()).toBe(400);

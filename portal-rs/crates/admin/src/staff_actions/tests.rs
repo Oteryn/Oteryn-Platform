@@ -11,7 +11,7 @@ use axum::{
 };
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
-use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
+use sqlx::postgres::PgPoolOptions;
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -115,15 +115,16 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;
     let schema = format!("staff_action_{}", Uuid::now_v7().simple());
-    sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&root)
-        .await?;
-    let path = format!("SET search_path TO {schema}");
+    oteryn_db::test_support::create_fixture_schema(&root, &schema).await?;
+    let path = schema.clone();
     let pool = PgPoolOptions::new()
         .after_connect(move |connection, _| {
             let path = path.clone();
             Box::pin(async move {
-                sqlx::query(AssertSqlSafe(path)).execute(connection).await?;
+                sqlx::query("SELECT pg_catalog.set_config('search_path',$1,false)")
+                    .bind(path)
+                    .execute(connection)
+                    .await?;
                 Ok(())
             })
         })
@@ -316,8 +317,6 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
         )]
     );
     pool.close().await;
-    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&root)
-        .await?;
+    oteryn_db::test_support::drop_fixture_schema(&root, &schema).await?;
     Ok(())
 }

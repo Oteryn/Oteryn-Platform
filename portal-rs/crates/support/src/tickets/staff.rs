@@ -281,8 +281,7 @@ impl Backend for StaffSupport {
                  FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
         };
-        let query =
-            sqlx::query_as(sqlx::AssertSqlSafe(query)).bind(i64::from(page.saturating_sub(1)) * 30);
+        let query = sqlx::query_as(query).bind(i64::from(page.saturating_sub(1)) * 30);
         let query = if area == Area::Tickets {
             query.bind(&filter.status).bind(&filter.category)
         } else {
@@ -322,7 +321,7 @@ impl Backend for StaffSupport {
             Area::Enforcement => return Ok(Details::default()),
         };
         let (reference, verified_target, player_report): (Option<Uuid>, Option<Uuid>, bool) =
-            sqlx::query_as(sqlx::AssertSqlSafe(query))
+            sqlx::query_as(query)
                 .bind(record.id)
                 .bind(record.version)
                 .fetch_optional(&self.pool)

@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SMTPServer } from 'smtp-server';
+import { trustHarnessCa } from '../trust.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const e2e = path.dirname(here);
@@ -43,7 +44,7 @@ const fenceFile = path.join(scratch, 'bazaar-fence.json');
 const keyFile = path.join(scratch, 'bazaar-keys.json');
 const wrapper = path.join(scratch, 'portal');
 const world = '019a0000-0000-7000-8000-00000000e001';
-let harness, proxy, smtp, browser;
+let harness, proxy, smtp, browser, releaseCa;
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     browser?.kill(signal);
@@ -160,6 +161,8 @@ process.execve(${JSON.stringify(binary)}, [${JSON.stringify(binary)}, ...process
     proxy.once('error', reject);
     proxy.listen(port, '127.0.0.1', resolve);
   });
+  const ca = path.join(out, 'certs/ca.pem');
+  releaseCa = trustHarnessCa(ca);
   browser = spawn(process.execPath, [
     'node_modules/@playwright/test/cli.js', 'test', '--config=abuse/playwright.config.mjs',
     ...process.argv.slice(2),
@@ -167,6 +170,7 @@ process.execve(${JSON.stringify(binary)}, [${JSON.stringify(binary)}, ...process
     cwd: e2e,
     env: {
       ...process.env,
+      NODE_EXTRA_CA_CERTS: ca,
       PORTAL_E2E_ORIGIN: origin,
       PORTAL_E2E_DATABASE_URL: environment.OTERYN_DATABASE_URL,
       PORTAL_E2E_BINARY: binary,
@@ -178,6 +182,7 @@ process.execve(${JSON.stringify(binary)}, [${JSON.stringify(binary)}, ...process
     throw new Error(`Harness stopped during browser qualification (${code})`);
   })]);
 } finally {
+  releaseCa?.();
   smtp?.close();
   proxy?.closeAllConnections();
   proxy?.close();

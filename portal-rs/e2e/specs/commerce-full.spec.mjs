@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, pool, submit } from '../helpers.mjs';
 import { paidTopup, uuid7 } from '../staff-commerce-helpers.mjs';
@@ -72,7 +73,7 @@ test('shop links, unavailable catalogue, and empty or malformed wallet history',
   const nav = page.getByRole('navigation', { name: l.shop });
   for (const [name, suffix] of [[l.coins, '/coins'], [l.transfer, '/transfer'], [l.history, '/history'], [l.shop, '']]) {
     await nav.getByRole('link', { name, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/${lang}/shop${suffix}$`));
+    await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/shop${escapeRegex(suffix)}$`));
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(name);
     await expect(page.getByText(l.available, { exact: true })).toBeVisible();
     await expect(page.getByText(l.reserved, { exact: true })).toBeVisible();
@@ -137,7 +138,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
       await refusal(await postAs(page, checkout.url, { ...checkout.fields, action: 'invalid' }), 422, l.invalid);
       await pressCheckout(page, action, l[action]);
       const resultURL = `/${lang}/shop/coins?checkout=${intent}`;
-      await expect(page).toHaveURL(new RegExp(`/shop/coins\\?checkout=${intent}$`));
+      await expect(page).toHaveURL(new RegExp(`/shop/coins\\?checkout=${escapeRegex(intent)}$`));
       const replay = await postAs(page, checkout.url, { ...checkout.fields, action });
       expect(replay.status()).toBe(303);
       expect(replay.headers().location).toBe(resultURL);
@@ -193,7 +194,7 @@ test('transfer validates inputs, refuses insufficient funds and restricts replay
     const funded = await readForm(form);
     const completed = { ...funded.fields, recipient: recipient.id, amount: '5' };
     await submit(page, transferForm, { recipient: recipient.id, amount: '5' });
-    await expect(page).toHaveURL(new RegExp(`/${lang}/shop/history$`));
+    await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/shop/history$`));
     await expect(page.locator('main dl dd')).toHaveText(['1229', '0']);
     const row = page.locator('main article').filter({ hasText: completed.operation });
     await expect(row.getByRole('heading')).toHaveText(l.operation);
@@ -269,7 +270,7 @@ test('payment history links to an account-owned printable receipt and the premiu
       await expect(page.getByText(value, { exact: true })).toBeVisible();
     }
     await page.locator('main').getByRole('link', { name: labels.payments, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`${history}$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(history)}$`));
     expect((await page.goto(`${history}?page=0`)).status()).toBe(400);
     // Seed historical statuses below the real checkout to reach the 20-row page boundary.
     await db.query(
@@ -289,10 +290,10 @@ test('payment history links to an account-owned printable receipt and the premiu
     }
     const paging = page.getByRole('navigation', { name: labels.paging });
     await paging.getByRole('link', { name: labels.next }).click();
-    await expect(page).toHaveURL(new RegExp(`${history}\\?page=2$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(history)}\\?page=2$`));
     await expect(page.locator('main article')).toHaveCount(1);
     await paging.getByRole('link', { name: labels.previous }).click();
-    await expect(page).toHaveURL(new RegExp(`${history}\\?page=1$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(history)}\\?page=1$`));
     await expect(item).toBeVisible();
   } finally {
     await otherContext.close();

@@ -17,6 +17,7 @@ import { leagueProducer } from './league-producer.mjs';
 import {prepareBazaar,startBazaarProducer} from './support/bazaar-game.mjs';
 import {createGameClosureProducer,characterSourceAuthority} from './game-closure-producer.mjs';
 import { prepareGameApi } from './gameapi-stack.mjs';
+import { executeFixtureDdl } from './support/harness-database.mjs';
 import { localPostgresUrl, withoutPostgresDefaults } from './postgres-url.mjs';
 dns.setDefaultResultOrder('ipv4first');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
@@ -32,7 +33,7 @@ const nativePanelOffProxyPort=18448;
 const queryPort=18084;
 const queryProxyPort=18450;
 const admin=new pg.Client({connectionString:adminURL});await admin.connect();
-for(const name of databases) await admin.query(`CREATE DATABASE "${name}"`);
+for(const name of databases) await executeFixtureDdl(admin.query.bind(admin), 'createDatabase', name);
 const databaseURL=name=>{const url=new URL(adminURL);url.pathname=`/${name}`;return url.toString();};
 const env=withoutPostgresDefaults(process.env);
 function walk(directory){return fs.readdirSync(directory,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk(path.join(directory,e.name)):[path.join(directory,e.name)]);}
@@ -312,7 +313,7 @@ async function close(code=0) {
  proxy.close();
  queryProxy.close();
  nativePanelOffProxy.close();
- for(const name of databases)await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`);
+ for(const name of databases)await executeFixtureDdl(admin.query.bind(admin), 'dropDatabase', name);
  await admin.end();
  process.exit(code);
 }

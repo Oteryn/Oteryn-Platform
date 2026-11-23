@@ -1,3 +1,4 @@
+import { escapeRegex } from '../../regex.mjs';
 import {randomBytes, randomUUID} from 'node:crypto';
 import {test, expect} from '../../fixtures.mjs';
 import {csrfRejected, mailLink, submit} from '../../helpers.mjs';
@@ -67,7 +68,7 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
       expect(unchanged.count).toBe(0);
 
       await action(admin.page, selector, {body, reason}, operation);
-      await expect(admin.page).toHaveURL(new RegExp(`${path}$`));
+      await expect(admin.page).toHaveURL(new RegExp(`${escapeRegex(path)}$`));
       if (operation === 'note') {
         const retry = {action: operation, _csrf: csrf, body, reason, ...submission};
         expect((await post(admin.page, path, retry)).status()).toBe(303);
@@ -97,7 +98,7 @@ test('staff account forms enforce input, permission, MFA session and CSRF', asyn
         expect(await query('SELECT id FROM account_email_change_mail WHERE recipient=$1', [nextEmail])).toHaveLength(0);
 
         const settingsLink = await mailLink(
-          page, target.email, new RegExp(`https://localhost:18443/${locale}/account/security/email`), 85_000,
+          page, target.email, new RegExp(`https://localhost:18443/${escapeRegex(locale)}/account/security/email`), 85_000,
         );
         await page.goto(`/${locale}/account/recovery-key`);
         await submit(page, 'main form', {current_password: target.password});

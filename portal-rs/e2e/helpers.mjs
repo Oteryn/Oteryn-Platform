@@ -85,10 +85,24 @@ export async function mailLink(page,email,pattern,timeout=30_000) {
   },{timeout}).toBe(true);
   return found;
 }
-export async function seedPasswordRange(value) {
-  // The breach provider addresses ranges by a five-character SHA-1 prefix.
-  const prefix=crypto.createHash('sha1').update(value).digest('hex').toUpperCase().slice(0,5);
+// Public synthetic fixture inputs and their precomputed breach-provider ranges.
+const signupPrefixes = [
+  '64183', 'CF326', '6673D', '8A6D8', '8EF96', '952BA', '5A814', 'B5F03',
+  '285F9', '59C69', 'BAB68', '1A6FA', '583A3', '934BF', 'EB6DF', '1A926',
+];
+const passwordFixtures = {
+  changed: ['OterynTestCorpusChanged!2026', '57A2F'],
+  replay: ['OterynTestCorpusReplay!2026', 'BF3D5'],
+};
+let signupIndex = 0;
+
+export async function seedPasswordRange(fixture = 'changed') {
+  const [value, prefix] = fixture === 'signup'
+    ? [`OterynTestCorpusSignup!2026-${String(signupIndex).padStart(2, '0')}`, signupPrefixes[signupIndex]]
+    : passwordFixtures[fixture];
+  if (fixture === 'signup') signupIndex = (signupIndex + 1) % signupPrefixes.length;
   await seedBreachRange(prefix, []);
+  return value;
 }
 export async function seedBreachRange(prefix, suffixes) {
   const db=pool();
@@ -101,8 +115,7 @@ export async function seedBreachRange(prefix, suffixes) {
   } finally { await db.end(); }
 }
 export async function register(page,lang,email=`browser-${crypto.randomUUID()}@local.test`) {
-  const pass=password();
-  await seedPasswordRange(pass);
+  const pass = await seedPasswordRange('signup');
   const registration=await page.goto(`/${lang}/register`);
   expect(registration.status()).toBe(200);
   await page.locator('[name=work_token]').waitFor({state:'attached'});

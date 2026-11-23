@@ -9,6 +9,7 @@ import { createInterface } from 'node:readline';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import pg from 'pg';
+import { executeFixtureDdl } from '../support/harness-database.mjs';
 import { localPostgresUrl } from '../postgres-url.mjs';
 import { spawnFixtureHarness, stopFixtureHarness } from '../support/fixture-harness.mjs';
 
@@ -59,7 +60,7 @@ for (const keep of ['0', '1']) {
       assert.deepEqual(rows, keep === '1' ? [{ datname: database }] : []);
     } finally {
       try {
-        if (database) await admin.query('DROP DATABASE IF EXISTS "' + database + '" WITH (FORCE)');
+        if (database) await executeFixtureDdl(admin.query.bind(admin), 'dropDatabaseIfExists', database);
       } finally {
         await admin.end();
       }
@@ -230,7 +231,7 @@ test('SIGTERM reconciles a committed CREATE whose response was lost', async () =
     (index, chunk) => {
       if (index !== 1 || database) return;
       const data = frontendTail + chunk.toString('latin1');
-      database = data.match(/CREATE DATABASE "(portal_e2e_[a-f0-9]{12})"/)?.[1];
+      database = data.match(/CREATE DATABASE (portal_e2e_[a-f0-9]{12})/)?.[1];
       frontendTail = data.slice(-80);
     },
     (index, chunk) => {
@@ -273,7 +274,7 @@ test('cleanup retries a lost DROP reply and verifies the database is gone', { ti
     (index, chunk) => {
       if (!dropping || index === firstDropConnection) return;
       const data = (frontendTails.get(index) ?? '') + chunk.toString('latin1');
-      if (/DROP DATABASE IF EXISTS "portal_e2e_[a-f0-9]{12}"/.test(data)) {
+      if (/DROP DATABASE IF EXISTS portal_e2e_[a-f0-9]{12} WITH \(FORCE\)/.test(data)) {
         if (firstDropConnection === undefined) firstDropConnection = index;
         else retryConnection = index;
         frontendTails.delete(index);

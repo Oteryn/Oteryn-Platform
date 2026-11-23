@@ -65,8 +65,7 @@ test('password reset validates the form, replaces the password and refuses reuse
   const locale = info.project.metadata.locale;
   const t = (en, pl) => localized(locale, en, pl);
   const account = await seedPlayer(locale);
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   const breached = await seedBreachedPassword();
   await waitForIdentityBudget(['identity-password-recovery-source'], 4);
   await page.goto(`/${locale}/forgot-password`);
@@ -126,8 +125,7 @@ test('TOTP, recovery codes, trusted devices and recovery-key MFA reset', async (
   const challenge = 'main form[action$="/mfa/challenge"]';
   const enroll = 'main form[action$="/mfa/enroll"]';
   const account = await seedPlayer(locale);
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   await page.goto(settings);
   await expect(page).toHaveURL(`/${locale}/login`);
   await signIn(page, locale, account);

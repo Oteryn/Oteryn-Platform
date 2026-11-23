@@ -8,6 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { chromium, request } from '@playwright/test';
 import { originProxySettings, startOriginProxy } from './origin-proxy.mjs';
+import { trustHarnessCa } from '../trust.mjs';
 
 async function listen(server) {
   server.listen(0, '127.0.0.1');
@@ -17,12 +18,22 @@ async function listen(server) {
 
 test('Chromium and its API clients cannot follow redirects outside the fixture', { timeout: 30_000 }, async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'crawl-origin-'));
-  let browser, api, proxy, fixture, outsideServer;
+  let browser, api, proxy, fixture, outsideServer, releaseCa;
   try {
     const key = path.join(directory, 'key.pem');
     const cert = path.join(directory, 'cert.pem');
-    execFileSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256',
-      '-nodes', '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' });
+    const ca = path.join(directory, 'ca.pem');
+    const caKey = path.join(directory, 'ca-key.pem');
+    const csr = path.join(directory, 'leaf.csr');
+    const openssl = args => execFileSync('openssl', args, { stdio: 'ignore' });
+    const curve = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes'];
+    openssl(['req', '-x509', ...curve, '-keyout', caKey, '-out', ca, '-days', '1',
+      '-subj', '/CN=Oteryn crawl test CA', '-addext', 'basicConstraints=critical,CA:TRUE']);
+    openssl(['req', '-new', ...curve, '-keyout', key, '-out', csr, '-subj', '/CN=localhost',
+      '-addext', 'subjectAltName=DNS:localhost']);
+    openssl(['x509', '-req', '-in', csr, '-CA', ca, '-CAkey', caKey, '-CAcreateserial',
+      '-out', cert, '-days', '1', '-copy_extensions', 'copy']);
+    releaseCa = trustHarnessCa(ca);
     const tls = { key: fs.readFileSync(key), cert: fs.readFileSync(cert) };
     let outsideConnections = 0;
     outsideServer = https.createServer(tls, (_request, response) => {
@@ -38,7 +49,7 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
     });
     const origin = await listen(fixture);
     proxy = await startOriginProxy(origin);
-    const options = { baseURL: origin, proxy: originProxySettings(proxy.url), ignoreHTTPSErrors: true };
+    const options = { baseURL: origin, proxy: originProxySettings(proxy.url) };
     browser = await chromium.launch({
       executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium',
       args: ['--no-sandbox'],
@@ -59,6 +70,7 @@ test('Chromium and its API clients cannot follow redirects outside the fixture',
   } finally {
     await api?.dispose();
     await browser?.close();
+    releaseCa?.();
     proxy?.close();
     for (const server of [fixture, outsideServer]) {
       if (!server?.listening) continue;

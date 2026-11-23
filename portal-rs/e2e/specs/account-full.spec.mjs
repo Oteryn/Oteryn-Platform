@@ -231,7 +231,7 @@ test('signed unsubscribe confirmation changes only the addressed optional email 
   const link = `${target}?token=${encodeURIComponent(`${payload}:${signature}`)}`;
   const visitor = await browser.newContext({
     baseURL: new URL(page.url()).origin,
-    ignoreHTTPSErrors: true,
+
     viewport: info.project.use.viewport,
   });
   try {

@@ -57,7 +57,7 @@ export async function assertShell(page, {accessibility=true,status=200}={}) {
   const languageProbe = links.some(link => link.href.startsWith('/language/'))
     ? await request.newContext({
       baseURL: new URL(page.url()).origin,
-      ignoreHTTPSErrors: true,
+
       storageState: await page.context().storageState(),
     }) : null;
   try {

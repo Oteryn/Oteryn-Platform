@@ -1,3 +1,4 @@
+import { escapeRegex } from '../../regex.mjs';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import https from 'node:https';
@@ -112,7 +113,7 @@ async function publishPublicReadModels(db, character, world, name) {
 async function expectLoginRedirect(page, target, locale) {
   const response = await page.request.get(target, {maxRedirects: 0});
   expect(response.status()).toBe(303);
-  expect(response.headers().location).toMatch(new RegExp(`^/${locale}/login`));
+  expect(response.headers().location).toMatch(new RegExp(`^/${escapeRegex(locale)}/login`));
 }
 
 async function signedInPlayer(browser, info) {

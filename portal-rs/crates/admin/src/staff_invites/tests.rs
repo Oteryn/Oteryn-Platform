@@ -1,6 +1,6 @@
 use super::*;
 use crate::web::PortalIdentity;
-use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
+use sqlx::postgres::PgPoolOptions;
 
 type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -28,15 +28,14 @@ impl Fixture {
         let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
         let root = PgPool::connect(&url).await?;
         let schema = format!("staff_invites_{}", Uuid::now_v7().simple());
-        sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-            .execute(&root)
-            .await?;
-        let search_path = format!("SET search_path TO {schema}");
+        oteryn_db::test_support::create_fixture_schema(&root, &schema).await?;
+        let search_path = schema.clone();
         let pool = PgPoolOptions::new()
             .after_connect(move |connection, _| {
                 let search_path = search_path.clone();
                 Box::pin(async move {
-                    sqlx::query(AssertSqlSafe(search_path))
+                    sqlx::query("SELECT pg_catalog.set_config('search_path',$1,false)")
+                        .bind(search_path)
                         .execute(connection)
                         .await?;
                     Ok(())
@@ -123,12 +122,7 @@ impl Fixture {
 
     async fn close(self) -> TestResult {
         self.invites.pool.close().await;
-        sqlx::query(AssertSqlSafe(format!(
-            "DROP SCHEMA {} CASCADE",
-            self.schema
-        )))
-        .execute(&self.root)
-        .await?;
+        oteryn_db::test_support::drop_fixture_schema(&self.root, &self.schema).await?;
         Ok(())
     }
 }

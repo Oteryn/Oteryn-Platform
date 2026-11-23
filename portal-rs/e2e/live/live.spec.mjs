@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -109,7 +110,16 @@ const englishUI = /^(?:log in|sign in|sign up|create account|privacy policy|term
 const polishUI = /^(?:zaloguj się|załóż konto|utwórz konto|polityka prywatności|regulamin|polityka cookies|przejdź do treści|status świata|nie pamiętasz hasła\??|czytaj więcej|szukaj|strona główna|aktualności|rankingi|pobierz|dowiedz się więcej)$/i;
 const englishWords = /(?<!\p{L})(?:the|and|your|with|from|this|where|for|you|will|are|have|which)(?!\p{L})/giu;
 const polishWords = /(?<!\p{L})(?:oraz|który|które|których|jest|się|przez|jako|możesz|swoje|dla|będzie|został|można)(?!\p{L})/giu;
-const translationKey = /^(?:[a-z][\w-]*\.){2,}[a-z][\w-]*$|^(?:register|login|shell|thais|nav|home|error|page|account|footer|header|wiki|legal|search)(?:-[a-z][a-z0-9]+){1,5}$|\{\{\s*[\w.-]+\s*\}\}/;
+const translationPrefixes = new Set(['register', 'login', 'shell', 'thais', 'nav', 'home',
+  'error', 'page', 'account', 'footer', 'header', 'wiki', 'legal', 'search']);
+function translationKey(value) {
+  const dotted = value.split('.');
+  if (dotted.length >= 3 && dotted.every(part => /^[a-z][\w-]*$/.test(part))) return true;
+  const [prefix, ...suffix] = value.split('-');
+  if (translationPrefixes.has(prefix) && suffix.length >= 1 && suffix.length <= 5
+      && suffix.every(part => /^[a-z][a-z0-9]+$/.test(part))) return true;
+  return /\{\{\s*[\w.-]+\s*\}\}/.test(value);
+}
 const mojibake = /\uFFFD|Ã.|Â[\u0080-\u00bf]|[ÄÅĂ][\u0080-\u00bf‚„…†‡‰Š‹ŒŽ‘’“”•–—™š›œžźśłż]/u;
 
 function checkLanguage(url, data, language, defect) {
@@ -118,7 +128,7 @@ function checkLanguage(url, data, language, defect) {
   }
   for (const value of data.strings) {
     const quote = JSON.stringify(value.slice(0, 180));
-    if (translationKey.test(value)) defect('translation', url, `raw key ${quote}`);
+    if (translationKey(value)) defect('translation', url, `raw key ${quote}`);
     if (mojibake.test(value)) defect('translation', url, `broken encoding ${quote}`);
     const english = value.match(englishWords)?.length || 0;
     const polish = value.match(polishWords)?.length || 0;
@@ -355,7 +365,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
       if (url.href === registration.href && final.pathname.replace(/\/$/, '') !== registration.pathname) {
         defect('other', url, `registration redirected to ${final.href}`);
       }
-      if (url.href === home.href && !new RegExp(`^/${language}/?$`).test(final.pathname)) {
+      if (url.href === home.href && !new RegExp(`^/${escapeRegex(language)}/?$`).test(final.pathname)) {
         defect('other', url, `localized home redirected to ${final.href}`);
       }
       const result = documentResponses.get(final.href);
@@ -424,7 +434,7 @@ test('anonymous localized production crawl', async ({ context, baseURL, viewport
   if (!innerChecked) defect('headers', home, 'no rendered inner page was available for header checks');
 
   await edgeCheck('/robots.txt', ({ status, body }) =>
-    status === 200 && /^\s*user-agent\s*:/im.test(body.toString()) ? null : `robots.txt HTTP ${status}, expected rules`);
+    status === 200 && /^[ \t]*user-agent[ \t]*:/im.test(body.toString()) ? null : `robots.txt HTTP ${status}, expected rules`);
   await edgeCheck('/.well-known/security.txt', ({ status, body }) => {
     if (status === 404) {
       note(new URL('/.well-known/security.txt', home), 'security.txt pending (HTTP 404)');

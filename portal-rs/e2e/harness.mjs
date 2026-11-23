@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { crawlDatabase as createCrawlDatabase } from './crawl/database.mjs';
 import { localPostgresUrl } from './postgres-url.mjs';
 import { withDeadline } from './support/harness-deadline.mjs';
-import { fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
+import { executeFixtureDdl, fixtureDatabaseClaim, lockDatabaseName, removeDatabase, withAdminConnection } from './support/harness-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 if (process.argv.slice(2).includes('--staff-console')) {
@@ -322,7 +322,9 @@ async function createDatabase() {
     if (fixtureOwned) fs.writeFileSync(claim, dbName, { flag: 'wx', mode: 0o600 });
     createRequested = true;
     try {
-      await admin.query('CREATE DATABASE "' + dbName + '"' + (crawlDatabase?.ownerClause ?? ''));
+      await executeFixtureDdl(
+        admin.query.bind(admin), crawlDatabase ? 'createOwnedDatabase' : 'createDatabase', dbName,
+      );
       createConfirmed = true;
     } catch (error) {
       // A definite name collision belongs to the existing database owner.

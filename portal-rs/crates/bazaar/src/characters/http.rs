@@ -120,8 +120,28 @@ pub fn routes<M: Market, S: BrowserSecurity>(market: M, security: S, enabled: bo
 pub fn configured_router() -> Router {
     unavailable_routes(true)
 }
+#[derive(Template)]
+#[template(
+    source = r#"<!doctype html><html lang="{{ lang }}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>{{ title }}</title></head><body><main><h1>{{ title }}</h1><p>{{ detail }}</p></main></body></html>"#,
+    ext = "html"
+)]
+struct AuthorityRefusal<'a> {
+    lang: &'a str,
+    title: String,
+    detail: String,
+}
+
 fn authority_refusal(lang: &str) -> Response {
-    oteryn_ui::missing_game_data((StatusCode::SERVICE_UNAVAILABLE, Html(format!("<!doctype html><html lang=\"{lang}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{0}</title></head><body><main><h1>{0}</h1><p>{1}</p></main></body></html>",text(lang,"authority-title"),text(lang,"authority-unavailable")))).into_response())
+    let page = AuthorityRefusal {
+        lang,
+        title: text(lang, "authority-title"),
+        detail: text(lang, "authority-unavailable"),
+    };
+    let response = match page.render() {
+        Ok(html) => (StatusCode::SERVICE_UNAVAILABLE, Html(html)).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    };
+    oteryn_ui::missing_game_data(response)
 }
 fn unavailable_routes(enabled: bool) -> Router {
     if !enabled {

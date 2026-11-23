@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, login, submit, waitForLoginBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query, seedAccount, unique } from '../staff-rbac-helpers.mjs';
@@ -126,7 +127,7 @@ test('a moderator reaches the dashboard and reports with MFA, and passkeys stay 
   const updated = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === reportPath);
   await form.locator('button').click();
   expect((await updated).status()).toBe(303);
-  await expect(page).toHaveURL(new RegExp(`${reportPath}$`));
+  await expect(page).toHaveURL(new RegExp(`${escapeRegex(reportPath)}$`));
   expect(await readReport()).toEqual([{ status: 'reviewing', lock_version: 2, assigned_to: moderator, moderator_notes: notes }]);
   expect(await readAudit()).toEqual([expect.objectContaining({
     actor: moderator,

@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, pool, submit } from '../helpers.mjs';
@@ -101,7 +102,7 @@ test('wallet correction requires a second staff member and can be approved or ca
       await submit(requester, formFor('adjust'), {
         target: player.id, amount: '15', reason: 'Propose disposable wallet correction',
       });
-      await expect(requester).toHaveURL(new RegExp(`${commerce}$`));
+      await expect(requester).toHaveURL(new RegExp(`${escapeRegex(commerce)}$`));
       const proposal = requester.locator(formFor(`approvals/${id}`));
       await expect(proposal.getByRole('button')).toHaveCount(0);
       const self = await readForm(proposal);
@@ -119,7 +120,7 @@ test('wallet correction requires a second staff member and can be approved or ca
       const endpoint = new URL(await button.getAttribute('formaction') ?? details.url, reviewer.url()).href;
       await csrfRejected(reviewer, endpoint);
       await button.click();
-      await expect(reviewer).toHaveURL(new RegExp(`${commerce}$`));
+      await expect(reviewer).toHaveURL(new RegExp(`${escapeRegex(commerce)}$`));
       await expect(review).toHaveCount(0);
       expect((await postAs(reviewer, endpoint, details.fields)).status()).toBe(303);
       expect((await db.query('SELECT available_delta FROM wallet_entries WHERE operation_id=$1', [id])).rows)
@@ -161,7 +162,7 @@ test('Bazaar staff saves fees and item restrictions and refuses invalid or unaut
     const values = { promotion_price: '25', reason: 'Disposable staff Bazaar fee revision' };
     expect((await postAs(staff, url, { ...fields, ...values, promotion_price: 'invalid' })).status()).toBe(422);
     await submit(staff, selector, values);
-    await expect(staff).toHaveURL(new RegExp(`${path}$`));
+    await expect(staff).toHaveURL(new RegExp(`${escapeRegex(path)}$`));
     await expect(staff.getByText(fields.id, { exact: false })).toBeVisible();
     expect((await db.query(
       'SELECT coin_bps,gold_bps,listing_fee,promotion_price FROM bazaar_fee_revisions WHERE id=$1', [fields.id],
@@ -340,7 +341,7 @@ test('premium staff grants after independent approval, then revokes the entitlem
     await requester.goto(commerce);
     const revoke = await readForm(requester.locator(formFor('revoke')));
     await submit(requester, formFor('revoke'), { target: player.id, reason: 'Revoke disposable premium grant' });
-    await requester.waitForURL(new RegExp(`${commerce}$`));
+    await requester.waitForURL(new RegExp(`${escapeRegex(commerce)}$`));
     expect((await db.query('SELECT event_type FROM premium_ledger WHERE request_id=$1', [revoke.fields.request_id])).rows)
       .toEqual([{ event_type: 'REVOKE' }]);
     await page.reload();

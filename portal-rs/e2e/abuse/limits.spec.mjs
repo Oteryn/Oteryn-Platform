@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { spawnSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
@@ -37,7 +38,7 @@ async function withPlayers(browser, watchContext, info, exercise) {
     for (let i = 0; i < 2; i++) {
       const account = await seedAccount(lang);
       const context = await browser.newContext({
-        baseURL: process.env.PORTAL_E2E_ORIGIN, ignoreHTTPSErrors: true,
+        baseURL: process.env.PORTAL_E2E_ORIGIN,
         locale: lang, viewport: info.project.use.viewport,
         extraHTTPHeaders: { 'Accept-Language': lang },
       });
@@ -155,7 +156,7 @@ const createTicket = async (player, lang, suffix) => {
   const fields = await formFields(player.page, `${route}/create`);
   return post(player.page, route, { ...fields, subject: `Browser ticket ${suffix}`, body: 'Local abuse qualification message.' });
 };
-const ticketLocation = lang => new RegExp(`^/${lang}/support/tickets/${uuidPath}$`);
+const ticketLocation = lang => new RegExp(`^/${escapeRegex(lang)}/support/tickets/${uuidPath}$`);
 
 test('ticket creation allows six, isolates a second account and resets', async ({ browser, browserDiagnostics }, info) => {
   await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
@@ -296,7 +297,7 @@ test('ticket status changes allow twelve per account and source and reset', asyn
 test('player report submissions allow three, isolate a second account and reset', async ({ browser, browserDiagnostics }, info) => {
   await withPlayers(browser, browserDiagnostics, info, async ([a, b], lang) => {
     const route = `/${lang}/support/reports`;
-    const location = new RegExp(`^${route}/${uuidPath}$`);
+    const location = new RegExp(`^${escapeRegex(route)}/${uuidPath}$`);
     const submit = async (player, index) => {
       const fields = await formFields(player.page, `${route}/create`);
       return post(player.page, route, {

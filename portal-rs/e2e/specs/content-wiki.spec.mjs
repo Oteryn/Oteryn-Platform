@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { waitForWikiBudget } from '../helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import {
@@ -115,7 +116,7 @@ test('wiki draft, preview, review, search, publish, revision restore and archive
   await expect(anonymous.page.locator('main')).toContainText(values[`${locale}_summary`]);
   await expect(anonymous.page.locator('main')).toContainText(t(locale, 'Zmieniony poradnik', 'Edited guide'));
   await anonymous.page.locator(`a[hreflang="${locale}"][href="${home}"]`).click();
-  await expect(anonymous.page).toHaveURL(new RegExp(`${home}$`));
+  await expect(anonymous.page).toHaveURL(new RegExp(`${escapeRegex(home)}$`));
   await title(anonymous.page, catalogEnabled
    ? t(locale, 'Dane świata są obecnie niedostępne.', 'World data is currently unavailable.')
    : 'Wiki', locale);

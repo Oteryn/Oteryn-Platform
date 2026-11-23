@@ -1147,7 +1147,9 @@ struct Latest {
 
 // Both staff views use the same receipt projection. The dossier selects the
 // latest stream for a target, while an appeal remains tied to its own stream.
-const LATEST_PROJECTION: &str = "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,c.intent,r.state,
+macro_rules! latest_projection {
+    () => {
+        "SELECT c.position,c.operation_id,c.sanction_stream_id,c.decision_revision,c.intent,r.state,
             d.expiry_blocked_by IS NOT NULL AS expiry_blocked,
             r.body->>'stream_state' AS stream_state,r.body->>'result_code' AS result_code,
             (r.body->>'accepted_decision_revision')::bigint AS accepted_revision,
@@ -1180,7 +1182,9 @@ const LATEST_PROJECTION: &str = "SELECT c.position,c.operation_id,c.sanction_str
             ORDER BY p.decision_revision DESC,p.position DESC LIMIT 1
          ) h ON true
          LEFT JOIN support_enforcement_decisions d
-           ON d.sanction_id=c.sanction_stream_id AND d.decision_revision=h.decision_revision";
+           ON d.sanction_id=c.sanction_stream_id AND d.decision_revision=h.decision_revision"
+    };
+}
 
 async fn latest(
     tx: &mut Transaction<'_, Postgres>,
@@ -1188,13 +1192,14 @@ async fn latest(
     character: Uuid,
     profile: BrowserProfile,
 ) -> Result<Option<Latest>, sqlx::Error> {
-    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    sqlx::query_as(concat!(
         "WITH stream_head AS (
             SELECT * FROM support_enforcement_commands
             WHERE account_id=$1 AND character_id=$2 AND profile=$3
             ORDER BY position DESC LIMIT 1
-         ) {LATEST_PROJECTION}"
-    )))
+         ) ",
+        latest_projection!()
+    ))
     .bind(account)
     .bind(character)
     .bind(profile.name())
@@ -1216,12 +1221,13 @@ pub(crate) async fn moderation_state(
             ));
         }
     };
-    let last = sqlx::query_as::<_, Latest>(sqlx::AssertSqlSafe(format!(
+    let last = sqlx::query_as::<_, Latest>(concat!(
         "WITH stream_head AS (
             SELECT * FROM support_enforcement_commands WHERE sanction_stream_id=$1
             ORDER BY decision_revision DESC,position DESC LIMIT 1
-         ) {LATEST_PROJECTION}"
-    )))
+         ) ",
+        latest_projection!()
+    ))
     .bind(stream)
     .fetch_optional(pool)
     .await?;

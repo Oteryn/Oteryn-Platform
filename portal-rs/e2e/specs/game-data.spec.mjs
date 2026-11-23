@@ -53,7 +53,7 @@ test('Game confirms character creation and publishes the public profile, presenc
   await submit(page, 'main form', {public_status_visible: true});
   await expect(page.locator('[name=public_status_visible]')).toBeChecked();
 
-  const reader = await browser.newContext({locale: lang, viewport: info.project.use.viewport, ignoreHTTPSErrors: true});
+  const reader = await browser.newContext({locale: lang, viewport: info.project.use.viewport});
   try {
     const publicPage = await reader.newPage();
     const deathId = uuid7();

@@ -6,7 +6,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { test as base, expect } from '../fixtures.mjs';
-import { login, password, pool, seedPasswordRange, submit } from '../helpers.mjs';
+import { login, pool, seedPasswordRange, submit } from '../helpers.mjs';
 import { paidTopup } from '../staff-commerce-helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
 import { gameJson, gamePeer, nil, portalCommand, seededAccount, seededPlayer, sourceTime } from '../outbox-helpers.mjs';
@@ -36,8 +36,7 @@ async function changePassword(page, lang, account) {
   await page.goto(`/${lang}/account/sudo`);
   await submit(page, 'main form', { current_password: account.password });
   await page.goto(`/${lang}/password/change`);
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   await submit(page, 'main form', {
     current_password: account.password,
     password: next,

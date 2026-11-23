@@ -30,7 +30,7 @@ function sample(route, locale) {
     .replaceAll('{slug}', route.startsWith('/admin/pages/') ? 'rules' : 'missing-e2e')
     .replace(/\{(?:floor|zoom|x|y)\}/g, '0')
     .replace(/\{(?:name|key|family|channel|filename|\*target|\*rest)\}/g, 'missing-e2e')
-    .replace(/\{[^}]+\}/g, '019a541b-a000-7000-8000-000000000001');
+    .replace(/\{[^{}]+\}/g, '019a541b-a000-7000-8000-000000000001');
 }
 
 function cacheFor(path, status) {
@@ -83,7 +83,7 @@ function matrix(locale) {
     }
     const parts = old.split('/');
     const parameters = new Map(parts.map((part, index) => [part, target.split('/')[index]]));
-    const location = '/pl' + destination.replace(/\{[^}]+\}/g, parameter => parameters.get(parameter));
+    const location = '/pl' + destination.replace(/\{[^{}]+\}/g, parameter => parameters.get(parameter));
     return [{ actor: 'player', route: old, target, status: 301, location, reason: 'legacy fallback' }];
   });
   const targets = new Set([...routes, ...aliases].map(row => row.target));
@@ -191,7 +191,7 @@ async function checkReferralsMethod(request, root) {
 async function checkExistingResources(page, browser, info, baseURL, draft) {
   const locale = info.project.metadata.locale;
   const viewerContext = await browser.newContext({
-    baseURL, ignoreHTTPSErrors: true, locale, viewport: info.project.use.viewport,
+    baseURL, locale, viewport: info.project.use.viewport,
   });
   try {
     const viewer = await viewerContext.newPage();
@@ -249,7 +249,7 @@ for (const actor of ['player', 'staff', 'gm']) {
       mfa = await seedEntity('account-mfa', { accountId: account.id, password: account.password });
     } else {
       // Initialize the local registration corpus and policy with the shared helper.
-      await seedPasswordRange(account.password);
+      await seedPasswordRange();
     }
     expect((await page.goto(root + 'login')).status(), actor + ' login page').toBe(200);
     let response = await signIn(page, account);

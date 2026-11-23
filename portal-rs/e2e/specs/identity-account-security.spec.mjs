@@ -9,8 +9,7 @@ test('sudo and password change reject wrong passwords, and change rejects mismat
   const locale = info.project.metadata.locale;
   const t = (en, pl) => localized(locale, en, pl);
   const account = await seedPlayer(locale);
-  const next = password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   const breached = await seedBreachedPassword();
   const path = `/${locale}/password/change`;
   const sudo = `/${locale}/account/sudo`;
@@ -60,7 +59,7 @@ test('web sessions list the current session, revoke one, revoke others and revok
   const loginPath = `/${locale}/login`;
   const one = 'main form[action]:not([action$="/others"]):not([action$="/all"])';
   const { baseURL, viewport } = info.project.use;
-  const other = await browser.newContext({ baseURL, viewport, locale, ignoreHTTPSErrors: true });
+  const other = await browser.newContext({ baseURL, viewport, locale });
   try {
     const screen = await other.newPage();
     await page.goto(path);

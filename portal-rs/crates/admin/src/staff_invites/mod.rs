@@ -49,6 +49,51 @@ impl std::fmt::Debug for DeliveryDecision {
     }
 }
 
+// Compose only compile-time query fragments. Account IDs and grant permissions
+// are still bound separately by the caller.
+macro_rules! delegable_role {
+    () => {
+        "r.key<>'owner' AND (r.key<>'platform_admin' OR r.built_in)"
+    };
+}
+
+macro_rules! pending_invite {
+    () => {
+        "i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at>clock_timestamp()"
+    };
+}
+
+macro_rules! current_manager {
+    ($account_predicate:literal, $required:literal) => {
+        concat!(
+            "EXISTS (SELECT 1 FROM accounts a WHERE ",
+            $account_predicate,
+            " AND a.status='active' AND a.email_verified_at IS NOT NULL
+          AND 3=(SELECT count(DISTINCT rp.permission)
+                 FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
+                 WHERE ar.account_id=a.id AND rp.permission=ANY(",
+            $required,
+            "))
+          AND NOT EXISTS (
+            SELECT 1 FROM unnest(i.role_ids) AS requested(id)
+            WHERE NOT EXISTS (
+              SELECT 1 FROM account_roles ar JOIN roles r ON r.id=ar.role_id
+              WHERE ar.account_id=a.id AND r.id=requested.id AND ",
+            delegable_role!(),
+            "))
+        )"
+        )
+    };
+}
+
+macro_rules! awaiting_approval {
+    ($required:literal) => { concat!(
+        "((i.requires_approval OR EXISTS (SELECT 1 FROM roles r WHERE r.id=ANY(i.role_ids) AND ",
+        rbac::protected_role_sql!(), ")) AND NOT ",
+        current_manager!("a.id=i.approved_by AND a.id<>i.invited_by AND lower(a.email)<>i.email", $required), ")"
+    ) };
+}
+
 /// Decide from current delegation authority and the exact delivery credential.
 /// A live invite that needs approval or a currently eligible issuer keeps its
 /// encrypted outbox job.
@@ -61,18 +106,21 @@ pub async fn delivery(
     let token = key
         .open(&job.ciphertext)
         .ok_or("invalid staff invite ciphertext")?;
-    let address: Option<(String, String, OffsetDateTime, bool, bool)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT i.email,i.locale,i.expires_at,{issuer_authorized},{awaiting}
-             FROM staff_invites i WHERE {PENDING} AND i.id=$1 AND i.token_hash=$2",
-            awaiting = awaiting_approval_sql(),
-            issuer_authorized = current_manager_sql("a.id=i.invited_by"),
-        )))
-        .bind(job.invite)
-        .bind(token_hash(&token))
-        .fetch_optional(pool)
-        .await
-        .map_err(|_| "staff invite delivery unavailable")?;
+    let address: Option<(String, String, OffsetDateTime, bool, bool)> = sqlx::query_as(concat!(
+        "SELECT i.email,i.locale,i.expires_at,",
+        current_manager!("a.id=i.invited_by", "$3"),
+        ",",
+        awaiting_approval!("$3"),
+        " FROM staff_invites i WHERE ",
+        pending_invite!(),
+        " AND i.id=$1 AND i.token_hash=$2"
+    ))
+    .bind(job.invite)
+    .bind(token_hash(&token))
+    .bind(issue_permissions().as_slice())
+    .fetch_optional(pool)
+    .await
+    .map_err(|_| "staff invite delivery unavailable")?;
     Ok(match address {
         Some((_, _, _, false, _)) => DeliveryDecision::AwaitingIssuerAuthority,
         Some((_, _, _, true, true)) => DeliveryDecision::AwaitingApproval,
@@ -119,13 +167,16 @@ const ISSUE: [Permission; 3] = [MANAGE[0], MANAGE[1], Permission::GrantRoles];
 
 // Membership implies possession of the role's permissions. Require membership
 // in each selected role, including an explicit built-in platform_admin grant.
-const DELEGABLE_ROLE: &str = "r.key<>'owner' AND (r.key<>'platform_admin' OR r.built_in)";
+fn delegable_roles_sql() -> &'static str {
+    concat!(
+        "SELECT r.id,r.key FROM account_roles ar JOIN roles r ON r.id=ar.role_id WHERE ar.account_id=$1 AND ",
+        delegable_role!(),
+        " ORDER BY r.key"
+    )
+}
 
-fn delegable_roles_sql() -> sqlx::AssertSqlSafe<String> {
-    sqlx::AssertSqlSafe(format!(
-        "SELECT r.id,r.key FROM account_roles ar JOIN roles r ON r.id=ar.role_id
-         WHERE ar.account_id=$1 AND {DELEGABLE_ROLE} ORDER BY r.key"
-    ))
+fn issue_permissions() -> [&'static str; 3] {
+    ISSUE.map(|permission| permission.as_str())
 }
 
 async fn check_roles(tx: &mut PgConnection, actor: Uuid, roles: &[Uuid]) -> Result<(), Error> {
@@ -153,17 +204,17 @@ struct Pending {
     awaiting_approval: bool,
 }
 
-const PENDING: &str = "i.accepted_at IS NULL AND i.revoked_at IS NULL
-    AND i.expires_at>clock_timestamp()";
-
 impl Pending {
     async fn by_id(conn: &mut PgConnection, id: Uuid) -> Result<Self, Error> {
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT i.id,i.email,i.invited_by,i.role_ids,i.approved_by,{awaiting} AS awaiting_approval
-             FROM staff_invites i WHERE {PENDING} AND i.id=$1",
-            awaiting = awaiting_approval_sql(),
-        )))
+        sqlx::query_as(concat!(
+            "SELECT i.id,i.email,i.invited_by,i.role_ids,i.approved_by,",
+            awaiting_approval!("$2"),
+            " AS awaiting_approval FROM staff_invites i WHERE ",
+            pending_invite!(),
+            " AND i.id=$1"
+        ))
         .bind(id)
+        .bind(issue_permissions().as_slice())
         .fetch_optional(conn)
         .await?
         .ok_or(Error::Denied)
@@ -188,54 +239,16 @@ struct Listing {
     awaiting_approval: bool,
 }
 
-// Verify the account, permissions and role memberships against the same
-// snapshot as the invitation. Callers supply a fixed SQL account predicate.
-fn current_manager_sql(account_predicate: &'static str) -> String {
-    format!(
-        "EXISTS (
-            SELECT 1 FROM accounts a WHERE {account_predicate}
-            AND a.status='active' AND a.email_verified_at IS NOT NULL
-            AND 3=(SELECT count(DISTINCT rp.permission)
-                   FROM account_roles ar JOIN role_permissions rp ON rp.role_id=ar.role_id
-                   WHERE ar.account_id=a.id AND rp.permission IN ('{access}','{manage}','{grant}'))
-            AND NOT EXISTS (
-              SELECT 1 FROM unnest(i.role_ids) AS requested(id)
-              WHERE NOT EXISTS (
-                SELECT 1 FROM account_roles ar JOIN roles r ON r.id=ar.role_id
-                WHERE ar.account_id=a.id AND r.id=requested.id AND {DELEGABLE_ROLE}
-              )
-            )
-          )",
-        access = MANAGE[0].as_str(),
-        manage = ISSUE[1].as_str(),
-        grant = ISSUE[2].as_str(),
-    )
-}
-
-fn awaiting_approval_sql() -> String {
-    format!(
-        "((i.requires_approval OR
-           EXISTS (SELECT 1 FROM roles r WHERE r.id=ANY(i.role_ids) AND {protected_role}))
-          AND NOT {approver_authorized})",
-        protected_role = rbac::PROTECTED_ROLE,
-        approver_authorized = current_manager_sql(
-            "a.id=i.approved_by AND a.id<>i.invited_by AND lower(a.email)<>i.email"
-        ),
-    )
-}
-
 async fn pending_for(
     pool: &PgPool,
     issuer: Uuid,
     before: Option<Uuid>,
 ) -> Result<Vec<Listing>, sqlx::Error> {
-    sqlx::query_as(sqlx::AssertSqlSafe(format!(
+    sqlx::query_as(concat!(
         "SELECT i.id,i.email,ARRAY(SELECT r.key FROM roles r WHERE r.id=ANY(i.role_ids) ORDER BY r.key) AS roles,
-         {awaiting} AS awaiting_approval
-         FROM staff_invites i WHERE {PENDING} AND i.invited_by=$1 AND ($2::uuid IS NULL OR i.id<$2)
-         ORDER BY i.id DESC LIMIT 51",
-        awaiting = awaiting_approval_sql(),
-    ))).bind(issuer).bind(before).fetch_all(pool).await
+         ", awaiting_approval!("$3"), " AS awaiting_approval FROM staff_invites i WHERE ",
+        pending_invite!(), " AND i.invited_by=$1 AND ($2::uuid IS NULL OR i.id<$2) ORDER BY i.id DESC LIMIT 51",
+    )).bind(issuer).bind(before).bind(issue_permissions().as_slice()).fetch_all(pool).await
 }
 
 struct Invites<A> {
@@ -448,15 +461,16 @@ impl<A: AccountStateReader> Invites<A> {
         let mut tx = self.pool.begin().await?;
         rbac::mutation_budget(&mut tx).await?;
         let digest = token_hash(token);
-        let (id, inviter, approver): (Uuid, Uuid, Option<Uuid>) =
-            sqlx::query_as(sqlx::AssertSqlSafe(format!(
-                "SELECT i.id,i.invited_by,i.approved_by FROM staff_invites i
-                 WHERE {PENDING} AND i.token_hash=$1",
-            )))
-            .bind(&digest)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::Denied)?;
+        let (id, inviter, approver): (Uuid, Uuid, Option<Uuid>) = sqlx::query_as(concat!(
+            "SELECT i.id,i.invited_by,i.approved_by FROM staff_invites i
+                 WHERE ",
+            pending_invite!(),
+            " AND i.token_hash=$1"
+        ))
+        .bind(&digest)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or(Error::Denied)?;
         if inviter == actor.account {
             return Err(Error::Denied);
         }

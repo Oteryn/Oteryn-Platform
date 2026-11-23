@@ -11,21 +11,23 @@ ROUTE = re.compile(r"\.route\(\s*")
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|[(),]')
 # A template token ends at its first closing delimiter. Each plain-text
 # alternative excludes the opening characters handled by the other branches.
-TEMPLATE = r"\{\{(?:[^}]|\}(?!\}))*\}\}|\{%(?:[^%]|%(?!\}))*%\}"
+TEMPLATE = r"\{\{(?:[^{}]|\{(?![{%])|\}(?!\}))*\}\}|\{%(?:[^%{]|\{(?![{%])|%(?!\}))*%\}"
 LONE_BRACE = r"\{(?![{%])"
 DOUBLE_QUOTED = rf'(?:{TEMPLATE}|{LONE_BRACE}|[^"{{])*'
 SINGLE_QUOTED = rf"(?:{TEMPLATE}|{LONE_BRACE}|[^'{{])*"
 TAG = re.compile(
-    rf"""<(form|input|button|select|textarea)\b((?:{TEMPLATE}|{LONE_BRACE}|"{DOUBLE_QUOTED}"|'{SINGLE_QUOTED}'|[^>"'{{])*)>""",
+    rf"""<(form|input|button|select|textarea)\b((?:{TEMPLATE}|{LONE_BRACE}|"{DOUBLE_QUOTED}"|'{SINGLE_QUOTED}'|[^<>"'{{])*)>""",
     re.I,
 )
 ATTRIBUTE = re.compile(
     rf"""(?<![\w:-])([\w:-]+)\s*=\s*(?:"({DOUBLE_QUOTED})"|'({SINGLE_QUOTED})'|([^\s>"']+))""",
 )
-FORM = re.compile(r"<form\b.*?</form\s*>", re.I | re.S)
+FORM = re.compile(r"<form\b(?:(?!</?form\b).)*</form\s*>", re.I | re.S)
 INLINE_METHOD = re.compile(r"MethodFilter::(POST|PUT|PATCH|DELETE)\b")
 CONSTANT = re.compile(r'\bconst (\w+)\s*:\s*&str\s*=\s*"([^"]+)"')
-ACTION_CONDITIONAL = re.compile(r"{% if (.*?) %}(.*?)(?:{% else %}(.*?))?{% endif %}")
+STATEMENT_BODY = r"(?:(?!\{%|%\}).)*"
+BRANCH_BODY = r"(?:(?!\{%).)*"
+ACTION_CONDITIONAL = re.compile(rf"\{{% if ({STATEMENT_BODY}) %\}}({BRANCH_BODY})(?:\{{% else %\}}({BRANCH_BODY}))?\{{% endif %\}}")
 
 # These are protocol receivers even when their paths look like regular HTTP routes.
 NON_BROWSER = {
@@ -86,9 +88,19 @@ def bindings(path, source, all_sources):
     if path == "crates/admin/src/bazaar.rs":
         panel = source.split("let forms = vec![", 1)[1].split("\n    ];", 1)[0]
         return {"{{ form.action }}": re.findall(r'\bform\(\s*"([^"]+)"', panel)}
-    if path == "crates/admin/src/support_web.rs":
-        panel = source.split("let actions:", 1)[1].split("for (action, fields)", 1)[0]
-        return {"{action}": re.findall(r'\(\s*"([^"]+)",\s*&\[', panel)}
+    if path == "crates/admin/templates/support_record.html":
+        panel = all_sources["crates/admin/src/support_web.rs"]
+        actions = panel.split("let actions:", 1)[1].split("let mut forms", 1)[0]
+        controls = re.findall(r'\(\s*"([^"]+)",\s*&\[([^\]]*)\]', actions)
+        return {
+            "{{ action_path }}": ROUTE_BINDINGS[
+                ("crates/admin/src/support_web.rs", '&format!("{}/{{id}}", base(area))')
+            ],
+            "{{ form.action }}": [action for action, _ in controls],
+            "{{ field.name }}": list(dict.fromkeys(
+                name for _, fields in controls for name in re.findall(r'"([^"]+)"', fields)
+            )),
+        }
     return {}
 
 
@@ -132,7 +144,7 @@ def forms(path, source, all_sources):
             field = attributes(tag[2])
             name = field.get("name")
             if name:
-                fields.append(name)
+                fields.extend(dynamic.get(name, [name]))
             if tag[1].lower() == "button" or field.get("type") in {"submit", "image"}:
                 if field.get("type") in {"button", "reset"}:
                     continue

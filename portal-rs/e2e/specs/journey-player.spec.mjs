@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { TOTP, Secret } from 'otpauth';
 import { test, expect } from '../fixtures.mjs';
-import { csrfRejected, mailLink, password, pool, seedPasswordRange, submit } from '../helpers.mjs';
+import { csrfRejected, mailLink, pool, seedPasswordRange, submit } from '../helpers.mjs';
 import { post, uuid7 } from '../game-sim-helpers.mjs';
 import { follow, localized, newPlayer, signIn, topUp, verifyPlayer, visibleLink } from '../journey-player-helpers.mjs';
 
@@ -133,12 +133,12 @@ test('a new player goes from discovering Oteryn to managing their account', asyn
     await follow(page, path('account/characters/new'));
     await follow(page, path('account/characters/suggest'));
     const form = main.locator('form[method=post]');
-    await expect(form.locator('[name=name]')).toHaveValue(/^[A-Za-z]+(?: [A-Za-z]+)*$/);
+    const name = await form.locator('[name=name]').inputValue();
+    expect(name.split(' ').every(word => /^[A-Za-z]+$/.test(word))).toBe(true);
     const world = form.locator('select[name=world]');
     await world.selectOption({ label: 'Local Bazaar World' });
     await form.locator('input[name=sex]').first().check();
     await form.locator('input[name=vocation]').first().check();
-    const name = await form.locator('[name=name]').inputValue();
     await submit(page, 'main form[method=post]', { name: '12345' });
     await expect(main.getByRole('status')).toHaveText(t(
       'Sprawdź reguły imion i wybierz prawidłowy świat, płeć oraz profesję przed ponownym wysłaniem.',
@@ -196,7 +196,7 @@ test('a new player goes from discovering Oteryn to managing their account', asyn
 
   await test.step('List a Game item, sell it to a second player, and see both sides of the sale', async () => {
     const context = await browser.newContext({
-      baseURL: new URL(page.url()).origin, ignoreHTTPSErrors: true,
+      baseURL: new URL(page.url()).origin,
       locale: lang, viewport: info.project.use.viewport,
     });
     const buyer = await context.newPage();
@@ -347,8 +347,7 @@ test('a new player goes from discovering Oteryn to managing their account', asyn
 
   await test.step('Change the password and prove the old one is refused', async () => {
     await follow(page, path('password/change'));
-    const next = password();
-    await seedPasswordRange(next);
+    const next = await seedPasswordRange();
     await submit(page, 'main form', {
       current_password: account.password, password: next, password_confirmation: next,
     });

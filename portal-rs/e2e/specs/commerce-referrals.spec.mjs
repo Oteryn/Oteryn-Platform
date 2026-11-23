@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { randomUUID } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, mailLink, pool, submit } from '../helpers.mjs';
@@ -80,7 +81,7 @@ test('player creates a referral link, queues an invitation and accepts the link 
     await csrfRejected(page, invitation.url, { kind: 'link' });
     await create.click();
     const link = await page.getByLabel(l.link).inputValue();
-    expect(new URL(link).pathname).toMatch(new RegExp(`^/${lang}/referrals/[a-f0-9-]+$`));
+    expect(new URL(link).pathname).toMatch(new RegExp(`^/${escapeRegex(lang)}/referrals/[a-f0-9-]+$`));
     await expect(create).toHaveCount(0);
 
     const invalid = await postAs(page, invitation.url, { ...invitation.fields, email: 'invalid' });
@@ -109,12 +110,12 @@ test('player creates a referral link, queues an invitation and accepts the link 
     const invitee = await visitor.newPage();
     await invitee.goto(link);
     await submit(invitee);
-    await expect(invitee).toHaveURL(new RegExp(`/${lang}/register$`));
+    await expect(invitee).toHaveURL(new RegExp(`/${escapeRegex(lang)}/register$`));
     const invited = await signInPlayer(invitee, lang);
     for (let attempt = 0; attempt < 2; attempt++) {
       await invitee.goto(link);
       await submit(invitee);
-      await expect(invitee).toHaveURL(new RegExp(`${path}$`));
+      await expect(invitee).toHaveURL(new RegExp(`${escapeRegex(path)}$`));
     }
     await expect(invitee.getByText(`${l.starter}: 3 — ${l.pending}`)).toBeVisible();
     await page.goto(path);

@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,7 +108,7 @@ test('account privacy preferences', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
     baseURL: info.project.use.baseURL,
-    ignoreHTTPSErrors: true,
+
     locale: lang,
   });
   try {
@@ -170,7 +171,7 @@ test('account privacy preferences', async ({ page, browser }, info) => {
 test('ticket creation and exact request-key replay', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
   });
   try {
     const owner = await player(page, lang);
@@ -222,7 +223,7 @@ test('unavailable Game-backed browser actions refuse writes without durable effe
   test.setTimeout(180_000);
   const lang = info.project.metadata.locale;
   const options = {
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   };
   const anonymous = await browser.newContext(options);
@@ -452,7 +453,7 @@ const storeError = {
 test('test-provider top-up creates one checkout intent per operation', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
   });
   try {
     const owner = await player(page, lang);
@@ -480,7 +481,7 @@ test('test-provider top-up creates one checkout intent per operation', async ({ 
     await submit(page, packageForm);
     await expect(page.locator('main h1')).toHaveText(lang === 'pl' ? 'Bank testowy' : 'Test bank');
     const intent = new URL(page.url()).pathname.split('/').at(-1);
-    await expect(page).toHaveURL(new RegExp(`/${lang}/shop/test-checkout/${intent}$`));
+    await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/shop/test-checkout/${escapeRegex(intent)}$`));
     const created = [{
       payment_intent_id: intent, coins: '1234', minor_units: '250', currency: 'PLN', provider: 'test',
     }];
@@ -499,7 +500,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
     test.setTimeout(180_000);
     const lang = info.project.metadata.locale;
     const foreign = await browser.newContext({
-      baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: info.project.use.baseURL, locale: lang,
     });
     try {
       const other = await foreign.newPage();
@@ -536,7 +537,7 @@ for (const action of ['pay', 'reject', 'cancel']) {
         ],
       });
       await page.locator(checkout).locator(`button[value=${action}]`).click();
-      await expect(page).toHaveURL(new RegExp(`/${lang}/shop/coins\\?checkout=${intent}$`));
+      await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/shop/coins\\?checkout=${escapeRegex(intent)}$`));
       const paid = action === 'pay';
       const settled = [{ state: paid ? 'succeeded' : 'failed', events: 1, credits: paid ? 1 : 0, coins: paid ? '1234' : '0' }];
       await expect.poll(snapshot, { timeout: 30_000 }).toEqual(settled);
@@ -557,7 +558,7 @@ test('ticket owner reply and close enforce ownership and version', async ({ page
   const lang = info.project.metadata.locale;
   test.setTimeout(180_000);
   const options = {
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   };
   const foreign = await browser.newContext(options);
@@ -643,7 +644,7 @@ test('ticket owner reply and close enforce ownership and version', async ({ page
 test('character creation queues one operation and exposes the pending Game outcome', async ({ page, browser }, info) => {
   const lang = info.project.metadata.locale;
   const anonymous = await browser.newContext({
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
   });
   try {
     const { id } = await seededPlayer(page, lang);
@@ -711,7 +712,7 @@ test('support ticket staff reply and status enforce RBAC and stale writes', asyn
   test.setTimeout(300_000);
   const lang = info.project.metadata.locale;
   const options = {
-    baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, locale: lang,
+    baseURL: info.project.use.baseURL, locale: lang,
     viewport: info.project.use.viewport,
   };
   const support = await browser.newContext(options);

@@ -687,8 +687,26 @@ fn staff_permissions<'a, I, A>(s: &'a Panel<I, A>, path: &str) -> &'a [Permissio
     })
 }
 
+#[derive(Template)]
+#[template(
+    source = r#"<html lang="{{ lang }}"><meta name="viewport" content="width=device-width, initial-scale=1"><main><h1>{{ message }}</h1></main></html>"#,
+    ext = "html"
+)]
+struct MfaRefusal<'a> {
+    lang: &'a str,
+    message: String,
+}
+
 fn mfa_refusal(lang: &str) -> Response {
-    (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{lang}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(lang, "mfa")))).into_response()
+    match (MfaRefusal {
+        lang,
+        message: text(lang, "mfa"),
+    })
+    .render()
+    {
+        Ok(html) => (StatusCode::FORBIDDEN, axum::response::Html(html)).into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 }
 
 /// Presentation check for the shared account menu.

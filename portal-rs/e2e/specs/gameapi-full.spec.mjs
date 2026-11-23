@@ -493,7 +493,7 @@ test('native coin catalogue, balance, order replay and both sandbox checkout act
     if (action === 'pay') {
       const context = await browser.newContext({
         baseURL: origin,
-        ignoreHTTPSErrors: true,
+
         locale: lang,
         viewport: info.project.use.viewport,
         extraHTTPHeaders: requestSource(info, 9),

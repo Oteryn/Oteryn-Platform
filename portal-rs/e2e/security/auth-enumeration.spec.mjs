@@ -34,9 +34,8 @@ test('registration gives the same confirmation for a new and an existing email',
   const newEmail = emailAddress();
   const confirmation = `/${lang}/register/check-inbox`;
   const messages = [];
-  const pass = password();
+  const pass = await seedPasswordRange('signup');
   for (const email of [newEmail, account.email]) {
-    await seedPasswordRange(pass);
     expect((await page.goto(`/${lang}/register`)).status()).toBe(200);
     await page.locator('[name=work_token]').waitFor({ state: 'attached' });
     const submitted = page.waitForResponse(response => response.request().method() === 'POST' &&

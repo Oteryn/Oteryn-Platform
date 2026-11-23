@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import {randomUUID} from 'node:crypto';
 import {test, expect} from '../fixtures.mjs';
 import {submit} from '../helpers.mjs';
@@ -16,7 +17,7 @@ test('staff creates a page through the finder, publishes it and deletes it', asy
     await finder.locator('[name=slug]').fill(slug);
     await finder.locator('[name=locale]').selectOption('en');
     await finder.getByRole('button').click();
-    await expect(page).toHaveURL(new RegExp(`${edit}$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(edit)}$`));
     const form = page.locator('main form[method=post]');
     await form.locator('[name=title]').fill(title);
     await form.locator('[name=body]').fill('Published through the editorial browser.');

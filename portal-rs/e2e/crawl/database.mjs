@@ -1,4 +1,5 @@
 import { createHash, createHmac, pbkdf2Sync, randomBytes } from 'node:crypto';
+import { executeFixtureDdl } from '../support/harness-database.mjs';
 
 function scramVerifier(password) {
   const salt = randomBytes(16);
@@ -12,7 +13,6 @@ function scramVerifier(password) {
 
 export function crawlDatabase(name, adminURL) {
   if (!/^portal_e2e_[a-f0-9]{12}$/.test(name)) throw new Error('Invalid crawl database name');
-  const identifier = `"${name}"`;
   const password = randomBytes(32).toString('hex');
   const url = new URL(`/${name}`, adminURL);
   url.username = name;
@@ -20,26 +20,22 @@ export function crawlDatabase(name, adminURL) {
   let roleRequested = false;
   return {
     url: url.href,
-    ownerClause: ` OWNER ${identifier}`,
     get roleRequested() { return roleRequested; },
     async createRole(admin) {
       roleRequested = true;
       try {
         // PostgreSQL can log DDL statements on error. Send only the verifier.
-        await admin.query(`
-          CREATE ROLE ${identifier} LOGIN PASSWORD '${scramVerifier(password)}'
-            NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
-        `);
+        await executeFixtureDdl(admin.query.bind(admin), 'createRole', name, scramVerifier(password));
       } catch (error) {
         if (error.code === '42710') roleRequested = false;
         throw error;
       }
     },
     async dropRole(admin) {
-      if (roleRequested) await admin.query(`DROP ROLE IF EXISTS ${identifier}`);
+      if (roleRequested) await executeFixtureDdl(admin.query.bind(admin), 'dropRole', name);
     },
     async restrictAccess(admin) {
-      await admin.query(`REVOKE CONNECT, TEMPORARY ON DATABASE ${identifier} FROM PUBLIC`);
+      await executeFixtureDdl(admin.query.bind(admin), 'restrictAccess', name);
     },
   };
 }

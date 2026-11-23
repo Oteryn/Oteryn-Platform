@@ -1344,14 +1344,31 @@
       ]
     },
     {
-      "source": "crates/admin/src/support_web.rs:603",
+      "source": "crates/admin/templates/support_record.html:17",
       "ordinal": 1,
-      "action": "{}/{}",
-      "actionVariants": [],
+      "action": "{{ action_path }}",
+      "actionVariants": [
+        "/admin/support/tickets/{id}",
+        "/admin/moderation/reports/{id}",
+        "/admin/moderation/enforcement/{id}"
+      ],
       "fields": [
         "_csrf",
         "lock_version",
         "action",
+        "assignee",
+        "reason",
+        "body",
+        "status",
+        "public_outcome",
+        "moderator_notes",
+        "target",
+        "sanction",
+        "category",
+        "duration_hours",
+        "public_reason",
+        "appeal_status",
+        "appeal_outcome",
         "internal"
       ],
       "submits": [
@@ -2488,7 +2505,7 @@
       "route": "/admin/moderation/enforcement/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/support_web.rs:152",
+          "source": "crates/admin/src/support_web.rs:153",
           "handler": "change::"
         }
       ]
@@ -2498,7 +2515,7 @@
       "route": "/admin/moderation/reports/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/support_web.rs:152",
+          "source": "crates/admin/src/support_web.rs:153",
           "handler": "change::"
         }
       ]
@@ -2588,7 +2605,7 @@
       "route": "/admin/support/tickets/{id}",
       "sources": [
         {
-          "source": "crates/admin/src/support_web.rs:152",
+          "source": "crates/admin/src/support_web.rs:153",
           "handler": "change::"
         }
       ]

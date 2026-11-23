@@ -118,7 +118,7 @@ test('GM player reads use signed results from the mTLS Admin Agent', async ({pag
     ? { player: 'Players', source: 'Game agent · observed at', unavailable: 'Unavailable', inventory: 'Inventory', sanctions: 'Sanctions', activeSanction: 'Warning · Active', inactiveSanction: 'Notation · Inactive', rejected: 'Query rejected' }
     : { player: 'Gracze', source: 'Agent gry · czas obserwacji', unavailable: 'Niedostępne', inventory: 'Ekwipunek', sanctions: 'Kary', activeSanction: 'Ostrzeżenie · Aktywna', inactiveSanction: 'Adnotacja · Nieaktywna', rejected: 'Zapytanie odrzucone' };
   const agent = adminAgent(setup);
-  const options = {baseURL: setup.origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport};
+  const options = {baseURL: setup.origin, locale: lang, viewport: info.project.use.viewport};
   const manager = await browser.newContext(options);
   const restricted = await browser.newContext(options);
   const secondContext = await browser.newContext(options);

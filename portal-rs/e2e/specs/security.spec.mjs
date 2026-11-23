@@ -1,5 +1,5 @@
 import {test,expect} from '../fixtures.mjs';
-import {register,login,logout,submit,password,seedPasswordRange,csrfRejected,waitForLoginBudget,pool,exportOptions} from '../helpers.mjs';
+import {register,login,logout,submit,seedPasswordRange,csrfRejected,waitForLoginBudget,pool,exportOptions} from '../helpers.mjs';
 import crypto from 'node:crypto';
 
 test('privacy changes persist and account export contains the owning account',async({page},info)=>{
@@ -34,8 +34,7 @@ test('password change requires sudo, revokes sessions and accepts the new passwo
  await page.goto(`/${lang}/account/sudo`);
  await submit(page,'main form',{current_password:account.password});
  await page.goto(`/${lang}/password/change`);
- const next=password();
- await seedPasswordRange(next);
+ const next = await seedPasswordRange();
  await submit(page,'main form',{current_password:account.password,password:next,password_confirmation:next});
  await expect(page).toHaveURL(/login/);
  await login(page,lang,{...account,password:next});
@@ -78,16 +77,14 @@ test('recovery key: one-time reset revokes sessions; regenerate and revoke',asyn
   const other=await otherContext.newPage();await login(other,lang,account);
   await logout(page,lang);
   await page.goto(`/${lang}/recovery-key`);
-  const next=password();
-  await seedPasswordRange(next);
+  const next = await seedPasswordRange();
   const response=page.waitForResponse(r=>r.request().method()==='POST' && new URL(r.url()).pathname===`/${lang}/recovery-key` && r.status()!==403);
   await submit(page,'main form',{email:account.email,recovery_key:key,password:next,password_confirmation:next});
   const recovered=await response;expect(recovered.status()).toBe(302);expect(recovered.headers().location).toBe(`/${lang}/login`);
   const after=await state();expect(after.used_at).toBeTruthy();expect(after.password_hash).not.toBe(before.password_hash);
   await other.goto('/account');await expect(other).toHaveURL(/login/);
   await page.goto(`/${lang}/recovery-key`);
-  const replay=password();
-  await seedPasswordRange(replay);
+  const replay = await seedPasswordRange('replay');
   await submit(page,'main form',{email:account.email,recovery_key:key,password:replay,password_confirmation:replay});
   await expect(page).toHaveURL(new RegExp(`/${lang}/recovery-key$`));
   expect((await state()).password_hash).toBe(after.password_hash);

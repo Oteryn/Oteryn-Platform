@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { csrfRejected, pool, submit } from '../helpers.mjs';
 import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
@@ -60,9 +61,9 @@ test('Bazaar seller lists and safely cancels an item after an unfunded bidder is
     await page.goto(path);
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(l.title);
     await page.getByRole('link', { name: l.own, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/${lang}/account/bazaar$`));
+    await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/account/bazaar$`));
     await page.getByRole('link', { name: l.sell, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`${sellURL}$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(sellURL)}$`));
     await expect(page.locator('select[name="currency"] option')).toHaveText([l.coins, l.gold]);
     await page.locator('select[name="kind"]').selectOption('item');
     await page.locator('select[name="currency"]').selectOption('COINS');
@@ -71,7 +72,7 @@ test('Bazaar seller lists and safely cancels an item after an unfunded bidder is
       ...create.fields, ...values, duration_days: '15', publish_snapshot: 'true',
     })).status()).toBe(422);
     await submit(page, 'main form', { ...values, publish_snapshot: true });
-    await expect(page).toHaveURL(new RegExp(`${path}/[a-f0-9-]+$`));
+    await expect(page).toHaveURL(new RegExp(`${escapeRegex(path)}/[a-f0-9-]+$`));
     const id = new URL(page.url()).pathname.split('/').at(-1);
     const card = page.locator(`article[data-listing="${id}"]`);
     const waitState = state => expect.poll(async () => {
@@ -136,7 +137,7 @@ test('funded character bid waits for verified unlock and credits the seller once
     await page.goto(`/${lang}/account/bazaar/sell`);
     await page.locator('select[name="kind"]').selectOption('character');
     await submit(page, 'main form', { ...values, publish_snapshot: true });
-    await expect(page).toHaveURL(new RegExp(`/${lang}/bazaar/[a-f0-9-]+$`));
+    await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/bazaar/[a-f0-9-]+$`));
     const listing = new URL(page.url()).pathname.split('/').at(-1);
     const card = page.locator(`article[data-listing="${listing}"]`);
     await expect.poll(async () => {

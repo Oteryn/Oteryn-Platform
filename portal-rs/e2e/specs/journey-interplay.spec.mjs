@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { uuid7 } from '../game-sim-helpers.mjs';
 import { query } from '../staff-rbac-helpers.mjs';
@@ -306,7 +307,7 @@ test('two players trade, report harassment, appeal through support and face staf
       await expect(main(admin)).toContainText(buyer.id);
       const revoke = main(admin).locator('form:has(button[value="logout"])');
       expect((await clickForm(admin.page, revoke, { reason: evidence })).status()).toBe(303);
-      await expect(admin.page).toHaveURL(new RegExp(`/admin/players/${buyer.id}$`));
+      await expect(admin.page).toHaveURL(new RegExp(`/admin/players/${escapeRegex(buyer.id)}$`));
       await buyer.page.reload();
       await expect(buyer.page).toHaveURL(/\/login(?:\?|$)/);
       await expect(main(buyer).locator('input[name="password"]')).toBeVisible();
@@ -327,7 +328,7 @@ test('two players trade, report harassment, appeal through support and face staf
       ]) {
         await fill(filter, { admin: actor.id, operation, target });
         await filter.getByRole('button').click();
-        await expect(main(admin).getByText(new RegExp(`${actor.id} · ${operation} · ${target}`))).toHaveCount(count);
+        await expect(main(admin).getByText(new RegExp(`${escapeRegex(actor.id)} · ${escapeRegex(operation)} · ${escapeRegex(target)}`))).toHaveCount(count);
       }
     });
   } finally {

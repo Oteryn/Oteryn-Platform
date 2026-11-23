@@ -162,9 +162,12 @@ async fn staff_invite_upgrade_preserves_the_outbox_claim_fence()
     let url = std::env::var("PORTAL_TEST_DATABASE_URL")?;
     let root = PgPool::connect(&url).await?;
     let schema = format!("invite_claim_{}", Uuid::now_v7().simple());
-    sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
-        .execute(&root)
-        .await?;
+    let create: String =
+        sqlx::query_scalar("SELECT pg_catalog.format('CREATE SCHEMA %I',$1::text)")
+            .bind(&schema)
+            .fetch_one(&root)
+            .await?;
+    sqlx::query(AssertSqlSafe(create)).execute(&root).await?;
     let search_path = schema.clone();
     let pool = PgPoolOptions::new()
         .after_connect(move |conn, _| {
@@ -237,8 +240,11 @@ async fn staff_invite_upgrade_preserves_the_outbox_claim_fence()
     assert!(outbox::finish(&pool, &current, None, false).await?);
 
     pool.close().await;
-    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&root)
-        .await?;
+    let drop: String =
+        sqlx::query_scalar("SELECT pg_catalog.format('DROP SCHEMA %I CASCADE',$1::text)")
+            .bind(&schema)
+            .fetch_one(&root)
+            .await?;
+    sqlx::query(AssertSqlSafe(drop)).execute(&root).await?;
     Ok(())
 }

@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import {
  test, expect, editPath, formFor, key, labels, link, locales, localized as t,
  mainForm, refuse, request, send, stamp, submitForm, title, visit,
@@ -199,7 +200,7 @@ for (const [slug, route] of legalPages) {
   await form.locator('[name="slug"]').fill(slug);
   await form.locator('[name="locale"]').selectOption('en');
   await form.getByRole('button', {name: t(lang, 'Utwórz lub edytuj', 'Create or edit')}).click();
-  await expect(page).toHaveURL(new RegExp(`${en}$`));
+  await expect(page).toHaveURL(new RegExp(`${escapeRegex(en)}$`));
   await send(mainForm(page), { ...values, legal_version: '', action: 'save' }, 400);
   await submitForm(mainForm(page), values, save);
   await link(page, en);

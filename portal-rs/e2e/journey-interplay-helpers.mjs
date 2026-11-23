@@ -13,7 +13,7 @@ export async function newActor(browser, info, storageState) {
     viewport: info.project.use.viewport,
     locale: info.project.metadata.locale,
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
+
     storageState,
   });
   context.setDefaultTimeout(info.project.use.actionTimeout);

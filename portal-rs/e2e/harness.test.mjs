@@ -17,6 +17,7 @@ import { localPostgresUrl } from './postgres-url.mjs';
 
 import { readStaffFixture, staffSeedEnvironment, startStaffConsoleHarness } from './admin-agent.mjs';
 import { HarnessProcesses } from './harness-processes.mjs';
+import { executeFixtureDdl } from './support/harness-database.mjs';
 import { fixtureDatabasePool, localDatabaseURL } from './local-database.mjs';
 
 const execute = promisify(execFile);
@@ -95,7 +96,7 @@ test('shutdown during database creation waits and drops the new database', { tim
        WHERE application_name=$1 AND wait_event_type='Lock' AND query LIKE 'CREATE DATABASE %'`,
       [path.basename(scratch)],
     )).rows[0]?.query;
-    const createPattern = /^CREATE DATABASE "(portal_e2e_[a-f0-9]{12})"$/;
+    const createPattern = /^CREATE DATABASE (portal_e2e_[a-f0-9]{12})$/;
     await expect.poll(activeCreation, { timeout: 15_000 }).toMatch(createPattern);
     const [, database] = createPattern.exec(await activeCreation());
     const shutdown = once(lines, 'line');
@@ -315,7 +316,7 @@ test('Game-data teardown rejects a failed database drop and retains diagnostics'
     try {
       if (subscribed) {
         await subscription('DROP SUBSCRIPTION harness_shutdown_probe');
-        await admin.query(`DROP DATABASE IF EXISTS "${report.database}" WITH (FORCE)`);
+        await executeFixtureDdl(admin.query.bind(admin), 'dropDatabaseIfExists', report.database);
       } else {
         await teardown();
       }

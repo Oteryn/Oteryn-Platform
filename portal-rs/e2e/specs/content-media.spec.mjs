@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { createHash } from 'node:crypto';
 import { query } from '../staff-rbac-helpers.mjs';
 import {
@@ -72,7 +73,7 @@ test('media rejects invalid uploads and serves normalized images until deletion'
    drawing.fillRect(0, 0, 400, 200);
    return canvas.toDataURL(type);
   }, mimeType);
-  expect(fixture).toMatch(new RegExp(`^data:${mimeType};base64,`));
+  expect(fixture).toMatch(new RegExp(`^data:${escapeRegex(mimeType)};base64,`));
   await file.setInputFiles({
    name: `wide.${extension}`, mimeType, buffer: Buffer.from(fixture.split(',')[1], 'base64'),
   });
@@ -162,7 +163,7 @@ editorial('editorial library pagination reaches entries beyond each first-page l
    const first = await entries();
    const label = path.endsWith('/events') ? t(lang, 'Następna', 'Next') : next;
    const pageNumber = path.endsWith('/news') ? '2' : '1';
-   const continuation = new RegExp(`[?]page=${pageNumber}(?:&lang=[a-z]+)?$`);
+   const continuation = new RegExp(`[?]page=${escapeRegex(pageNumber)}(?:&lang=[a-z]+)?$`);
    await Promise.all([
     subject.waitForURL(continuation, { waitUntil: 'domcontentloaded' }),
     subject.locator('main').getByRole('link', { name: label, exact: true }).click(),

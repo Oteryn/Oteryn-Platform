@@ -11,6 +11,7 @@ import { setImmediate as next } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { readStaffFixture, runStaffSeed, startStaffConsoleHarness } from '../admin-agent.mjs';
 import { password } from '../helpers.mjs';
+import { fixtureStatement } from '../support/harness-database.mjs';
 import { fixtureDatabasePool, localDatabaseClient, localDatabaseURL } from '../local-database.mjs';
 
 async function until(probe, signal) {
@@ -85,9 +86,10 @@ test('managed staff retries a real bind conflict with logging off and bounds a b
         if (error.code !== 'EADDRINUSE') throw error;
       }
     }, deadline);
+    const dropStatement = await fixtureStatement(observer.query.bind(observer), 'dropDatabaseIfExists', first.database);
     const blockedDrop = async () => (await observer.query(
       "SELECT pid, EXTRACT(epoch FROM clock_timestamp() - query_start)::float8 AS age FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query = $1",
-      ['DROP DATABASE IF EXISTS "' + first.database + '" WITH (FORCE)'],
+      [dropStatement],
     )).rows[0];
     const dropDeadline = AbortSignal.any([deadline, AbortSignal.timeout(20_000)]);
     const firstDrop = await until(blockedDrop, dropDeadline);

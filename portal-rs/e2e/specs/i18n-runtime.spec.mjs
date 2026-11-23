@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '../fixtures.mjs';
 import * as OTPAuth from 'otpauth';
-import { login, password, pool, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
+import { login, pool, seedPasswordRange, submit, waitForWikiBudget } from '../helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
 import { seedPlayer, signInPlayer, withFreshCommercePortal } from '../commerce-helpers.mjs';
 import { uuid7 } from '../support/bazaar-game.mjs';
@@ -72,7 +72,7 @@ function targetFor(route, locale) {
     .replaceAll('{slug}', route.startsWith('/admin/pages/') ? 'rules' : 'missing-e2e')
     .replace(/\{(?:floor|zoom|x|y)\}/gu, '0')
     .replace(/\{(?:name|slug|key|family|channel|filename|\*target)\}/gu, 'missing-e2e')
-    .replace(/\{[^}]+\}/gu, '019a541b-a000-7000-8000-000000000001');
+    .replace(/\{[^{}]+\}/gu, '019a541b-a000-7000-8000-000000000001');
 }
 
 async function assertLocale(page, locale, witness) {
@@ -116,7 +116,7 @@ function newLocaleContext(browser, info) {
     locale: info.project.metadata.locale,
     viewport: info.project.use.viewport,
     baseURL: process.env.PORTAL_E2E_ORIGIN || 'https://localhost:18443',
-    ignoreHTTPSErrors: true,
+
   });
 }
 
@@ -260,7 +260,7 @@ test('isolated promotion and collection fixtures preserve exact cold and warm re
 test('locale parity across the GET route inventory', async ({ browser, page: anonymous }, info) => {
   test.setTimeout(1_200_000);
   // Exercise the real registration form with its required local abuse policy and corpus.
-  await seedPasswordRange(password());
+  await seedPasswordRange();
   const locale = info.project.metadata.locale;
   const player = await playerContext.newPage();
   const staff = await provisionStaff(browser, info);

@@ -22,7 +22,7 @@ The inventory has 123 source forms and 179 write routes. The ledger recorder and
 | Staff invitation approval, creation, revocation, acceptance and logout | Form and route evidence comes from `staff-invite.spec.mjs`. Return-language query parameters do not create additional ledger routes. |
 | GM enforcement step-up and apply, player retry, and console nodes | Form and route rows are attributed separately by method. `panels/gm-enforce.spec.mjs` exercises the enforcement forms. Player retry remains a tracked gap when the fixture supplies no retryable command. |
 | Staff account status, email, review flag and note, and player/staff ticket reply and status | Form rows include the named submitters and required reasons. `panels/accounts.spec.mjs`, `panels/support.spec.mjs`, and the mutation matrix exercise these flows. |
-| Runtime-generated Bazaar review and staff support actions | Classified for route evidence in `ledger/forms.py`. The mutation inventory preserves action selectors, their static values, and runtime placeholders. `commerce-bazaar.spec.mjs` and `panels/support.spec.mjs` supply route evidence for their exercised operations. |
+| Bazaar review and staff support actions | Classified for route evidence in `ledger/forms.py`. The mutation inventory reads the staff support template together with the renderer's action names and form fields. The ticket queue's GET filter has its own ledger form. `commerce-bazaar.spec.mjs` and `panels/support.spec.mjs` exercise these routes. |
 
 The checked-in aggregate ledger and delta retain their captured revision. Refresh those reports with a matching full capture when publishing a new baseline.
 

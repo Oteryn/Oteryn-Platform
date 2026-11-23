@@ -395,8 +395,6 @@ async fn missing_feed_signal_requires_successful_database_reads() -> TestResult 
         to_bytes(failed.into_body(), 64 * 1024).await?,
     );
     db.close().await;
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
-        .execute(&root)
-        .await?;
+    oteryn_db::test_support::drop_fixture_schema(&root, &schema).await?;
     Ok(())
 }

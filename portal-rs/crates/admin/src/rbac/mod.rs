@@ -11,7 +11,7 @@ mod storage;
 pub use catalog::{ADMIN_PANEL_SECTIONS, BuiltInRole, GM_PANEL_SECTIONS, Permission};
 
 pub use storage::Change;
-pub(crate) use storage::{PROTECTED_ROLE, requires_grant_approval};
+pub(crate) use storage::{protected_role_sql, requires_grant_approval};
 
 use sqlx::{PgConnection, PgPool};
 use std::future::Future;

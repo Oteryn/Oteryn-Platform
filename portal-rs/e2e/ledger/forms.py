@@ -80,9 +80,18 @@ ACTIONS = {
     "templates/wiki/index.html": [(), ("/wiki", "/{lang}/wiki", "/wiki/search", "/{lang}/wiki/search")],
 }
 
-ASKAMA = re.compile(r"{{.*?}}|{%.*?%}|{#.*?#}", re.S)
+EXPRESSION_BODY = r"(?:[^{}]|\{(?![{%#])|\}(?!\}))*"
+ASKAMA = re.compile(
+    rf"\{{\{{{EXPRESSION_BODY}\}}\}}|\{{%(?:[^%{{]|\{{(?![{{%#])|%(?!\}}))*%\}}"
+    r"|\{#(?:[^#{]|\{(?![{%#])|#(?!\}))*#\}",
+)
 PARAM = re.compile(r"{([^{}]+)}")
-CONDITIONAL = re.compile(r"{%\s*if\b.*?%}(.*?)(?:{%\s*else\s*%}(.*?))?{%\s*endif\s*%}")
+STATEMENT_BODY = r"(?:(?!\{%|%\}).)*"
+BRANCH_BODY = r"(?:(?!\{%).)*"
+CONDITIONAL = re.compile(
+    rf"\{{%\s*if\b{STATEMENT_BODY}%\}}({BRANCH_BODY})"
+    rf"(?:\{{%\s*else\s*%\}}({BRANCH_BODY}))?\{{%\s*endif\s*%\}}"
+)
 CALCULATOR = "templates/wiki/calculators/page.html"
 
 # These Rust renderers build forms at runtime. Their write registrations
@@ -90,7 +99,7 @@ CALCULATOR = "templates/wiki/calculators/page.html"
 ROUTE_ONLY_RENDERERS = {
     "crates/admin/src/bazaar.rs",
     "crates/admin/src/control/controls_http.rs",
-    "crates/admin/src/support_web.rs",
+    "crates/admin/templates/support_record.html",
     "crates/bazaar/src/game/runtime/browser.rs",
     "crates/bazaar/src/moderation_web.rs",
     "crates/characters/src/create_web/page.rs",
@@ -166,7 +175,7 @@ def expand(action):
         for value in (conditional[1], conditional[2] or ""):
             yield from expand(action[:conditional.start()] + value + action[conditional.end():])
         return
-    yield re.sub(r"{{\s*(.*?)\s*}}", lambda m: "{" + m[1].split(".")[-1] + "}", action)
+    yield re.sub(rf"\{{\{{({EXPRESSION_BODY})\}}\}}", lambda m: "{" + m[1].strip().split(".")[-1] + "}", action)
 
 
 def segments(pattern):
@@ -200,6 +209,8 @@ def generate():
     forms = []
     for template in sorted(p for root in ("templates", "crates", "bin") for p in (PORTAL / root).rglob("*.html")):
         filename = template.relative_to(PORTAL).as_posix()
+        if filename in ROUTE_ONLY_RENDERERS:
+            continue
         parsed = Forms(template.read_text(encoding="utf-8")).forms
         overrides = ACTIONS.get(filename, [()] * len(parsed))
         if len(overrides) != len(parsed):

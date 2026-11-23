@@ -267,7 +267,7 @@ test('GM applies, replaces and revokes MUTE and JAIL through Game receipts', asy
   for (const role of ['game_viewer', 'game_support']) {
     const observer = await browser.newContext({
       baseURL: new URL(page.url()).origin, viewport: info.project.use.viewport,
-      locale: lang, ignoreHTTPSErrors: true,
+      locale: lang,
     });
     try {
       const readOnly = await observer.newPage();

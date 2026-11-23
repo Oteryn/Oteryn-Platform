@@ -30,7 +30,7 @@ export function binary(args, overrides = {}) {
 export async function contentActor(browser, project, role) {
  const lang = project.metadata.locale;
  const context = await browser.newContext({
-  baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: project.use.viewport,
+  baseURL: origin, locale: lang, viewport: project.use.viewport,
  });
  try {
   const page = await context.newPage();

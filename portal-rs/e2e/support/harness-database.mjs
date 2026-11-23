@@ -3,6 +3,34 @@ import pg from 'pg';
 
 export const fixtureDatabaseClaim = 'database-claim';
 
+const fixtureDdl = Object.freeze({
+  createDatabase: 'CREATE DATABASE %I',
+  createOwnedDatabase: 'CREATE DATABASE %1$I OWNER %1$I',
+  dropDatabase: 'DROP DATABASE %I WITH (FORCE)',
+  dropDatabaseIfExists: 'DROP DATABASE IF EXISTS %I WITH (FORCE)',
+  createRole: 'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS',
+  dropRole: 'DROP ROLE IF EXISTS %I',
+  restrictAccess: 'REVOKE CONNECT, TEMPORARY ON DATABASE %I FROM PUBLIC',
+});
+
+export async function fixtureStatement(query, operation, name, verifier = null) {
+  if (!/^portal_e2e_[a-f0-9]{12}(?:_tests|_queries)?$/.test(name)) {
+    throw new Error('Invalid disposable database name');
+  }
+  if (!Object.hasOwn(fixtureDdl, operation)) throw new Error('Unknown fixture database operation');
+  // Utility statements lack bind parameters. PostgreSQL quotes these bound
+  // identifiers and literals before the fixture executes the statement.
+  const { rows: [{ statement }] } = await query(
+    'SELECT pg_catalog.format($1::text, $2::text, $3::text) AS statement',
+    [fixtureDdl[operation], name, verifier],
+  );
+  return statement;
+}
+
+export async function executeFixtureDdl(query, operation, name, verifier) {
+  return query(await fixtureStatement(query, operation, name, verifier));
+}
+
 export async function withAdminConnection(adminURL, operation, { signal, statementTimeout = 5_000 } = {}) {
   signal?.throwIfAborted();
   const socket = new Socket();
@@ -45,7 +73,7 @@ export async function removeDatabase(adminURL, dbName, onRetry = () => {}, {
   const drop = statementTimeout => withAdminConnection(adminURL, async admin => {
     await lockDatabaseName(admin, dbName);
     if (dropDatabase) {
-      await admin.query('DROP DATABASE IF EXISTS "' + dbName + '" WITH (FORCE)');
+      await executeFixtureDdl(admin.query.bind(admin), 'dropDatabaseIfExists', dbName);
       const existing = await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [dbName]);
       if (existing.rowCount !== 0) throw new Error('Disposable database still exists');
     }

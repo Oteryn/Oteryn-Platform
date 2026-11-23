@@ -115,8 +115,7 @@ test('session list and targeted revoke preserve the current browser, then passwo
     await submit(page, 'main form', { current_password: account.password });
     const beforeChange = await cookie(context);
     await expectSession(beforeChange, account.id);
-    const next = password();
-    await seedPasswordRange(next);
+    const next = await seedPasswordRange();
     await page.goto(`/${lang}/password/change`);
     await submit(page, 'main form', {
       current_password: account.password, password: next, password_confirmation: next,

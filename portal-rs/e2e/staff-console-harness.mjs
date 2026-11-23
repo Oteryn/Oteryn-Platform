@@ -10,6 +10,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { prepareHarnessOutput } from './harness-output.mjs';
 import { HarnessProcesses } from './harness-processes.mjs';
+import { executeFixtureDdl } from './support/harness-database.mjs';
 import { localDatabaseClient, localDatabaseURL } from './local-database.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -96,7 +97,7 @@ async function dropDatabase(dbName, reconcile) {
         if (!rows.length) return;
         if (!rows[0].owned) throw Object.assign(new Error('Database belongs to another role'), { code: '42501' });
       }
-      await query(`DROP DATABASE IF EXISTS "${dbName}" WITH (FORCE)`);
+      await executeFixtureDdl(query, 'dropDatabaseIfExists', dbName);
       return;
     } catch (error) {
       if (error.code === '42501' || /^28/.test(error.code)) throw error;
@@ -261,7 +262,9 @@ async function start() {
   abort.signal.throwIfAborted();
   creation = 'pending';
   try {
-    await admin.query({ text: `CREATE DATABASE "${dbName}"`, query_timeout: 60_000 });
+    await executeFixtureDdl(
+      (text, values) => admin.query({ text, values, query_timeout: 60_000 }), 'createDatabase', dbName,
+    );
     creation = 'created';
   } catch (error) {
     // A PostgreSQL statement error establishes that CREATE failed. Connection

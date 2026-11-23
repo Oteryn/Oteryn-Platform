@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { login } from '../helpers.mjs';
 import { loginWithRecoveryCode } from '../staff-rbac-helpers.mjs';
@@ -20,7 +21,7 @@ for (const requiresMfa of [false, true]) {
       await login(page, lang, account);
     }
     await expectSession(await cookie(context), account.id);
-    await expect(page).toHaveURL(new RegExp(`/${lang}/$`));
+    await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/$`));
 
     expect((await page.goto('/account')).status()).toBe(200);
     const panel = page.locator('nav[data-panel="player"]');

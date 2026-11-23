@@ -39,7 +39,7 @@ export function publicRegistrations(file = process.env.PORTAL_E2E_ROUTE_REPORT) 
 
 export function routeShape(path) {
   return path.replace(/^\/(?:en|pl)(?=\/|$)/, '/{lang}')
-    .replace(/\{([^}]+)\}/g, (_, name) => ['lang', 'locale', 'language'].includes(name) ? '{lang}' : name.startsWith('*') ? '{*}' : '{}');
+    .replace(/\{([^{}]+)\}/g, (_, name) => ['lang', 'locale', 'language'].includes(name) ? '{lang}' : name.startsWith('*') ? '{*}' : '{}');
 }
 
 export function projectPath(path, locale) {

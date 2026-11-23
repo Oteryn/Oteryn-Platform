@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import crypto from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {test,expect} from '../fixtures.mjs';
@@ -11,7 +12,6 @@ const manage='/admin/staff-invites';
 const reason='Verified staff onboarding request';
 const address=()=>`invite-${crypto.randomUUID()}@example.invalid`;
 const origin=()=>new URL(process.env.OTERYN_PUBLIC_ORIGIN || 'https://localhost:18443').origin;
-const escapeRegex=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
 function seedAccount(lang) {
   const account={email:address(),password:password(),locale:lang};
@@ -66,7 +66,7 @@ async function send(page,email,roles,lang,staffPassword,checkRequiredReason=fals
 }
 
 async function invitation(page,email,lang) {
-  const match=new RegExp(`${escapeRegex(origin())}/${lang}/staff-invite\\?token=(?:3D)?[a-f0-9]{64}`);
+  const match=new RegExp(`${escapeRegex(origin())}/${escapeRegex(lang)}/staff-invite\\?token=(?:3D)?[a-f0-9]{64}`);
   const link=await mailLink(page,email,match);
   const [{expiry}]=await query(
     "SELECT to_char(expires_at AT TIME ZONE 'UTC',$2) AS expiry FROM staff_invites WHERE email=$1",
@@ -126,7 +126,7 @@ test('staff invitations reach verified registered and existing accounts through 
   const browserLanguage=lang==='pl' ? 'en' : 'pl';
   const manageLocalized=`${manage}?lang=${lang}`;
   const staff=await browser.newContext({
-    baseURL:origin(),ignoreHTTPSErrors:true,locale:browserLanguage,viewport:info.project.use.viewport,
+    baseURL:origin(),locale:browserLanguage,viewport:info.project.use.viewport,
   });
   try {
     const manager=seedAccount(lang);
@@ -190,7 +190,7 @@ test('staff invitations reach verified registered and existing accounts through 
     await login(page,lang,existing);
     const existingCodes=await enrollMfa(page,lang,existing);
     await login(page,lang,existing);
-    const mfaChallenge=new RegExp(`/${lang}/mfa/challenge$`);
+    const mfaChallenge=new RegExp(`/${escapeRegex(lang)}/mfa/challenge$`);
     await expect(page).toHaveURL(mfaChallenge);
     await submit(page,'main form[action$="/mfa/challenge"]',{code:existingCodes[0],remember:true});
     const deviceHash=hash(await cookie(page.context(),deviceCookie));
@@ -201,7 +201,7 @@ test('staff invitations reach verified registered and existing accounts through 
     expect(remembered).toHaveLength(1);
     await visit(page,existingLink,200);
     const copied=await browser.newContext({
-      baseURL:origin(),ignoreHTTPSErrors:true,storageState:await page.context().storageState(),
+      baseURL:origin(),storageState:await page.context().storageState(),
     });
     try {
       const previous=await copied.request.get('/admin',{maxRedirects:0});
@@ -254,7 +254,7 @@ test('protected invitations retain queued mail until current authority and indep
   test.setTimeout(300_000);
   const lang=info.project.metadata.locale;
   const localized=`${manage}?lang=${lang}`;
-  const browserOptions={baseURL:origin(),ignoreHTTPSErrors:true,locale:lang,viewport:info.project.use.viewport};
+  const browserOptions={baseURL:origin(),locale:lang,viewport:info.project.use.viewport};
   const issuerContext=await browser.newContext(browserOptions);
   const approverContext=await browser.newContext(browserOptions);
   try {

@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -439,7 +440,7 @@ test('expired MFA uses the media locale for the page and native upload refusal',
         new URL(response.url()).pathname === route && response.request().method() === 'POST'),
       page.locator(form).locator('button').click(),
     ]);
-    expect(await refusal.request().headerValue('accept-language')).toMatch(new RegExp(`^${browserLocale}`));
+    expect(await refusal.request().headerValue('accept-language')).toMatch(new RegExp(`^${escapeRegex(browserLocale)}`));
     expect(refusal.status()).toBe(403);
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();

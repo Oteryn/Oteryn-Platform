@@ -1,7 +1,8 @@
+import { escapeRegex } from './regex.mjs';
 import crypto from 'node:crypto';
 import { expect } from './fixtures.mjs';
 import { revealPortalLink } from './journey-navigation.mjs';
-import { csrfRejected, mailLink, password, seedPasswordRange, submit, waitForLoginBudget } from './helpers.mjs';
+import { csrfRejected, mailLink, seedPasswordRange, submit, waitForLoginBudget } from './helpers.mjs';
 
 export const localized = (lang, pl, en) => lang === 'pl' ? pl : en;
 
@@ -39,8 +40,7 @@ export async function signIn(page, account) {
 }
 
 export async function newPlayer(page, lang, { showErrors = false } = {}) {
-  const account = { email: `journey-${crypto.randomUUID()}@local.test`, password: password() };
-  await seedPasswordRange(account.password);
+  const account = { email: `journey-${crypto.randomUUID()}@local.test`, password: await seedPasswordRange('signup') };
   await follow(page, `/${lang}/register`);
   const form = page.locator('main form');
   const values = {
@@ -60,7 +60,7 @@ export async function newPlayer(page, lang, { showErrors = false } = {}) {
       'Hasła muszą być takie same.', 'Passwords must match.'));
   }
   await submit(page, 'main form', values);
-  await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox$`), { timeout: 90_000 });
+  await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/register/check-inbox$`), { timeout: 90_000 });
   return account;
 }
 

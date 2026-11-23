@@ -7,7 +7,7 @@ import {uuid7} from './support/bazaar-game.mjs';
 export {uuid7};
 export async function actor(browser,info,{staff=false,mfa=false,funded=false}={}) {
  const lang=info.project.metadata.locale;
- const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',ignoreHTTPSErrors:true,locale:lang,viewport:info.project.use.viewport});
+ const context=await browser.newContext({baseURL:process.env.PORTAL_E2E_ORIGIN||'https://localhost:18443',locale:lang,viewport:info.project.use.viewport});
  const page=await context.newPage();
  try {
   if(staff){

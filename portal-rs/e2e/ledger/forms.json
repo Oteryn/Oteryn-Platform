@@ -539,6 +539,21 @@
     ]
   },
   {
+    "template": "crates/admin/templates/support_queue.html",
+    "line": 5,
+    "action": "/admin/support/tickets",
+    "method": "GET",
+    "route_pattern": null,
+    "crate": "admin",
+    "fields": [
+      "category",
+      "status"
+    ],
+    "buttons": [
+      null
+    ]
+  },
+  {
     "template": "crates/payments/templates/coin/checkout.html",
     "line": 9,
     "action": "/native-account/coin-checkout/{order_id}",

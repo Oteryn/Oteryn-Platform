@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { pool } from '../helpers.mjs';
 import { readFileSync, readdirSync, cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -123,7 +124,7 @@ test('unprefixed news renders the announcement in the resolved page locale', asy
    expect(response.status()).toBe(200);
    expect(response.headers()['content-language']).toBe(expected);
    const html = await response.text();
-   expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${expected}"`));
+   expect(html).toMatch(new RegExp(String.raw`<html\b[^>]*\slang="${escapeRegex(expected)}"`));
    expect(html).toContain(t(expected, polish, english));
    expect(html).not.toContain(t(expected, english, polish));
    const header = html.match(/<header\b[^>]*id="portal-header"[\s\S]*?<\/header>/)?.[0];

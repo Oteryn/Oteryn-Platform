@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import { test, expect } from '../fixtures.mjs';
 import { seedAccount, seedEntity } from '../seed-helpers.mjs';
 import { loginWithRecoveryCode, query } from '../staff-rbac-helpers.mjs';
@@ -64,7 +65,7 @@ test('economy analytics localizes the unavailable view', async ({ page }, info) 
     ? 'Zestawienia z Gry są dostępne po 24 godzinach od zakończenia dnia UTC'
     : 'Game aggregates are available 24 hours after the UTC day ends';
   const gameStatuses = page.locator('main section').filter({
-    has: page.getByRole('heading', { level: 2, name: new RegExp(`^(${headings.join('|')})$`) }),
+    has: page.getByRole('heading', { level: 2, name: new RegExp(`^(${headings.map(escapeRegex).join('|')})$`) }),
   }).locator('[data-state="unavailable"]');
   await expect(gameStatuses).toHaveCount(5);
   for (const gameStatus of await gameStatuses.all()) {

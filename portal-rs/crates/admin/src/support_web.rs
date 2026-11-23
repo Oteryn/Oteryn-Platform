@@ -1,6 +1,7 @@
 //! Guarded SSR support routes composed with an authoritative support domain adapter.
 use super::*;
 use crate::web::{self, PanelConfig, StaffSession};
+use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State, rejection::QueryRejection},
@@ -218,17 +219,6 @@ fn text(lang: &str, key: &str) -> String {
         .map(|p| bundle.format_pattern(p, None, &mut vec![]).into_owned())
         .unwrap_or_default()
 }
-fn escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
-}
-fn shell(lang: &str, body: String) -> Response {
-    axum::response::Html(format!("<!doctype html><html lang=\"{lang}\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><title>{}</title><body class=\"op-theme\"><main class=\"op-stack\"><h1>{}</h1>{body}</main></body></html>",text(lang,"title"),text(lang,"title"))).into_response()
-}
 async fn list<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
     Extension(area): Extension<Area>,
@@ -252,17 +242,70 @@ async fn ticket_queue<A: AccountStateReader, B: Backend>(
 ) -> Response {
     let lang = language(&headers);
     let (Ok(Query(paging)), Ok(Query(filter))) = (paging, filter) else {
-        let mut response = shell(
+        return QueuePage {
             lang,
-            format!(
-                "<p role=\"alert\">{}</p>",
-                escape(&text(lang, "error-queue-query"))
-            ),
-        );
-        *response.status_mut() = StatusCode::BAD_REQUEST;
-        return response;
+            title: text(lang, "title"),
+            error: Some(text(lang, "error-queue-query")),
+            queue: None,
+        }
+        .response(StatusCode::BAD_REQUEST);
     };
     queue(&s.backend, Area::Tickets, paging, filter, lang).await
+}
+
+#[derive(Template)]
+#[template(path = "support_queue.html")]
+struct QueuePage<'a> {
+    lang: &'a str,
+    title: String,
+    error: Option<String>,
+    queue: Option<Queue>,
+}
+
+impl QueuePage<'_> {
+    fn response(&self, status: StatusCode) -> Response {
+        match self.render() {
+            Ok(html) => (status, axum::response::Html(html)).into_response(),
+            Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        }
+    }
+}
+
+struct Queue {
+    heading: String,
+    base: &'static str,
+    filters: Option<QueueFilters>,
+    all: String,
+    filter: String,
+    previous: Option<String>,
+    previous_label: String,
+    next: Option<String>,
+    next_label: String,
+    enforcement: bool,
+    create: String,
+    rows: Vec<QueueRow>,
+}
+
+struct QueueRow {
+    id: Uuid,
+    title: String,
+    status: String,
+}
+
+struct QueueFilter {
+    label: String,
+    choices: Vec<QueueChoice>,
+}
+
+struct QueueFilters {
+    status: QueueFilter,
+    category: QueueFilter,
+}
+
+struct QueueChoice {
+    value: &'static str,
+    label: String,
+    selected: bool,
 }
 
 async fn queue<B: Backend>(
@@ -291,70 +334,58 @@ async fn queue<B: Backend>(
     } else {
         false
     };
-    let mut body = format!("<h2>{}</h2>", text(lang, area_title(area)));
-    if area == Area::Tickets {
-        body.push_str(&format!("<form method=\"get\" action=\"{}\">", base(area)));
-        body.push_str(&select(
-            lang,
-            "status",
-            TICKET_STATUSES,
-            &filter.status,
-            true,
-        ));
-        body.push_str(&select(
-            lang,
-            "category",
-            TICKET_CATEGORIES,
-            &filter.category,
-            true,
-        ));
-        body.push_str(&format!(
-            "<button class=\"op-button\" type=\"submit\">{}</button></form>",
-            text(lang, "filter")
-        ));
-    }
+    let filters = (area == Area::Tickets).then(|| {
+        let options = |field, values: &[&'static str], current: &str| QueueFilter {
+            label: text(lang, field),
+            choices: values
+                .iter()
+                .map(|&value| QueueChoice {
+                    value,
+                    selected: value == current,
+                    label: text(lang, value),
+                })
+                .collect(),
+        };
+        QueueFilters {
+            status: options("status", TICKET_STATUSES, &filter.status),
+            category: options("category", TICKET_CATEGORIES, &filter.category),
+        }
+    });
     let filter_query = if filter.is_empty() {
         String::new()
     } else {
-        format!(
-            "&amp;status={}&amp;category={}",
-            filter.status, filter.category
-        )
+        format!("&status={}&category={}", filter.status, filter.category)
     };
-    if !filter.is_empty() && page > 1 {
-        body.push_str(&format!(
-            "<a href=\"{}?page={}{filter_query}\">{}</a>",
-            base(area),
-            page - 1,
-            text(lang, "previous")
-        ));
+    let base = base(area);
+    let page_url = |number| format!("{base}?page={number}{filter_query}");
+    let queue = Queue {
+        heading: text(lang, area_title(area)),
+        base,
+        filters,
+        all: text(lang, "all"),
+        filter: text(lang, "filter"),
+        previous: (!filter.is_empty() && page > 1).then(|| page_url(page - 1)),
+        previous_label: text(lang, "previous"),
+        next: has_next.then(|| page_url(page + 1)),
+        next_label: text(lang, "next"),
+        enforcement: area == Area::Enforcement,
+        create: text(lang, "create"),
+        rows: records
+            .into_iter()
+            .map(|record| QueueRow {
+                id: record.id,
+                title: record.title,
+                status: text(lang, &record.status),
+            })
+            .collect(),
+    };
+    QueuePage {
+        lang,
+        title: text(lang, "title"),
+        error: None,
+        queue: Some(queue),
     }
-    body.push_str("<ul>");
-    if area == Area::Enforcement {
-        body.push_str(&format!(
-            "<li><a href=\"/admin/moderation/enforcement/create\">{}</a></li>",
-            text(lang, "create")
-        ));
-    }
-    for record in records {
-        body.push_str(&format!(
-            "<li><a href=\"{}/{}\">{}</a> <span>{}</span></li>",
-            base(area),
-            record.id,
-            escape(&record.title),
-            text(lang, &record.status)
-        ));
-    }
-    body.push_str("</ul>");
-    if has_next {
-        body.push_str(&format!(
-            "<a href=\"{}?page={}{filter_query}\">{}</a>",
-            base(area),
-            page + 1,
-            text(lang, "next")
-        ));
-    }
-    shell(lang, body)
+    .response(StatusCode::OK)
 }
 async fn show<A: AccountStateReader, B: Backend>(
     State(s): State<Arc<Panel<A, B>>>,
@@ -460,98 +491,68 @@ async fn render_record(
         Ok(v) => v,
         Err(_) => return status(Error::Unavailable, lang),
     };
-    let mut body = format!(
-        "<a href=\"{}\">{}</a><header class=\"op-card\"><h2>{}</h2>",
-        base(area),
-        text(lang, area_title(area)),
-        escape(&record.title),
-    );
-    if !create {
-        body.push_str(&format!("<p>{}</p>", text(lang, &record.status)));
-    }
-    body.push_str("</header>");
-    if area == Area::Tickets {
-        let assignment = details
-            .assigned_to
-            .map_or_else(|| text(lang, "unassigned"), |id| id.to_string());
-        body.push_str(&format!(
-            "<p>{} <span>{assignment}</span></p>",
-            text(lang, "assigned-to")
-        ));
-    }
-    if let Some(id) = details.linked_sanction {
-        body.push_str(&format!(
-            "<p>{} <span>{id}</span></p>",
-            text(lang, "linked-sanction")
-        ));
-    }
-    if let Some(id) = details.verified_target {
-        body.push_str(&format!(
-            "<p>{} <span>{id}</span></p>",
-            text(lang, "verified-target")
-        ));
-    }
-    if matches!(
+    let summary = if area == Area::Tickets {
+        Some((
+            text(lang, "assigned-to"),
+            details
+                .assigned_to
+                .map_or_else(|| text(lang, "unassigned"), |id| id.to_string()),
+        ))
+    } else {
+        None
+    };
+    let linked = details
+        .linked_sanction
+        .map(|id| (text(lang, "linked-sanction"), id));
+    let verified = details
+        .verified_target
+        .map(|id| (text(lang, "verified-target"), id));
+    let tickets = matches!(
         form,
         RecordForm::Detail {
             can_open_tickets: true,
             ..
         }
-    ) {
-        body.push_str(&format!(
-            "<p><a class=\"op-link\" href=\"{}\">{}</a></p>",
-            base(Area::Tickets),
-            text(lang, "tickets")
-        ));
-    }
-    if let Some(game) = &record.character_enforcement {
+    )
+    .then(|| text(lang, "tickets"));
+    let game_state = record.character_enforcement.as_ref().map(|game| {
         use crate::console::enforcement::Language;
         let locale = if lang == "en" {
             Language::En
         } else {
             Language::Pl
         };
-        body.push_str(&format!(
-            "<dl><dt>{}</dt><dd data-enforcement-profile>{}</dd>
-             <dt>{}</dt><dd data-platform-decision>{}</dd>
-             <dt>{}</dt><dd data-game-request>{}</dd>
-             <dt>{}</dt><dd data-game-confirmed>{}</dd></dl>",
-            escape(&text(lang, "enforcement-profile")),
-            game.profile.name(),
-            escape(&text(lang, "platform-decision")),
-            escape(&text(lang, &record.status)),
-            escape(&text(lang, "game-request")),
-            escape(locale.state(&game.request)),
-            escape(&text(lang, "game-confirmed")),
-            escape(locale.state(&game.current)),
-        ));
-    }
-    for message in record.messages {
-        body.push_str(&format!(
-            "<article{}><h3>{}</h3><p>{}</p></article>",
-            message
-                .id
-                .map_or_else(String::new, |id| format!(" id=\"message-{id}\"")),
-            text(
+        GameState {
+            profile_label: text(lang, "enforcement-profile"),
+            profile: game.profile.name(),
+            platform_label: text(lang, "platform-decision"),
+            platform: text(lang, &record.status),
+            request_label: text(lang, "game-request"),
+            request: locale.state(&game.request),
+            confirmed_label: text(lang, "game-confirmed"),
+            confirmed: locale.state(&game.current),
+        }
+    });
+    let messages = record
+        .messages
+        .into_iter()
+        .map(|message| RecordMessage {
+            id: message.id,
+            kind: text(
                 lang,
                 match (area, message.internal) {
                     (_, true) => "internal",
                     (Area::Reports, false) => "report-evidence",
                     _ => "public",
-                }
+                },
             ),
-            escape(&message.body)
-        ));
-    }
-    if let Some(after) = record.next_message {
-        body.push_str(&format!(
-            "<a href=\"{}/{}?after={}\">{}</a>",
-            base(area),
-            record.id,
-            after,
-            text(lang, "next")
-        ));
-    }
+            body: message.body,
+        })
+        .collect();
+    let action_path = format!("{}/{}", base(area), record.id);
+    let next = record
+        .next_message
+        .map(|after| format!("{action_path}?after={after}"));
     let actions: &[(&str, &[&str])] = match area {
         Area::Tickets => &[
             ("assign_ticket", &["assignee", "reason"]),
@@ -578,18 +579,19 @@ async fn render_record(
             ("appeal", &["appeal_status", "appeal_outcome", "reason"]),
         ],
     };
-    for (action, fields) in actions {
+    let mut forms = Vec::new();
+    for &(action, fields) in actions {
         let open_ticket = matches!(
             record.status.as_str(),
             "open" | "waiting_staff" | "waiting_user"
         );
-        if (matches!(*action, "assign_ticket" | "reply") && !open_ticket)
-            || (*action == "link_sanction"
+        if (matches!(action, "assign_ticket" | "reply") && !open_ticket)
+            || (action == "link_sanction"
                 && !matches!(form, RecordForm::Detail { can_link: true, .. }))
-            || (*action == "revoke_sanction"
+            || (action == "revoke_sanction"
                 && (record.status != "active" || record.character_enforcement.is_some()))
-            || (*action == "moderate" && record.status == "closed")
-            || (*action == "verify_report_target"
+            || (action == "moderate" && record.status == "closed")
+            || (action == "verify_report_target"
                 && !matches!(
                     form,
                     RecordForm::Detail {
@@ -600,34 +602,56 @@ async fn render_record(
         {
             continue;
         }
-        body.push_str(&format!("<form method=\"post\" action=\"{}/{}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\"><input type=\"hidden\" name=\"lock_version\" value=\"{}\"><input type=\"hidden\" name=\"action\" value=\"{action}\">",base(area),record.id,escape(&csrf),record.version));
-        for field in *fields {
-            let choices: &[&str] = match (*field, area) {
-                ("status", Area::Tickets) => TICKET_STATUSES,
-                ("status", Area::Reports) => match record.status.as_str() {
-                    "submitted" | "reviewing" => &["reviewing", "rejected", "actioned"],
-                    _ => &["closed"],
-                },
-                ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
-                ("category", _) => &["warning", "restriction", "suspension"],
-                _ => &[],
-            };
-            if choices.is_empty() {
-                body.push_str(&form_field(lang, action, field));
-            } else {
-                body.push_str(&select(lang, field, choices, &record.status, false));
-            }
-        }
-        if *action == "reply" {
-            body.push_str(&format!("<p><label><input type=\"checkbox\" name=\"internal\" value=\"true\">{}</label></p>",text(lang,"internal")));
-        }
-        body.push_str(&format!(
-            "<button class=\"op-button\" type=\"submit\">{}</button></form>",
-            text(lang, action),
-        ));
+        let fields = fields
+            .iter()
+            .map(|&field| {
+                let choices: &[&str] = match (field, area) {
+                    ("status", Area::Tickets) => TICKET_STATUSES,
+                    ("status", Area::Reports) => match record.status.as_str() {
+                        "submitted" | "reviewing" => &["reviewing", "rejected", "actioned"],
+                        _ => &["closed"],
+                    },
+                    ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
+                    ("category", _) => &["warning", "restriction", "suspension"],
+                    _ => &[],
+                };
+                form_field(lang, action, field, choices, &record.status)
+            })
+            .collect();
+        forms.push(SupportForm {
+            action,
+            fields,
+            internal: (action == "reply").then(|| text(lang, "internal")),
+            submit: text(lang, action),
+        });
     }
-    shell(lang, body)
+    DetailPage {
+        lang,
+        title: text(lang, "title"),
+        heading: text(lang, area_title(area)),
+        base: base(area),
+        record_title: record.title,
+        status: (!create).then(|| text(lang, &record.status)),
+        summary,
+        linked,
+        verified,
+        tickets,
+        game_state,
+        messages,
+        next,
+        next_label: text(lang, "next"),
+        csrf,
+        version: record.version,
+        action_path,
+        forms,
+    }
+    .render()
+    .map_or_else(
+        |_| StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        |html| axum::response::Html(html).into_response(),
+    )
 }
+
 fn area_title(area: Area) -> &'static str {
     match area {
         Area::Tickets => "tickets-title",
@@ -636,34 +660,73 @@ fn area_title(area: Area) -> &'static str {
     }
 }
 
-fn select(lang: &str, field: &str, choices: &[&str], selected: &str, all: bool) -> String {
-    let mut html = format!(
-        "<p><label>{}<br><select class=\"op-input\" name=\"{field}\">",
-        text(lang, field),
-    );
-    if all {
-        html.push_str(&format!(
-            "<option value=\"\">{}</option>",
-            text(lang, "all")
-        ));
-    }
-    for choice in choices {
-        let attribute = if *choice == selected { " selected" } else { "" };
-        let label = match (field, *choice) {
-            ("status", "reviewing") => "escalate-report",
-            ("status", "rejected") => "dismiss-report",
-            _ => choice,
-        };
-        html.push_str(&format!(
-            "<option value=\"{choice}\"{attribute}>{}</option>",
-            text(lang, label),
-        ));
-    }
-    html.push_str("</select></label></p>");
-    html
+#[derive(Template)]
+#[template(path = "support_record.html")]
+struct DetailPage<'a> {
+    lang: &'a str,
+    title: String,
+    heading: String,
+    base: &'static str,
+    record_title: String,
+    status: Option<String>,
+    summary: Option<(String, String)>,
+    linked: Option<(String, Uuid)>,
+    verified: Option<(String, Uuid)>,
+    tickets: Option<String>,
+    game_state: Option<GameState>,
+    messages: Vec<RecordMessage>,
+    next: Option<String>,
+    next_label: String,
+    csrf: String,
+    version: i64,
+    action_path: String,
+    forms: Vec<SupportForm>,
 }
 
-fn form_field(lang: &str, action: &str, field: &str) -> String {
+struct GameState {
+    profile_label: String,
+    profile: &'static str,
+    platform_label: String,
+    platform: String,
+    request_label: String,
+    request: &'static str,
+    confirmed_label: String,
+    confirmed: &'static str,
+}
+
+struct RecordMessage {
+    id: Option<Uuid>,
+    kind: String,
+    body: String,
+}
+
+struct SupportForm {
+    action: &'static str,
+    fields: Vec<SupportField>,
+    internal: Option<String>,
+    submit: String,
+}
+
+struct SupportField {
+    name: &'static str,
+    label: String,
+    control: SupportControl,
+}
+
+enum SupportControl {
+    Select(Vec<QueueChoice>),
+    Duration(i64),
+    Identifier(bool),
+    Text { max: usize, required: bool },
+}
+
+fn form_field(
+    lang: &str,
+    action: &str,
+    field: &'static str,
+    choices: &[&'static str],
+    selected: &str,
+) -> SupportField {
     let label = match (action, field) {
         ("moderate", "moderator_notes") => "moderator_reason",
         ("revoke_sanction", "public_reason") => "revocation-reason",
@@ -672,35 +735,41 @@ fn form_field(lang: &str, action: &str, field: &str) -> String {
         _ => field,
     };
     let control = match field {
-        "duration_hours" => format!(
-            "<input class=\"op-input\" type=\"number\" name=\"{field}\" min=\"1\" max=\"{MAX_SANCTION_DURATION_HOURS}\" required>"
+        _ if !choices.is_empty() => SupportControl::Select(
+            choices
+                .iter()
+                .map(|&value| {
+                    let label = match (field, value) {
+                        ("status", "reviewing") => "escalate-report",
+                        ("status", "rejected") => "dismiss-report",
+                        _ => value,
+                    };
+                    QueueChoice {
+                        value,
+                        label: text(lang, label),
+                        selected: value == selected,
+                    }
+                })
+                .collect(),
         ),
-        "assignee" => {
-            "<input class=\"op-input\" name=\"assignee\" maxlength=\"36\" size=\"24\">".to_owned()
-        }
-        "sanction" | "target" => format!(
-            "<input class=\"op-input\" name=\"{field}\" maxlength=\"36\" size=\"24\" required>"
-        ),
-        _ => {
-            let max = match field {
+        "duration_hours" => SupportControl::Duration(MAX_SANCTION_DURATION_HOURS),
+        "assignee" | "sanction" | "target" => SupportControl::Identifier(field != "assignee"),
+        _ => SupportControl::Text {
+            max: match field {
                 "reason" => 500,
                 "body" | "moderator_notes" => 8000,
                 _ => 4000,
-            };
-            let required = if matches!(field, "body" | "reason" | "public_reason")
+            },
+            required: matches!(field, "body" | "reason" | "public_reason")
                 || (action == "moderate" && field == "moderator_notes")
-                || (action == "link_sanction" && field == "public_outcome")
-            {
-                " required"
-            } else {
-                ""
-            };
-            format!(
-                "<textarea class=\"op-input\" name=\"{field}\" rows=\"3\" cols=\"24\" maxlength=\"{max}\"{required}></textarea>"
-            )
-        }
+                || (action == "link_sanction" && field == "public_outcome"),
+        },
     };
-    format!("<p><label>{}<br>{control}</label></p>", text(lang, label))
+    SupportField {
+        name: field,
+        label: text(lang, label),
+        control,
+    }
 }
 
 async fn change<A: AccountStateReader, B: Backend>(
@@ -788,7 +857,16 @@ mod tests {
     fn localized_labels_and_escaping() {
         assert_eq!(text("en", "internal"), "Internal staff note");
         assert_eq!(text("pl", "internal"), "Wewnętrzna notatka zespołu");
-        assert!(!escape("<script>\"&").contains('<'));
+        let html = QueuePage {
+            lang: "en",
+            title: "Support".into(),
+            error: Some("<script>\"&".into()),
+            queue: None,
+        }
+        .render()
+        .unwrap();
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("&#60;script&#62;&#34;&#38;"));
     }
 }
 

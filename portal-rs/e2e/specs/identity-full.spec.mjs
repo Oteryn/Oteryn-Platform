@@ -1,6 +1,7 @@
+import { escapeRegex } from '../regex.mjs';
 import { createHash } from 'node:crypto';
 import { test, expect } from '../fixtures.mjs';
-import { csrfRejected, logout, mailLink, password, seedPasswordRange, submit } from '../helpers.mjs';
+import { csrfRejected, logout, mailLink, seedPasswordRange, submit } from '../helpers.mjs';
 import {
   identityEmail, identityQuery, localized, localizedPage,
   seedBreachedPassword, signIn, waitForIdentityBudget,
@@ -119,8 +120,7 @@ test('verification expires, resends and activates while repeated registration re
   test.setTimeout(240_000);
   const locale = info.project.metadata.locale;
   const t = (en, pl) => localized(locale, en, pl);
-  const account = { email: identityEmail(), password: password() };
-  await seedPasswordRange(account.password);
+  const account = { email: identityEmail(), password: await seedPasswordRange('signup') };
   await waitForIdentityBudget(registrationPolicies, 4);
   await page.goto(`/${locale}/register`);
   const documents = await page.locator('main input[type=checkbox]').evaluateAll(
@@ -176,7 +176,7 @@ test('verification expires, resends and activates while repeated registration re
   await submit(page, 'main form', { email: account.email });
   await expect(page.locator('main [role=status]')).toHaveText(inbox);
   const replacement = await mailLink(page, account.email, new RegExp(
-    verifyURL.source.replace('[a-f0-9]{64}', `(?!${token})[a-f0-9]{64}`),
+    verifyURL.source.replace('[a-f0-9]{64}', `(?!${escapeRegex(token)})[a-f0-9]{64}`),
   ));
   expect(replacement !== expired).toBe(true);
   expect((await page.goto(replacement)).status()).toBe(200);
@@ -214,7 +214,7 @@ test('verification expires, resends and activates while repeated registration re
     ...account, password_confirmation: account.password, terms: true, privacy: true,
   });
   await expect(page.locator('main [role=status]')).toHaveText(inbox, { timeout: 90_000 });
-  await mailLink(page, account.email, new RegExp(`https://localhost:18443/${locale}/login`));
+  await mailLink(page, account.email, new RegExp(`https://localhost:18443/${escapeRegex(locale)}/login`));
   const { rows: existing } = await identityQuery(
     'SELECT status, email_verified_at IS NOT NULL AS verified FROM accounts WHERE email = $1',
     [account.email],

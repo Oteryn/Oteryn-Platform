@@ -1,3 +1,4 @@
+import { escapeRegex } from '../../regex.mjs';
 import {expect, test} from '../../fixtures.mjs';
 import {createHash, randomBytes} from 'node:crypto';
 import {pool} from '../../helpers.mjs';
@@ -94,14 +95,14 @@ test('panel navigation enforces scope and role grants require a reason', async (
   expect(exportChallenge.status()).toBe(303);
   expect(exportChallenge.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
   await playerNav.getByRole('link', {name: label.email, exact: true}).click();
-  await expect(page).toHaveURL(new RegExp(`/${lang}/account/security/email$`));
+  await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/account/security/email$`));
   await expect(page.locator('[data-staff-dashboard]')).toHaveCount(0);
   expect((await visit(page, '/admin')).status()).toBe(403);
   expect((await visit(page, '/admin/players')).status()).toBe(403);
   expect((await visit(page, '/console')).status()).toBe(403);
 
   const staffContext = await browser.newContext({
-    baseURL: origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+    baseURL: origin, locale: lang, viewport: info.project.use.viewport,
   });
   try {
     const staff = await panelActor(staffContext, lang, true);
@@ -148,7 +149,7 @@ test('panel navigation enforces scope and role grants require a reason', async (
     await adminNav.getByRole('link', {name: label.gm}).click();
     const gmNav = admin.getByRole('navigation', {name: label.gm, exact: true});
     await gmNav.getByRole('link', {name: label.worlds, exact: true}).click();
-    await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${lang}$`));
+    await expect(admin).toHaveURL(new RegExp(`/console/worlds\\?lang=${escapeRegex(lang)}$`));
     await expect(admin.locator('html')).toHaveAttribute('lang', lang);
 
     const preferred = lang === 'pl' ? 'en' : 'pl';

@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { localPostgresUrl } from '../postgres-url.mjs';
+import { trustHarnessCa } from '../trust.mjs';
 
 localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
 
@@ -28,7 +29,7 @@ const harness = spawn(process.execPath, ['harness.mjs', '--browser-crawl'], {
 });
 const harnessExit = once(harness, 'exit');
 const output = createInterface({ input: harness.stdout });
-let runner;
+let runner, releaseCa;
 let signalCode;
 function stop(code) {
   signalCode ??= code;
@@ -47,6 +48,7 @@ try {
   ]);
   if (!ready || signalCode) throw new Error('Crawl harness did not become ready');
   const env = JSON.parse(fs.readFileSync(path.join(out, 'secrets', 'env.json'), 'utf8'));
+  releaseCa = trustHarnessCa(env.SSL_CERT_FILE);
   // The runner and its workers need the fixture login, never the admin DSN
   // or other credentials inherited by the launcher.
   const runnerEnvironment = {};
@@ -62,6 +64,7 @@ try {
       ...runnerEnvironment,
       // Playwright's failure context can otherwise persist MFA enrollment data.
       PLAYWRIGHT_NO_COPY_PROMPT: '1',
+      NODE_EXTRA_CA_CERTS: env.SSL_CERT_FILE,
       PORTAL_E2E_ORIGIN: env.PORTAL_E2E_ORIGIN,
       PORTAL_E2E_CRAWL_PROXY: env.PORTAL_E2E_CRAWL_PROXY,
       PORTAL_E2E_DATABASE_URL: env.OTERYN_DATABASE_URL,
@@ -96,5 +99,6 @@ try {
   process.exitCode = signalCode ?? process.exitCode;
   process.off('SIGINT', sigint);
   process.off('SIGTERM', sigterm);
+  releaseCa?.();
   console.error(`Crawl diagnostics: ${scratch}`);
 }

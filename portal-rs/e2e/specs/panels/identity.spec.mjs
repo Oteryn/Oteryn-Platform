@@ -1,3 +1,4 @@
+import { escapeRegex } from '../../regex.mjs';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { request as httpsRequest } from 'node:https';
@@ -35,7 +36,7 @@ async function confirmRecentAuth(page, lang, password) {
   ]);
   expect(response.status()).toBe(302);
   expect(response.headers().location).toBe(`/${lang}/account/security`);
-  await expect(page).toHaveURL(new RegExp(`/${lang}/password/change$`));
+  await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/password/change$`));
 }
 
 const usedSteps = new WeakMap();
@@ -164,7 +165,7 @@ test('owner edits their profile and the server refuses foreign and invalid edits
   ]);
   expect(stepUp.status()).toBe(303);
   expect(stepUp.headers().location).toBe(`/${lang}/account/sudo?return_to=export`);
-  await expect(page).toHaveURL(new RegExp(`/${lang}/account/sudo\\?return_to=export$`));
+  await expect(page).toHaveURL(new RegExp(`/${escapeRegex(lang)}/account/sudo\\?return_to=export$`));
   await submit(page, 'main form', { current_password: account.password });
   await expect(page).toHaveURL(new URL(exportPath, page.url()).href);
   expect((await page.request.get(exportPath)).status()).toBe(200);
@@ -238,7 +239,7 @@ test('owner replaces their TOTP and revokes the other browser session', async ({
     ...fields, password: 'wrong', code: codeAt(original, 0),
   }), lang, 403);
   const peer = await browser.newContext({
-    baseURL: new URL(page.url()).origin, ignoreHTTPSErrors: true,
+    baseURL: new URL(page.url()).origin,
     locale: lang, viewport: info.project.use.viewport,
   });
   const db = pool();

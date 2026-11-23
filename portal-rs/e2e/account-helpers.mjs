@@ -1,3 +1,4 @@
+import { escapeRegex } from './regex.mjs';
 import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {readFileSync} from 'node:fs';
@@ -27,7 +28,7 @@ export async function signIn(page, lang, player) {
   await page.goto(`/${lang}/login`, {waitUntil: 'domcontentloaded'});
   await waitForLoginBudget();
   await submit(page, 'main form', {email: player.email, password: player.password});
-  await expect(page).not.toHaveURL(new RegExp(`/${lang}/login(?:[/?]|$)`));
+  await expect(page).not.toHaveURL(new RegExp(`/${escapeRegex(lang)}/login(?:[/?]|$)`));
 }
 
 export async function switchPlayer(page, lang, player) {

@@ -1,3 +1,4 @@
+import { escapeRegex } from '../regex.mjs';
 import {test,expect} from '../fixtures.mjs';
 import crypto from 'node:crypto';
 import {register,login,submit,csrfRejected,pool} from '../helpers.mjs';
@@ -78,7 +79,7 @@ async function privacyJourney(page, info, checkFilters) {
     await expect(displayed).toHaveCount(3);
     const worldSection = page.locator('main section').filter({has: page.getByRole('heading', {name: world, exact: true})});
     await expect(worldSection.locator('li')).toHaveText([
-     new RegExp(`^${name} · .*412`), new RegExp(`^${higher.name} · .*500`),
+     new RegExp(`^${escapeRegex(name)} · .*412`), new RegExp(`^${escapeRegex(higher.name)} · .*500`),
     ]);
     await expect(displayed.filter({hasText: visitor.name})).toBeVisible();
     await filter.locator('[name=world]').selectOption(world);
@@ -92,7 +93,7 @@ async function privacyJourney(page, info, checkFilters) {
     expect(Object.fromEntries(new URL(result.url()).searchParams)).toEqual({world, sort: 'level'});
     await expect(page.locator('main section h2')).toHaveText([world]);
     await expect(displayed).toHaveText([
-     new RegExp(`^${higher.name} · .*500`), new RegExp(`^${name} · .*412`),
+     new RegExp(`^${escapeRegex(higher.name)} · .*500`), new RegExp(`^${escapeRegex(name)} · .*412`),
     ]);
     await expect(displayed.filter({hasText: visitor.name})).toHaveCount(0);
     await expect(page.locator('main')).not.toContainText('UnknownPrivacySubject');
