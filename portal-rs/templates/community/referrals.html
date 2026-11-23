@@ -53,6 +53,8 @@
       <h2 id="invitations">{{ status }}</h2>
       {% if let Some(attribution) = attribution %}<p id="referral-attribution">{{ attribution }}</p>{% endif %}
       <ul>{% for entry in invitations %}<li>{{ entry }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul>
+      {% if let Some(before) = invitation_cursor %}<a href="?invitations_before={{ before }}#invitations">{{ older }}</a>{% endif %}
+      {% if browsing_invitations %}<a href="?#invitations">{{ latest }}</a>{% endif %}
     </section>
     <section class="op-card op-stack" aria-labelledby="rewards">
       <h2 id="rewards">{{ rewards_title }}</h2>
@@ -60,6 +62,8 @@
       <p>{{ rewards_hint }}</p>
       <p>{{ loyalty_label }}: {{ loyalty }}</p>
       <ul>{% for entry in rewards %}<li data-reward-state="{{ entry.0 }}">{{ entry.1 }}</li>{% else %}<li>{{ empty }}</li>{% endfor %}</ul>
+      {% if let Some(before) = reward_cursor %}<a href="?rewards_before={{ before }}#rewards">{{ older }}</a>{% endif %}
+      {% if browsing_rewards %}<a href="?#rewards">{{ latest }}</a>{% endif %}
     </section>
   {% endif %}
 </main>

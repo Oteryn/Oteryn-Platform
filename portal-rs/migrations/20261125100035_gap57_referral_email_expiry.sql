@@ -1,6 +1,8 @@
 -- Use the same expiration rule for browser confirmation and session attribution.
 -- Legacy invitations without attempt rows retain their original creation time.
 CREATE INDEX referral_email_attempts_invitation ON referral_email_attempts(invitation_id);
+CREATE INDEX referral_campaign_invitation_history ON referral_campaign_invitations(inviter_id, created_at, id);
+CREATE INDEX referral_campaign_reward_history ON referral_campaign_rewards(account_id, created_at, id);
 
 CREATE FUNCTION referral_email_code_open(code uuid, issued_at timestamptz)
 RETURNS boolean LANGUAGE sql STRICT AS $$

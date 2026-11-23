@@ -2,7 +2,7 @@ use super::*;
 use askama::Template;
 use axum::{
     Form, Router,
-    extract::{Extension, Path, State},
+    extract::{Extension, Path, Query, State},
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -66,6 +66,12 @@ struct Page {
     empty: String,
     invitations: Vec<String>,
     rewards: Vec<(&'static str, String)>,
+    older: String,
+    latest: String,
+    invitation_cursor: Option<Uuid>,
+    reward_cursor: Option<Uuid>,
+    browsing_invitations: bool,
+    browsing_rewards: bool,
     loyalty_label: String,
     loyalty: i64,
 }
@@ -97,6 +103,12 @@ impl Page {
             empty: t("empty")?,
             invitations: vec![],
             rewards: vec![],
+            older: t("older")?,
+            latest: t("latest")?,
+            invitation_cursor: None,
+            reward_cursor: None,
+            browsing_invitations: false,
+            browsing_rewards: false,
             loyalty_label: t("loyalty")?,
             loyalty: 0,
         })
@@ -169,10 +181,20 @@ pub fn router(campaign: Campaign) -> Router {
         oteryn_web::session::middleware,
     ))
 }
+
+const PAGE_SIZE: usize = 100;
+
+#[derive(serde::Deserialize)]
+struct HistoryQuery {
+    invitations_before: Option<Uuid>,
+    rewards_before: Option<Uuid>,
+}
+
 async fn page(
     State(campaign): State<Campaign>,
     Extension(session): Extension<BrowserSession>,
     Path(lang): Path<String>,
+    query: Result<Query<HistoryQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     if !matches!(lang.as_str(), "pl" | "en") {
         return StatusCode::NOT_FOUND.into_response();
@@ -180,7 +202,10 @@ async fn page(
     let Some(actor) = session.account_id().await else {
         return Redirect::to(&format!("/{lang}/login")).into_response();
     };
-    let result = account_page(&campaign, &session, actor, &lang).await;
+    let Ok(Query(query)) = query else {
+        return message(&lang, StatusCode::BAD_REQUEST, "invalid-history");
+    };
+    let result = account_page(&campaign, &session, actor, &lang, query).await;
     match result {
         Ok(page) => page.response(StatusCode::OK),
         Err(error) => failure(&lang, error),
@@ -191,6 +216,7 @@ async fn account_page(
     session: &BrowserSession,
     actor: Uuid,
     lang: &str,
+    query: HistoryQuery,
 ) -> Result<Page, Error> {
     let code = campaign.existing_link(actor).await?;
     let mut page = Page::new(
@@ -231,18 +257,27 @@ async fn account_page(
         };
         page.attribution = Some(translate(lang, key)?);
     }
-    let invitations: Vec<(String, bool)> = sqlx::query_as(
-        "SELECT i.kind,i.first_paid_at IS NOT NULL OR premium.id IS NOT NULL
+    let invitations: Vec<(Uuid, String, bool)> = sqlx::query_as(
+        "SELECT i.id,i.kind,i.first_paid_at IS NOT NULL OR premium.id IS NOT NULL
          FROM referral_campaign_invitations i
          LEFT JOIN referral_campaign_rewards premium ON premium.operation_key='buddy-premium:'||i.id
          WHERE i.inviter_id=$1 AND (i.kind='new' OR premium.id IS NOT NULL OR EXISTS(
              SELECT 1 FROM referral_campaign_rewards r WHERE r.operation_key='welcome:'||i.id))
-         ORDER BY i.created_at DESC,i.id DESC LIMIT 100",
+         AND ($2::uuid IS NULL OR (i.created_at,i.id) < (
+             SELECT c.created_at,c.id FROM referral_campaign_invitations c
+             WHERE c.id=$2 AND c.inviter_id=$1))
+         ORDER BY i.created_at DESC,i.id DESC LIMIT $3",
     )
     .bind(actor)
+    .bind(query.invitations_before)
+    .bind(PAGE_SIZE as i64 + 1)
     .fetch_all(&campaign.pool)
     .await?;
-    for (kind, paid) in invitations {
+    page.browsing_invitations = query.invitations_before.is_some();
+    if invitations.len() > PAGE_SIZE {
+        page.invitation_cursor = Some(invitations[PAGE_SIZE - 1].0);
+    }
+    for (_, kind, paid) in invitations.into_iter().take(PAGE_SIZE) {
         let status = if paid { "qualified" } else { "waiting" };
         page.invitations.push(format!(
             "{} — {}",
@@ -250,11 +285,23 @@ async fn account_page(
             translate(lang, status)?
         ));
     }
-    let rewards: Vec<(String, i32, bool, bool)> = sqlx::query_as(
-        "SELECT kind,amount,applied_at IS NOT NULL,COALESCE(expires_at<=statement_timestamp(),false)
-         FROM referral_campaign_rewards WHERE account_id=$1 ORDER BY created_at DESC,id DESC LIMIT 100",
-    ).bind(actor).fetch_all(&campaign.pool).await?;
-    for (kind, amount, applied, expired) in rewards {
+    let rewards: Vec<(Uuid, String, i32, bool, bool)> = sqlx::query_as(
+        "SELECT r.id,r.kind,r.amount,r.applied_at IS NOT NULL,COALESCE(r.expires_at<=statement_timestamp(),false)
+         FROM referral_campaign_rewards r WHERE r.account_id=$1
+         AND ($2::uuid IS NULL OR (r.created_at,r.id) < (
+             SELECT c.created_at,c.id FROM referral_campaign_rewards c WHERE c.id=$2 AND c.account_id=$1))
+         ORDER BY r.created_at DESC,r.id DESC LIMIT $3",
+    )
+    .bind(actor)
+    .bind(query.rewards_before)
+    .bind(PAGE_SIZE as i64 + 1)
+    .fetch_all(&campaign.pool)
+    .await?;
+    page.browsing_rewards = query.rewards_before.is_some();
+    if rewards.len() > PAGE_SIZE {
+        page.reward_cursor = Some(rewards[PAGE_SIZE - 1].0);
+    }
+    for (_, kind, amount, applied, expired) in rewards.into_iter().take(PAGE_SIZE) {
         let status = reward_status(&kind, applied, expired);
         let label = translate(lang, &kind)?;
         let state = translate(lang, status)?;

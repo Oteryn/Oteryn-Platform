@@ -282,9 +282,27 @@ impl<P: Policy> Campaign<P> {
     }
     async fn invitation_kind_attempt(&self, code: Uuid) -> Result<Kind, TransactionError<Error>> {
         valid(code)?;
-        let mut tx = self.begin(&[]).await?;
-        let name: Option<String>=sqlx::query_scalar("SELECT 'new' FROM referral_links WHERE code=$1 UNION ALL SELECT kind FROM referral_email_invitations WHERE id=$1 AND referral_email_code_open(id,created_at)")
-            .bind(code).fetch_optional(&mut *tx).await?;
+        if !self.flags.enabled {
+            return Err(Error::Disabled.into());
+        }
+        let mut tx = self.pool.begin().await?;
+        oteryn_db::mutation_budget(&mut tx).await?;
+        let (enabled, name): (bool, Option<String>) = sqlx::query_as(
+            "SELECT enabled, CASE WHEN enabled THEN (
+                 SELECT 'new' FROM referral_links WHERE code=$1
+                 UNION ALL
+                 SELECT kind FROM referral_email_invitations
+                 WHERE id=$1 AND referral_email_code_open(id,created_at)
+             ) END
+             FROM referral_campaign_settings WHERE singleton",
+        )
+        .bind(code)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        if !enabled {
+            return Err(Error::Disabled.into());
+        }
         match name.as_deref() {
             Some("new") => Ok(Kind::New),
             Some("returning") => Ok(Kind::Returning),

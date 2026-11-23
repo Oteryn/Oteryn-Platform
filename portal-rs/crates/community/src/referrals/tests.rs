@@ -2290,7 +2290,11 @@ async fn nwave_snapshot_stream_campaign_and_worker_retry_fresh_transactions() {
     db.campaign.accept(invitee, code).await.unwrap();
     assert_retry_lock_restarted(&db).await;
     assert_eq!(db.campaign.invitation_kind(code).await.unwrap(), Kind::New);
-    assert_retry_lock_restarted(&db).await;
+    let called: bool = sqlx::query_scalar("SELECT is_called FROM retry_lock")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    assert!(!called);
     Worker {
         premium_enabled: true,
         campaign: db.campaign.clone(),
@@ -3101,6 +3105,12 @@ async fn emailed_invitation_expires_for_browser_and_signup() {
         .await
         .unwrap();
     assert_eq!(db.campaign.invitation_kind(code).await, Ok(Kind::New));
+    let writer = db.campaign.begin(&[owner]).await.unwrap();
+    let kind = tokio::time::timeout(Duration::from_secs(1), db.campaign.invitation_kind(code))
+        .await
+        .unwrap();
+    assert_eq!(kind, Ok(Kind::New));
+    writer.rollback().await.unwrap();
     assert_eq!(db.campaign.accept(owner, code).await, Err(Error::Denied));
     assert!(signup().await.unwrap());
     db.campaign.accept(invitee, code).await.unwrap();

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
 import { login, pool, register, submit } from '../helpers.mjs';
 
@@ -79,8 +80,60 @@ test('account navigation leads to referral acceptance and one recorded starter e
     await expect(page.locator('section[aria-labelledby="invitations"] li')).toHaveText(
       lang === 'pl' ? /Oczekiwanie na płatny zakup/ : /Waiting for a paid purchase/,
     );
+
+    const older = lang === 'pl' ? 'Starsze wpisy' : 'Older entries';
+    const latest = lang === 'pl' ? 'Najnowsze wpisy' : 'Latest entries';
+    await db.query(
+      `WITH invitees AS (
+         INSERT INTO accounts(id, email, password_hash, status, locale)
+         SELECT uuidv7(), uuidv7()||'@local.test', 'non-loginable-fixture', 'active', $2
+         FROM generate_series(1, 100) RETURNING id
+       )
+       INSERT INTO referral_campaign_invitations(inviter_id, invitee_id, kind, first_paid_at, created_at)
+       SELECT a.id, invitees.id, 'new', now(), now() + interval '1 second'
+       FROM accounts a CROSS JOIN invitees WHERE a.email=$1`, [owner.email, lang],
+    );
+    await page.goto(accountPath);
+    const invitations = page.locator('section[aria-labelledby="invitations"]');
+    await expect(invitations.locator('li')).toHaveCount(100);
+    await invitations.getByRole('link', { name: older }).click();
+    await expect(invitations.locator('li')).toHaveText(
+      lang === 'pl' ? /Oczekiwanie na płatny zakup/ : /Waiting for a paid purchase/,
+    );
+    await invitations.getByRole('link', { name: latest }).click();
+    await expect(invitations.locator('li')).toHaveCount(100);
+
+    await db.query(
+      `INSERT INTO referral_campaign_rewards(operation_key, account_id, kind, amount, applied_at, created_at)
+       SELECT 'browser-history:'||a.id||':'||n, a.id, 'premium', 1, now(), now() + interval '1 second'
+       FROM accounts a CROSS JOIN generate_series(1, 100) n WHERE a.email=$1`, [invitee.email],
+    );
+    await inviteePage.goto(accountPath);
+    const rewards = inviteePage.locator('section[aria-labelledby="rewards"]');
+    await expect(rewards.locator('li[data-reward-state="applied"]')).toHaveCount(100);
+    await expect(rewards.locator('li[data-reward-state="game-unavailable"]')).toHaveCount(0);
+    await rewards.getByRole('link', { name: older }).click();
+    await expect(rewards.locator('li')).toHaveCount(1);
+    await expect(rewards.locator('li[data-reward-state="game-unavailable"]')).toHaveCount(1);
+    await rewards.getByRole('link', { name: latest }).click();
+    await expect(rewards.locator('li[data-reward-state="applied"]')).toHaveCount(100);
+    expect((await inviteePage.goto(`${accountPath}?rewards_before=malformed`)).status()).toBe(400);
+    await expect(inviteePage.locator('main [role="status"]')).toHaveText(
+      lang === 'pl' ? 'Link do historii jest nieprawidłowy.' : 'This history link is invalid.',
+    );
   } finally {
     await guest.close();
     await db.end();
   }
+});
+
+test('i18n-parity for referrals', () => {
+  const keys = (lang) => [...readFileSync(
+    new URL(`../../crates/community/src/referrals/${lang}.ftl`, import.meta.url), 'utf8',
+  ).matchAll(/^([\w-]+)\s*=\s*\S/gm)].map((match) => match[1]).sort();
+  const pl = keys('pl');
+  expect(pl).toContain('operations-title');
+  expect(pl).toContain('older');
+  expect(new Set(pl).size).toBe(pl.length);
+  expect(keys('en')).toEqual(pl);
 });
