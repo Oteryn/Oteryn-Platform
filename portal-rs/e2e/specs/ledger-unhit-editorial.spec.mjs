@@ -119,6 +119,7 @@ test('staff uses the editorial PUT endpoints to edit news and publish an event',
 
     expect((await page.goto('/admin/events/create')).status()).toBe(200);
     await submit(page, 'main form', {
+      reason: 'Create an editorial event',
       starts_at: new Date(Date.now() - 3_600_000).toISOString().slice(0, 16),
       ends_at: new Date(Date.now() + 86_400_000).toISOString().slice(0, 16),
       en_title: 'Ledger event', en_slug: slug, en_summary: 'An editorial event.', en_body: 'Event body.',
@@ -130,7 +131,7 @@ test('staff uses the editorial PUT endpoints to edit news and publish an event',
     const eventData = await event.evaluate(f => Object.fromEntries(new FormData(f)));
     const eventPath = await event.getAttribute('action');
     const updatedEvent = await page.request.put(eventPath, {
-      form: {...eventData, en_title: 'Updated ledger event'}, headers, maxRedirects: 0,
+      form: {...eventData, en_title: 'Updated ledger event', reason: 'Update the event title'}, headers, maxRedirects: 0,
     });
     expect(updatedEvent.status()).toBe(303);
     expect((await page.goto(edit)).status()).toBe(200);
@@ -138,7 +139,7 @@ test('staff uses the editorial PUT endpoints to edit news and publish an event',
     const statusData = await statusForm.evaluate(f => Object.fromEntries(new FormData(f)));
     const statusPath = await statusForm.getAttribute('action');
     const status = await page.request.put(statusPath, {
-      form: {...statusData, status: 'published'}, headers, maxRedirects: 0,
+      form: {...statusData, status: 'published', reason: 'Publish the reviewed event'}, headers, maxRedirects: 0,
     });
     expect(status.status()).toBe(303);
     expect((await page.goto(`/en/events/${slug}`)).status()).toBe(200);
