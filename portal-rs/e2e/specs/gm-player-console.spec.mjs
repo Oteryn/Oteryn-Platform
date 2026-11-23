@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { test as base, expect } from '../fixtures.mjs';
+import { trustHarnessCa } from '../trust.mjs';
 import { login, password, submit } from '../helpers.mjs';
 import { confirmStaffPassword, loginWithRecoveryCode, membership, query, role } from '../staff-rbac-helpers.mjs';
 import {
@@ -93,16 +94,30 @@ const test = base.extend({
     const existing = process.env.PORTAL_E2E_ADMIN_AGENT_DIRECTORY;
     const previous = process.env.PORTAL_E2E_DATABASE_URL;
     const managed = existing ? undefined : await startStaffConsoleHarness(previous || process.env.OTERYN_DATABASE_URL);
+    let releaseCa;
     try {
       const setup = readHarness(existing || managed.out);
+      releaseCa = trustHarnessCa(setup.caFile);
       process.env.PORTAL_E2E_DATABASE_URL = setup.databaseURL;
       await use(setup);
     } finally {
       if (previous === undefined) delete process.env.PORTAL_E2E_DATABASE_URL;
       else process.env.PORTAL_E2E_DATABASE_URL = previous;
-      await managed?.close();
+      try {
+        releaseCa?.();
+      } finally {
+        await managed?.close();
+      }
     }
   }, { scope: 'worker', timeout: 600_000 }],
+  browser: [async ({ playwright, browserName, launchOptions, staffHarness: _staffHarness }, use) => {
+    const browser = await playwright[browserName].launch(launchOptions);
+    try {
+      await use(browser);
+    } finally {
+      await browser.close();
+    }
+  }, { scope: 'worker' }],
   baseURL: async ({ staffHarness }, use) => { await use(staffHarness.origin); },
 });
 

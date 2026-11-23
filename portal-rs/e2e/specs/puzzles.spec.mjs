@@ -13,6 +13,7 @@ import { test as base, expect } from '../fixtures.mjs';
 import { csrfRejected, login, password, pool } from '../helpers.mjs';
 import { query as databaseQuery } from '../staff-rbac-helpers.mjs';
 import { spawnFixtureHarness, stopFixtureHarness } from '../support/fixture-harness.mjs';
+import { trustHarnessCa } from '../trust.mjs';
 
 // Reserve the loopback ports together so the child never reuses one
 // of its own ports. The harness verifies readiness on the new listeners.
@@ -64,6 +65,7 @@ const test = base.extend({
       if (match) database = match[1];
     });
     let proxy;
+    let releaseCa;
     try {
       const ready = await Promise.race([
         once(lines, 'line', { signal: AbortSignal.timeout(60_000) }).then(([line]) => line),
@@ -95,6 +97,7 @@ const test = base.extend({
       });
       proxy.listen(https, '127.0.0.1');
       await once(proxy, 'listening');
+      releaseCa = trustHarnessCa(env.OTERYN_INTERNAL_TLS_CLIENT_CA_FILE);
       await use({ origin, databaseURL, env });
     } finally {
       if (proxy) {
@@ -108,7 +111,11 @@ const test = base.extend({
       } finally {
         lines.close();
         diagnostics.close();
-        await rm(scratch, { recursive: true, force: true });
+        try {
+          releaseCa?.();
+        } finally {
+          await rm(scratch, { recursive: true, force: true });
+        }
       }
     }
   }, { timeout: 130_000 }],
