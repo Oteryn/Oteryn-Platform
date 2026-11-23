@@ -162,7 +162,7 @@ pub struct Deck {
     pub name: String,
     pub cards: Vec<Uuid>,
 }
-fn valid_deck(name: &str, cards: &[Uuid]) -> Result<()> {
+pub(crate) fn valid_deck(name: &str, cards: &[Uuid]) -> Result<()> {
     if name.trim() != name
         || name.is_empty()
         || name.chars().count() > 40

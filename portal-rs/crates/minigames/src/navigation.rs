@@ -36,4 +36,13 @@ pub fn register(registry: &mut Registry) {
         Group::Play,
         false,
     );
+    let collection_pvp = crate::collection_pvp::http::configured_flags();
+    registry.section(
+        collection_pvp.pvp || collection_pvp.sets,
+        "collection-pvp",
+        "shell-collection-pvp",
+        "collection-pvp",
+        Group::Play,
+        false,
+    );
 }

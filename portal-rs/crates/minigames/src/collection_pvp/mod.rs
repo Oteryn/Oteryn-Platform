@@ -2,9 +2,12 @@
 //! T90 supplies owned deck snapshots, turn rules and non-transferable card grants.
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sqlx::{PgConnection, PgPool};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use std::future::Future;
 use uuid::Uuid;
+
+mod platform;
+pub use platform::PlatformCollection;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Flags {
@@ -19,6 +22,8 @@ pub enum Error {
     Refused,
     #[error("invalid input")]
     Invalid,
+    #[error("try again later")]
+    Limited(i64),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
 }
@@ -33,10 +38,33 @@ pub trait Collection: Send + Sync {
     }
     fn deck(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut Transaction<'_, Postgres>,
         owner: Uuid,
         deck: Uuid,
     ) -> impl Future<Output = Result<Value>> + Send;
+    fn catalogue_required(&self) -> bool {
+        false
+    }
+    fn journal_available(&self) -> bool {
+        false
+    }
+    /// Check that the pinned deck still belongs to this account and that its
+    /// sources remain qualified in the caller's transaction.
+    fn revalidate(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        owner: Uuid,
+        snapshot: &Value,
+    ) -> impl Future<Output = Result<()>> + Send;
+    fn save_deck(
+        &self,
+        _tx: &mut Transaction<'_, Postgres>,
+        _owner: Uuid,
+        _name: &str,
+        _cards: &[Uuid],
+    ) -> impl Future<Output = Result<()>> + Send {
+        std::future::ready(Err(Error::Unavailable))
+    }
     fn begin(&self, left: &Value, right: &Value) -> Result<Value>;
     fn turn(&self, state: &Value, side: Side, action: &Value) -> Result<Turn>;
     /// Redact hidden opponent information before returning a participant view.
@@ -45,7 +73,7 @@ pub trait Collection: Send + Sync {
     }
     fn grant(
         &self,
-        conn: &mut PgConnection,
+        conn: &mut Transaction<'_, Postgres>,
         owner: Uuid,
         cards: &Value,
     ) -> impl Future<Output = Result<()>> + Send;
@@ -100,6 +128,8 @@ pub struct Tournament {
     pub capacity: i32,
     pub entrants: i64,
     pub status: String,
+    organizer: Uuid,
+    joined: bool,
 }
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct PublishedSet {
@@ -181,9 +211,10 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         let participants: (Uuid, Uuid) = sqlx::query_as(
-            "SELECT left_account,right_account FROM collection_pvp_battles WHERE id=$1",
+            "SELECT left_account,right_account FROM collection_pvp_battles WHERE id=$1 AND right_account=$2",
         )
         .bind(id)
+        .bind(actor)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or(Error::Refused)?;
@@ -201,7 +232,7 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         if (left, row.0) != participants {
             return Err(Error::Refused);
         }
-        Self::active(&mut tx, left).await?;
+        self.collection.revalidate(&mut tx, left, &row.1).await?;
         let right = self.collection.deck(&mut tx, actor, deck).await?;
         validate_snapshot(&right)?;
         let state = self.collection.begin(&row.1, &right)?;
@@ -229,14 +260,16 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         Self::active(&mut tx, actor).await?;
         let mut battle: Battle=sqlx::query_as("SELECT id,left_account,right_account,status,revision,state,winner,tournament_id FROM collection_pvp_battles WHERE id=$1 AND $2 IN(left_account,right_account)")
             .bind(id).bind(actor).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
-        battle.state = self.collection.view(
-            &battle.state,
-            if actor == battle.left_account {
-                Side::Left
-            } else {
-                Side::Right
-            },
-        )?;
+        if matches!(battle.status.as_str(), "active" | "completed") {
+            battle.state = self.collection.view(
+                &battle.state,
+                if actor == battle.left_account {
+                    Side::Left
+                } else {
+                    Side::Right
+                },
+            )?;
+        }
         tx.commit().await?;
         Ok(battle)
     }
@@ -248,8 +281,8 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         }
         let mut tx = crate::browser::begin(&self.pool).await?;
         let participants: (Uuid, Uuid, Option<Uuid>) = sqlx::query_as(
-            "SELECT left_account,right_account,tournament_id FROM collection_pvp_battles WHERE id=$1",
-        ).bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
+            "SELECT left_account,right_account,tournament_id FROM collection_pvp_battles WHERE id=$1 AND $2 IN(left_account,right_account)",
+        ).bind(id).bind(actor).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
         Self::prepare_accounts(&mut tx, &[actor, participants.0, participants.1]).await?;
         if let Some(tournament) = participants.2 {
             sqlx::query("SELECT id FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE")
@@ -276,14 +309,17 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         } else {
             return Err(Error::Refused);
         };
-        Self::active(&mut tx, battle.left_account).await?;
-        Self::active(&mut tx, battle.right_account).await?;
-        if let Some(tournament) = battle.tournament_id {
-            sqlx::query("SELECT id FROM collection_pvp_tournaments WHERE id=$1 FOR UPDATE")
-                .bind(tournament)
-                .execute(&mut *tx)
+        let (left, right): (Value, Value) =
+            sqlx::query_as("SELECT left_deck,right_deck FROM collection_pvp_battles WHERE id=$1")
+                .bind(id)
+                .fetch_one(&mut *tx)
                 .await?;
-        }
+        self.collection
+            .revalidate(&mut tx, battle.left_account, &left)
+            .await?;
+        self.collection
+            .revalidate(&mut tx, battle.right_account, &right)
+            .await?;
         let next = self.collection.turn(&battle.state, side, &action)?;
         validate_snapshot(&next.state)?;
         let winner = match next.outcome {
@@ -306,11 +342,44 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         Ok(sqlx::query_as("SELECT account_id,sum(points)::bigint AS points,count(*)::bigint AS played FROM (SELECT left_account AS account_id,CASE WHEN winner=left_account THEN 3 WHEN winner IS NULL THEN 1 ELSE 0 END AS points FROM collection_pvp_battles WHERE status='completed' AND ($1::uuid IS NULL OR tournament_id=$1) UNION ALL SELECT right_account,CASE WHEN winner=right_account THEN 3 WHEN winner IS NULL THEN 1 ELSE 0 END FROM collection_pvp_battles WHERE status='completed' AND ($1::uuid IS NULL OR tournament_id=$1)) scores GROUP BY account_id ORDER BY points DESC,account_id LIMIT 100")
             .bind(tournament).fetch_all(&self.pool).await?)
     }
+
+    async fn visible_rankings(
+        &self,
+        actor: Uuid,
+        tournament: Option<Uuid>,
+    ) -> Result<Vec<Ranking>> {
+        if let Some(id) = tournament {
+            let visible: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM collection_pvp_tournaments t
+                 WHERE t.id=$1 AND (t.organizer=$2 OR EXISTS(
+                     SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$2
+                 )))",
+            )
+            .bind(id)
+            .bind(actor)
+            .fetch_one(&self.pool)
+            .await?;
+            if !visible {
+                return Err(Error::Refused);
+            }
+        }
+        self.rankings(tournament).await
+    }
+
     pub async fn tournaments(&self, actor: Uuid) -> Result<Vec<Tournament>> {
+        self.tournament_page(actor, None, 50).await
+    }
+
+    async fn tournament_page(
+        &self,
+        actor: Uuid,
+        before: Option<Uuid>,
+        limit: i64,
+    ) -> Result<Vec<Tournament>> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
         Self::active(&mut tx, actor).await?;
-        let rows=sqlx::query_as("SELECT t.id,t.capacity,t.status,(SELECT count(*) FROM collection_pvp_entries e WHERE e.tournament_id=t.id) AS entrants FROM collection_pvp_tournaments t WHERE t.status='registration' OR t.organizer=$1 OR EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1) ORDER BY t.created_at DESC LIMIT 50").bind(actor).fetch_all(&mut *tx).await?;
+        let rows=sqlx::query_as("SELECT t.id,t.capacity,t.status,t.organizer,EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1) AS joined,(SELECT count(*) FROM collection_pvp_entries e WHERE e.tournament_id=t.id) AS entrants FROM collection_pvp_tournaments t WHERE (t.status='registration' OR t.organizer=$1 OR EXISTS(SELECT 1 FROM collection_pvp_entries e WHERE e.tournament_id=t.id AND e.account_id=$1)) AND ($2::uuid IS NULL OR t.id<$2) ORDER BY t.id DESC LIMIT $3").bind(actor).bind(before).bind(limit).fetch_all(&mut *tx).await?;
         tx.commit().await?;
         Ok(rows)
     }
@@ -368,6 +437,12 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
     pub async fn start(&self, actor: Uuid, tournament: Uuid) -> Result<()> {
         self.enabled()?;
         let mut tx = crate::browser::begin(&self.pool).await?;
+        let owned: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM collection_pvp_tournaments WHERE id=$1 AND organizer=$2 AND status='registration')",
+        ).bind(tournament).bind(actor).fetch_one(&mut *tx).await?;
+        if !owned {
+            return Err(Error::Refused);
+        }
         let entrants: Vec<Uuid> = sqlx::query_scalar(
             "SELECT account_id FROM collection_pvp_entries WHERE tournament_id=$1 ORDER BY account_id",
         ).bind(tournament).fetch_all(&mut *tx).await?;
@@ -388,8 +463,10 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         if entries.len() < 2 || entries.iter().map(|(id, _)| *id).collect::<Vec<_>>() != entrants {
             return Err(Error::Refused);
         }
+        for (owner, deck) in &entries {
+            self.collection.revalidate(&mut tx, *owner, deck).await?;
+        }
         for (i, (left, ld)) in entries.iter().enumerate() {
-            Self::active(&mut tx, *left).await?;
             for (right, rd) in entries.iter().skip(i + 1) {
                 let state = self.collection.begin(ld, rd)?;
                 validate_snapshot(&state)?;
@@ -406,6 +483,38 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
         tx.commit().await?;
         Ok(())
     }
+    async fn save_deck(&self, actor: Uuid, name: &str, cards: &[Uuid]) -> Result<()> {
+        self.enabled()?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        Self::active(&mut tx, actor).await?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,92))")
+            .bind(actor.to_string())
+            .execute(&mut *tx)
+            .await?;
+        self.collection
+            .save_deck(&mut tx, actor, name, cards)
+            .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn delete_deck(&self, actor: Uuid, deck: Uuid) -> Result<()> {
+        self.enabled()?;
+        let mut tx = crate::browser::begin(&self.pool).await?;
+        Self::active(&mut tx, actor).await?;
+        let changed =
+            sqlx::query("DELETE FROM collection_pvp_owned_decks WHERE id=$1 AND account_id=$2")
+                .bind(deck)
+                .bind(actor)
+                .execute(&mut *tx)
+                .await?;
+        if changed.rows_affected() != 1 {
+            return Err(Error::Refused);
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+
     pub async fn sets(&self) -> Result<Vec<PublishedSet>> {
         if !self.flags.sets {
             return Err(Error::Unavailable);
@@ -451,6 +560,22 @@ impl<C: Collection, P: SetPayment> Service<C, P> {
                 Err(Error::Refused)
             };
         }
+        // Serialize purchases of the same SKU even when different request IDs
+        // arrive together. Existing duplicate receipts remain readable.
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,93))")
+            .bind(format!("{actor}:{set}"))
+            .execute(&mut *tx)
+            .await?;
+        let bought: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM collection_pvp_purchases WHERE account_id=$1 AND set_id=$2)",
+        )
+        .bind(actor)
+        .bind(set)
+        .fetch_one(&mut *tx)
+        .await?;
+        if bought {
+            return Err(Error::Refused);
+        }
         let offer: PublishedSet=sqlx::query_as("SELECT id,version,price,cards FROM collection_pvp_sets WHERE id=$1 AND published FOR SHARE").bind(set).fetch_optional(&mut *tx).await?.ok_or(Error::Refused)?;
         if offer.version != version || offer.price != price {
             return Err(Error::Refused);
@@ -471,7 +596,15 @@ impl Collection for Unavailable {
     fn available(&self) -> bool {
         false
     }
-    async fn deck(&self, _: &mut PgConnection, _: Uuid, _: Uuid) -> Result<Value> {
+    async fn deck(&self, _: &mut Transaction<'_, Postgres>, _: Uuid, _: Uuid) -> Result<Value> {
+        Err(Error::Unavailable)
+    }
+    async fn revalidate(
+        &self,
+        _: &mut Transaction<'_, Postgres>,
+        _: Uuid,
+        _: &Value,
+    ) -> Result<()> {
         Err(Error::Unavailable)
     }
     fn begin(&self, _: &Value, _: &Value) -> Result<Value> {
@@ -480,7 +613,7 @@ impl Collection for Unavailable {
     fn turn(&self, _: &Value, _: Side, _: &Value) -> Result<Turn> {
         Err(Error::Unavailable)
     }
-    async fn grant(&self, _: &mut PgConnection, _: Uuid, _: &Value) -> Result<()> {
+    async fn grant(&self, _: &mut Transaction<'_, Postgres>, _: Uuid, _: &Value) -> Result<()> {
         Err(Error::Unavailable)
     }
 }
