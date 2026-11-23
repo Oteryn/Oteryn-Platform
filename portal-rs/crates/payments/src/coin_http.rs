@@ -6,7 +6,7 @@ use askama::Template;
 use axum::{
     Extension, Form, Json, Router,
     body::{Body, to_bytes},
-    extract::{Path, RawQuery, Request, State},
+    extract::{Path, Query, RawQuery, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
@@ -17,10 +17,13 @@ use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::account::Locale;
 use crate::coin::{
     CHECKOUT_PATH, CoinOrderRequest, MAX_REQUEST_BYTES, OrderState, canonical_id, checkout_path,
 };
 use crate::coin_store::{CoinError, CoinPurchases};
+
+pub(crate) mod browser;
 
 const API: &str = "/api/v1/native-account/coin-purchases";
 /// The session's post-login return target, shared with the OAuth authorize flow.
@@ -38,23 +41,33 @@ pub fn router(pool: PgPool, service: Service) -> Router {
     let page = match service {
         Some(service) => Router::new()
             .route(&path, get(page).post(act))
+            .route(browser::PATH, get(browser::page).post(browser::submit))
             .route_layer(middleware::from_fn_with_state(
                 SessionLayer::new(pool),
                 oteryn_web::session::middleware,
             ))
             .with_state(service),
-        None => Router::new().route(&path, any(unavailable)),
+        None => Router::new()
+            .route(&path, any(unavailable))
+            .route(browser::PATH, get(unavailable).post(unavailable)),
     };
     api.merge(page).layer(middleware::from_fn(private))
 }
 
 async fn private(request: Request, next: Next) -> Response {
-    let checkout_page = request.method() == axum::http::Method::GET
-        && request.uri().path().starts_with(CHECKOUT_PATH);
+    let checkout_page = request.uri().path().starts_with(CHECKOUT_PATH)
+        || request
+            .uri()
+            .path()
+            .ends_with("/panel/payments/coin-checkout");
     let mut response = next.run(request).await;
     // Chromium sends Origin: null on form submissions from a no-referrer page.
     // Retain the origin of same-origin checkout POSTs for the shared CSRF guard.
-    let referrer = if checkout_page && response.status() == StatusCode::OK {
+    let html = response
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .is_some_and(|value| value.as_bytes().starts_with(b"text/html"));
+    let referrer = if checkout_page && (html || response.status() == StatusCode::OK) {
         "same-origin"
     } else {
         "no-referrer"
@@ -195,11 +208,14 @@ async fn status(
 #[derive(Template)]
 #[template(path = "coin/checkout.html")]
 struct CheckoutPage {
+    locale: Locale,
+    browser: bool,
+    review: bool,
     csrf: String,
     order_id: Uuid,
     coins: i64,
     price: String,
-    state: &'static str,
+    state: String,
     awaiting: bool,
 }
 
@@ -208,11 +224,33 @@ struct Decision {
     action: String,
 }
 
+#[derive(Deserialize)]
+struct CheckoutQuery {
+    lang: Option<String>,
+}
+impl CheckoutQuery {
+    fn locale(&self) -> Result<Locale, StatusCode> {
+        Locale::parse(self.lang.as_deref().unwrap_or("en"))
+    }
+    fn target(&self, order: Uuid, locale: Locale) -> String {
+        let path = checkout_path(order);
+        if self.lang.is_some() {
+            format!("{path}?lang={}", locale.0)
+        } else {
+            path
+        }
+    }
+}
+
 async fn page(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    Query(query): Query<CheckoutQuery>,
 ) -> Response {
+    let Ok(locale) = query.locale() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -223,7 +261,8 @@ async fn page(
         if session.set(RETURN_KEY, &target).await.is_err() {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         }
-        return Redirect::to("/pl/login").into_response();
+        return Redirect::to(&format!("/{}/login", query.lang.as_deref().unwrap_or("pl")))
+            .into_response();
     };
     let order = match service.checkout(account, order).await {
         Ok(order) => order,
@@ -233,11 +272,14 @@ async fn page(
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     oteryn_web::render(&CheckoutPage {
+        locale,
+        browser: order.character_id.is_none(),
+        review: order.review_required,
         csrf,
         order_id: order.order_id,
         coins: order.coins,
         price: order.price.display(),
-        state: order.state.as_str(),
+        state: locale.text(order.state.as_str()),
         awaiting: order.state == OrderState::AwaitingPayment,
     })
 }
@@ -247,10 +289,15 @@ async fn act(
     State(service): State<Arc<CoinPurchases>>,
     Extension(session): Extension<BrowserSession>,
     Path(order): Path<String>,
+    Query(query): Query<CheckoutQuery>,
     Form(decision): Form<Decision>,
 ) -> Response {
+    let Ok(locale) = query.locale() else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
     let Some(account) = session.account_id().await else {
-        return Redirect::to("/pl/login").into_response();
+        return Redirect::to(&format!("/{}/login", query.lang.as_deref().unwrap_or("pl")))
+            .into_response();
     };
     let Some(order) = canonical_id(&order) else {
         return StatusCode::NOT_FOUND.into_response();
@@ -261,7 +308,7 @@ async fn act(
         _ => return StatusCode::BAD_REQUEST.into_response(),
     };
     match service.sandbox_complete(account, order, paid).await {
-        Ok(_) => Redirect::to(&format!("{CHECKOUT_PATH}{order}")).into_response(),
+        Ok(_) => Redirect::to(&query.target(order, locale)).into_response(),
         Err(error) => refusal(error),
     }
 }
@@ -290,6 +337,96 @@ mod tests {
             let Ok(response) = app.clone().oneshot(request).await;
             assert_eq!(response.status(), StatusCode::OK);
             assert_eq!(response.headers()[header::REFERRER_POLICY], policy);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod qualification_tests {
+    use super::*;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[test]
+    fn sandbox_checkout_requires_canonical_ids() {
+        let id = "01934f10-7c02-7001-805b-3b1122334402".to_owned();
+        let form = browser::Buy {
+            package: id.clone(),
+            quote: id.clone(),
+            request: id.to_uppercase(),
+            _csrf: None,
+        };
+        assert!(form.order_request().is_err());
+        let form = browser::Buy {
+            request: id,
+            ..form
+        };
+        assert!(matches!(form.order_request(), Ok(request) if request.character_id.is_none()));
+    }
+
+    #[tokio::test]
+    async fn qualification_checkout_forms_accept_only_the_selected_action()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let app = Router::new().route(
+            "/",
+            post(|Form(input): Form<browser::Input>| async move {
+                match input {
+                    browser::Input::Quote { .. } => StatusCode::OK,
+                    browser::Input::Order(buy) if buy.order_request().is_ok() => {
+                        StatusCode::SEE_OTHER
+                    }
+                    browser::Input::Order(_) => StatusCode::BAD_REQUEST,
+                }
+            }),
+        );
+        let id = Uuid::now_v7();
+        let quote = format!("action=quote&package={id}&_csrf=test");
+        let order = format!("action=order&package={id}&quote={id}&request={id}&_csrf=test");
+        for (body, status) in [
+            (quote.clone(), StatusCode::OK),
+            (order.clone(), StatusCode::SEE_OTHER),
+            (
+                format!("{quote}&coins=500"),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                format!("{order}&character_id={id}"),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+            (
+                order.replace(&format!("quote={id}"), "quote=invalid"),
+                StatusCode::BAD_REQUEST,
+            ),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::post("/")
+                        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                        .body(Body::from(body))?,
+                )
+                .await?;
+            assert_eq!(response.status(), status);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn qualification_checkout_refuses_when_disabled() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let pool = oteryn_db::lazy_pool("postgres://unused@127.0.0.1:1/unused")?;
+        for method in ["GET", "POST"] {
+            let response = router(pool.clone(), None)
+                .oneshot(
+                    Request::builder()
+                        .method(method)
+                        .uri("/en/panel/payments/coin-checkout")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
         }
         Ok(())

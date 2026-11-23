@@ -121,9 +121,20 @@ fn enabled(name: &str) -> bool {
     std::env::var(name).as_deref() == Ok("true")
 }
 #[derive(Clone, Copy)]
-struct Locale(&'static str);
+pub(super) struct Locale(&'static str);
 impl Locale {
     fn from_headers(headers: &HeaderMap) -> Self {
+        for header in headers.get_all(axum::http::header::COOKIE) {
+            if let Ok(cookies) = header.to_str() {
+                for cookie in cookies.split(';') {
+                    match cookie.trim() {
+                        "portal_language=en" => return Self("en"),
+                        "portal_language=pl" => return Self("pl"),
+                        _ => {}
+                    }
+                }
+            }
+        }
         Self(
             if headers
                 .get("accept-language")
@@ -136,7 +147,7 @@ impl Locale {
             },
         )
     }
-    fn text(self, key: &str) -> String {
+    pub(super) fn text(self, key: &str) -> String {
         let source = if self.0 == "en" {
             include_str!("en.ftl")
         } else {
@@ -159,6 +170,7 @@ impl Locale {
             .unwrap_or_default()
     }
 }
+
 struct Action {
     key: &'static str,
     title: String,
@@ -178,6 +190,8 @@ struct Pending {
 #[derive(Template)]
 #[template(path = "commerce/page.html", config = "src/commerce/askama.toml")]
 struct Page {
+    locale: Locale,
+    qualification: Option<qualification::Qualification>,
     lang: &'static str,
     title: String,
     note: String,
@@ -206,8 +220,10 @@ struct QueueFilter {
     // Site-wide locale switch parameter carried by admin navigation links.
     #[serde(rename = "lang")]
     _lang: Option<String>,
+    intent: Option<String>,
+    event: Option<String>,
 }
-fn format_refund_amount(minor_units: i64, currency: &str) -> String {
+pub(super) fn format_refund_amount(minor_units: i64, currency: &str) -> String {
     // ISO 4217 currencies whose minor units differ from the usual hundredths.
     let exponent = match currency {
         "BIF" | "CLP" | "DJF" | "GNF" | "ISK" | "JPY" | "KMF" | "KRW" | "PYG" | "RWF" | "UGX"
@@ -232,6 +248,20 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
     Query(filter): Query<QueueFilter>,
 ) -> Response {
     let locale = Locale::from_headers(&headers);
+    let intent = filter.intent.as_deref().filter(|id| !id.is_empty());
+    let event = filter.event.as_deref().filter(|id| !id.is_empty());
+    let qualification = match s
+        .auth
+        .check(context, rbac::Permission::ReconcilePayments)
+        .await
+    {
+        Ok(()) => match qualification::Qualification::load(&s.pool, locale, intent, event).await {
+            Ok(value) => Some(value),
+            Err(error) => return failure(locale, error),
+        },
+        Err(rbac::Error::Denied) if intent.is_none() && event.is_none() => None,
+        Err(error) => return failure(locale, error.into()),
+    };
     let mut actions = vec![];
     for (key, command) in [
         ("grant", Command::Grant { days: 1 }),
@@ -307,6 +337,8 @@ async fn page<A: rbac::AccountStateReader, E: Effects>(
         Err(_) => return failure(locale, Error::Unavailable),
     };
     oteryn_web::render(&Page {
+        locale,
+        qualification,
         lang: locale.0,
         title: locale.text("title"),
         note: locale.text("note"),
@@ -477,4 +509,22 @@ fn failure(locale: Locale, error: Error) -> Response {
     };
     // Only repository-owned Fluent resources are interpolated.
     (status,axum::response::Html(format!("<!doctype html><html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><main><h1>{}</h1><a href=\"/admin/commerce\">{}</a></main></html>",locale.0,locale.text(key),locale.text("back")))).into_response()
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+    use axum::http::{HeaderValue, header};
+
+    #[test]
+    fn commerce_uses_the_selected_portal_language() {
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ACCEPT_LANGUAGE, HeaderValue::from_static("en"));
+        assert_eq!(Locale::from_headers(&headers).0, "en");
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_static("other=1; portal_language=pl"),
+        );
+        assert_eq!(Locale::from_headers(&headers).0, "pl");
+    }
 }

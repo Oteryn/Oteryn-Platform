@@ -20,4 +20,12 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        crate::coin_http::browser::enabled(),
+        "sandbox-coin-checkout",
+        "shell-sandbox-coin-checkout",
+        "panel/payments/coin-checkout",
+        Group::Account,
+        false,
+    );
 }

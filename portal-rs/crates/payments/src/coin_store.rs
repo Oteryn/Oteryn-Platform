@@ -10,8 +10,8 @@ use uuid::Uuid;
 
 use crate::coin::{
     CoinBalance, CoinCatalogue, CoinEvent, CoinOrder, CoinOrderRequest, CoinPackage, CoinSettings,
-    EventState, MAX_COINS, MAX_RECENT_ORDERS, OrderState, Price, REVERSAL_REVIEW_CODE, REVIEW_CODE,
-    VERSION,
+    EventState, MAX_COINS, MAX_RECENT_ORDERS, OrderState, PackageDef, Price, REVERSAL_REVIEW_CODE,
+    REVIEW_CODE, VERSION,
 };
 use crate::{
     AccountReader, AccountState, Amount, Error, Intent, IntentState, PaymentEvent, PaymentFlags,
@@ -394,6 +394,35 @@ impl CoinPurchases {
         }
     }
 
+    pub(crate) fn browser_packages(&self) -> &[PackageDef] {
+        &self.settings.packages
+    }
+
+    pub(crate) async fn browser_orders(&self, payer: Uuid) -> Result<Vec<CoinOrder>, CoinError> {
+        self.enabled()?;
+        let mut connection = self.pool.acquire().await?;
+        self.recent_orders(&mut connection, payer, true).await
+    }
+
+    pub(crate) async fn browser_quote(
+        &self,
+        payer: Uuid,
+        package: Uuid,
+    ) -> Result<CoinPackage, CoinError> {
+        if !self
+            .browser_packages()
+            .iter()
+            .any(|entry| entry.id == package)
+        {
+            return Err(CoinError::Invalid);
+        }
+        self.catalogue_for(payer, None, Some(package))
+            .await?
+            .packages
+            .pop()
+            .ok_or(CoinError::Invalid)
+    }
+
     /// Issues independent quotes within a bounded payer-wide allowance, then
     /// reuses matching live quotes. Expired unused quotes are pruned in batches.
     pub async fn catalogue(
@@ -401,11 +430,23 @@ impl CoinPurchases {
         payer: Uuid,
         character: Option<Uuid>,
     ) -> Result<CoinCatalogue, CoinError> {
+        self.catalogue_for(payer, character, None).await
+    }
+
+    async fn catalogue_for(
+        &self,
+        payer: Uuid,
+        character: Option<Uuid>,
+        browser_package: Option<Uuid>,
+    ) -> Result<CoinCatalogue, CoinError> {
         self.enabled()?;
         if let Some(character) = character {
             self.owned(payer, character).await?;
         }
         let mut tx = self.pool.begin().await?;
+        if browser_package.is_some() && self.restriction(&mut tx, payer).await?.is_some() {
+            return Err(CoinError::Conflict);
+        }
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1::text, 90105))")
             .bind(payer)
             .execute(&mut *tx)
@@ -419,7 +460,12 @@ impl CoinPurchases {
             .execute(&mut *tx)
             .await?;
         let mut packages = Vec::with_capacity(self.settings.packages.len());
-        for package in &self.settings.packages {
+        for package in self
+            .settings
+            .packages
+            .iter()
+            .filter(|package| browser_package.is_none_or(|id| id == package.id))
+        {
             let (quote, valid_for_seconds) = if outstanding >= MAX_OUTSTANDING_QUOTES {
                 let existing: Option<(Uuid, i32)> = sqlx::query_as("SELECT id, greatest(1, floor(extract(epoch FROM expires_at-clock_timestamp())))::integer FROM coin_purchase_quotes WHERE payer_account_id=$1 AND character_id IS NOT DISTINCT FROM $2 AND package_id=$3 AND coins=$4 AND minor_units=$5 AND currency=$6 AND exponent=$7 AND environment=$8 AND consumed_at IS NULL AND expires_at>=clock_timestamp()+interval '1 second' ORDER BY created_at DESC LIMIT 1")
                     .bind(payer).bind(character).bind(package.id).bind(package.coins)
@@ -455,20 +501,12 @@ impl CoinPurchases {
                 valid_for_seconds,
             });
         }
-        let rows = sqlx::query(concat!(
-            "SELECT ",
-            order_columns!(),
-            " FROM coin_purchase_orders WHERE payer_account_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2"
-        ))
-        .bind(payer)
-        .bind(MAX_RECENT_ORDERS)
-        .fetch_all(&mut *tx)
-        .await?;
+        let recent_orders = if browser_package.is_none() {
+            self.recent_orders(&mut tx, payer, false).await?
+        } else {
+            vec![]
+        };
         tx.commit().await?;
-        let recent_orders = rows
-            .iter()
-            .map(|row| order_row(row).map(|row| row.order))
-            .collect::<Result<_, _>>()?;
         Ok(CoinCatalogue {
             version: VERSION,
             sandbox: true,
@@ -476,6 +514,27 @@ impl CoinPurchases {
             packages,
             recent_orders,
         })
+    }
+
+    async fn recent_orders(
+        &self,
+        connection: &mut PgConnection,
+        payer: Uuid,
+        account_only: bool,
+    ) -> Result<Vec<CoinOrder>, CoinError> {
+        let rows = sqlx::query(concat!(
+            "SELECT ",
+            order_columns!(),
+            " FROM coin_purchase_orders WHERE payer_account_id=$1 AND (NOT $3 OR character_id IS NULL) ORDER BY created_at DESC, id DESC LIMIT $2"
+        ))
+        .bind(payer)
+        .bind(MAX_RECENT_ORDERS)
+        .bind(account_only)
+        .fetch_all(connection)
+        .await?;
+        rows.iter()
+            .map(|row| order_row(row).map(|row| row.order))
+            .collect()
     }
 
     /// Reservations are not available; review comes from the payer's orders.

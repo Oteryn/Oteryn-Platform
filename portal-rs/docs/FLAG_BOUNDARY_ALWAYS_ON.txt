@@ -208,3 +208,5 @@ public P /admin/status/maintenance
 public P /{lang}/forum/actions/{action}
 public P /{lang}/status/notices
 public P /{lang}/unsubscribe/confirm
+public G /{lang}/panel/payments/coin-checkout
+public P /{lang}/panel/payments/coin-checkout
