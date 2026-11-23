@@ -38,7 +38,6 @@ pub fn register(registry: &mut Registry) {
         Group::Community,
         false,
     );
-    let staging = oteryn_core::restricted_environment(|key| std::env::var(key).ok());
     registry.section(
         crate::world_directories::guilds_enabled(|key| std::env::var(key).ok()),
         "guilds",
