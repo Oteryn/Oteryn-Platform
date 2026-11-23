@@ -281,6 +281,11 @@ for (const actor of actors) {
       actor, locale, width: info.project.use.viewport.width, completed, routeFilter: selected, evidence,
     });
     const report = info.outputPath('quality-inventory.json');
+    function writeReport() {
+      const temporary = report + '.tmp';
+      fs.writeFileSync(temporary, JSON.stringify(reportData()), { mode: 0o600 });
+      fs.renameSync(temporary, report);
+    }
     for (const pattern of selected) {
       expect(inventory.some(row => row.pattern === pattern), `selected source pattern ${pattern} exists`).toBe(true);
     }
@@ -291,6 +296,21 @@ for (const actor of actors) {
       extraHTTPHeaders: { accept: 'text/html', 'accept-language': locale },
     };
     const session = state.storage && await playwrightRequest.newContext(probeOptions);
+    // Some public handlers only read the chrome session. Use the authenticated
+    // account route to exercise normal idle renewal throughout long crawls.
+    let nextSessionCheck = performance.now() + 300_000;
+    async function checkSession() {
+      if (!session) return;
+      const account = await session.get('/account');
+      try {
+        expect(account.status(), 'actor session still reaches the account').toBe(200);
+        expect(new URL(account.url()).pathname).toMatch(/\/account\/?$/);
+        probeOptions.storageState = await session.storageState();
+        nextSessionCheck = performance.now() + 300_000;
+      } finally {
+        await account.dispose();
+      }
+    }
     try {
       const tested = new Map();
       let addedSamples;
@@ -299,12 +319,13 @@ for (const actor of actors) {
         for (const entry of inventory) {
           if (selected.length && !selected.includes(entry.pattern)) continue;
           for (let index = tested.get(entry) ?? 0; index < entry.paths.length; index++) {
+            if (session && performance.now() >= nextSessionCheck) await checkSession();
             const target = entry.paths[index];
             tested.set(entry, index + 1);
             addedSamples = true;
             const before = info.errors.length;
             try {
-              const result = await assessPage(browser, info, state.storage ?? state, entry, target, covered, inventory, probeOptions);
+              const result = await assessPage(browser, info, probeOptions.storageState, entry, target, covered, inventory, probeOptions);
               evidence.push({ ...result, failedChecks: info.errors.length - before });
             } catch (error) {
               // Browser exceptions can include full URLs. Preserve the category and route without query data.
@@ -315,7 +336,7 @@ for (const actor of actors) {
               const label = [requestedPath, 'audit completed', location].filter(Boolean).join(' ');
               expect.soft(reason, label).toBe('');
             }
-            fs.writeFileSync(report, JSON.stringify(reportData()), { mode: 0o600 });
+            writeReport();
             if (evidence.length % 25 === 0) {
               console.info(`[quality] ${info.project.name} ${actor} processed ${evidence.length} route samples and audited ${covered.size} documents`);
             }
@@ -323,15 +344,11 @@ for (const actor of actors) {
         }
       } while (addedSamples);
       expect(covered.size, 'rendered documents audited').toBeGreaterThan(0);
-      if (session) {
-        const account = await session.get('/account');
-        expect(account.status(), 'actor session still reaches the account after the crawl').toBe(200);
-        expect(new URL(account.url()).pathname).toMatch(/\/account\/?$/);
-      }
+      await checkSession();
       completed = true;
     } finally {
       await session?.dispose();
-      fs.writeFileSync(report, JSON.stringify(reportData()), { mode: 0o600 });
+      writeReport();
       await info.attach('quality-inventory', {
         contentType: 'application/json', body: JSON.stringify(reportData()),
       });
