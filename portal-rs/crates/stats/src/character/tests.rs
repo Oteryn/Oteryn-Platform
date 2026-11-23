@@ -264,7 +264,7 @@ async fn postgres_character_history_privacy_and_comparison()
         .await?;
     assert_eq!(named.status(), StatusCode::OK);
     let body = to_bytes(named.into_body(), 1_000_000).await?;
-    assert!(String::from_utf8_lossy(&body).contains(">300</dd>"));
+    assert!(String::from_utf8_lossy(&body).contains("<td>300</td>"));
 
     let hidden = http::router(Characters {
         current: Arc::new(Source {
@@ -278,7 +278,7 @@ async fn postgres_character_history_privacy_and_comparison()
     assert_eq!(hidden.status(), StatusCode::NOT_FOUND);
     assert!(
         !String::from_utf8_lossy(&to_bytes(hidden.into_body(), 1_000_000).await?)
-            .contains(">300</dd>")
+            .contains("<td>300</td>")
     );
 
     let response=app.clone().oneshot(Request::builder().uri(format!("/en/stats/compare?ids={a},{b}&start=2026-11-01&end=2026-11-03&metric=sword_level")).body(Body::empty())?).await?;
