@@ -289,6 +289,17 @@ class StagingDeploy(unittest.TestCase):
         with self.assertRaises(staging.Refusal):
             staging.test_accounts()
 
+    def test_credentials_refuse_a_symlink(self):
+        staging = self.staging
+        staging.test_accounts()
+        path = self.root / 'test-accounts.json'
+        target = path.with_name('alternate.json')
+        path.rename(target)
+        path.symlink_to(target)
+        with self.assertRaises(OSError):
+            staging.test_accounts()
+        self.assertTrue(path.is_symlink())
+
     def test_public_origin_defaults_to_loopback_and_rejects_bad_values(self):
         staging = self.staging
         staging.configure(self.root, SHA)
@@ -572,7 +583,7 @@ class StagingDeploy(unittest.TestCase):
         with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
                             build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT,
                             replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods, \
-                patch.object(staging, 'git', return_value='sample SQL'):
+                patch.object(staging, 'git', return_value='sample SQL') as git:
             sequence = Mock()
             for name, method in methods.items():
                 sequence.attach_mock(method, name)
@@ -581,6 +592,8 @@ class StagingDeploy(unittest.TestCase):
                 self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db'], lock))
             methods['build_context'].assert_called_once_with(checkout, browser=False)
             methods['build'].assert_called_once_with(checkout, SHA, 'runtime')
+            git.assert_called_once_with(checkout, 'show', f'{SHA}:{staging.SAMPLE_SQL}')
+            self.assertEqual(methods['replace_stack'].call_args.args[-1], b'sample SQL')
         self.assertEqual([item[0] for item in sequence.mock_calls], [
             'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
             'build', 'qualify', 'production_idle', 'replace_stack',

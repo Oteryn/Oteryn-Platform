@@ -3,6 +3,13 @@
 BEGIN;
 SET LOCAL TIME ZONE 'UTC';
 
+DO $$
+BEGIN
+    IF current_database() <> 'portal_e2e_staging' THEN
+        RAISE EXCEPTION 'staging sample data requires the disposable staging database';
+    END IF;
+END $$;
+
 CREATE TEMP TABLE sample_worlds ON COMMIT DROP AS
 SELECT n AS world_number, ('019a0000-0000-7001-8000-' || lpad(n::text, 12, '0'))::uuid AS id,
        name, pvp, location,
@@ -93,7 +100,7 @@ FROM sample_characters;
 
 INSERT INTO public_snapshots (family, subject, epoch, version, watermark, payload)
 SELECT 'world_online', world::text, 1, 1, floor(extract(epoch FROM now())),
-       jsonb_build_object('world_id', world, 'characters', jsonb_agg(jsonb_build_object(
+       jsonb_build_object('source_authority', 'staging-sample', 'world_id', world, 'characters', jsonb_agg(jsonb_build_object(
            'name', name, 'level', level::text, 'vocation', vocation) ORDER BY name))
 FROM sample_characters WHERE n % 4 <> 0
 GROUP BY world;
@@ -150,17 +157,28 @@ SELECT c.id::text, 'staging-sample', 1, 1, sha256(convert_to(c.id::text, 'UTF8')
 FROM sample_characters c LEFT JOIN sample_deaths d ON d.character = c.id;
 INSERT INTO public_deaths_v2_watermark VALUES (1, 'staging-sample', 1, 0);
 
+WITH houses AS (
+    SELECT w.id AS world, 'oteryn:content.house.' || h.key AS key, h.name, h.kind,
+           lower(replace(w.name, ' ', '_')) AS town, h.status, h.size, h.beds, h.rent
+    FROM sample_worlds w CROSS JOIN (VALUES
+        ('harbor_cottage', 'Harbor Cottage', 'private_house', 'VACANT', '54', '2', '1200'),
+        ('east_gate', 'East Gate Residence', 'private_house', 'AUCTION', '88', '4', '2200'),
+        ('council_hall', 'Council Hall', 'guildhall', 'VACANT', '210', '12', '8500')
+    ) AS h(key, name, kind, status, size, beds, rent)
+)
 INSERT INTO public_houses_v2 (subject, source_authority, epoch, revision, observed, payload)
-SELECT w.id::text || ':' || h.key, 'staging-sample', 1, 1, floor(extract(epoch FROM now())),
-       jsonb_build_object('world_id', w.id, 'house_key', h.key, 'house', jsonb_build_array(
-           jsonb_build_object('name', h.name, 'kind', h.kind, 'town', w.name, 'status', h.status,
-               'size_sqm', h.size, 'beds', h.beds, 'rent_gold', h.rent, 'current_bid', '1800',
-               'auction_ends_at', floor(extract(epoch FROM now() + interval '3 days'))::text)))
-FROM sample_worlds w CROSS JOIN (VALUES
-    ('harbor-cottage', 'Harbor Cottage', 'HOUSE', 'AVAILABLE', '54', '2', '1200'),
-    ('east-gate', 'East Gate Residence', 'HOUSE', 'AUCTION', '88', '4', '2200'),
-    ('council-hall', 'Council Hall', 'GUILDHALL', 'AVAILABLE', '210', '12', '8500')
-) AS h(key, name, kind, status, size, beds, rent);
+SELECT world::text || ':' || key, 'staging-sample', 1, 1, floor(extract(epoch FROM now())),
+       jsonb_build_object('contract_version', 2, 'operation', 'PublishHouseV2',
+           'source_authority', 'staging-sample', 'projection_epoch', '1', 'projection_revision', '1',
+           'source_observed_at', floor(extract(epoch FROM now()))::text, 'world_id', world,
+           'house_key', key, 'house', jsonb_build_array(
+               jsonb_build_object('name', name, 'kind', kind, 'town', town, 'status', status,
+                   'size_sqm', size, 'beds', beds, 'rent_gold', rent) ||
+               CASE WHEN status = 'AUCTION' THEN jsonb_build_object(
+                   'current_bid', '1800',
+                   'auction_ends_at', floor(extract(epoch FROM now() + interval '3 days'))::text)
+               ELSE '{}'::jsonb END))
+FROM houses;
 INSERT INTO public_houses_v2_watermark VALUES (1, 'staging-sample', 1, 0);
 
 INSERT INTO pd_party_posts
@@ -315,8 +333,8 @@ SELECT id, jsonb_build_object('id', id, 'world_version', '019a0000-0000-7007-800
            'appearance_id', appearance),
        decode(sprite, 'base64')
 FROM (VALUES
-    ('019a0000-0000-7010-8000-000000000001'::uuid, 'mire-wolf', 250, 'Mire Wolf', 'Wilk bagienny', 1, 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAnElEQVR42mNgGAWjYBSMguEGyidM+U+KeqaBtJyqDkC2nBSHMFHDYmIsxKWGkRSLOgtyGCkNcnQzGGkVt8Q6gImelmMzj4kelnf4vcFpLhM9yoaKTSKk5wJqBz0u8xnpYTl6wsMbArT2OcnlAKUOwud7qiTCzoIcRkKW4AMstPAVTSsjUiwnRi1dCiKyEyG6A6gZ9HQtCUfBKMAHAHQwSSaq2Sm+AAAAAElFTkSuQmCC'),
-    ('019a0000-0000-7010-8000-000000000002'::uuid, 'saltwind-crab', 100, 'Saltwind Crab', 'Krab z Solnego Brzegu', 2, 'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAoklEQVR42u1Uyw2AIAwtxIEcQHdgEQ7O4iLuwGB4ImkIpVgx9dB3w9bX1y+AwWAwGAAgxZBTDFkjntdOXl3AIi0hZdvPy4kFpBgyRTA6I9hvRIwvjsW5NZD4vR1rlxDbW6Lrb47LYMZ21Dy4Mk7S57diuhX4SgQ1D/++A09XSsLzeQW4JLxmcFZAvTr4XsxqmxsNTtm5yyluQflx1iAaDAYKNwxqW1rt5M5EAAAAAElFTkSuQmCC')
+    ('019a0000-0000-7010-8000-000000000001'::uuid, 'mire-wolf', 250, 'Mire Wolf', 'Wilk bagienny', 1, 'UklGRmgAAABXRUJQVlA4TFwAAAAvH8AHEBcgEEjyxxloLgFB0WzvCQSSIAYeff4D/hWwjWS11Q0hVShWlZRC9A1typsCIvo/AdxVatZwrYUmIFlEAF/UohSseLQWilcyXyEQDQoqXpMGngFrZaqt5Q=='),
+    ('019a0000-0000-7010-8000-000000000002'::uuid, 'saltwind-crab', 100, 'Saltwind Crab', 'Krab z Solnego Brzegu', 2, 'UklGRmgAAABXRUJQVlA4TFwAAAAvH8AHEBcgFkzm/2QYl0AgyZ9rrwUCSegjjjT/Ad8aGEWyGmuKY5RQqEQKlRN5Nv++CIjo/wTwu77nt7TAm5ICz9FLiyAkaRq1EeRmnGFjB+wFkKPlQFlRQLL3eg==')
 ) AS cards(id, key, kills, en, pl, appearance, sprite);
 
 INSERT INTO today_snapshots (authority, world_id, epoch, revision, observed, fingerprint)
@@ -335,8 +353,8 @@ BEGIN
            complete_through = stamp, observed_at = stamp, updated_at = now()
      WHERE id = 1 AND (highest_epoch IS NULL OR (highest_epoch = '1' AND source_authority = 'staging-sample'));
     UPDATE public_snapshots SET watermark = stamp
-     WHERE epoch = 1 AND ((is_watermark AND payload->>'source_authority' = 'staging-sample')
-                         OR (family = 'world_online' AND subject LIKE '019a0000-0000-7001-8000-%'));
+     WHERE epoch = 1 AND payload->>'source_authority' = 'staging-sample'
+       AND (is_watermark OR family = 'world_online');
     UPDATE public_deaths_v2_watermark SET complete_through = stamp WHERE authority = 'staging-sample' AND epoch = 1;
     UPDATE public_houses_v2_watermark SET complete_through = stamp WHERE source_authority = 'staging-sample' AND epoch = 1;
     UPDATE today_snapshots SET observed = stamp, received_at = now(),

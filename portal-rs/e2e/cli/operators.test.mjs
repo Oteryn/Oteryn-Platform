@@ -86,7 +86,7 @@ test('seed account and MFA persist the account while enrollment secrets are issu
   assert.equal(seed('account', player).accountId, accountId);
   assert.deepEqual(await state(), rows);
   seedRefused('account', { ...player, email: 'outside@example.com' }, 2, 'bad_input',
-    'email must end with @example.invalid');
+    'email must end with @example.invalid or @staging.invalid');
 
   const mfa = { accountId, password };
   seedRefused('account-mfa', { ...mfa, accountId: await id() }, 2, 'bad_input',

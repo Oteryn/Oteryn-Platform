@@ -394,6 +394,11 @@ def test_accounts():
                 os.link(stream.name, path)
             except FileExistsError:
                 pass
+        directory_fd = os.open(ROOT, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd) as stream:
         info = os.fstat(stream.fileno())
@@ -546,9 +551,12 @@ def seed_accounts(directory, accounts):
                 'verified': email != 'player-new@staging.invalid'}
         if email in STAFF:
             args['role'] = STAFF[email]
-        seeded = seed(directory, 'account', args, output=True)
-        if 'totpSecret' in entry:
-            seed(directory, 'account-mfa', {'accountId': json.loads(seeded)['accountId'], **entry})
+        try:
+            seeded = seed(directory, 'account', args, output='totpSecret' in entry)
+            if 'totpSecret' in entry:
+                seed(directory, 'account-mfa', {'accountId': json.loads(seeded)['accountId'], **entry})
+        except (subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            raise Refusal(f'account seed failed for {email}') from None
 
 
 def seed(directory, entity, args, *, output=False):
@@ -572,7 +580,10 @@ def replace_stack(directory, sha, smtp_password, accounts, sample_sql):
     psql = ('exec', '-T', 'postgres', 'psql', '-X', '-v', 'ON_ERROR_STOP=1',
             '-U', 'portal', '-d', PORTAL_DB)
     compose(directory, *psql, data=REGISTRATION_POLICY, timeout=600)
-    compose(directory, *psql, data=sample_sql)
+    try:
+        compose(directory, *psql, data=sample_sql)
+    except subprocess.SubprocessError:
+        raise Refusal('staging sample data could not be applied') from None
     compose(directory, 'up', '-d', 'portal', 'portal-public', 'worker', 'ingress', 'sample-feed')
     wait_ready()
 

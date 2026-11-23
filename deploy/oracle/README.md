@@ -580,8 +580,9 @@ Each replacement recreates PostgreSQL, migrates it, installs the testing legal
 pages, seeds test accounts through the portal CLI and loads the sample data
 from the deployed SHA. This uses the updated host deploy script, Compose file
 and staging Dockerfile together. Candidate branches need the staging seed CLI,
-the sample SQL and the atlas files. The staging portal is reachable on `127.0.0.1:18080` on the host, including `/readyz`. Port 18080
-is served by `portal-public`, a second `serve` on the
+the sample SQL and the atlas files. The staging portal is reachable on
+`127.0.0.1:18080` on the host, including `/readyz`. Port 18080 is served by
+`portal-public`, a second `serve` on the
 same database whose origin comes from `/opt/oteryn-staging/public-origin`
 (one `https://<hostname>` line; without the file it is the loopback origin).
 Put the tunnel hostname there when staging is published behind Cloudflare

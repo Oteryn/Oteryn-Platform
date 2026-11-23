@@ -296,16 +296,20 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
     let requested = args.uuid("accountId", true)?;
     let mut tx = pool.begin().await?;
     let existing =
-        sqlx::query("SELECT id, password_hash FROM accounts WHERE lower(email)=$1 FOR UPDATE")
+        sqlx::query("SELECT id, password_hash, email_verified_at IS NOT NULL AS verified FROM accounts WHERE lower(email)=$1 FOR UPDATE")
             .bind(&email)
             .fetch_optional(&mut *tx)
             .await?;
+    let already_exists = existing.is_some();
     let id: Uuid = if let Some(row) = existing {
         let id: Uuid = row.try_get("id")?;
         if requested.is_some_and(|wanted| wanted != id) {
             return Err(SeedError::Conflict(
                 "email belongs to another accountId".into(),
             ));
+        }
+        if args.0.contains_key("verified") && row.try_get::<bool, _>("verified")? != verified {
+            return Err(SeedError::Conflict("account verification differs".into()));
         }
         let hash: String = row.try_get("password_hash")?;
         if !oteryn_identity::password::verify(password, &hash) {
@@ -339,13 +343,24 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| bad("role must be built in"))?;
-        sqlx::query(
-            "INSERT INTO account_roles(account_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-        )
-        .bind(id)
-        .bind(role_id)
-        .execute(&mut *tx)
-        .await?;
+        if already_exists {
+            let assigned: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM account_roles WHERE account_id=$1 AND role_id=$2)",
+            )
+            .bind(id)
+            .bind(role_id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !assigned {
+                return Err(SeedError::Conflict("account role differs".into()));
+            }
+        } else {
+            sqlx::query("INSERT INTO account_roles(account_id, role_id) VALUES ($1, $2)")
+                .bind(id)
+                .bind(role_id)
+                .execute(&mut *tx)
+                .await?;
+        }
     }
     let row = sqlx::query("SELECT status, native_security_generation FROM accounts WHERE id=$1")
         .bind(id)
@@ -1020,17 +1035,27 @@ async fn account_mfa(settings: &Settings, args: &Args<'_>) -> Result<Value, Seed
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
     let totp = TOTP::new(Algorithm::SHA1, 6, 1, 30, secret)
         .map_err(|_| SeedError::Unavailable("TOTP secret"))?;
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|_| SeedError::Unavailable("clock"))?
-        .as_secs();
-    // Confirm with the previous step so the current step's code still logs in.
-    let recovery_codes = mfa
+    let clock = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .map_err(|_| SeedError::Unavailable("clock"))
+    };
+    // Confirm the previous step so the current code can still log in. A step
+    // boundary while acquiring the database lock can make that code too old.
+    let now = clock()?;
+    let mut recovery_codes = mfa
         .confirm(id, password, &totp.generate(now.saturating_sub(30)))
-        .await?
-        .ok_or(SeedError::Unavailable(
-            "MFA confirmation was refused; retry",
-        ))?;
+        .await?;
+    let after = clock()?;
+    if recovery_codes.is_none() && after / 30 > now / 30 {
+        recovery_codes = mfa
+            .confirm(id, password, &totp.generate(after.saturating_sub(30)))
+            .await?;
+    }
+    let recovery_codes = recovery_codes.ok_or(SeedError::Unavailable(
+        "MFA confirmation was refused; retry",
+    ))?;
     if supplied.is_some() {
         return Ok(json!({"entity": "account-mfa", "accountId": id.to_string()}));
     }

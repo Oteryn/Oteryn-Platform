@@ -502,6 +502,18 @@ async fn staging_seed_provisions_staff_with_supplied_totp_and_an_unverified_play
     .fetch_all(&db.pool)
     .await?;
     assert_eq!(roles, ["support"]);
+    assert!(is_conflict(db.seed("account", json!({
+        "email": "staff-support@staging.invalid", "password": PASSWORD, "role": "platform_admin"
+    })).await));
+    assert!(is_conflict(
+        db.seed(
+            "account",
+            json!({
+                "email": "staff-support@staging.invalid", "password": PASSWORD, "verified": false
+            })
+        )
+        .await
+    ));
 
     let raw = vec![0xaf; 20];
     let encoded = Secret::Raw(raw.clone()).to_encoded().to_string();

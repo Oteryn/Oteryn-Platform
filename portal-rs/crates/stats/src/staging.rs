@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub(crate) fn enabled() -> bool {
     std::env::var("OTERYN_ENV").as_deref() == Ok("testing")
         && std::env::var("PORTAL_STAGING_SAMPLE_DATA").as_deref() == Ok("true")
+        && std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY").as_deref() == Ok("staging-sample")
 }
 
 #[derive(Debug)]
