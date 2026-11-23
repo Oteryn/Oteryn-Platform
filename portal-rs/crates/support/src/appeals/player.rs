@@ -35,7 +35,7 @@ const HISTORY: &str = "
         s.lock_version + (COALESCE(a.version, 1) - 1) AS version
     FROM sanctions s
     LEFT JOIN support_appeal_workflows a ON a.sanction_id = s.id AND a.owner_id = s.account_id
-    WHERE s.account_id = $1 AND s.status <> 'pending' AND ($2::uuid IS NULL OR s.id = $2)
+    WHERE s.account_id = $1 AND s.status <> 'pending' AND (s.expires_at IS NOT NULL OR s.approved_by IS NOT NULL) AND ($2::uuid IS NULL OR s.id = $2)
     ORDER BY s.created_at DESC, s.id DESC LIMIT $3 OFFSET $4";
 
 impl Sanction {

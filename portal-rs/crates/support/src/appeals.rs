@@ -1,7 +1,7 @@
 //! Appeal workflow persistence; behavioural reference:
 //! app/Support/Actions/ManageEnforcementRecord.php.
 //!
-//! The adapter must lock and authorize the authoritative
+//! The Platform adapter must lock and authorize the authoritative
 //! sanction in the same transaction, revoke Platform enforcement on acceptance,
 //! and write staff audit and notification outbox entries before committing.
 //! This module never issues game commands. See the enforcement command contract.

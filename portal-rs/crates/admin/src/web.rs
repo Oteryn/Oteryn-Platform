@@ -672,6 +672,7 @@ struct Page {
     newsletter_label: Option<String>,
     forum_label: Option<String>,
     editorial_links: Vec<(&'static str, String)>,
+    enforcement_link: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -825,6 +826,15 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         None
     };
+    let enforcement_link = match s
+        .auth
+        .check(context, Permission::ManageSupportEnforcement)
+        .await
+    {
+        Ok(()) => Some(crate::support::web::text(lang, "enforcement")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -870,6 +880,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .await
             .ok()
             .map(|()| text(lang, "forum")),
+        enforcement_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

@@ -247,7 +247,8 @@ impl Service {
         }
         let status: String = row.try_get("status")?;
         let creator: Uuid = row.try_get("created_by")?;
-        if approve && (status != "pending" || creator == context.account)
+        if approve
+            && (status != "pending" || !independent_approver(context.account, creator, target))
             || !approve && !matches!(status.as_str(), "pending" | "active" | "expired")
         {
             return Err(Error::Denied);
@@ -278,6 +279,10 @@ impl Service {
         })
     }
 }
+fn independent_approver(actor: Uuid, creator: Uuid, target: Uuid) -> bool {
+    actor != creator && actor != target
+}
+
 async fn record(
     tx: &mut Transaction<'_, Postgres>,
     context: CheckContext,
@@ -583,21 +588,39 @@ impl Service {
         if !matches!(state.as_deref(), Some("active" | "suspended")) {
             return Err(StaffError::Denied);
         }
-        let current:Option<(String,i64,Uuid,String,i64,Option<i64>)>=sqlx::query_as("SELECT status,lock_version,account_id,category,(extract(epoch FROM effective_at)*1000)::bigint,(extract(epoch FROM expires_at)*1000)::bigint FROM sanctions WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+        let current: Option<StaffSanction> = sqlx::query_as(
+            "SELECT status,lock_version,category,
+                    floor(extract(epoch FROM effective_at)*1000)::bigint AS effective_at_ms,
+                    floor(extract(epoch FROM expires_at)*1000)::bigint AS expires_at_ms,
+                    created_by,public_reason
+             FROM sanctions WHERE id=$1 AND account_id=$2 FOR UPDATE",
+        )
+        .bind(id)
+        .bind(target)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|_| StaffError::Unavailable)?;
         // Bind staff decisions to both the sanction and the appeal they viewed.
         // Player acknowledgements/resubmissions advance only the workflow counter.
         let workflow: Option<(String,i64)> = sqlx::query_as("SELECT status,version FROM support_appeal_workflows WHERE sanction_id=$1 AND owner_id=$2 FOR UPDATE")
             .bind(id).bind(target).fetch_optional(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         if let Some(row) = &current {
             let shown = row
-                .1
+                .lock_version
                 .checked_add(workflow.as_ref().map_or(1, |w| w.1) - 1)
                 .ok_or(StaffError::Conflict)?;
             if shown != version {
                 return Err(StaffError::Conflict);
             }
         }
-        let before = current.as_ref().map_or(Value::Null,|r|json!({"status":r.0,"lock_version":version,"sanction_version":r.1,"appeal_version":workflow.as_ref().map(|w|w.1),"category":r.3,"effective_at_ms":r.4,"expires_at_ms":r.5}));
+        let before = current.as_ref().map_or(Value::Null, |row| {
+            json!({
+                "status":row.status,"lock_version":version,"sanction_version":row.lock_version,
+                "appeal_version":workflow.as_ref().map(|w|w.1),"category":row.category,
+                "effective_at_ms":row.effective_at_ms,"expires_at_ms":row.expires_at_ms
+            })
+        });
+        let mut notify_player = true;
         let next = match command {
             Command::Sanction {
                 create,
@@ -618,7 +641,7 @@ impl Service {
                     public_reason: public_reason.clone(),
                     moderator_notes: Some(moderator_notes.clone()),
                     effective_at_ms: effective_at.checked_mul(1000).ok_or(StaffError::Invalid)?,
-                    expires_at_ms: Some(expires_at.checked_mul(1000).ok_or(StaffError::Invalid)?),
+                    expires_at_ms: expiry_ms(*expires_at)?,
                 };
                 decision.validate().map_err(|_| StaffError::Invalid)?;
                 if *create {
@@ -629,27 +652,31 @@ impl Service {
                         return Err(StaffError::Invalid);
                     }
                     command.transition("absent")?;
-                    sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,$2,$3,'active',$4,nullif(btrim($5),''),to_timestamp($6::bigint::double precision/1000),to_timestamp($7::bigint::double precision/1000),$8)")
-                        .bind(id).bind(target).bind(category).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
-                    crate::appeals::Appeals { enabled: true }
-                        .register(tx, id, target)
-                        .await
-                        .map_err(|_| StaffError::Unavailable)?;
+                    let initial_status = if decision.expires_at_ms.is_none() {
+                        "pending"
+                    } else {
+                        "active"
+                    };
+                    sqlx::query("INSERT INTO sanctions(id,account_id,category,status,public_reason,moderator_notes,effective_at,expires_at,created_by) VALUES($1,$2,$3,$4,$5,nullif(btrim($6),''),to_timestamp($7::bigint::double precision/1000),to_timestamp($8::bigint::double precision/1000),$9)")
+                        .bind(id).bind(target).bind(category).bind(initial_status).bind(public_reason.trim()).bind(moderator_notes).bind(decision.effective_at_ms).bind(decision.expires_at_ms).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                    notify_player = initial_status == "active";
+                    if notify_player {
+                        register_appeal(tx, id, target).await?;
+                    }
+                    initial_status.to_owned()
                 } else {
                     let row = current.as_ref().ok_or(StaffError::NotFound)?;
-                    command.transition(&row.0)?;
+                    command.transition(&row.status)?;
                     // Decisions cannot be retargeted, reclassified, rescheduled or revived.
                     // A replacement decision gets a new identity through create.
-                    if row.2 != target
-                        || row.3 != *category
+                    if row.category != *category
                         || (status == "active"
-                            && row.5.is_some()
-                            && (row.4 / 1000 != *effective_at
-                                || row.5.map(|time| time / 1000) != Some(*expires_at)))
+                            && (row.effective_at_ms / 1000 != *effective_at
+                                || row.expires_at_ms.map(|time| time / 1000) != *expires_at))
                     {
                         return Err(StaffError::Invalid);
                     }
-                    if (matches!(row.0.as_str(), "revoked" | "expired") && *status != row.0)
+                    if (matches!(row.status.as_str(), "revoked" | "expired") && *status != row.status)
                         || (status == "expired"
                             && !sqlx::query_scalar::<_, bool>(
                                 "SELECT COALESCE(expires_at<=clock_timestamp(),false) FROM sanctions WHERE id=$1",
@@ -662,14 +689,33 @@ impl Service {
                         return Err(StaffError::Conflict);
                     }
                     sqlx::query("UPDATE sanctions SET status=$2,public_reason=$3,moderator_notes=nullif(btrim($4),''),lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(status).bind(public_reason.trim()).bind(moderator_notes).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                    status.clone()
                 }
-                status.clone()
+            }
+            Command::ApproveSanction => {
+                let row = current.as_ref().ok_or(StaffError::NotFound)?;
+                command.transition(&row.status)?;
+                if !independent_approver(actor, row.created_by, target) {
+                    return Err(StaffError::Denied);
+                }
+                if row.expires_at_ms.is_some() {
+                    return Err(StaffError::Conflict);
+                }
+                sqlx::query("UPDATE sanctions SET status='active',approved_by=$2,lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1")
+                    .bind(id).bind(actor).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
+                if workflow.is_none() {
+                    register_appeal(tx, id, target).await?;
+                }
+                "active".to_owned()
             }
             Command::Appeal {
                 appeal_status,
                 appeal_outcome,
             } => {
                 let row = current.as_ref().ok_or(StaffError::NotFound)?;
+                if row.status == "pending" {
+                    return Err(StaffError::Conflict);
+                }
                 let workflow = workflow.as_ref().ok_or(StaffError::NotFound)?;
                 command.transition(&workflow.0)?;
                 let status = match appeal_status.as_str() {
@@ -698,7 +744,7 @@ impl Service {
                 let next = if status == crate::appeals::Status::Accepted {
                     "revoked"
                 } else {
-                    &row.0
+                    &row.status
                 };
                 sqlx::query("UPDATE sanctions SET status=$2,lock_version=lock_version+1,updated_at=clock_timestamp() WHERE id=$1").bind(id).bind(next).execute(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
                 next.to_owned()
@@ -707,15 +753,31 @@ impl Service {
         };
         let body = match command {
             Command::Sanction { public_reason, .. } => public_reason.trim().to_owned(),
-            Command::Appeal {
-                appeal_status,
-                appeal_outcome,
-            } => format!("{appeal_status}: {}", appeal_outcome.trim()),
+            Command::ApproveSanction => current
+                .as_ref()
+                .ok_or(StaffError::NotFound)?
+                .public_reason
+                .clone(),
+            Command::Appeal { appeal_outcome, .. } => appeal_outcome.trim().to_owned(),
             _ => return Err(StaffError::Invalid),
         };
-        crate::tickets::staff::notify(tx, notifications, target, |_| body).await?;
+        if notify_player {
+            crate::tickets::staff::notify(tx, notifications, target, |locale| {
+                if let Command::Appeal { appeal_status, .. } = command {
+                    let locale = crate::reports::web::Locale::from(locale);
+                    format!("{}: {}", locale.text(appeal_status), body)
+                } else {
+                    body
+                }
+            })
+            .await?;
+        }
         let (category, effective_at_ms, expires_at_ms) = if let Some(row) = &current {
-            (row.3.as_str(), row.4, row.5)
+            (
+                row.category.as_str(),
+                row.effective_at_ms,
+                row.expires_at_ms,
+            )
         } else if let Command::Sanction {
             category,
             effective_at,
@@ -726,7 +788,7 @@ impl Service {
             (
                 category.as_str(),
                 effective_at.checked_mul(1000).ok_or(StaffError::Invalid)?,
-                Some(expires_at.checked_mul(1000).ok_or(StaffError::Invalid)?),
+                expiry_ms(*expires_at)?,
             )
         } else {
             return Err(StaffError::Invalid);
@@ -740,4 +802,35 @@ impl Service {
             json!({"status":next,"account_id":target,"category":category,"effective_at_ms":effective_at_ms,"expires_at_ms":expires_at_ms,"appeal_status":appeal_status,"lock_version":if current.is_none(){1}else{version+1+i64::from(matches!(command,Command::Appeal{..}))}}),
         ))
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct StaffSanction {
+    status: String,
+    lock_version: i64,
+    category: String,
+    effective_at_ms: i64,
+    expires_at_ms: Option<i64>,
+    created_by: Uuid,
+    public_reason: String,
+}
+
+fn expiry_ms(expiry: Option<i64>) -> Result<Option<i64>, oteryn_admin::support::Error> {
+    expiry
+        .map(|time| {
+            time.checked_mul(1000)
+                .ok_or(oteryn_admin::support::Error::Invalid)
+        })
+        .transpose()
+}
+
+async fn register_appeal(
+    tx: &mut Transaction<'_, Postgres>,
+    id: Uuid,
+    owner: Uuid,
+) -> Result<(), oteryn_admin::support::Error> {
+    crate::appeals::Appeals { enabled: true }
+        .register(tx, id, owner)
+        .await
+        .map_err(|_| oteryn_admin::support::Error::Unavailable)
 }

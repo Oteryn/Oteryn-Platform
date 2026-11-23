@@ -28,7 +28,7 @@ pub fn router(pool: PgPool, origin: &str) -> Router {
     session.csrf.trusted_origins = vec![origin.to_owned()];
     Router::new()
         .route("/{lang}/account/sanctions", get(history))
-        .route("/{lang}/account/sanctions/{id}", get(detail))
+        .route("/{lang}/account/sanctions/{id}", get(detail).post(submit))
         .route(
             "/{lang}/account/sanctions/{id}/acknowledge",
             post(acknowledge),
@@ -297,6 +297,37 @@ struct Appeal {
     message: String,
     #[serde(rename = "_csrf")]
     _csrf: String,
+}
+
+#[derive(Deserialize)]
+struct SanctionAction {
+    version: i64,
+    #[serde(flatten)]
+    action: SubmittedAction,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+enum SubmittedAction {
+    Acknowledge,
+    Submit { message: String },
+}
+
+async fn submit(
+    State(pool): State<PgPool>,
+    Path((lang, id)): Path<(String, String)>,
+    Extension(session): Extension<BrowserSession>,
+    Extension(limiter): Extension<RateLimiter>,
+    source: ClientSource,
+    form: Result<Form<SanctionAction>, FormRejection>,
+) -> Result<Redirect, Failure> {
+    let target = target(&lang, &id, &session).await?;
+    let Form(form) = form.map_err(|error| Failure::Form(target.0, error.status()))?;
+    let action = match &form.action {
+        SubmittedAction::Acknowledge => PlayerAction::Acknowledge,
+        SubmittedAction::Submit { message } => PlayerAction::Appeal(message),
+    };
+    change(&pool, &limiter, source, target, form.version, action).await
 }
 
 async fn acknowledge(

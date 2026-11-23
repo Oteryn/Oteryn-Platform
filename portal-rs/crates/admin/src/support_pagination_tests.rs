@@ -42,6 +42,7 @@ impl Backend for Queue {
                     messages: vec![],
                     next_message: None,
                     forum_post: None,
+                    enforcement: None,
                 })
                 .collect()
         } else {
