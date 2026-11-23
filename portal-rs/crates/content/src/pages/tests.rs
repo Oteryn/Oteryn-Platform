@@ -1001,6 +1001,10 @@ async fn staff_pages_only_links_to_a_populated_next_page() -> Result<(), Box<dyn
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
     let actor = legal_operator(&pool, "content_editor").await?;
+    // This fixture exercises the boundary between exactly 500 and 501 editions.
+    sqlx::query("DELETE FROM editorial_pages")
+        .execute(&pool)
+        .await?;
     sqlx::query(
         "WITH seeded AS (
              INSERT INTO pages(id,slug)
