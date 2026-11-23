@@ -25,6 +25,7 @@ export async function publishEditorialFixtures(page, locale) {
 
   expect((await page.goto('/admin/events/create')).status()).toBe(200);
   await submit(page, 'main form', {
+    reason: 'Create an event for the browser quality audit.',
     starts_at: new Date(now - 3_600_000).toISOString().slice(0, 16),
     ends_at: new Date(now + 86_400_000).toISOString().slice(0, 16),
     en_title: 'Quality suite event', pl_title: 'Wydarzenie testowe',
@@ -35,7 +36,9 @@ export async function publishEditorialFixtures(page, locale) {
   });
   await expect(page).toHaveURL(/\/admin\/events\/[a-f0-9-]+\/edit$/);
   await page.locator('main form[action$="/status"] select[name=status]').selectOption('published');
-  await submit(page, 'main form[action$="/status"]');
+  await submit(page, 'main form[action$="/status"]', {
+    reason: 'Publish the event for the browser quality audit.',
+  });
   expect((await page.goto(`/${locale}/events/${event}`)).status()).toBe(200);
 
   expect((await page.goto('/admin/wiki/articles/create')).status()).toBe(200);
