@@ -1,4 +1,6 @@
 # Explicit always-on route registrations. S denotes a service.
+internal G /admin/downloads
+internal P /admin/downloads
 internal P /internal/v1/game-public/house
 internal P /internal/v1/game-public/world-online
 public G /
@@ -6,6 +8,7 @@ public G /admin/announcements/{id}/revisions
 public G /admin/mail-outbox
 public G /admin/news/{id}/revisions
 public G /admin/pages/{slug}/{locale}/revisions
+public G /admin/downloads
 public G /announcements/ticker
 public G /api/v1/account/summary
 public G /api/v1/feed
@@ -94,6 +97,7 @@ public P /admin/mail-outbox/retry
 public P /admin/mail-outbox/retry-kind
 public P /admin/news/{id}/revisions/{source}/restore
 public P /admin/pages/{slug}/{locale}/revisions/{source}/restore
+public P /admin/downloads
 public P /api/v1/game-auth/device-sessions/{*rest}
 public P /en/register
 public P /en/register/abuse/challenge
@@ -217,3 +221,5 @@ public G /{lang}/account/stats-watches
 public P /{lang}/account/stats-watches
 public G /{lang}/account/display
 public P /{lang}/account/display
+native G /admin/downloads
+native P /admin/downloads

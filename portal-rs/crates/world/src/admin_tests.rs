@@ -177,6 +177,14 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO world_versions(id,source_commit,status,created_at)
+         SELECT uuidv7(), repeat('f',40), 'failed', now() + interval '1 second'
+         FROM generate_series(1,100)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     let response = get(
         app(pool.clone(), identity.clone()),
         &format!("/admin/world?version={two}&compare={one}"),
@@ -205,6 +213,10 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
         .next()
         .unwrap();
     assert!(body.contains("Validation results"));
+    assert!(body.contains(&format!("value=\"{two}\" selected")));
+    assert!(body.contains("name=\"action\" value=\"publish\""));
+    assert!(!body.contains("name=\"action\" value=\"visibility\""));
+    assert!(!body.contains("name=\"action\" value=\"names\""));
     assert!(body.contains("script"));
     assert!(!body.contains("<script>"));
     assert!(body.contains("value"));
@@ -380,6 +392,18 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
             .capabilities
             .is_none()
     );
+    let inactive = get(app(pool.clone(), identity.clone()), "/admin/world").await;
+    assert_eq!(inactive.status(), StatusCode::OK);
+    let html = String::from_utf8(
+        to_bytes(inactive.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains(candidate.snapshot_id()));
+    assert!(html.contains("Verified import"));
+    assert!(html.contains(">Inactive</dd>"));
     candidate.publish(&pool).await.unwrap();
     let status = native_status(&pool, &source, true).await.unwrap().unwrap();
     assert_eq!(status.capabilities.unwrap(), ["item"]);
@@ -394,6 +418,15 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
     );
     source.fence.authority_epoch = "different-epoch".into();
     assert!(native_status(&pool, &source, true).await.unwrap().is_none());
+    let selected = get(app(pool.clone(), identity.clone()), "/admin/world").await;
+    let html = String::from_utf8(
+        to_bytes(selected.into_body(), 200000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("Selected for publication"));
     let native: Uuid =
         sqlx::query_scalar("SELECT version_id FROM world_catalog_versions WHERE snapshot_id=$1")
             .bind(candidate.snapshot_id())
@@ -457,6 +490,16 @@ async fn postgres_staff_publication_visibility_names_diff_and_refusals() {
         .execute(&pool)
         .await
         .unwrap();
+    let inspect = get(
+        app(pool.clone(), identity.clone()),
+        &format!("/admin/world?version={one}"),
+    )
+    .await;
+    assert_eq!(inspect.status(), StatusCode::OK);
+    let html = to_bytes(inspect.into_body(), 200000).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(html.contains("Validation results"));
+    assert!(!html.contains("name=\"action\" value=\"publish\""));
     assert_eq!(
         post(
             app(pool.clone(), identity.clone()),

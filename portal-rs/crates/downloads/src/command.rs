@@ -83,7 +83,7 @@ impl Command {
             .await
     }
 }
-fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
+pub(crate) fn read_bounded(path: &Path, limit: usize) -> Result<Vec<u8>, Error> {
     let info = std::fs::symlink_metadata(path).map_err(|_| Error::Invalid("public file"))?;
     if !info.is_file() || info.len() > limit as u64 {
         return Err(Error::Invalid("public file size or type"));

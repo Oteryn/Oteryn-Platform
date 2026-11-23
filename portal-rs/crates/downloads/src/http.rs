@@ -11,7 +11,7 @@ use sqlx::PgPool;
 
 use crate::{Channel, Downloads, Error, FeatureFlags, browser};
 
-/// Public GET surface. Publication stays on the trusted operator path.
+/// Static-like public GET surface. Staff uploads use a separate guarded router.
 /// Trust roots are unnecessary here: only previously verified database publications can be read.
 pub fn router(pool: PgPool, flags: FeatureFlags) -> Router {
     Router::new()

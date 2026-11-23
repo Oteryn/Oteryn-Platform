@@ -150,6 +150,8 @@ fn localized_responsive_labelled_template() {
             newsletter_label: None,
             forum_label: Some(text(lang, "forum")),
             editorial_links: vec![("/admin/news", text(lang, "cms-news"))],
+            downloads_link: None,
+            world_link: None,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),

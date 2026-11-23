@@ -2,6 +2,7 @@
 
 pub mod audit;
 mod errors;
+pub mod downloads;
 pub mod rbac;
 
 pub mod web;
