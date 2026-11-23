@@ -4,6 +4,7 @@ use axum::{
     http::{Method, Request},
 };
 use sha2::{Digest, Sha256};
+use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
 use tower::ServiceExt;
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
@@ -55,25 +56,53 @@ async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -
         return Ok(());
     };
     let _guard = oteryn_db::test_support::global_lock_guard().await?;
-    let pool = PgPool::connect(&database_url).await?;
-    oteryn_db::migrate(&pool).await?;
-    let (seller, seller_cookie) = signed_in(&pool).await?;
-    let (buyer, buyer_cookie) = signed_in(&pool).await?;
-    let (_, stranger_cookie) = signed_in(&pool).await?;
+    let root = PgPool::connect(&database_url).await?;
+    let schema = format!("bazaar_activity_{}", Uuid::now_v7().simple());
+    sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+        .execute(&root)
+        .await?;
+    let search_path = schema.clone();
+    let pool = PgPoolOptions::new()
+        .after_connect(move |connection, _| {
+            let search_path = search_path.clone();
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('search_path', $1, false)")
+                    .bind(search_path)
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await?;
+    let result = check_activity(&pool).await;
+    pool.close().await;
+    sqlx::query(AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))
+        .execute(&root)
+        .await?;
+    root.close().await;
+    result
+}
+
+async fn check_activity(pool: &PgPool) -> TestResult {
+    oteryn_db::migrate(pool).await?;
+    let (seller, seller_cookie) = signed_in(pool).await?;
+    let (buyer, buyer_cookie) = signed_in(pool).await?;
+    let (_, stranger_cookie) = signed_in(pool).await?;
     let listing = Uuid::now_v7();
     sqlx::query(
         "INSERT INTO bazaar_listings(id, owner, kind, form, currency, price, accept_offers, ends_at, state)
          VALUES ($1,$2,'character','auction','coins',100,false,now(),'awaiting_delivery')",
-    ).bind(listing).bind(seller).execute(&pool).await?;
+    ).bind(listing).bind(seller).execute(pool).await?;
     sqlx::query(
         "INSERT INTO bazaar_bids(id, listing_id, account, maximum, idempotency_key, leader, price, ends_at)
          VALUES ($1,$2,$3,371,'activity-test',$3,100,now())",
-    ).bind(Uuid::now_v7()).bind(listing).bind(buyer).execute(&pool).await?;
+    ).bind(Uuid::now_v7()).bind(listing).bind(buyer).execute(pool).await?;
     sqlx::query(
         "INSERT INTO bazaar_settlements(id, listing_id, buyer, seller, currency, amount, commission, seller_net, reservation, idempotency_key)
          VALUES ($1,$2,$3,$4,'coins',100,10,90,$5,'activity-test')",
     ).bind(Uuid::now_v7()).bind(listing).bind(buyer).bind(seller).bind(Uuid::now_v7())
-        .execute(&pool).await?;
+        .execute(pool).await?;
 
     let app = router(pool.clone(), true);
     for (cookie, expected, own_listing, bid) in [
@@ -115,7 +144,7 @@ async fn activity_reads_only_session_owned_rows_and_rejects_invalid_requests() -
     )
     .bind(listing)
     .bind([0_u8; 32].as_slice())
-    .execute(&pool)
+    .execute(pool)
     .await?;
     let refused = app
         .clone()

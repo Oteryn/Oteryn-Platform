@@ -277,10 +277,9 @@ async fn staff_action_guards_and_audit_share_the_mutation_transaction()
     unchanged().await?;
     let conflict = post(&token, "reason=role_assignment&conflict=true").await?;
     assert_eq!(conflict.status(), StatusCode::CONFLICT);
-    assert!(
-        String::from_utf8(to_bytes(conflict.into_body(), 100_000).await?.to_vec())?
-            .contains("Change conflict")
-    );
+    let conflict_html = String::from_utf8(to_bytes(conflict.into_body(), 100_000).await?.to_vec())?;
+    assert!(conflict_html.contains("<h1>Update conflict</h1>"));
+    assert!(conflict_html.contains("This action conflicts with the current state."));
     unchanged().await?;
 
     // The sequence is deliberately nontransactional. It attests that the
