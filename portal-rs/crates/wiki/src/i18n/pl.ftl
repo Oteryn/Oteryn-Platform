@@ -35,3 +35,5 @@ archived = Zarchiwizowany
 older = Starsze wersje
 entity-key = Powiązanie z encją
 entity-key-hint = Wpisz dokładny typ:klucz ze ścieżki encji. Pozostaw puste, aby usunąć powiązanie.
+
+game-evidence = Stan danych z gry

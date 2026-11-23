@@ -150,24 +150,6 @@ fn recommendations_filters_and_grouped_locations() {
     assert_eq!(m.recommendations, vec!["rat"]);
     assert_eq!(m.entries[0].estimated_hours, Some(2.0));
     assert_eq!(m.entries[0].spawns.len(), 2);
-    let f = Filters {
-        class: Some("other".into()),
-        ..Default::default()
-    };
-    assert!(
-        build(
-            &[definition()],
-            &[spawn()],
-            &[progress(1)],
-            &rates,
-            20,
-            &f,
-            1000
-        )
-        .expect("filtered")
-        .entries
-        .is_empty()
-    );
     assert!(
         build(
             &[definition()],
@@ -187,6 +169,7 @@ struct Source {
     owner: Uuid,
     character: Uuid,
     observed: u64,
+    world_observed: u64,
 }
 impl web::Source for Source {
     fn load_owned(
@@ -202,12 +185,18 @@ impl web::Source for Source {
                 account: self.owner,
                 character: self.character,
                 observed_at_ms: self.observed,
+                world_observed_at_ms: self.world_observed,
                 baseline_complete: true,
                 level: 20,
                 definitions: vec![definition()],
                 spawns: vec![spawn()],
                 progress: vec![progress(4)],
-                pace: vec![],
+                pace: vec![Pace {
+                    creature: "rat".into(),
+                    min_level: 10,
+                    max_level: 30,
+                    kills_per_hour: 3.0,
+                }],
             })
         })
     }
@@ -218,6 +207,7 @@ async fn actor_to_localized_page_refuses_other_owner_stale_and_bad_input() {
         owner: Uuid::now_v7(),
         character: Uuid::now_v7(),
         observed: 1000,
+        world_observed: 1000,
     };
     for lang in ["pl", "en"] {
         let html = web::show(
@@ -239,6 +229,8 @@ async fn actor_to_localized_page_refuses_other_owner_stale_and_bad_input() {
         }
         assert!(html.contains("viewport"));
         assert!(html.contains("100, 200, 7"));
+        assert!(html.contains("href=\"#creature-0\""));
+        assert!(html.contains("id=\"creature-0\""));
         assert!(html.contains(if lang == "en" {
             "In progress"
         } else {
@@ -283,6 +275,28 @@ async fn actor_to_localized_page_refuses_other_owner_stale_and_bad_input() {
     ));
 }
 #[tokio::test]
+async fn page_requires_current_world_evidence_even_with_current_progress() {
+    let source = Source {
+        owner: Uuid::now_v7(),
+        character: Uuid::now_v7(),
+        observed: 11_001,
+        world_observed: 1000,
+    };
+    assert!(matches!(
+        web::show(
+            &source,
+            source.owner,
+            source.character,
+            "en",
+            &Filters::default(),
+            11_001
+        )
+        .await,
+        Err(Error::Unavailable)
+    ));
+}
+
+#[tokio::test]
 async fn disabled_route_is_absent() {
     use tower::ServiceExt;
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -292,6 +306,7 @@ async fn disabled_route_is_absent() {
         owner: Uuid::now_v7(),
         character: Uuid::now_v7(),
         observed: 1000,
+        world_observed: 1000,
     };
     let response = web::router(pool, false, std::sync::Arc::new(source))
         .oneshot(
@@ -498,4 +513,70 @@ fn fixed_boss_wire_ratios_are_exact_and_closed() {
         spawn_policy(&serde_json::json!({})),
         SpawnPolicy::Unknown
     ));
+}
+
+#[test]
+fn filter_options_must_belong_to_the_qualified_catalogue() {
+    let filters = Filters {
+        class: Some("unknown".into()),
+        ..Default::default()
+    };
+    assert!(matches!(
+        build(
+            &[definition()],
+            &[spawn()],
+            &[progress(4)],
+            &[],
+            20,
+            &filters,
+            1000
+        ),
+        Err(Error::BadInput)
+    ));
+}
+
+#[tokio::test]
+async fn landing_exposes_the_signed_out_state_even_with_the_feed_disabled() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::{Request, StatusCode, header},
+    };
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .connect_lazy("postgres://localhost/unused")
+        .expect("lazy pool");
+    let chrome = oteryn_ui::Chrome {
+        login_mounted: true,
+        ..Default::default()
+    };
+    let response = web::router(
+        pool,
+        false,
+        Arc::new(Source {
+            owner: Uuid::now_v7(),
+            character: Uuid::now_v7(),
+            observed: 1000,
+            world_observed: 1000,
+        }),
+    )
+    .layer(axum::Extension(chrome))
+    .oneshot(
+        Request::builder()
+            .uri("/en/atlas/bestiary")
+            .body(Body::empty())
+            .expect("request"),
+    )
+    .await
+    .expect("landing");
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()[header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    let body = to_bytes(response.into_body(), 100_000).await.expect("body");
+    let html = std::str::from_utf8(&body).expect("html");
+    assert!(html.contains("href=\"/en/login\""));
+    assert!(html.contains("href=\"/en/wiki/places\""));
 }

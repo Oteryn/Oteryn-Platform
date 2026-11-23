@@ -38,7 +38,7 @@
                 {% else %}
                 <li><a href="#bestiariusz">{{ chrome.text("thais-nav-bestiary") }}</a></li>
                 {% endif %}
-                {% for key in ["places", "wiki", "calculators", "atlas", "houses", "delivery"] %}
+                {% for key in ["places", "wiki", "calculators", "atlas", "houses", "delivery", "atlas-bestiary", "wiki-places"] %}
                 {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
                 {% endfor %}
                 {% if interior %}

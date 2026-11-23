@@ -20,4 +20,12 @@ pub fn register(registry: &mut Registry) {
         Group::World,
         false,
     );
+    registry.section(
+        true,
+        "atlas-bestiary",
+        "shell-atlas-bestiary",
+        "atlas/bestiary",
+        Group::World,
+        false,
+    );
 }

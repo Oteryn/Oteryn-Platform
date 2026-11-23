@@ -35,3 +35,5 @@ archived = Archived
 older = Older revisions
 entity-key = Entity binding
 entity-key-hint = Enter the exact kind:key from the entity route. Leave blank to remove the binding.
+
+game-evidence = Game evidence status
