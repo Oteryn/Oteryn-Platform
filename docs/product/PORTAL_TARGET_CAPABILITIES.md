@@ -106,9 +106,25 @@ Counts (57 rows): DONE 7 · UNUSABLE 25 · GAME 15 · ABSENT 10 · plus 3 rows t
 | D7 | performance (tick, memory, players per world, uptime) | UNUSABLE | Game: serve metrics, fill `tick_ms`/connections |
 | D8 | portal `/metrics` | ABSENT | Platform lane **w2-obs** |
 
+## The design already exists: ADM-01 / ADM-02 (Game repo, CANDIDATE)
+
+Game `docs/architecture/ADM-01_ADMIN_CONTROL_PLANE_CONTRACT.md` (operation catalog §6: ops/health, worlds incl.
+`world.state.set` open/closed/maintenance, `world.configure` rates, `world.save_now`, `world.restart` with countdown,
+`world.create/retire`, nodes, database and backups, players incl. dossier, kick, teleport, rename, stats, item grant/
+remove with escrow, currency adjust, sanctions, broadcast, MOTD, events, world feature flags, analytics named
+queries, audit ledger, approvals) and `ADM-02` (12 console modules, analytics catalog §5 with Activity, Progression,
+Combat, Economy, World, Integrity and Operations query groups, phases 0-5) cover every row of sections A, B and D.
+
+Phase 1 (read-only console) is built on the Platform side: `crates/admin/src/control/*` (channel, signer, store,
+catalog of the 20 phase-1 operations, conformance vectors) and `crates/admin/src/console/*` (dashboard, worlds, nodes,
+database, players, audit, access, approvals, alerts). It is unusable because the Game agent executes only
+`admin.policy.get` and the staff host is off in production. Phase 2+ operation schemas do not exist yet in Game
+`docs/contracts/admin-control/v1/` (only phase-1 schemas), so Platform phase-2 forms (ADM-P3) wait for them.
+
 ## Game-side tasks (for the Game coordinator; Platform does not implement from non-accepted contracts)
 
-- G-ADM: accept ADM-01 and implement agent operations: world state set (open/closed/staff-only/maintenance/drain),
+- G-ADM: accept ADM-01; ADM-G3 read executors (phase 1), then phase-2 schemas + ADM-G4/G5 (kick with fence, teleport,
+  message, broadcast, MOTD, save now, drain, world state, restart, sanctions), then phase 3 (G10-G13). Operations: world state set (open/closed/staff-only/maintenance/drain),
   scheduled save/restart/shutdown with countdown broadcast, broadcast/MOTD, world configure with revisions,
   player ops (teleport, kick, ban/unban, rename, restore, item/gold grant with receipts).
 - G-ECO: ANL-03 exporter: publish item/bank/market/house/mail/guild-bank audit outboxes to the portal; money-supply
@@ -126,6 +142,13 @@ Counts (57 rows): DONE 7 · UNUSABLE 25 · GAME 15 · ABSENT 10 · plus 3 rows t
 4. Runtime feature-flag toggles from the panel vs env-only.
 5. Production: open the staff panel on a separate host (and bootstrap the first admin).
 6. Production: lift the testing/preprod-only gate for Game public data once Game publishes.
+
+## Integration
+
+All lanes branch from main 7847cf7d. They are merged in this order into `staging/integration` for the staging
+deploy: GAP-28, 33, 34 (CMS), GAP-14, 21 (identity), GAP-26, 27, 59 (support), GAP-11, UI, then w2-bootstrap,
+regpolicy, mailops, sysops, obs, charts, status, notify, forum. Conflicts are resolved there; nothing goes to main
+before the owner releases the freeze.
 
 ## Platform build lanes running (Codex Cloud, each followed by a Codex review-and-fix lane)
 
