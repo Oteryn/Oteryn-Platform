@@ -138,6 +138,7 @@ fn localized_responsive_labelled_template() {
             reports_label: text(lang, "reports"),
             moderate_reports: true,
             mail_link: None,
+            operations_link: Some(text(lang, "ops-title")),
             players_label: text(lang, "players"),
             players: true,
             account_label: text(lang, "account"),
@@ -160,6 +161,7 @@ fn localized_responsive_labelled_template() {
             "Report moderation"
         }));
         assert!(html.contains("href=\"/admin/players\""));
+        assert!(html.contains("href=\"/admin/world-operations\""));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));

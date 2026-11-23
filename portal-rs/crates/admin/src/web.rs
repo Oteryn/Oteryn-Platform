@@ -282,6 +282,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::world_operations::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
             "/admin/mail-outbox/retry",
@@ -521,6 +522,7 @@ struct Page {
     moderate_reports: bool,
     mail_link: Option<String>,
     players_label: String,
+    operations_link: Option<String>,
     players: bool,
     account_label: String,
     role_label: String,
@@ -623,6 +625,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let operations_link = match crate::world_operations::has_scope(&s.pool, context.account).await {
+        Ok(true) => Some(text(lang, "ops-title")),
+        Ok(false) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -630,6 +637,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        operations_link,
         players_label: text(lang, "players"),
         players,
         account_label: text(lang, "account"),

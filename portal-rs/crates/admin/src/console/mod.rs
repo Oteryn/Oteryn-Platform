@@ -478,7 +478,7 @@ fn lang(headers: &HeaderMap, selection: &Selection) -> &'static str {
         "pl"
     }
 }
-fn text(lang: &str, key: &str) -> String {
+pub(crate) fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
     };
