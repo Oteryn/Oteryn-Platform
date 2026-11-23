@@ -39,13 +39,20 @@ test('Atlas reports appear in staff moderation and return decisions to their rep
     const staffDetail = new URL(staff.url()).pathname;
     const id = staffDetail.split('/').at(-1);
     await expect(staff.locator('main')).toContainText(report.text);
+    const moderation = 'form:has(input[value=moderate])';
+    const statusOptions = staff.locator(`${moderation} select[name=status] option`);
+    expect(await statusOptions.evaluateAll(options => options.map(option => option.value))).toEqual([
+      'submitted', 'reviewing', 'actioned', 'rejected',
+    ]);
     const outcome = 'Atlas landmark corrected <north of the bridge>.';
     const notes = 'Internal map review record.';
-    await action(staff, 'form:has(input[value=moderate])', {
+    await action(staff, moderation, {
       status: 'actioned', public_outcome: outcome, moderator_notes: notes,
     });
     await expect(staff).toHaveURL(new RegExp(`/${id}$`));
     await expect(staff.locator('main')).toContainText(outcome);
+    await expect(statusOptions).toHaveCount(1);
+    await expect(statusOptions.first()).toHaveAttribute('value', 'closed');
 
     if (info.project.use.viewport.width <= 960) {
       await page.locator('#portal-menu-toggle').click();
@@ -66,11 +73,18 @@ test('Atlas reports appear in staff moderation and return decisions to their rep
     }
 
     const other = await otherContext.newPage();
-    await seededLogin(other, lang, await seededAccount(lang));
+    await seededStaff(other, lang, 'moderator');
     const refusal = await other.request.get(`${history}/${id}`);
     expect(refusal.status()).toBe(404);
     expect(await refusal.text()).not.toContain(outcome);
+    expect((await other.goto('/admin')).status()).toBe(200);
+    await expect(other.locator(`main nav a[href="${staffQueue}"]`)).toHaveCount(0);
+    expect((await other.request.get(staffQueue)).status()).toBe(403);
     expect((await other.request.get(staffDetail)).status()).toBe(403);
+
+    await action(staff, moderation, { status: 'closed', public_outcome: outcome, moderator_notes: notes });
+    await expect(staff.locator('main')).toContainText(outcome);
+    await expect(staff.locator(moderation)).toHaveCount(0);
   } finally {
     await Promise.all([staffContext.close(), otherContext.close()]);
   }

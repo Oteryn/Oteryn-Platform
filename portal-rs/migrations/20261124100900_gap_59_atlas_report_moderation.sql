@@ -3,7 +3,7 @@ ALTER TABLE atlas_map_reports
     ADD COLUMN lock_version bigint NOT NULL DEFAULT 1 CHECK (lock_version > 0),
     ADD COLUMN public_outcome text,
     ADD COLUMN moderator_notes text,
-    ADD COLUMN assigned_to uuid REFERENCES accounts(id),
+    ADD COLUMN assigned_to uuid REFERENCES accounts(id) ON DELETE SET NULL,
     ADD COLUMN processed_at timestamptz,
     ADD COLUMN moderation_phase text CHECK (
         (moderation_phase = 'reviewing' AND status = 'pending') OR

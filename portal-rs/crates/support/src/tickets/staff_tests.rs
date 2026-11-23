@@ -343,6 +343,10 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
     .bind(owner)
     .fetch_one(&pool)
     .await?;
+    sqlx::query("UPDATE accounts SET locale='pl' WHERE id=$1")
+        .bind(owner)
+        .execute(&pool)
+        .await?;
     for (version, status, note, expected) in [
         (1, "actioned", "", StatusCode::UNPROCESSABLE_ENTITY),
         (1, "reviewing", "", StatusCode::SEE_OTHER),
@@ -373,6 +377,13 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .ok_or("recently decided Atlas report missing from history")?;
     assert_eq!(atlas.status, "rejected");
     assert_eq!(atlas.public_outcome.as_deref(), Some("Missing detail"));
+    let notice: String = sqlx::query_scalar(
+        "SELECT body FROM notifications WHERE account_id=$1 AND body LIKE '%Missing detail%'",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await?;
+    assert!(notice.contains("Odrzucone: Missing detail"));
     assert!(matches!(
         reports.get(staff, atlas_report).await,
         Err(crate::reports::Error::NotFound)

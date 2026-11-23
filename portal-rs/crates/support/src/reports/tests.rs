@@ -200,6 +200,10 @@ async fn postgres_success_idempotency_privacy_and_history() -> TestResult {
     ));
     assert!(service.list(other, 1).await?.is_empty());
     assert!(matches!(service.list(owner, 0).await, Err(Error::Invalid)));
+    assert!(matches!(
+        service.list(owner, MAX_PAGE + 1).await,
+        Err(Error::Invalid)
+    ));
     sqlx::query("UPDATE player_reports SET moderator_notes='private note', public_outcome='Public outcome', status='actioned', created_at=now()-interval '31 days' WHERE id=$1").bind(report.id).execute(&db.pool).await?;
     assert!(service.list(owner, 1).await?.is_empty());
     assert_eq!(
@@ -219,6 +223,50 @@ async fn postgres_success_idempotency_privacy_and_history() -> TestResult {
         .bind(owner).execute(&db.pool).await?;
     assert_eq!(service.list(owner, 1).await?.len(), 20);
     assert_eq!(service.list(owner, 2).await?.len(), 1);
+    assert!(service.history_page(owner, 1).await?.1);
+    sqlx::query("DELETE FROM player_reports WHERE reporter_account_id=$1 AND target_reference='Reference 21'")
+        .bind(owner).execute(&db.pool).await?;
+    let (last_page, has_next) = service.history_page(owner, 1).await?;
+    assert_eq!(last_page.len(), 20);
+    assert!(!has_next);
+    db.close().await
+}
+
+#[tokio::test]
+async fn postgres_atlas_history_retains_decisions_after_assignee_removal() -> TestResult {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let owner = db.account("active").await?;
+    let assignee = db.account("active").await?;
+    let id: Uuid = sqlx::query_scalar(
+        "INSERT INTO atlas_map_reports(account_id,x,y,floor,description,status,public_outcome,assigned_to)
+         VALUES($1,1,2,7,'Update the trail','resolved','Trail updated',$2) RETURNING id",
+    )
+    .bind(owner)
+    .bind(assignee)
+    .fetch_one(&db.pool)
+    .await?;
+    sqlx::query("DELETE FROM accounts WHERE id=$1")
+        .bind(assignee)
+        .execute(&db.pool)
+        .await?;
+    let assigned_to: Option<Uuid> =
+        sqlx::query_scalar("SELECT assigned_to FROM atlas_map_reports WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(assigned_to.is_none());
+    let reports = Reports::new(
+        db.pool.clone(),
+        Policy {
+            enabled: true,
+            ..Policy::default()
+        },
+    );
+    let report = reports.get(owner, id).await?;
+    assert_eq!(report.public_outcome.as_deref(), Some("Trail updated"));
     db.close().await
 }
 

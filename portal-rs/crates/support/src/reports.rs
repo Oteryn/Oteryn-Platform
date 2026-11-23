@@ -115,6 +115,16 @@ impl std::fmt::Debug for Report {
     }
 }
 const PROJECTION: &str = "id, report_type, category, target_reference, evidence_summary, status, public_outcome, created_at";
+const PAGE_SIZE: usize = 20;
+const MAX_PAGE: u32 = 10_000;
+
+fn status_key<'a>(report_type: &str, status: &'a str) -> &'a str {
+    if report_type == "atlas" && status == "actioned" {
+        "resolved"
+    } else {
+        status
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -218,16 +228,27 @@ impl Reports {
         Ok(report)
     }
     pub async fn list(&self, owner: AccountId, page: u32) -> Result<Vec<Report>, Error> {
+        self.history_page(owner, page)
+            .await
+            .map(|(reports, _)| reports)
+    }
+    async fn history_page(
+        &self,
+        owner: AccountId,
+        page: u32,
+    ) -> Result<(Vec<Report>, bool), Error> {
         self.available()?;
-        if page == 0 {
+        if !(1..=MAX_PAGE).contains(&page) {
             return Err(Error::Invalid);
         }
         let mut tx = self.pool.begin().await?;
         Self::account(&mut tx, owner).await?;
-        let rows = sqlx::query_as(AssertSqlSafe(format!("SELECT {PROJECTION} FROM support_report_queue WHERE reporter_account_id=$1 AND (created_at >= now()-interval '30 days' OR (report_type='atlas' AND processed_at >= now()-interval '30 days')) ORDER BY created_at DESC,id DESC LIMIT 20 OFFSET $2")))
-            .bind(owner).bind(i64::from(page-1)*20).fetch_all(&mut *tx).await?;
+        let mut rows = sqlx::query_as(AssertSqlSafe(format!("SELECT {PROJECTION} FROM support_report_queue WHERE reporter_account_id=$1 AND (created_at >= now()-interval '30 days' OR (report_type='atlas' AND processed_at >= now()-interval '30 days')) ORDER BY created_at DESC,id DESC LIMIT $2 OFFSET $3")))
+            .bind(owner).bind((PAGE_SIZE + 1) as i64).bind(i64::from(page-1) * PAGE_SIZE as i64).fetch_all(&mut *tx).await?;
         tx.commit().await?;
-        Ok(rows)
+        let has_next = rows.len() > PAGE_SIZE && page < MAX_PAGE;
+        rows.truncate(PAGE_SIZE);
+        Ok((rows, has_next))
     }
     pub async fn get(&self, owner: AccountId, id: Uuid) -> Result<Report, Error> {
         self.available()?;
@@ -320,7 +341,7 @@ impl Reports {
                 updated_at=clock_timestamp()
               WHERE id=$1"
         };
-        sqlx::query(AssertSqlSafe(update))
+        let updated = sqlx::query(AssertSqlSafe(update))
             .bind(id)
             .bind(status)
             .bind(public_outcome)
@@ -329,12 +350,18 @@ impl Reports {
             .execute(&mut **tx)
             .await
             .map_err(|_| StaffError::Unavailable)?;
-        crate::tickets::staff::notify(
-            tx,
-            notifications,
-            owner,
-            format!("{status}: {}", public_outcome.trim()),
-        )
+        if updated.rows_affected() != 1 {
+            return Err(StaffError::NotFound);
+        }
+        crate::tickets::staff::notify(tx, notifications, owner, |locale| {
+            let label = web::Locale::from(locale).text(status_key(&report_type, status));
+            let outcome = public_outcome.trim();
+            if outcome.is_empty() {
+                label
+            } else {
+                format!("{label}: {outcome}")
+            }
+        })
         .await?;
         Ok((
             serde_json::json!({"status":current,"lock_version":version}),
