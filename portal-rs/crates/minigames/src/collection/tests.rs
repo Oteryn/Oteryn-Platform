@@ -660,6 +660,22 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
     let response = app
         .clone()
         .oneshot(
+            Request::post(&path)
+                .header(header::COOKIE, &cookie)
+                .header(header::ORIGIN, "https://portal.example.invalid")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!(
+                    "name=Legacy+deck&first={}&second=&third=&_csrf={csrf}",
+                    db.card.id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    let response = app
+        .clone()
+        .oneshot(
             Request::post(format!("/en/collection/decks/{}/battle", deck.id))
                 .header(header::COOKIE, &cookie)
                 .header(header::ORIGIN, "https://portal.example.invalid")
