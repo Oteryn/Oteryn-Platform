@@ -20,3 +20,7 @@ fishing = Fishing
 death = Death (time and level)
 
 recent-deaths = Recent deaths
+portal-search = Find characters in portal search
+compare = Compare this character
+skills = Skills
+deaths = Recent deaths

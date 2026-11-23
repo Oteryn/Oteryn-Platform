@@ -41,3 +41,7 @@ axe_level = Axe fighting
 distance_level = Distance fighting
 shielding_level = Shielding
 fishing_level = Fishing
+compare-title = Compare characters
+compare-hint = Enter two public character names and choose a metric. Results show observed daily values.
+first-character = First character name
+second-character = Second character name

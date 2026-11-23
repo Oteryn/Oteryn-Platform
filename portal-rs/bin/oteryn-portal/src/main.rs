@@ -404,7 +404,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_web::search::routes(
                 oteryn_web::search::SearchState {
                     pool: db.clone(),
-                    characters: None,
+                    characters: oteryn_community::profiles::configured_search(db.clone()),
                     world: Some(std::sync::Arc::new({
                         let pool = db.clone();
                         let catalog = oteryn_world::catalog::publication_enabled().then(||

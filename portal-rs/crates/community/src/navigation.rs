@@ -63,4 +63,12 @@ pub fn register(registry: &mut Registry) {
         Group::Community,
         false,
     );
+    registry.section(
+        crate::profiles::enabled(),
+        "characters",
+        "shell-public-characters",
+        "characters",
+        Group::Community,
+        false,
+    );
 }

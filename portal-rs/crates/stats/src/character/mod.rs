@@ -25,12 +25,17 @@ pub struct PublicCharacter {
 }
 pub type CurrentFuture<'a> =
     Pin<Box<dyn Future<Output = Result<PublicCharacter, Error>> + Send + 'a>>;
+pub type NamedFuture<'a> = Pin<Box<dyn Future<Output = Result<(Uuid, String), Error>> + Send + 'a>>;
+
 /// Resolve current eligible profile and T45 privacy on every read. Missing subjects
 /// are NotFound; stale epochs, watermarks or unknown privacy are Unavailable.
 /// Rank history requires retained authoritative rank evidence, never current ranks
 /// retroactively applied to older days. No owner-only progress enters this port.
 pub trait Current: Send + Sync {
     fn character(&self, id: Uuid) -> CurrentFuture<'_>;
+    fn by_name<'a>(&'a self, _name: &'a str) -> NamedFuture<'a> {
+        Box::pin(async { Err(Error::Unavailable) })
+    }
     /// Accepted world-specific XP threshold. None means no approved formula.
     fn experience_at_level(&self, _id: Uuid, _level: u32) -> Option<u64> {
         None

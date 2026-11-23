@@ -407,3 +407,4 @@ discovery-unpublished = Opublikuj obie wersje językowe przed dodaniem dokumentu
 discovery-duplicate = Klucz lub pozycja w menu są już zajęte.
 discovery-navigation = Odnośniki redakcyjne
 rankings-computed-at = Ranking obliczono (UTC)
+shell-public-characters = Postacie

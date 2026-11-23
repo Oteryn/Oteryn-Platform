@@ -10,18 +10,51 @@ use axum::{
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
 use serde::Deserialize;
 
-struct Deny;
-impl Current for Deny {
-    fn character(&self, _: Uuid) -> CurrentFuture<'_> {
-        Box::pin(async { Err(Error::Unavailable) })
+use oteryn_community::profiles::{self, Directory};
+
+struct ProfileSource(Option<Directory>);
+impl Current for ProfileSource {
+    fn character(&self, id: Uuid) -> CurrentFuture<'_> {
+        Box::pin(async move {
+            let directory = self.0.as_ref().ok_or(Error::Unavailable)?;
+            let profile = directory
+                .identity_by_id(id)
+                .await
+                .map_err(|_| Error::Unavailable)?
+                .ok_or(Error::NotFound)?;
+            Ok(PublicCharacter {
+                name: profile.name,
+                permissions: Permissions {
+                    visible: true,
+                    guild: profile.fields.guild,
+                    skills: profile.fields.skills,
+                    deaths: profile.fields.deaths,
+                    online: false,
+                },
+                ranks: None,
+            })
+        })
+    }
+
+    fn by_name<'a>(&'a self, name: &'a str) -> NamedFuture<'a> {
+        Box::pin(async move {
+            let directory = self.0.as_ref().ok_or(Error::Unavailable)?;
+            let identity = directory
+                .identity_by_name(name)
+                .await
+                .map_err(|_| Error::Unavailable)?
+                .ok_or(Error::NotFound)?;
+            Ok((identity.id, identity.name))
+        })
     }
 }
-/// T24b must provide a current, fenced public-profile/privacy adapter before activation.
+
 pub fn configured_router(db: PgPool) -> Router {
+    let directory = profiles::enabled().then(|| Directory::configured(db.clone()));
     router(Characters {
         db,
         enabled: std::env::var("PORTAL_CHARACTER_STATS_ENABLED").as_deref() == Ok("true"),
-        current: Arc::new(Deny),
+        current: Arc::new(ProfileSource(directory)),
     })
 }
 pub fn router(state: Characters) -> Router {
@@ -38,6 +71,8 @@ struct Query {
     #[serde(default, deserialize_with = "target")]
     target: Option<u32>,
     ids: Option<String>,
+    first: Option<String>,
+    second: Option<String>,
     metric: Option<String>,
 }
 fn target<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u32>, D::Error> {
@@ -148,6 +183,9 @@ struct Page {
     end: String,
     ids: String,
     comparison: bool,
+    first: String,
+    second: String,
+    compare_hint: String,
     selected_metric: String,
     charts: Vec<(String, String)>,
     metrics: Vec<(String, String)>,
@@ -173,6 +211,8 @@ fn page(lang: &str, text: &Text) -> Page {
             "experience",
             "skills",
             "target",
+            "first-character",
+            "second-character",
         ]
         .map(|k| text.get(k))
         .to_vec(),
@@ -180,28 +220,18 @@ fn page(lang: &str, text: &Text) -> Page {
         end: String::new(),
         ids: String::new(),
         comparison: false,
+        first: String::new(),
+        second: String::new(),
+        compare_hint: text.get("compare-hint"),
         selected_metric: "level".into(),
         charts: vec![],
-        metrics: [
-            "level",
-            "experience",
-            "magic_level",
-            "fist_level",
-            "club_level",
-            "sword_level",
-            "axe_level",
-            "distance_level",
-            "shielding_level",
-            "fishing_level",
-        ]
-        .map(|key| (key.into(), text.get(key)))
-        .to_vec(),
+        metrics: METRICS.map(|key| (key.into(), text.get(key))).to_vec(),
     }
 }
 fn finish(mut page: Page, text: &Text, result: Result<(), Error>) -> Response {
     let status = match result {
         Ok(()) => {
-            if page.rows.is_empty() {
+            if page.rows.is_empty() && !page.comparison {
                 page.message = text.get("empty");
             }
             StatusCode::OK
@@ -252,7 +282,7 @@ async fn character(
             return Err(Error::NotFound);
         }
         let (q, start, end) = parse(raw.as_deref().unwrap_or(""))?;
-        if q.ids.is_some() || q.metric.is_some() {
+        if q.ids.is_some() || q.metric.is_some() || q.first.is_some() || q.second.is_some() {
             return Err(Error::Invalid);
         }
         let id = id(&raw_id)?;
@@ -381,6 +411,48 @@ async fn character(
     .await;
     finish(page, &text, result)
 }
+const METRICS: [&str; 10] = [
+    "level",
+    "experience",
+    "magic_level",
+    "fist_level",
+    "club_level",
+    "sword_level",
+    "axe_level",
+    "distance_level",
+    "shielding_level",
+    "fishing_level",
+];
+
+enum Subjects<'a> {
+    Picker(Option<&'a str>),
+    Names([&'a str; 2]),
+    Ids(&'a str),
+}
+
+fn subjects(query: &Query) -> Result<Subjects<'_>, Error> {
+    if query
+        .first
+        .iter()
+        .chain(&query.second)
+        .any(|name| !profiles::valid_name(name) || !profiles::valid_name(name.trim()))
+    {
+        return Err(Error::Invalid);
+    }
+    let first = query.first.as_deref().map(str::trim);
+    let second = query.second.as_deref().map(str::trim);
+    match (query.ids.as_deref(), first, second) {
+        (Some(ids), None, None) => Ok(Subjects::Ids(ids)),
+        (None, Some(first), Some(second)) => Ok(Subjects::Names([first, second])),
+        (None, first, None)
+            if query.start.is_none() && query.end.is_none() && query.metric.is_none() =>
+        {
+            Ok(Subjects::Picker(first))
+        }
+        _ => Err(Error::Invalid),
+    }
+}
+
 fn metric(d: &Daily, metric: &str) -> Option<u64> {
     match metric {
         "level" => Some(d.level),
@@ -424,9 +496,7 @@ async fn compare(
     };
     let mut page = page(&lang, &text);
     page.comparison = true;
-    if state.enabled && raw.as_deref().is_none_or(str::is_empty) {
-        return finish(page, &text, Ok(()));
-    }
+    page.title = text.get("compare-title");
     let result = async {
         if !state.enabled {
             return Err(Error::Disabled);
@@ -436,29 +506,45 @@ async fn compare(
             return Err(Error::Invalid);
         }
         let metric_name = q.metric.as_deref().unwrap_or("level");
-        if ![
-            "level",
-            "experience",
-            "magic_level",
-            "fist_level",
-            "club_level",
-            "sword_level",
-            "axe_level",
-            "distance_level",
-            "shielding_level",
-            "fishing_level",
-        ]
-        .contains(&metric_name)
-        {
+        if !METRICS.contains(&metric_name) {
             return Err(Error::Invalid);
         }
         page.selected_metric = metric_name.into();
-        let raw_ids = q.ids.as_deref().ok_or(Error::Invalid)?;
-        let ids = raw_ids.split(',').map(id).collect::<Result<Vec<_>, _>>()?;
-        let reports = state.compare(&ids, start, end).await?;
         page.start = start.to_string();
         page.end = end.to_string();
-        page.ids = raw_ids.into();
+        let selection = match subjects(&q)? {
+            Subjects::Picker(first) => {
+                page.first = first.unwrap_or_default().into();
+                return Ok(());
+            }
+            Subjects::Ids(raw_ids) => {
+                let ids = raw_ids.split(',').map(id).collect::<Result<Vec<_>, _>>()?;
+                page.ids = raw_ids.into();
+                (ids, None)
+            }
+            Subjects::Names([first, second]) => {
+                let (first_id, first_name) = state.current.by_name(first).await?;
+                let (second_id, second_name) = state.current.by_name(second).await?;
+                (
+                    vec![first_id, second_id],
+                    Some([(first_id, first_name), (second_id, second_name)]),
+                )
+            }
+        };
+        let (ids, names) = selection;
+        let reports = state.compare(&ids, start, end).await?;
+        if let Some([(first_id, first_name), (second_id, second_name)]) = names {
+            for (id, name) in [(first_id, &first_name), (second_id, &second_name)] {
+                if !reports
+                    .iter()
+                    .any(|report| report.id == id && report.name == *name)
+                {
+                    return Err(Error::Unavailable);
+                }
+            }
+            page.first = first_name;
+            page.second = second_name;
+        }
         let maximum = reports
             .iter()
             .flat_map(|r| {
@@ -479,6 +565,10 @@ async fn compare(
                 maximum,
                 series,
             );
+            if report.history.daily.is_empty() {
+                page.rows
+                    .push((String::new(), report.name.clone(), text.get("unavailable")));
+            }
             for d in report.history.daily {
                 page.rows.push((
                     d.day.to_string(),
@@ -488,7 +578,9 @@ async fn compare(
                         .unwrap_or_else(|| text.get("unavailable")),
                 ));
             }
-            page.charts.push((report.name, points));
+            if !points.is_empty() {
+                page.charts.push((report.name, points));
+            }
         }
         Ok(())
     }
@@ -500,6 +592,33 @@ async fn compare(
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[test]
+    fn comparison_accepts_two_names_or_existing_id_format() {
+        let selection = |raw: &str| parse(raw).map(|(query, _, _)| query);
+        let picker = selection("first=Aldric").unwrap();
+        assert!(matches!(
+            subjects(&picker),
+            Ok(Subjects::Picker(Some("Aldric")))
+        ));
+        let names = selection("first=Aldric&second=Carina&metric=level").unwrap();
+        assert!(matches!(
+            subjects(&names),
+            Ok(Subjects::Names(["Aldric", "Carina"]))
+        ));
+        let ids = selection("ids=a,b").unwrap();
+        assert!(matches!(subjects(&ids), Ok(Subjects::Ids("a,b"))));
+        for malformed in [
+            "first=Aldric&metric=level".to_owned(),
+            "first=Aldric&second=Carina&ids=a,b".to_owned(),
+            "first=Aldric&second=%2F".to_owned(),
+            "first=Aldric&second=%0ACarina".to_owned(),
+            format!("first=Aldric&second={}", "a".repeat(65)),
+        ] {
+            let query = selection(&malformed).unwrap();
+            assert!(subjects(&query).is_err(), "{malformed}");
+        }
+    }
+
     #[test]
     fn query_bounds_and_localization() {
         for raw in [
