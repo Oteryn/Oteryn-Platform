@@ -1,5 +1,6 @@
 password-title = Change password
 sudo-title = Confirm your password
+sudo-refused = Check your current password.
 current = Current password
 new = New password (at least 10 characters)
 confirm = Confirm new password

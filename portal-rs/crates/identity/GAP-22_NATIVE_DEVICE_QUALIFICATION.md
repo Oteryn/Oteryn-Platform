@@ -13,10 +13,10 @@ revocation of persisted families while native enrollment is disabled.
 
 | Document | Status | Use |
 | --- | --- | --- |
-| [Original candidate](../contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md) | Historical | Design history for the separate native credential. |
-| [Native device session service](../contracts/OTERYN_V2_NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT.md) | Accepted for the service | Protocol 1 transport and wire behavior, enrollment proof, session classes, and rotation and revocation. |
-| [Native remembered-device client](../contracts/OTERYN_V2_NATIVE_REMEMBERED_DEVICE_CLIENT_CONTRACT.md) | Proposed, with superseded wire details | Client qualification checklist. Use the accepted service contract for request and response bodies. |
-| [Gateway login](../contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md) | Governs protocol 3 recovery | Device binding and recovery release gates in §19.15. |
+| [Original candidate](../../../docs/contracts/NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT_CANDIDATE.md) | Historical | Design history for the separate native credential. |
+| [Native device session service](../../../docs/contracts/OTERYN_V2_NATIVE_REMEMBERED_DEVICE_SESSION_CONTRACT.md) | Accepted for the service | Protocol 1 transport and wire behavior, enrollment proof, session classes, and rotation and revocation. |
+| [Native remembered-device client](../../../docs/contracts/OTERYN_V2_NATIVE_REMEMBERED_DEVICE_CLIENT_CONTRACT.md) | Proposed, with superseded wire details | Client qualification checklist. Use the accepted service contract for request and response bodies. |
+| [Gateway login](../../../docs/contracts/OTERYN_V2_NATIVE_GATEWAY_LOGIN_CONTRACT.md) | Governs protocol 3 recovery | Device binding and recovery release gates in §19.15. |
 
 ## Operator status
 

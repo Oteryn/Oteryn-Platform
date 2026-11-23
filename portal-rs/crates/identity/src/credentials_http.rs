@@ -183,6 +183,7 @@ async fn page(
     session: BrowserSession,
     change: bool,
     return_to: SudoReturn,
+    before: Option<uuid::Uuid>,
 ) -> Result<Response, StatusCode> {
     if session.account_id().await.is_none() {
         return Ok(redirect("/login"));
@@ -216,13 +217,20 @@ async fn page(
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
             .unwrap_or(false),
-        error: text(lang, if breached { "breached" } else { "refused" }),
+        error: text(
+            lang,
+            match (change, breached) {
+                (false, _) => "sudo-refused",
+                (true, true) => "breached",
+                (true, false) => "refused",
+            },
+        ),
         back: match return_to {
             SudoReturn::Security if oteryn_identity::navigation::overview_enabled() => {
                 "/account".into()
             }
             SudoReturn::Security => String::new(),
-            target => target.path(lang.code()),
+            target => device_page_path(target.path(lang.code()), before),
         },
         native_devices: SudoReturn::NativeDevices.path(lang.code()),
         native_devices_label: lang.text("shell-account-native-devices"),
@@ -249,12 +257,23 @@ async fn show_password(
     Extension(lang): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, true, SudoReturn::default()).await
+    page(lang, session, true, SudoReturn::default(), None).await
 }
 #[derive(serde::Deserialize)]
 struct SudoQuery {
     #[serde(default)]
     return_to: SudoReturn,
+    #[serde(flatten)]
+    devices: DeviceQuery,
+}
+
+impl SudoQuery {
+    fn device_cursor(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
+        match self.return_to {
+            SudoReturn::NativeDevices => self.devices.cursor(),
+            _ => Ok(None),
+        }
+    }
 }
 
 async fn show_sudo(
@@ -262,7 +281,8 @@ async fn show_sudo(
     Extension(session): Extension<BrowserSession>,
     Query(query): Query<SudoQuery>,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, false, query.return_to).await
+    let before = query.device_cursor()?;
+    page(lang, session, false, query.return_to, before).await
 }
 fn session_hash(headers: &HeaderMap) -> Option<Vec<u8>> {
     let mut values = headers
@@ -367,6 +387,7 @@ async fn sudo(
 ) -> Result<Response, StatusCode> {
     let Query(query) =
         Query::<SudoQuery>::try_from_uri(&parts.uri).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let before = query.device_cursor()?;
     if let Err(response) = check(
         &limiter,
         &session,
@@ -397,12 +418,11 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(
-            lang,
-            &session,
-            &format!("account/sudo{}", query.return_to.query()),
-        )
-        .await;
+        let mut path = format!("account/sudo{}", query.return_to.query());
+        if let Some(before) = before {
+            path.push_str(&format!("&before={before}"));
+        }
+        return refuse(lang, &session, &path).await;
     }
     let until = sqlx::types::time::OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
     sqlx::query(
@@ -419,7 +439,10 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&query.return_to.path(lang.code())))
+    Ok(redirect(&device_page_path(
+        query.return_to.path(lang.code()),
+        before,
+    )))
 }
 
 #[cfg(test)]
@@ -456,6 +479,7 @@ struct NativeDevicesPage {
     lang: Language,
     entries: Vec<Device>,
     path: String,
+    action: String,
     next: Option<uuid::Uuid>,
     older: bool,
     confirm: Option<String>,
@@ -476,6 +500,31 @@ struct DeviceQuery {
     before: Option<String>,
 }
 
+impl DeviceQuery {
+    fn cursor(&self) -> Result<Option<uuid::Uuid>, StatusCode> {
+        self.before
+            .as_deref()
+            .map(native_devices::parse_family)
+            .transpose()
+            .map_err(|_| StatusCode::BAD_REQUEST)
+    }
+}
+
+fn device_page_path(path: String, before: Option<uuid::Uuid>) -> String {
+    match before {
+        Some(before) => format!("{path}?before={before}"),
+        None => path,
+    }
+}
+
+fn device_sudo_path(lang: Language, before: Option<uuid::Uuid>) -> String {
+    let path = SudoReturn::NativeDevices.sudo_path(lang.code());
+    match before {
+        Some(before) => format!("{path}&before={before}"),
+        None => path,
+    }
+}
+
 async fn native_devices_page(
     State(service): State<Credentials>,
     Extension(lang): Extension<Language>,
@@ -489,12 +538,7 @@ async fn native_devices_page(
         .identity_hash()
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let before = query
-        .before
-        .as_deref()
-        .map(native_devices::parse_family)
-        .transpose()
-        .map_err(|_| StatusCode::BAD_REQUEST)?;
+    let before = query.cursor()?;
     let (entries, next) = native_devices::list(&service.pool, owner, before)
         .await
         .map_err(unavailable)?;
@@ -516,13 +560,15 @@ async fn native_devices_page(
             .await
             .map_err(unavailable)?;
     }
+    let path = SudoReturn::NativeDevices.path(lang.code());
     Ok(oteryn_web::render(&NativeDevicesPage {
         lang,
         entries,
-        path: SudoReturn::NativeDevices.path(lang.code()),
+        action: device_page_path(path.clone(), before),
+        path,
         next,
         older: before.is_some(),
-        confirm: (!recent && can_revoke).then(|| SudoReturn::NativeDevices.sudo_path(lang.code())),
+        confirm: (!recent && can_revoke).then(|| device_sudo_path(lang, before)),
         recent,
         csrf,
         revoked,
@@ -588,6 +634,7 @@ async fn revoke_native_device(
     Extension(session): Extension<BrowserSession>,
     Extension(limiter): Extension<RateLimiter>,
     oteryn_web::ratelimit::ClientSource(peer): oteryn_web::ratelimit::ClientSource,
+    Query(query): Query<DeviceQuery>,
     Form(input): Form<DeviceInput>,
 ) -> Result<Response, StatusCode> {
     let owner = session.account_id().await.ok_or(StatusCode::UNAUTHORIZED)?;
@@ -595,8 +642,6 @@ async fn revoke_native_device(
         .identity_hash()
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
-    let family =
-        native_devices::parse_family(&input.family).map_err(|_| StatusCode::BAD_REQUEST)?;
     if let Err(response) = check(
         &limiter,
         &session,
@@ -608,20 +653,23 @@ async fn revoke_native_device(
     {
         return Ok(*response);
     }
+    let family =
+        native_devices::parse_family(&input.family).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let before = query.cursor()?;
     let target = SudoReturn::NativeDevices;
     match native_devices::revoke(&service.pool, owner, &hash, family)
         .await
         .map_err(unavailable)?
     {
         Revocation::Denied => Err(StatusCode::UNAUTHORIZED),
-        Revocation::Confirm => Ok(Redirect::to(&target.sudo_path(lang.code())).into_response()),
+        Revocation::Confirm => Ok(Redirect::to(&device_sudo_path(lang, before)).into_response()),
         Revocation::Missing => Err(StatusCode::NOT_FOUND),
         Revocation::Revoked => {
             session
                 .set(DEVICE_REVOKED, &true)
                 .await
                 .map_err(unavailable)?;
-            Ok(Redirect::to(&target.path(lang.code())).into_response())
+            Ok(Redirect::to(&device_page_path(target.path(lang.code()), before)).into_response())
         }
     }
 }

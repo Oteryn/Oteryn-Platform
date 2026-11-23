@@ -30,7 +30,7 @@
 <dt>{{ self.text("native-devices-expires") }}</dt><dd>{{ entry.expires }}</dd>
 </dl>
 {% if recent && entry.can_revoke() %}
-<form method="post" action="{{ path }}">
+<form method="post" action="{{ action }}">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
 <input type="hidden" name="family" value="{{ entry.id }}">
 <button class="op-button" type="submit">{{ self.text("native-devices-revoke") }}</button>

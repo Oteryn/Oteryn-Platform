@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {test, expect} from '../fixtures.mjs';
 import {csrfRejected, login, pool, register, submit} from '../helpers.mjs';
 
@@ -27,6 +28,13 @@ test('account security reviews and revokes a native remembered device', async ({
     const foreignFamily = await seedFamily(foreign, 'remembered');
     const temporaryFamily = await seedFamily(owner, 'session');
     await db.query(
+      `INSERT INTO device_sessions
+       (id,account_id,client_id,enrollment_token_id,game_generation,native_generation,
+        absolute_expires_at,idle_expires_at,revoked_at)
+       SELECT uuidv7(),id,uuidv7(),uuidv7()::text,game_auth_generation,native_security_generation,0,0,0
+       FROM accounts CROSS JOIN generate_series(1,25) WHERE id=$1`, [owner]
+    );
+    await db.query(
       `INSERT INTO game_login_tickets
        (ticket_hash,account_id,game_generation,native_generation,audience,expires_at,device_family_id)
        SELECT sha256(uuidv7()::text::bytea),id,game_auth_generation::text,native_security_generation::text,
@@ -41,12 +49,24 @@ test('account security reviews and revokes a native remembered device', async ({
     await expect(page.getByRole('heading', {level: 1})).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     const device = page.locator(`[data-native-family="${ownFamily}"]`);
+    await expect(device).toHaveCount(0);
+    await expect(page.locator('[data-native-family]')).toHaveCount(25);
+    await page.locator(`main a[href^="${path}?before="]`).click();
+    const olderPage = page.url();
+    expect(new URL(olderPage).searchParams.get('before')).toMatch(/^[a-f0-9-]{36}$/);
     await expect(device.locator('[data-native-state]')).toHaveAttribute('data-native-state', 'current');
     await expect(page.locator(`[data-native-family="${foreignFamily}"], [data-native-family="${temporaryFamily}"]`)).toHaveCount(0);
     await expect(device.locator('form')).toHaveCount(0);
-    await page.locator('main a[href$="return_to=native-devices"]').click();
+    await page.locator('main a[href*="return_to=native-devices"]').click();
+    const confirmation = page.url();
+    expect(new URL(confirmation).searchParams.get('before')).toBe(new URL(olderPage).searchParams.get('before'));
+    await submit(page, 'main form', {current_password: 'incorrect-confirmation-password'});
+    await expect(page).toHaveURL(confirmation);
+    await expect(page.locator('main [role=alert]')).toHaveText(
+      lang === 'pl' ? 'Sprawdź obecne hasło.' : 'Check your current password.'
+    );
     await submit(page, 'main form', {current_password: account.password});
-    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    await expect(page).toHaveURL(olderPage);
 
     await csrfRejected(page, path, {family: ownFamily});
     const csrf = await device.locator('input[name="_csrf"]').inputValue();
@@ -57,6 +77,7 @@ test('account security reviews and revokes a native remembered device', async ({
       expect(refused.status()).toBe(status);
     }
     await submit(page, `[data-native-family="${ownFamily}"] form`);
+    await expect(page).toHaveURL(olderPage);
     await expect(device.locator('[data-native-state]')).toHaveAttribute('data-native-state', 'revoked');
     await expect(device.locator('form')).toHaveCount(0);
     const state = (await db.query(
@@ -69,5 +90,19 @@ test('account security reviews and revokes a native remembered device', async ({
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   } finally {
     await db.end();
+  }
+});
+
+test('i18n-parity for native remembered devices', () => {
+  const keys = lang => [...readFileSync(
+    new URL(`../../crates/identity/src/credentials_${lang}.ftl`, import.meta.url), 'utf8'
+  ).matchAll(/^(native-devices-[\w-]+|sudo-refused)[ \t]*=[ \t]*\S/gm)].map(match => match[1]).sort();
+  const english = keys('en');
+  const polish = keys('pl');
+  expect(english).toContain('native-devices-title');
+  expect(polish).toEqual(english);
+  const template = readFileSync(new URL('../../templates/account/native_devices.html', import.meta.url), 'utf8');
+  for (const [, key] of template.matchAll(/self\.text\("(native-devices-[\w-]+)"\)/g)) {
+    expect(english).toContain(key);
   }
 });

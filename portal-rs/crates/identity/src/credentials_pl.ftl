@@ -1,5 +1,6 @@
 password-title = Zmień hasło
 sudo-title = Potwierdź hasło
+sudo-refused = Sprawdź obecne hasło.
 current = Obecne hasło
 new = Nowe hasło (co najmniej 10 znaków)
 confirm = Powtórz nowe hasło
