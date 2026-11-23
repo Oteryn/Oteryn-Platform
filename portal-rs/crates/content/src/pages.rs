@@ -116,7 +116,7 @@ async fn custom(
     show(&pool, lang, &slug).await
 }
 async fn show(pool: &PgPool, lang: &str, slug: &str) -> Response {
-    let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
+    let result = sqlx::query("SELECT e.title,e.body,COALESCE(e.legal_version,'') AS version,COALESCE(e.legal_effective_date::text,'') AS effective FROM pages p JOIN editorial_pages e ON e.page_id=p.id JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en' WHERE p.slug=$1 AND e.locale=$2 AND e.published_at<=now() AND source.published_at<=now() AND (e.expires_at IS NULL OR now()<e.expires_at) AND (source.expires_at IS NULL OR now()<source.expires_at) AND (e.locale='en' OR e.source_revision=source.revision) AND (p.slug NOT IN ('terms-of-service','privacy-policy','cookie-policy') OR (e.legal_version IS NOT NULL AND e.legal_effective_date IS NOT NULL))").bind(slug).bind(lang).fetch_optional(pool).await;
     let help_links = matches!(&result, Ok(None)) && matches!(slug, "support" | "report-a-bug");
     let (status, title, body, version, draft_notice) = match result {
         Ok(Some(row)) => {

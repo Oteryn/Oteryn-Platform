@@ -557,13 +557,17 @@ async fn postgres_pagination_language_and_caps() {
             page: Some(number),
         };
         assert!(!listing(&pool, "en", &q).await.unwrap().0.contains("?page="));
-        assert!(
-            !admin_index(State(pool.clone()), Extension(context), Query(q))
-                .await
-                .unwrap()
-                .0
-                .contains("?page=")
-        );
+        let response = admin_index(
+            State(pool.clone()),
+            Extension(context),
+            Query(q),
+            HeaderMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let html = to_bytes(response.into_body(), 100000).await.unwrap();
+        assert!(!String::from_utf8_lossy(&html).contains("?page="));
     }
     pool.close().await;
     sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {schema} CASCADE")))

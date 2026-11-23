@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ title }}</h1>
+  <a href="/admin/news/create?lang={{ lang }}">{{ create }}</a>
+  <ul class="op-stack">
+  {% for row in rows %}
+    <li>
+      <a href="/admin/news/{{ row.id }}/edit?lang={{ lang }}">{{ row.title }}</a>
+      <div>EN · {{ row.en_status }}{% if !row.start.is_empty() %} · <time datetime="{{ row.start }}">{{ row.start }}</time>{% endif %}</div>
+      <div>PL · {{ row.pl_status }}{% if !row.pl_start.is_empty() %} · <time datetime="{{ row.pl_start }}">{{ row.pl_start }}</time>{% endif %}</div>
+      {% if !row.end.is_empty() %}<div>{{ end_label }} · <time datetime="{{ row.end }}">{{ row.end }}</time></div>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  {% if let Some(page) = next %}<a href="?page={{ page }}&amp;lang={{ lang }}">{{ next_label }}</a>{% endif %}
+</main>
+</body>
+</html>

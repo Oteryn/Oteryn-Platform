@@ -995,3 +995,82 @@ async fn operator_save_audits_actor_and_publication_time() -> Result<(), Box<dyn
     drop_pages_schema(root, pool, &schema).await?;
     Ok(())
 }
+
+#[tokio::test]
+async fn paired_page_window_requires_current_editions_and_editor_permission()
+-> Result<(), Box<dyn std::error::Error>> {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("test database required")?;
+    let editor = legal_operator(&pool, "content_editor").await?;
+    let reader = legal_operator(&pool, "security_admin").await?;
+    let context = |account| oteryn_admin::rbac::CheckContext {
+        require_staff_mfa: false,
+        ..oteryn_admin::rbac::CheckContext::new(account)
+    };
+    let auth = oteryn_admin::rbac::MutationAuthorization::new(std::sync::Arc::new(
+        oteryn_admin::rbac::Authorizer::new(pool.clone(), Identity(editor)),
+    ));
+    let slug = "scheduled-launch";
+    let draft = PageForm {
+        title: "Launch".into(),
+        body: "Launch information".into(),
+        action: "save".into(),
+        ..PageForm::default()
+    };
+    persist_current(&pool, &auth, context(editor), slug, "en", &draft).await?;
+    let revision = || async {
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT en.updated_at::text,coalesce(pl.updated_at::text,'')
+             FROM pages p JOIN editorial_pages en ON en.page_id=p.id AND en.locale='en'
+             LEFT JOIN editorial_pages pl ON pl.page_id=p.id AND pl.locale='pl'
+             WHERE p.slug=$1",
+        )
+        .bind(slug)
+        .fetch_one(&pool)
+        .await
+    };
+    let mut form = PageForm {
+        schedule_revision: revision().await?.0,
+        schedule_at: "2030-05-10T12:00:00+02:00".into(),
+        schedule_until: "2030-05-10T13:00:00+02:00".into(),
+        action: "schedule".into(),
+        ..PageForm::default()
+    };
+    assert!(matches!(
+        persist(&pool, &auth, context(editor), slug, "en", &form).await,
+        Err(Error::InvalidInput)
+    ));
+    persist_current(&pool, &auth, context(editor), slug, "pl", &draft).await?;
+    (form.schedule_revision, form.translation_revision) = revision().await?;
+    assert!(matches!(
+        persist(&pool, &auth, context(reader), slug, "en", &form).await,
+        Err(Error::Denied)
+    ));
+    let mut reversed = form.clone();
+    reversed.schedule_until = "2030-05-10T09:59:00Z".into();
+    assert!(matches!(
+        persist(&pool, &auth, context(editor), slug, "en", &reversed).await,
+        Err(Error::InvalidInput)
+    ));
+    persist(&pool, &auth, context(editor), slug, "en", &form).await?;
+    assert!(matches!(
+        persist(&pool, &auth, context(editor), slug, "en", &form).await,
+        Err(Error::InvalidInput)
+    ));
+    let scheduled: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM editorial_pages
+         WHERE published_at='2030-05-10T10:00:00Z' AND expires_at='2030-05-10T11:00:00Z'",
+    )
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(scheduled, 2);
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE action='cms.page.scheduled' AND target=$1",
+    )
+    .bind(slug)
+    .fetch_one(&pool)
+    .await?;
+    assert_eq!(audits, 1);
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
