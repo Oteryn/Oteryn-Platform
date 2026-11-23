@@ -47,7 +47,6 @@
 {% endfor %}
 </ul>
 </section>
-{% if security_shortcut.is_some() || !links.is_empty() %}
 <nav aria-label="{{ shortcuts }}"><ul class="op-row">
 {% if let Some(path) = security_shortcut %}
 <li><a class="op-button op-button--secondary" href="{{ path }}">{{ security_shortcut_label }}</a></li>
@@ -57,7 +56,6 @@
 {% endfor %}
 <li><a class="op-button op-button--secondary" href="#native-login">{{ native_login }}</a></li>
 </ul></nav>
-{% endif %}
 </main>
 </body>
 </html>
