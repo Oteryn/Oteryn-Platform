@@ -181,6 +181,11 @@ async fn postgres_token_route_preserves_grant_scope() -> TestResult {
     ];
     let malformed = send(&fields)?.await?;
     assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&to_bytes(malformed.into_body(), 4096).await?)?
+            ["error"],
+        "invalid_request"
+    );
     assert_eq!(counts().await?, (0, 0));
 
     let mut fields = fields.to_vec();
@@ -194,11 +199,17 @@ async fn postgres_token_route_preserves_grant_scope() -> TestResult {
     };
     assert_eq!(issued.status(), StatusCode::OK);
     assert_eq!(repeated.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&to_bytes(repeated.into_body(), 4096).await?)?
+            ["error"],
+        "invalid_grant"
+    );
     assert_eq!(issued.headers()["cache-control"], "no-store");
     assert_eq!(counts().await?, (1, 1));
 
     let tokens: serde_json::Value =
         serde_json::from_slice(&to_bytes(issued.into_body(), 4096).await?)?;
+    assert_eq!(tokens["scope"], TICKET_SCOPE);
     let access = tokens["access_token"].as_str().ok_or("access token")?;
     let refresh = tokens["refresh_token"].as_str().ok_or("refresh token")?;
     assert_eq!(verify_access(&db.pool, &config(), access).await?, account);
@@ -214,10 +225,37 @@ async fn postgres_token_route_preserves_grant_scope() -> TestResult {
         ("refresh_token", refresh),
         ("scope", ACCOUNT_SERVICES_SCOPE),
     ];
-    assert_eq!(send(&fields)?.await?.status(), StatusCode::BAD_REQUEST);
+    let refused = send(&fields)?.await?;
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&to_bytes(refused.into_body(), 4096).await?)?["error"],
+        "invalid_grant"
+    );
     assert_eq!(counts().await?, (1, 1));
     fields[3].1 = TICKET_SCOPE;
-    assert_eq!(send(&fields)?.await?.status(), StatusCode::OK);
+    let rotated = send(&fields)?.await?;
+    assert_eq!(rotated.status(), StatusCode::OK);
+    assert_eq!(rotated.headers()["cache-control"], "no-store");
+    let tokens: serde_json::Value =
+        serde_json::from_slice(&to_bytes(rotated.into_body(), 4096).await?)?;
+    assert_eq!(tokens["scope"], TICKET_SCOPE);
+    let rotated_access = tokens["access_token"]
+        .as_str()
+        .ok_or("rotated access token")?;
+    assert!(
+        rotated_access != access,
+        "rotation should issue a fresh access token"
+    );
+    assert_eq!(
+        verify_access(&db.pool, &config(), rotated_access).await?,
+        account
+    );
+    assert_eq!(
+        verify_account_services(&db.pool, &config(), rotated_access)
+            .await
+            .err(),
+        Some(Error::InvalidGrant)
+    );
     assert_eq!(counts().await?, (1, 2));
     db.close().await
 }

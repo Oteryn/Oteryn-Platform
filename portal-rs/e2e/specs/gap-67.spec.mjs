@@ -41,8 +41,12 @@ test('ticket attachment and staff reply through the player and support panels', 
   await uploadForm.getByRole('button', { name: lang === 'pl' ? 'Dodaj zrzut ekranu' : 'Attach screenshot' }).click();
   const image = page.locator('#screenshots img');
   await expect(image).toBeVisible();
+  await expect.poll(() => image.evaluate(element => element.naturalWidth)).toBe(20);
   const src = await image.getAttribute('src');
-  expect((await page.request.get(src)).headers()['cache-control']).toContain('no-store');
+  const screenshot = await page.request.get(src);
+  expect(screenshot.status()).toBe(200);
+  expect(screenshot.headers()['content-type']).toBe('image/png');
+  expect(screenshot.headers()['cache-control']).toContain('no-store');
   expect((await upload(page, { _csrf, request_key, image: png })).status()).toBe(302);
   expect(await screenshots()).toEqual([{ id: src.split('/').at(-1), uploader_id: owner.id }]);
 
@@ -91,6 +95,11 @@ test('ticket attachment and staff reply through the player and support panels', 
       'SELECT author_account_id, body FROM ticket_messages WHERE ticket_id=$1 AND author_kind=$2',
       [id, 'staff'],
     )).toEqual([{ author_account_id: staffId, body }]);
+    await staff.getByRole('link', { name: lang === 'pl' ? 'Zrzuty ekranu' : 'Screenshots', exact: true }).click();
+    const staffImage = staff.locator('#screenshots img');
+    await expect(staffImage).toBeVisible();
+    await expect.poll(() => staffImage.evaluate(element => element.naturalWidth)).toBe(20);
+    expect((await staffImage.getAttribute('src')).split('/').at(-1)).toBe(src.split('/').at(-1));
     await page.reload();
     await expect(page.locator('main')).toContainText(body);
     await expect(image).toHaveCount(1);
