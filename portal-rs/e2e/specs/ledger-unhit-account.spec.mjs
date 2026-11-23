@@ -160,7 +160,9 @@ test('mail reset token works through the unprefixed reset endpoint', async ({pag
   await logout(page, lang);
   expect((await page.goto(`/${lang}/forgot-password`)).status()).toBe(200);
   await submit(page, 'main form', {email: account.email});
-  const link = await mailLink(page, account.email, /https:\/\/localhost:18443\/(?:pl|en)\/reset-password\/[a-f0-9]+/);
+  const resetUrl = new URL(`/${lang}/reset-password/`, page.url());
+  const resetPath = resetUrl.href.replace(/[\^$.*+?()[\]{}|\\]/g, '\\$&');
+  const link = await mailLink(page, account.email, new RegExp(resetPath + '[a-f0-9]+'));
   expect((await page.goto(link)).status()).toBe(200);
   const form = await page.locator('main form').evaluate(f => Object.fromEntries(new FormData(f)));
   const next = password();
@@ -211,10 +213,10 @@ for (const localized of [false, true]) {
     const prefix = localized ? `/${lang}` : '';
     expect((await page.goto(manage)).status()).toBe(200);
     const csrf = await page.locator('main form [name=_csrf]').inputValue();
-  const headers = {origin: new URL(page.url()).origin};
-  const form = {_csrf: csrf, current_password: account.password};
-  const generated = await page.request.post(manage, {form, headers});
-  expect(generated.status()).toBe(200);
+    const headers = {origin: new URL(page.url()).origin};
+    const form = {_csrf: csrf, current_password: account.password};
+    const generated = await page.request.post(manage, {form, headers});
+    expect(generated.status()).toBe(200);
     const key = /<[^>]+class="op-code"[^>]*>([^<]+)<\//.exec(await generated.text())?.[1].trim();
     expect(Boolean(key)).toBe(true);
     const confirmed = await page.request.post(`${manage}/confirm`, {
@@ -226,7 +228,8 @@ for (const localized of [false, true]) {
     const revoked = await page.request.delete(`${prefix}${manage}`, {
       form, headers, maxRedirects: 0,
     });
-    expect(revoked.status()).toBe(302);
+    expect(revoked.status()).toBe(303);
+    expect(revoked.headers().location).toBe(`/${lang}${manage}`);
     expect(await readState()).toEqual([{confirmed: true, revoked: true}]);
 
     if (!localized) {
