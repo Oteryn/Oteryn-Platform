@@ -152,7 +152,7 @@ async fn validates_registry_and_history_paths_and_paginates_notices() -> Result 
             StatusCode::BAD_REQUEST,
         ),
         (
-            app,
+            app.clone(),
             format!("{}?before=bad", path(world)),
             StatusCode::BAD_REQUEST,
         ),
@@ -172,15 +172,57 @@ async fn validates_registry_and_history_paths_and_paginates_notices() -> Result 
     let mut before = None;
     let mut ids = Vec::new();
     for size in [PAGE_SIZE, PAGE_SIZE, 1] {
-        let page = history_page(&db.db, Language::En, world, History { before })
-            .await
-            .map_err(|status| format!("history returned {status}"))?;
+        let page = history_page(
+            &db.db,
+            Language::En,
+            world,
+            History {
+                before: before.clone(),
+            },
+        )
+        .await
+        .map_err(|status| format!("history returned {status}"))?;
         assert_eq!(page.incidents.len(), size);
+        if let Some(cursor) = &before {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::get(format!("{}?before={cursor}", path(world))).body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let html = String::from_utf8(to_bytes(response.into_body(), 100_000).await?.to_vec())?;
+            assert!(html.contains(&format!("/pl/worlds/{world}/uptime?before={cursor}")));
+        }
         ids.extend(page.incidents.into_iter().map(|notice| notice.id));
         before = page.next.map(|cursor| cursor.to_string());
     }
     assert!(before.is_none());
     assert!(ids.windows(2).all(|pair| pair[0] > pair[1]));
+    db.close().await
+}
+
+#[tokio::test]
+async fn incident_change_budget_is_per_staff_account() -> Result {
+    let db = Database::new().await?;
+    let actor = Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT 'world-incident-change', sha256(uuid_send($1)),
+                date_trunc('minute',statement_timestamp()) + minutes * interval '1 minute', $2
+         FROM generate_series(0,1) AS windows(minutes)",
+    )
+    .bind(actor)
+    .bind(CHANGES_PER_MINUTE)
+    .execute(&db.db)
+    .await?;
+    assert!(matches!(
+        charge_change(&db.db, actor).await,
+        Err(Denial::Limited {
+            retry_after: 1..=60
+        })
+    ));
+    assert!(charge_change(&db.db, Uuid::now_v7()).await.is_ok());
     db.close().await
 }
 

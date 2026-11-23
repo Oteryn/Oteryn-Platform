@@ -5,14 +5,14 @@ use axum::{
     Extension, Form, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, StatusCode, header},
-    response::{Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
     rbac::{self, CheckContext, MutationAuthorization, Permission},
 };
-use oteryn_web::{Language, session::BrowserSession};
+use oteryn_web::{Language, ratelimit::Denial, session::BrowserSession};
 use serde::Deserialize;
 use serde_json::json;
 use sqlx::PgPool;
@@ -20,6 +20,9 @@ use uuid::Uuid;
 
 pub(super) const NOTICE_PERMISSION: Permission = Permission::ManagePortalAnnouncements;
 const PAGE_SIZE: usize = 20;
+const CHANGES_PER_MINUTE: i64 = 30;
+// Each summary can contain 240 four-byte characters, percent-encoded by the browser.
+const MAX_FORM_BYTES: usize = 8 * 1024;
 
 pub(super) fn staff_routes(db: PgPool) -> Router {
     Router::new()
@@ -31,7 +34,7 @@ pub(super) fn staff_routes(db: PgPool) -> Router {
             "/admin/world-status/{lang}/{world}/{incident}/resolve",
             post(resolve),
         )
-        .layer(DefaultBodyLimit::max(4096))
+        .layer(DefaultBodyLimit::max(MAX_FORM_BYTES))
         .with_state(db)
 }
 
@@ -79,6 +82,7 @@ struct Page {
     language: Language,
     lang: &'static str,
     incidents: Vec<Incident>,
+    before: Option<Uuid>,
     next: Option<Uuid>,
     can_publish: bool,
     csrf: Option<String>,
@@ -97,6 +101,14 @@ impl Page {
 
     fn response(&self) -> Response {
         localized(oteryn_web::render(self), self.language)
+    }
+
+    fn locale_path(&self, lang: &str) -> String {
+        let path = self.path(lang);
+        match self.before {
+            Some(before) => format!("{path}?before={before}"),
+            None => path,
+        }
     }
 }
 
@@ -143,6 +155,7 @@ async fn history_page(
         language,
         lang: language.code(),
         incidents,
+        before,
         next,
         can_publish,
         csrf: None,
@@ -218,8 +231,11 @@ async fn publish(
     Extension(auth): Extension<MutationAuthorization>,
     Extension(context): Extension<CheckContext>,
     Form(notice): Form<Notice>,
-) -> Result<Redirect, StatusCode> {
+) -> Result<Redirect, ChangeError> {
     let language = locale(&lang)?;
+    charge_change(&db, context.account)
+        .await
+        .map_err(|error| ChangeError::Quota(error, language))?;
     let world = world_id(&world)?;
     let (en, pl) = notice.summaries()?;
     change(&db, &auth, context, world, Change::Open { en, pl }).await?;
@@ -232,18 +248,55 @@ async fn resolve(
     Extension(auth): Extension<MutationAuthorization>,
     Extension(context): Extension<CheckContext>,
     Form(_): Form<Resolve>,
-) -> Result<Redirect, StatusCode> {
+) -> Result<Redirect, ChangeError> {
     let language = locale(&lang)?;
+    charge_change(&db, context.account)
+        .await
+        .map_err(|error| ChangeError::Quota(error, language))?;
     let world = world_id(&world)?;
-    change(
-        &db,
-        &auth,
-        context,
-        world,
-        Change::Resolve(world_id(&incident)?),
-    )
-    .await?;
+    let incident = world_id(&incident)?;
+    change(&db, &auth, context, world, Change::Resolve(incident)).await?;
     Ok(operator_redirect(language, world))
+}
+
+enum ChangeError {
+    Status(StatusCode),
+    Quota(Denial, Language),
+}
+
+impl From<StatusCode> for ChangeError {
+    fn from(status: StatusCode) -> Self {
+        Self::Status(status)
+    }
+}
+
+impl IntoResponse for ChangeError {
+    fn into_response(self) -> Response {
+        match self {
+            Self::Status(status) => status.into_response(),
+            Self::Quota(error, language) => error.response(language, false),
+        }
+    }
+}
+
+async fn charge_change(db: &PgPool, account: Uuid) -> Result<(), Denial> {
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES('world-incident-change',sha256(uuid_send($1)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$2+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(account)
+    .bind(CHANGES_PER_MINUTE)
+    .fetch_one(db)
+    .await
+    .map_err(|_| Denial::Unavailable)?;
+    if count > CHANGES_PER_MINUTE {
+        return Err(Denial::Limited { retry_after });
+    }
+    Ok(())
 }
 
 fn operator_redirect(language: Language, world: Uuid) -> Redirect {

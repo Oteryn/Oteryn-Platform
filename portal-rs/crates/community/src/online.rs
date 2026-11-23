@@ -336,7 +336,7 @@ async fn load_inner(state: &Online, query: &Query) -> Result<Roster, Unavailable
     if fresh_cut.is_none() || !watermark_is_fresh(cut, serving) {
         return Ok(Roster::Stale);
     }
-    if worlds.is_empty() && query.world.as_ref().is_some_and(|world| !world.is_empty()) {
+    if worlds.is_empty() {
         return Ok(Roster::Missing);
     }
     for world in &mut worlds {

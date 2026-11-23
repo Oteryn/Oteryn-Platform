@@ -12,8 +12,8 @@
 <header class="op-panel op-row">
   <a class="op-button op-button--secondary" href="/{{ lang }}/worlds">{{ language.text("worlds-title") }}</a>
   <nav class="op-row" aria-label="{{ language.text("language-switch") }}">
-    <a class="op-button op-button--secondary" href="{{ self.path("pl") }}" lang="pl" hreflang="pl">{{ language.text("worlds-polish") }}</a>
-    <a class="op-button op-button--secondary" href="{{ self.path("en") }}" lang="en" hreflang="en">{{ language.text("worlds-english") }}</a>
+    <a class="op-button op-button--secondary" href="{{ self.locale_path("pl") }}" lang="pl" hreflang="pl">{{ language.text("worlds-polish") }}</a>
+    <a class="op-button op-button--secondary" href="{{ self.locale_path("en") }}" lang="en" hreflang="en">{{ language.text("worlds-english") }}</a>
   </nav>
 </header>
 <main id="main" class="op-panel op-stack" tabindex="-1">

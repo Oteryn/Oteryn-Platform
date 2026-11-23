@@ -96,6 +96,11 @@ async fn scenario(case: &str) -> TestResult {
             .execute(&db)
             .await?;
     }
+    if case == "no_world_snapshots" {
+        sqlx::query("DELETE FROM public_snapshots WHERE NOT is_watermark")
+            .execute(&db)
+            .await?;
+    }
     if case == "watermark_epoch" {
         sqlx::query("UPDATE public_snapshots SET epoch=2 WHERE NOT is_watermark")
             .execute(&db)
@@ -151,6 +156,11 @@ async fn scenario(case: &str) -> TestResult {
             assert_eq!(status, StatusCode::OK);
             assert!(!html.contains("Alice"));
             assert_eq!(html.matches("<section").count(), 0);
+        }
+        "no_world_snapshots" => {
+            assert_eq!(status, StatusCode::OK);
+            assert!(html.contains("Temporarily unavailable."));
+            assert!(!html.contains("Visible characters online:"));
         }
         _ => {
             assert_eq!(status, StatusCode::OK);
@@ -221,6 +231,10 @@ db_test!(flag_off_404, "disabled");
 db_test!(bad_query_400, "bad");
 
 db_test!(fresh_snapshot, "fresh");
+db_test!(
+    fresh_cut_reports_missing_world_snapshots,
+    "no_world_snapshots"
+);
 db_test!(old_epoch_excluded, "epoch");
 db_test!(
     old_watermark_epoch_withholds_current_worlds,

@@ -44,6 +44,6 @@ consumer contract covering:
   these against the exact Platform candidate before showing live values.
 
 These requirements derive from the
-[Runtime Status Projection Contract](../contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md)
+[Runtime Status Projection Contract](../../../../../docs/contracts/OTERYN_V2_RUNTIME_STATUS_PROJECTION_CONTRACT.md)
 and the
-[Public Game Data Projection Contract](../contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md).
+[Public Game Data Projection Contract](../../../../../docs/contracts/OTERYN_V2_PUBLIC_GAME_DATA_PROJECTION_CONTRACT.md).
