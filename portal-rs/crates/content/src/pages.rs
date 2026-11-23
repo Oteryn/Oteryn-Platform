@@ -12,7 +12,7 @@ pub mod legal;
 mod staff;
 #[cfg(test)]
 mod tests;
-pub use staff::{configured_router, staff_router};
+pub use staff::{LegalEdition, configured_router, publish_legal_edition, staff_router};
 
 pub(crate) fn reserved(slug: &str) -> bool {
     matches!(

@@ -2,12 +2,16 @@ use super::*;
 use axum::{Extension, Form, response::Redirect};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
-    rbac::{AccountStateReader, CheckContext, Error, MutationAuthorization, Permission},
-    web::{PanelConfig, StaffSession},
+    rbac::{
+        AccountState, AccountStateReader, AccountStateUnavailable, Authorizer, CheckContext, Error,
+        MutationAuthorization, Permission,
+    },
+    web::{PanelConfig, PortalIdentity, StaffSession},
 };
 use oteryn_web::session::BrowserSession;
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::Arc;
 use uuid::Uuid;
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     Ok(
@@ -71,7 +75,8 @@ pub(super) struct PageForm {
     #[serde(default)]
     pub action: String,
 }
-fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
+fn valid(form: &PageForm, slug: &str, locale: &str, publish_now: bool) -> bool {
+    let published = publish_now || !form.published_at.is_empty();
     (form.published_at.is_empty()
         || time::OffsetDateTime::parse(
             &form.published_at,
@@ -84,6 +89,8 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
                 time::macros::format_description!("[year]-[month]-[day]"),
             )
             .is_ok())
+        && (!publish_now
+            || (form.legal_effective_date.len() == 10 && !form.body.contains("{{operator}}")))
         && valid_slug(slug)
         && matches!(locale, "en" | "pl")
         && !form.title.trim().is_empty()
@@ -93,7 +100,7 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
         && form.legal_version.len() <= 80
         && matches!(form.action.as_str(), "save" | "delete")
         && (form.final_approved.is_empty()
-            || (form.final_approved == "yes" && legal(slug) && !form.published_at.is_empty() && {
+            || (form.final_approved == "yes" && legal(slug) && published && {
                 let text = oteryn_identity::consents::inspect_legal_edition(
                     &form.legal_version,
                     &form.title,
@@ -102,7 +109,7 @@ fn valid(form: &PageForm, slug: &str, locale: &str) -> bool {
                 text.has_visible_body && !text.needs_operator_update()
             }))
         && (!legal(slug)
-            || form.published_at.is_empty()
+            || !published
             || (!form.legal_version.trim().is_empty() && !form.legal_effective_date.is_empty()))
 }
 async fn index(
@@ -236,16 +243,110 @@ async fn save(
     Extension(auth): Extension<MutationAuthorization>,
     Form(form): Form<PageForm>,
 ) -> Response {
-    if !valid(&form, &slug, &locale) {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
-    match persist(&pool, &auth, context, &slug, &locale, &form).await {
+    match save_page(&pool, &auth, context, &slug, &locale, form, SaveMode::Staff).await {
         Ok(()) => Redirect::to("/admin/pages").into_response(),
-        Err(Error::Denied) => StatusCode::FORBIDDEN.into_response(),
-        Err(Error::InvalidInput) => StatusCode::CONFLICT.into_response(),
+        Err(SaveError::InvalidForm) => StatusCode::BAD_REQUEST.into_response(),
+        Err(SaveError::Authorization(Error::Denied)) => StatusCode::FORBIDDEN.into_response(),
+        Err(
+            SaveError::MissingSource
+            | SaveError::ImmutableVersion
+            | SaveError::Authorization(Error::InvalidInput),
+        ) => StatusCode::CONFLICT.into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
+
+#[derive(Debug)]
+pub struct LegalEdition {
+    pub slug: String,
+    pub locale: String,
+    pub title: String,
+    pub body: String,
+    pub version: String,
+    pub effective: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SaveError {
+    #[error("final approval requires valid page fields, visible text and real operator details")]
+    InvalidForm,
+    #[error("save the English source edition first")]
+    MissingSource,
+    #[error("use a new version to change an immutable legal edition")]
+    ImmutableVersion,
+    #[error(transparent)]
+    Authorization(#[from] Error),
+}
+
+impl From<sqlx::Error> for SaveError {
+    fn from(error: sqlx::Error) -> Self {
+        Error::from(error).into()
+    }
+}
+
+struct HostOperator(PortalIdentity);
+
+impl AccountStateReader for HostOperator {
+    async fn state(&self, account: Uuid) -> Result<AccountState, AccountStateUnavailable> {
+        self.0.state(account).await
+    }
+
+    async fn state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        account: Uuid,
+    ) -> Result<AccountState, AccountStateUnavailable> {
+        self.0.state_in(connection, account).await
+    }
+
+    async fn authenticated_in(
+        &self,
+        _connection: &mut sqlx::PgConnection,
+        context: CheckContext,
+    ) -> Result<bool, AccountStateUnavailable> {
+        Ok(!context.require_staff_mfa && context.session_proof.is_none())
+    }
+}
+
+/// Publish a final legal edition through the CMS save transaction.
+/// Browser MFA cannot apply to a host-root CLI. The actor's account and both
+/// required permissions are still revalidated on the mutation connection.
+pub async fn publish_legal_edition(
+    pool: &PgPool,
+    actor: Uuid,
+    edition: LegalEdition,
+) -> Result<(), SaveError> {
+    let identity = PortalIdentity::configured_from(pool.clone(), &|_| None);
+    let auth = MutationAuthorization::new(Arc::new(Authorizer::new(
+        pool.clone(),
+        HostOperator(identity),
+    )));
+    let context = CheckContext {
+        require_staff_mfa: false,
+        ..CheckContext::new(actor)
+    };
+    let form = PageForm {
+        title: edition.title,
+        body: edition.body,
+        legal_version: edition.version,
+        legal_effective_date: edition.effective,
+        final_approved: "yes".into(),
+        action: "save".into(),
+        ..PageForm::default()
+    };
+    save_page(
+        pool,
+        &auth,
+        context,
+        &edition.slug,
+        &edition.locale,
+        form,
+        SaveMode::Operator,
+    )
+    .await
+}
+
+#[cfg(test)]
 pub(super) async fn persist(
     pool: &PgPool,
     auth: &MutationAuthorization,
@@ -254,8 +355,39 @@ pub(super) async fn persist(
     locale: &str,
     form: &PageForm,
 ) -> Result<(), Error> {
-    if !valid(form, slug, locale) {
-        return Err(Error::InvalidInput);
+    save_page(
+        pool,
+        auth,
+        context,
+        slug,
+        locale,
+        form.clone(),
+        SaveMode::Staff,
+    )
+    .await
+    .map_err(|error| match error {
+        SaveError::Authorization(error) => error,
+        _ => Error::InvalidInput,
+    })
+}
+
+enum SaveMode {
+    Staff,
+    Operator,
+}
+
+async fn save_page(
+    pool: &PgPool,
+    auth: &MutationAuthorization,
+    context: CheckContext,
+    slug: &str,
+    locale: &str,
+    mut form: PageForm,
+    mode: SaveMode,
+) -> Result<(), SaveError> {
+    let publish_now = matches!(mode, SaveMode::Operator);
+    if !valid(&form, slug, locale, publish_now) {
+        return Err(SaveError::InvalidForm);
     }
     let mut tx = pool.begin().await?;
     let resource_slug = slug.to_owned();
@@ -276,12 +408,14 @@ pub(super) async fn persist(
         &[Permission::Access, Permission::ManagePages],
     )
     .await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1,71102))")
-        .bind(slug)
-        .execute(&mut *tx)
-        .await?;
-    auth.check_in(&mut tx, context, Permission::ManagePages)
-        .await?;
+    if publish_now {
+        let published_at: time::OffsetDateTime = sqlx::query_scalar("SELECT now()")
+            .fetch_one(&mut *tx)
+            .await?;
+        form.published_at = published_at
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    }
     let id:Uuid=sqlx::query_scalar("INSERT INTO pages(id,slug) VALUES($1,$2) ON CONFLICT(slug) DO UPDATE SET updated_at=now() RETURNING id").bind(Uuid::now_v7()).bind(slug).fetch_one(&mut *tx).await?;
     let before: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT to_jsonb(e) FROM editorial_pages e WHERE page_id=$1 AND locale=$2",
@@ -297,8 +431,13 @@ pub(super) async fn persist(
     .bind(locale)
     .fetch_optional(&mut *tx)
     .await?;
-    if form.expected_revision != revision.unwrap_or_default() {
-        return Err(Error::InvalidInput);
+    let revision = revision.unwrap_or_default();
+    // The operator reads revisions only after the shared slug lock is held.
+    if publish_now {
+        form.expected_revision.clone_from(&revision);
+    }
+    if form.expected_revision != revision {
+        return Err(Error::InvalidInput.into());
     }
     if locale != "en" {
         let source: Option<i64> = sqlx::query_scalar(
@@ -307,14 +446,17 @@ pub(super) async fn persist(
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?;
+        if publish_now {
+            form.reviewed_source_revision = source.ok_or(SaveError::MissingSource)?;
+        }
         if source != Some(form.reviewed_source_revision) {
-            return Err(Error::InvalidInput);
+            return Err(Error::InvalidInput.into());
         }
     }
     let mut final_approved = form.final_approved == "yes";
     if form.action == "delete" {
         if legal(slug) {
-            return Err(Error::InvalidInput);
+            return Err(Error::InvalidInput.into());
         }
         sqlx::query("DELETE FROM editorial_pages WHERE page_id=$1 AND locale=$2")
             .bind(id)
@@ -326,7 +468,7 @@ pub(super) async fn persist(
             let source_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM editorial_pages WHERE page_id=$1 AND locale='en' AND body <> '')")
                 .bind(id).fetch_one(&mut *tx).await?;
             if !source_exists {
-                return Err(Error::InvalidInput);
+                return Err(SaveError::MissingSource);
             }
         }
         let mut content =
@@ -340,7 +482,7 @@ pub(super) async fn persist(
                 content["final_approved"] = json!(true);
             }
             if old.is_some_and(|v| v != content) {
-                return Err(Error::InvalidInput);
+                return Err(SaveError::ImmutableVersion);
             }
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
