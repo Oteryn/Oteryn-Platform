@@ -713,7 +713,7 @@ impl Service {
             } => format!("{appeal_status}: {}", appeal_outcome.trim()),
             _ => return Err(StaffError::Invalid),
         };
-        crate::tickets::staff::notify(tx, notifications, target, body).await?;
+        crate::tickets::staff::notify(tx, notifications, target, |_| body).await?;
         let (category, effective_at_ms, expires_at_ms) = if let Some(row) = &current {
             (row.3.as_str(), row.4, row.5)
         } else if let Command::Sanction {

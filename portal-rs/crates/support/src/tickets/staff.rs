@@ -120,6 +120,7 @@ impl Backend for StaffSupport {
     ) -> std::result::Result<(), StaffError> {
         let actor = context.account;
         self.available(command.area())?;
+        let mut atlas_report = false;
         let owner: Uuid = match command {
             Command::Reply { .. } | Command::TicketStatus { .. } => {
                 sqlx::query_scalar("SELECT account_id FROM tickets WHERE id=$1")
@@ -130,12 +131,16 @@ impl Backend for StaffSupport {
                     .ok_or(StaffError::NotFound)?
             }
             Command::Moderate { .. } => {
-                sqlx::query_scalar("SELECT reporter_account_id FROM player_reports WHERE id=$1")
-                    .bind(id)
-                    .fetch_optional(&mut **tx)
-                    .await
-                    .map_err(|_| StaffError::Unavailable)?
-                    .ok_or(StaffError::NotFound)?
+                let (owner, report_type): (Uuid, String) = sqlx::query_as(
+                    "SELECT reporter_account_id,report_type FROM support_report_queue WHERE id=$1",
+                )
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await
+                .map_err(|_| StaffError::Unavailable)?
+                .ok_or(StaffError::NotFound)?;
+                atlas_report = report_type == "atlas";
+                owner
             }
             Command::Sanction {
                 create: true,
@@ -156,6 +161,9 @@ impl Backend for StaffSupport {
         let resource_query = match command {
             Command::Reply { .. } | Command::TicketStatus { .. } => {
                 "SELECT id FROM tickets WHERE id=$1 FOR UPDATE"
+            }
+            Command::Moderate { .. } if atlas_report => {
+                "SELECT id FROM atlas_map_reports WHERE id=$1 FOR UPDATE"
             }
             Command::Moderate { .. } => "SELECT id FROM player_reports WHERE id=$1 FOR UPDATE",
             Command::Sanction { create: true, .. } => {
@@ -220,7 +228,7 @@ impl Backend for StaffSupport {
                 "SELECT id,lock_version,subject,status FROM tickets ORDER BY last_message_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Reports => {
-                "SELECT id,lock_version,target_reference,status FROM player_reports ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
+                "SELECT id,lock_version,target_reference,status FROM support_report_queue ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
             }
             Area::Enforcement => {
                 "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1,public_reason,status FROM sanctions s WHERE status<>'pending' ORDER BY created_at DESC,id DESC LIMIT 30 OFFSET $1"
@@ -277,10 +285,10 @@ impl Backend for StaffSupport {
         }
         let query = match area {
             Area::Reports => {
-                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,moderator_notes AS private_message FROM player_reports WHERE id=$1"
+                "SELECT id,lock_version,target_reference AS title,status,evidence_summary AS public_message,public_outcome,moderator_notes AS private_message FROM support_report_queue WHERE id=$1"
             }
             _ => {
-                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
+                "SELECT id,lock_version+coalesce((SELECT version FROM support_appeal_workflows a WHERE a.sanction_id=s.id),1)-1 AS lock_version,public_reason AS title,status,(SELECT concat_ws(E'\n',message,outcome) FROM support_appeal_workflows a WHERE a.sanction_id=s.id) AS public_message,NULL::text AS public_outcome,moderator_notes AS private_message FROM sanctions s WHERE id=$1 AND status<>'pending'"
             }
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
@@ -291,7 +299,11 @@ impl Backend for StaffSupport {
             .ok_or(StaffError::NotFound)?;
         let decode = || -> std::result::Result<Record, sqlx::Error> {
             let mut messages = vec![];
-            for (column, internal) in [("public_message", false), ("private_message", true)] {
+            for (column, internal) in [
+                ("public_message", false),
+                ("public_outcome", false),
+                ("private_message", true),
+            ] {
                 if let Some(body) = row.try_get::<Option<String>, _>(column)? {
                     messages.push(StaffMessage {
                         id: None,
@@ -371,7 +383,7 @@ pub(crate) async fn notify(
     tx: &mut Transaction<'_, Postgres>,
     notifications: &Notifications,
     recipient: Uuid,
-    body: String,
+    body: impl FnOnce(oteryn_notify::Locale) -> String,
 ) -> std::result::Result<(), StaffError> {
     let (email, locale, verified, status): (String, String, bool, String) = sqlx::query_as(
         "SELECT email,locale,email_verified_at IS NOT NULL,status FROM accounts WHERE id=$1",
@@ -391,7 +403,7 @@ pub(crate) async fn notify(
         "en" => oteryn_notify::Locale::En,
         _ => return Err(StaffError::Denied),
     };
-    let template = EmailTemplate::Support { body };
+    let template = EmailTemplate::Support { body: body(locale) };
     if !verified || status == "closed" {
         let portal:bool=sqlx::query_scalar("SELECT coalesce((SELECT portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category='support'),true)").bind(recipient).fetch_one(&mut **tx).await.map_err(|_|StaffError::Unavailable)?;
         if portal {

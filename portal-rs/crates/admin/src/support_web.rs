@@ -324,6 +324,7 @@ async fn render_record(
     }
     let actions: &[(&str, &[&str])] = match area {
         Area::Tickets => &[("reply", &["body"]), ("ticket_status", &["status"])],
+        Area::Reports if report_status_choices(&record.status).is_empty() => &[],
         Area::Reports => &[("moderate", &["status", "public_outcome", "moderator_notes"])],
         Area::Enforcement => &[
             (
@@ -360,9 +361,7 @@ async fn render_record(
                     "resolved",
                     "closed",
                 ],
-                ("status", Area::Reports) => {
-                    &["submitted", "reviewing", "actioned", "rejected", "closed"]
-                }
+                ("status", Area::Reports) => report_status_choices(&record.status),
                 ("status", Area::Enforcement) => &["active", "expired", "revoked"],
                 ("appeal_status", _) => &["reviewing", "accepted", "rejected"],
                 ("category", _) => &["warning", "restriction", "suspension"],

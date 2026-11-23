@@ -136,15 +136,9 @@ impl Command {
         let valid = match self {
             Self::Reply { .. } => matches!(current, "open" | "waiting_staff" | "waiting_user"),
             Self::TicketStatus { .. } => ticket_status(current),
-            Self::Moderate { status, .. } => match current {
-                "submitted" => matches!(
-                    status.as_str(),
-                    "submitted" | "reviewing" | "actioned" | "rejected"
-                ),
-                "reviewing" => matches!(status.as_str(), "reviewing" | "actioned" | "rejected"),
-                "actioned" | "rejected" => status == "closed",
-                _ => false,
-            },
+            Self::Moderate { status, .. } => {
+                report_status_choices(current).contains(&status.as_str())
+            }
             Self::Sanction { create: true, .. } => current == "absent",
             Self::Sanction { .. } => matches!(current, "active" | "expired" | "revoked"),
             Self::Appeal { .. } => matches!(current, "requested" | "reviewing"),
@@ -161,6 +155,14 @@ impl Command {
             Self::Sanction { .. } => "support.enforcement_updated",
             Self::Appeal { .. } => "support.enforcement_appeal_updated",
         }
+    }
+}
+fn report_status_choices(current: &str) -> &'static [&'static str] {
+    match current {
+        "submitted" => &["submitted", "reviewing", "actioned", "rejected"],
+        "reviewing" => &["reviewing", "actioned", "rejected"],
+        "actioned" | "rejected" => &["closed"],
+        _ => &[],
     }
 }
 fn text(value: &str, max: usize, required: bool) -> bool {

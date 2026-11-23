@@ -38,3 +38,6 @@ invalid = Check the report type, matching category, target and evidence lengths.
 pending-limit = Your pending report limit has been reached. Wait for the existing reports to be reviewed.
 unjustified-limit = Reporting is temporarily blocked after repeated unjustified reports in the last 30 days.
 rate-limited = Too many reports. Try again in one minute.
+atlas = Atlas
+map-error = Map error
+resolved = Resolved

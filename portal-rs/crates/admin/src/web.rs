@@ -162,13 +162,28 @@ pub(crate) fn config_from(
     })
 }
 
+/// Indicates that the portal composes the reports backend alongside the staff panel.
+#[derive(Clone, Copy)]
+struct ReportsNavigation;
+
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
-    Ok(router(
+    let reports_enabled = std::env::var("OTERYN_REPORTS_ENABLED").as_deref() == Ok("true")
+        && std::env::var("OTERYN_REPORTS_PENDING_LIMIT").map_or(true, |v| {
+            v.parse::<u8>().is_ok_and(|n| (1..=20).contains(&n))
+        })
+        && std::env::var("OTERYN_REPORTS_UNJUSTIFIED_LIMIT")
+            .map_or(true, |v| v.parse::<u8>().is_ok_and(|n| n > 0));
+    let router = router(
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
         PortalIdentity::configured(pool),
-    ))
+    );
+    Ok(if reports_enabled {
+        router.layer(Extension(ReportsNavigation))
+    } else {
+        router
+    })
 }
 
 /// [`guarded`] with the panel's environment configuration and the server-side
@@ -466,6 +481,8 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    reports_label: String,
+    moderate_reports: bool,
     account_label: String,
     role_label: String,
     grant: String,
@@ -510,6 +527,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     State(s): State<Arc<Panel<I, A>>>,
     Extension(context): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
+    reports_navigation: Option<Extension<ReportsNavigation>>,
     headers: axum::http::HeaderMap,
     Query(query): Query<RolePageQuery>,
 ) -> Response {
@@ -517,6 +535,19 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Ok(()) => true,
         Err(Error::Denied) => false,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let moderate_reports = if reports_navigation.is_some() {
+        match s
+            .auth
+            .check(context, Permission::ManageSupportReports)
+            .await
+        {
+            Ok(()) => true,
+            Err(Error::Denied) => false,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    } else {
+        false
     };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
@@ -539,6 +570,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        reports_label: text(lang, "reports"),
+        moderate_reports,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

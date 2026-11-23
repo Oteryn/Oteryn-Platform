@@ -336,6 +336,67 @@ async fn configured_staff_fixture(test_name: &str, scenario: Option<&str>) -> Te
         .await?,
         "rejected"
     );
+    let atlas_report: Uuid = sqlx::query_scalar(
+        "INSERT INTO atlas_map_reports(account_id,x,y,floor,description,created_at)
+         VALUES($1,123,456,7,'Correct the trail marker',now()-interval '35 days') RETURNING id",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await?;
+    sqlx::query("UPDATE accounts SET locale='pl' WHERE id=$1")
+        .bind(owner)
+        .execute(&pool)
+        .await?;
+    for (version, status, note, expected) in [
+        (1, "actioned", "", StatusCode::UNPROCESSABLE_ENTITY),
+        (1, "reviewing", "", StatusCode::SEE_OTHER),
+        (1, "rejected", "Missing+detail", StatusCode::CONFLICT),
+        (2, "rejected", "Missing+detail", StatusCode::SEE_OTHER),
+        (3, "actioned", "Marker+updated", StatusCode::CONFLICT),
+    ] {
+        let form = format!(
+            "lock_version={version}&action=moderate&status={status}&public_outcome={note}&moderator_notes=Map+review"
+        );
+        assert_eq!(
+            post("moderation/reports", atlas_report, form).await?,
+            expected
+        );
+    }
+    let reports = crate::reports::Reports::new(
+        pool.clone(),
+        crate::reports::Policy {
+            enabled: true,
+            ..Default::default()
+        },
+    );
+    let atlas = reports
+        .list(owner, 1)
+        .await?
+        .into_iter()
+        .find(|row| row.id == atlas_report)
+        .ok_or("recently decided Atlas report missing from history")?;
+    assert_eq!(atlas.status, "rejected");
+    assert_eq!(atlas.public_outcome.as_deref(), Some("Missing detail"));
+    let notice: String = sqlx::query_scalar(
+        "SELECT body FROM notifications WHERE account_id=$1 AND body LIKE '%Missing detail%'",
+    )
+    .bind(owner)
+    .fetch_one(&pool)
+    .await?;
+    assert!(notice.contains("Odrzucone: Missing detail"));
+    assert!(matches!(
+        reports.get(staff, atlas_report).await,
+        Err(crate::reports::Error::NotFound)
+    ));
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM audit_log WHERE action='support.report_status_changed' AND target=$1"
+        )
+        .bind(atlas_report.to_string())
+        .fetch_one(&pool)
+        .await?,
+        2
+    );
     assert_eq!(post("moderation/enforcement",sanction,format!("lock_version=1&action=sanction&status=active&target={owner}&category=warning&public_reason=Updated&moderator_notes=Private&effective_at=1794000000&expires_at=1894000000")).await?,StatusCode::SEE_OTHER);
     assert_eq!(
         post(

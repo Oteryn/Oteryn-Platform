@@ -392,7 +392,7 @@ impl Tickets {
             } else {
                 // Queue mutations use the locked account snapshot, so a caller
                 // holding the sole pool connection never re-enters the pool.
-                staff::notify(tx, &self.notifications, ticket.account_id, body)
+                staff::notify(tx, &self.notifications, ticket.account_id, |_| body)
                     .await
                     .map_err(|_| Error::Notification)?;
             }

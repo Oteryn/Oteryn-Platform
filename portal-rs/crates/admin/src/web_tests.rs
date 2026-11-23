@@ -135,6 +135,8 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            reports_label: text(lang, "reports"),
+            moderate_reports: true,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -148,6 +150,12 @@ fn localized_responsive_labelled_template() {
         .unwrap();
         assert!(html.contains("width=device-width"));
         assert!(html.contains("op-input"));
+        assert!(html.contains("href=\"/admin/moderation/reports\""));
+        assert!(html.contains(if lang == "pl" {
+            "Moderacja zgłoszeń"
+        } else {
+            "Report moderation"
+        }));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));

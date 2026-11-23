@@ -38,3 +38,6 @@ invalid = Sprawdź rodzaj zgłoszenia, pasującą kategorię, cel i długość o
 pending-limit = Osiągnięto limit oczekujących zgłoszeń. Poczekaj na rozpatrzenie wcześniejszych zgłoszeń.
 unjustified-limit = Zgłaszanie jest tymczasowo zablokowane po wielu nieuzasadnionych zgłoszeniach w ostatnich 30 dniach.
 rate-limited = Zbyt wiele zgłoszeń. Spróbuj ponownie za minutę.
+atlas = Atlas
+map-error = Błąd mapy
+resolved = Rozwiązane
