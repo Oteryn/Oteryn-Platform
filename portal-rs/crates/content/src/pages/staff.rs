@@ -137,6 +137,7 @@ async fn index(
     State(pool): State<PgPool>,
     axum::extract::Query(query): axum::extract::Query<CreateQuery>,
     headers: axum::http::HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Response {
     if let Some(slug) = query.slug {
         if !valid_slug(&slug) || !matches!(query.locale.as_deref(), Some("en" | "pl")) {
@@ -149,19 +150,24 @@ async fn index(
         ))
         .into_response();
     }
-    let lang = editorial::staff_language(&headers);
+    let lang = editorial::staff_language(chrome.as_deref(), &headers);
     let rows = sqlx::query(
-        "SELECT p.slug,e.locale,now() AS current_time,
-                CASE WHEN e.published_at IS NOT NULL AND source.published_at IS NOT NULL
-                     THEN greatest(e.published_at,source.published_at) END AS starts_at,
-                least(e.expires_at,source.expires_at) AS expires_at,
-                (e.locale='en' OR e.source_revision=source.revision) AS current_translation
-         FROM pages p JOIN editorial_pages e ON e.page_id=p.id
-         LEFT JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
-         ORDER BY CASE WHEN greatest(e.published_at,source.published_at)>now()
-                       AND e.published_at IS NOT NULL AND source.published_at IS NOT NULL
-                       THEN greatest(e.published_at,source.published_at) END NULLS LAST,
-                  p.slug,e.locale LIMIT 500 OFFSET $1",
+        "WITH editions AS (
+             SELECT p.slug,e.locale,
+                    CASE WHEN e.published_at IS NOT NULL AND source.published_at IS NOT NULL
+                         THEN greatest(e.published_at,source.published_at) END AS starts_at,
+                    least(e.expires_at,source.expires_at) AS expires_at,
+                    COALESCE(e.locale='en' OR e.source_revision=source.revision,false) AS current_translation
+             FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+             LEFT JOIN editorial_pages source ON source.page_id=p.id AND source.locale='en'
+         )
+         SELECT slug,locale,to_jsonb(starts_at)#>>'{}' AS start_label,
+                to_jsonb(expires_at)#>>'{}' AS end_label,
+                COALESCE(starts_at>now(),false) AS pending,
+                COALESCE(expires_at<=now(),false) AS expired,current_translation
+         FROM editions
+         ORDER BY CASE WHEN starts_at>now() THEN starts_at END NULLS LAST, slug,locale
+         LIMIT 501 OFFSET $1",
     )
     .bind(i64::from(query.page) * 500)
     .fetch_all(&pool)
@@ -169,27 +175,28 @@ async fn index(
     let Ok(rows) = rows else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let more = rows.len() == 500;
+    let more = rows.len() > 500;
     let rows = rows
         .into_iter()
+        .take(500)
         .map(|row| {
-            let start = row.get("starts_at");
-            let end = row.get("expires_at");
+            let start: Option<String> = row.get("start_label");
             PageQueueRow {
                 slug: row.get("slug"),
                 locale: row.get("locale"),
                 status: text(
                     lang,
                     editorial::status(
-                        row.get("current_time"),
-                        start,
-                        end,
-                        row.get::<Option<bool>, _>("current_translation")
-                            .unwrap_or(false),
+                        start.is_some(),
+                        row.get("pending"),
+                        row.get("expired"),
+                        row.get("current_translation"),
                     ),
                 ),
-                start: editorial::format_timestamp(start),
-                end: editorial::format_timestamp(end),
+                start: start.unwrap_or_default(),
+                end: row
+                    .get::<Option<String>, _>("end_label")
+                    .unwrap_or_default(),
             }
         })
         .collect();
@@ -240,12 +247,16 @@ async fn edit(
     Path((slug, locale)): Path<(String, String)>,
     Extension(session): Extension<BrowserSession>,
     headers: axum::http::HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Response {
     if !valid_slug(&slug) || !matches!(locale.as_str(), "pl" | "en") {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let row = sqlx::query(
-        "SELECT e.*,e.updated_at::text AS expected_revision,
+        "SELECT e.title,e.body,e.legal_version,e.legal_effective_date,
+                COALESCE(to_jsonb(e.published_at)#>>'{}','') AS publication_timestamp,
+                COALESCE(to_jsonb(e.expires_at)#>>'{}','') AS expiry_timestamp,
+                e.updated_at::text AS expected_revision,
                 COALESCE(source.revision,0) AS reviewed_source_revision,
                 COALESCE(translation.updated_at::text,'') AS translation_revision
          FROM pages p JOIN editorial_pages e ON e.page_id=p.id AND e.locale=$2
@@ -265,7 +276,7 @@ async fn edit(
                 translation_revision: row.get("translation_revision"),
                 title: row.get("title"),
                 body: row.get("body"),
-                published_at: editorial::format_timestamp(row.get("published_at")),
+                published_at: row.get("publication_timestamp"),
                 legal_version: row
                     .get::<Option<String>, _>("legal_version")
                     .unwrap_or_default(),
@@ -275,7 +286,7 @@ async fn edit(
                     .unwrap_or_default(),
                 ..PageForm::default()
             },
-            editorial::format_timestamp(row.get("expires_at")),
+            row.get("expiry_timestamp"),
         ),
         Ok(None) => (PageForm::default(), String::new()),
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -296,7 +307,7 @@ async fn edit(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let lang = editorial::staff_language(&headers);
+    let lang = editorial::staff_language(chrome.as_deref(), &headers);
     oteryn_web::render(&Editor {
         title: text(lang, "pages"),
         labels: [
@@ -329,19 +340,20 @@ async fn save(
     Extension(context): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     headers: axum::http::HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Form(form): Form<PageForm>,
 ) -> Response {
     match save_page(&pool, &auth, context, &slug, &locale, form, SaveMode::Staff).await {
         Ok(()) => Redirect::to("/admin/pages").into_response(),
         Err(SaveError::InvalidForm) => StatusCode::BAD_REQUEST.into_response(),
         Err(SaveError::InvalidWindow) => editorial::form_error(
-            editorial::staff_language(&headers),
+            editorial::staff_language(chrome.as_deref(), &headers),
             StatusCode::UNPROCESSABLE_ENTITY,
             "publication-invalid",
             &format!("/admin/pages/{slug}/{locale}"),
         ),
         Err(SaveError::ScheduleState) => editorial::form_error(
-            editorial::staff_language(&headers),
+            editorial::staff_language(chrome.as_deref(), &headers),
             StatusCode::CONFLICT,
             "publication-state",
             &format!("/admin/pages/{slug}/{locale}"),
@@ -614,9 +626,15 @@ async fn save_page(
             sqlx::query("INSERT INTO page_legal_versions(page_id,locale,version,content) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING").bind(id).bind(locale).bind(&form.legal_version).bind(content).execute(&mut *tx).await?;
         }
         sqlx::query("INSERT INTO editorial_pages(page_id,locale,title,body,published_at,legal_version,legal_effective_date,source_revision) VALUES($1,$2,$3,$4,NULLIF($5,'')::timestamptz,NULLIF($6,''),NULLIF($7,'')::date,COALESCE((SELECT revision FROM editorial_pages WHERE page_id=$1 AND locale='en'),1)) ON CONFLICT(page_id,locale) DO UPDATE SET title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,
-            expires_at=CASE WHEN editorial_pages.published_at IS NOT DISTINCT FROM EXCLUDED.published_at THEN editorial_pages.expires_at ELSE NULL END,
+            expires_at=CASE WHEN EXCLUDED.published_at IS NULL THEN NULL ELSE editorial_pages.expires_at END,
             legal_version=NULLIF($6,''),legal_effective_date=NULLIF($7,'')::date,source_revision=EXCLUDED.source_revision,revision=CASE WHEN (editorial_pages.title,editorial_pages.body,editorial_pages.legal_version,editorial_pages.legal_effective_date) IS DISTINCT FROM (EXCLUDED.title,EXCLUDED.body,EXCLUDED.legal_version,EXCLUDED.legal_effective_date) THEN nextval('editorial_page_revision_seq') ELSE editorial_pages.revision END,updated_at=greatest(clock_timestamp(),editorial_pages.updated_at+interval '1 microsecond')")
-            .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await?;
+            .bind(id).bind(locale).bind(&form.title).bind(&form.body).bind(&form.published_at).bind(if legal(slug){form.legal_version.as_str()}else{""}).bind(if legal(slug){form.legal_effective_date.as_str()}else{""}).execute(&mut *tx).await.map_err(|error| {
+                if error.as_database_error().and_then(|error| error.constraint()) == Some("editorial_pages_publication_window") {
+                    SaveError::InvalidWindow
+                } else {
+                    error.into()
+                }
+            })?;
     }
     audit::append(
         &mut tx,

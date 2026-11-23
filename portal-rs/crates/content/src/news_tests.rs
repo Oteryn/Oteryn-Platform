@@ -551,6 +551,31 @@ async fn postgres_pagination_language_and_caps() {
         mfa_verified: true,
         session_proof: None,
     };
+    sqlx::query(
+        "INSERT INTO news(slug,title,body,published_at)
+         VALUES('long-horizon','Long horizon','English body','12000-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let response = admin_index(
+        State(pool.clone()),
+        Extension(context),
+        Query(Options {
+            lang: Some("en".into()),
+            ..Options::default()
+        }),
+        HeaderMap::new(),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = to_bytes(response.into_body(), 100000).await.unwrap();
+    let html = String::from_utf8_lossy(&html);
+    assert!(html.contains("Long horizon"));
+    assert!(html.contains("Scheduled"));
+
     for number in [100000, 4] {
         let q = Options {
             lang: Some("en".into()),
@@ -562,6 +587,7 @@ async fn postgres_pagination_language_and_caps() {
             Extension(context),
             Query(q),
             HeaderMap::new(),
+            None,
         )
         .await
         .unwrap();

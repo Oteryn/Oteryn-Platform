@@ -1,5 +1,5 @@
 //! Publication windows shared by editorial news and pages.
-use time::{OffsetDateTime, format_description::well_known::Rfc3339};
+use time::{OffsetDateTime, UtcOffset, format_description::well_known::Rfc3339};
 
 #[derive(Debug, thiserror::Error)]
 #[error("invalid publication window")]
@@ -28,7 +28,11 @@ fn timestamp(value: &str) -> Result<OffsetDateTime, InvalidWindow> {
     if value.ends_with("-00:00") || value.len() > 35 {
         return Err(InvalidWindow);
     }
-    let parsed = OffsetDateTime::parse(value, &Rfc3339).map_err(|_| InvalidWindow)?;
+    let parsed = OffsetDateTime::parse(value, &Rfc3339)
+        .map_err(|_| InvalidWindow)?
+        .checked_to_offset(UtcOffset::UTC)
+        .filter(|timestamp| timestamp.year() > 0)
+        .ok_or(InvalidWindow)?;
     // PostgreSQL stores microseconds. Compare the same precision we persist.
     parsed
         .replace_nanosecond(parsed.nanosecond() / 1_000 * 1_000)
@@ -41,31 +45,30 @@ pub(crate) fn format_timestamp(value: Option<OffsetDateTime>) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn status(
-    now: OffsetDateTime,
-    start: Option<OffsetDateTime>,
-    end: Option<OffsetDateTime>,
-    current: bool,
-) -> &'static str {
-    match start {
-        None => "publication-draft",
-        Some(_) if end.is_some_and(|end| end <= now) => "publication-expired",
-        Some(_) if !current => "publication-review",
-        Some(start) if now < start => "publication-queued",
-        Some(_) => "publication-live",
+pub(crate) fn status(starts: bool, pending: bool, expired: bool, current: bool) -> &'static str {
+    match (starts, pending, expired, current) {
+        (false, ..) => "publication-draft",
+        (_, _, true, _) => "publication-expired",
+        (_, _, _, false) => "publication-review",
+        (_, true, _, _) => "publication-queued",
+        _ => "publication-live",
     }
 }
 
-pub(crate) fn staff_language(headers: &axum::http::HeaderMap) -> &'static str {
-    if headers
-        .get(axum::http::header::ACCEPT_LANGUAGE)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|lang| lang.starts_with("en"))
-    {
-        "en"
-    } else {
-        "pl"
-    }
+pub(crate) fn staff_language(
+    chrome: Option<&oteryn_ui::Chrome>,
+    headers: &axum::http::HeaderMap,
+) -> &'static str {
+    let english = chrome.map_or_else(
+        || {
+            headers
+                .get(axum::http::header::ACCEPT_LANGUAGE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|lang| lang.starts_with("en"))
+        },
+        |chrome| chrome.lang == "en",
+    );
+    if english { "en" } else { "pl" }
 }
 
 #[derive(askama::Template)]
@@ -92,7 +95,9 @@ pub(crate) fn form_error(
         back: crate::pages::text(lang, "publication-back"),
         url,
     });
-    *response.status_mut() = status;
+    if response.status().is_success() {
+        *response.status_mut() = status;
+    }
     response
 }
 
@@ -118,6 +123,8 @@ mod tests {
             ("2030-10-27T02:30:00 Europe/Warsaw", ""),
             ("2030-10-27T02:30:00-00:00", ""),
             ("2030-10-27T02:30:00+25:00", ""),
+            ("0001-01-01T00:00:00+01:00", ""),
+            ("9999-12-31T23:59:59-01:00", ""),
             ("2030-10-27T02:30:00+02:00", "2030-10-27T00:30:00Z"),
             ("2030-10-27T02:30:00+02:00", "2030-10-27T00:29:00Z"),
             (
@@ -130,30 +137,15 @@ mod tests {
     }
 
     #[test]
-    fn queue_status_observes_inclusive_start_and_exclusive_end() {
-        let start = datetime!(2030-10-27 00:30 UTC);
-        let end = datetime!(2030-10-27 01:30 UTC);
-        assert_eq!(
-            status(
-                datetime!(2030-10-27 00:29 UTC),
-                Some(start),
-                Some(end),
-                true
-            ),
-            "publication-queued"
-        );
-        assert_eq!(
-            status(start, Some(start), Some(end), true),
-            "publication-live"
-        );
-        assert_eq!(
-            status(start, Some(start), Some(end), false),
-            "publication-review"
-        );
-        assert_eq!(
-            status(end, Some(start), Some(end), true),
-            "publication-expired"
-        );
-        assert_eq!(status(start, None, None, true), "publication-draft");
+    fn queue_status_distinguishes_edition_states() {
+        for (starts, pending, expired, current, expected) in [
+            (false, false, false, true, "publication-draft"),
+            (true, true, false, true, "publication-queued"),
+            (true, false, false, true, "publication-live"),
+            (true, false, false, false, "publication-review"),
+            (true, false, true, true, "publication-expired"),
+        ] {
+            assert_eq!(status(starts, pending, expired, current), expected);
+        }
     }
 }

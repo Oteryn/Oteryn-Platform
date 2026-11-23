@@ -5,3 +5,5 @@ role = Role
 grant = Assign role
 revoke = Revoke role
 mfa = Multi-factor authentication required
+editorial-news = News
+editorial-pages = Pages

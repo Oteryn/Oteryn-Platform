@@ -135,6 +135,8 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            news_label: Some(text(lang, "editorial-news")),
+            pages_label: None,
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -151,6 +153,8 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));
+        assert!(html.contains("href=\"/admin/news\""));
+        assert!(!html.contains("href=\"/admin/pages\""));
         std::fs::write(format!("/tmp/t10b-{lang}.html"), &html).unwrap();
         assert!(!text(lang, "mfa").is_empty());
     }

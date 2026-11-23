@@ -466,6 +466,8 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    news_label: Option<String>,
+    pages_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -535,10 +537,24 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         String::new()
     };
     let lang = language(&headers);
+    let news_label = s
+        .auth
+        .check(context, Permission::ManageNews)
+        .await
+        .is_ok()
+        .then(|| text(lang, "editorial-news"));
+    let pages_label = s
+        .auth
+        .check(context, Permission::ManagePages)
+        .await
+        .is_ok()
+        .then(|| text(lang, "editorial-pages"));
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
+        news_label,
+        pages_label,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),

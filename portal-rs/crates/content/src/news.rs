@@ -78,11 +78,11 @@ impl Options {
             "pl"
         }
     }
-    fn staff_lang(&self, headers: &HeaderMap) -> &str {
+    fn staff_lang(&self, chrome: Option<&oteryn_ui::Chrome>, headers: &HeaderMap) -> &'static str {
         match self.lang.as_deref() {
             Some("pl") => "pl",
             Some("en") => "en",
-            _ => editorial::staff_language(headers),
+            _ => editorial::staff_language(chrome, headers),
         }
     }
     fn offset(&self, size: i64) -> Result<i64, StatusCode> {
@@ -309,12 +309,21 @@ async fn admin_index(
     Extension(_): Extension<CheckContext>,
     Query(q): Query<Options>,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Response, StatusCode> {
     let rows = sqlx::query(
-        "SELECT id,title,published_at,translation_published_at,expires_at,now() AS current_time,
+        "SELECT id,title,to_jsonb(published_at)#>>'{}' AS starts_at,
+                 to_jsonb(pl_start)#>>'{}' AS pl_starts_at,to_jsonb(expires_at)#>>'{}' AS ends_at,
+                 COALESCE(published_at>now(),false) AS pending,
+                 COALESCE(pl_start>now(),false) AS pending_pl,
+                 COALESCE(expires_at<=now(),false) AS expired,
                  COALESCE(translation_source_updated_at>=updated_at
                     AND length(trim(title_pl))>0 AND length(trim(body_pl))>0,false) AS current_pl
-         FROM news
+         FROM (
+             SELECT news.*, CASE WHEN published_at IS NOT NULL AND translation_published_at IS NOT NULL
+                 THEN greatest(published_at,translation_published_at) END AS pl_start
+             FROM news
+         ) editions
          ORDER BY CASE WHEN published_at>now() THEN published_at END NULLS LAST,
                   updated_at DESC,id DESC LIMIT 26 OFFSET $1",
     )
@@ -322,29 +331,35 @@ async fn admin_index(
     .fetch_all(&pool)
     .await
     .map_err(unavailable)?;
-    let lang = q.staff_lang(&headers);
+    let lang = q.staff_lang(chrome.as_deref(), &headers);
     let next = q.page.unwrap_or(1) + 1;
     let next = (rows.len() > 25 && next <= MAX_PAGE).then_some(next);
     let rows = rows
         .into_iter()
         .take(25)
         .map(|row| {
-            let now = row.get("current_time");
-            let start: Option<time::OffsetDateTime> = row.get("published_at");
-            let translation = row.get("translation_published_at");
-            let pl_start = start.zip(translation).map(|(en, pl)| en.max(pl));
-            let end = row.get("expires_at");
+            let start: Option<String> = row.get("starts_at");
+            let pl_start: Option<String> = row.get("pl_starts_at");
+            let expired = row.get("expired");
             NewsQueueRow {
                 id: row.get("id"),
                 title: row.get("title"),
-                en_status: crate::pages::text(lang, editorial::status(now, start, end, true)),
+                en_status: crate::pages::text(
+                    lang,
+                    editorial::status(start.is_some(), row.get("pending"), expired, true),
+                ),
                 pl_status: crate::pages::text(
                     lang,
-                    editorial::status(now, pl_start, end, row.get("current_pl")),
+                    editorial::status(
+                        pl_start.is_some(),
+                        row.get("pending_pl"),
+                        expired,
+                        row.get("current_pl"),
+                    ),
                 ),
-                start: editorial::format_timestamp(start),
-                pl_start: editorial::format_timestamp(pl_start),
-                end: editorial::format_timestamp(end),
+                start: start.unwrap_or_default(),
+                pl_start: pl_start.unwrap_or_default(),
+                end: row.get::<Option<String>, _>("ends_at").unwrap_or_default(),
             }
         })
         .collect();
@@ -364,9 +379,10 @@ async fn new(
     Extension(session): Extension<BrowserSession>,
     Query(q): Query<Options>,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
-        q.staff_lang(&headers),
+        q.staff_lang(chrome.as_deref(), &headers),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -379,11 +395,14 @@ async fn edit(
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
     let row = sqlx::query(
-        "SELECT updated_at::text AS expected_revision,slug,title,body,published_at,expires_at,
+        "SELECT updated_at::text AS expected_revision,slug,title,body,
+                COALESCE(to_jsonb(published_at)#>>'{}','') AS published_at,
+                COALESCE(to_jsonb(expires_at)#>>'{}','') AS expires_at,
                 coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,
-                translation_published_at
+                COALESCE(to_jsonb(translation_published_at)#>>'{}','') AS translation_published_at
          FROM news WHERE id=$1",
     )
     .bind(id)
@@ -391,15 +410,15 @@ async fn edit(
     .await
     .map_err(unavailable)?
     .ok_or(StatusCode::NOT_FOUND)?;
-    let published_at = editorial::format_timestamp(row.get("published_at"));
-    let translation_published_at = editorial::format_timestamp(row.get("translation_published_at"));
+    let published_at: String = row.get("published_at");
+    let translation_published_at: String = row.get("translation_published_at");
     let schedule_at = if published_at == translation_published_at {
         published_at.clone()
     } else {
         String::new()
     };
     Ok(form(
-        q.staff_lang(&headers),
+        q.staff_lang(chrome.as_deref(), &headers),
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),
@@ -411,7 +430,7 @@ async fn edit(
             body_pl: row.get("body_pl"),
             translation_published_at,
             schedule_at,
-            schedule_until: editorial::format_timestamp(row.get("expires_at")),
+            schedule_until: row.get("expires_at"),
             ..Input::default()
         },
         session.csrf_token().await.map_err(unavailable)?,
@@ -496,17 +515,20 @@ async fn create(
     Extension(auth): Extension<MutationAuthorization>,
     Query(q): Query<Options>,
     headers: HeaderMap,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
     let scheduled = input.action == "schedule";
+    let lang = q.staff_lang(chrome.as_deref(), &headers);
     match save(&pool, &auth, context, None, input).await {
         Err(StatusCode::UNPROCESSABLE_ENTITY) if scheduled => Ok(editorial::form_error(
-            q.staff_lang(&headers),
+            lang,
             StatusCode::UNPROCESSABLE_ENTITY,
             "publication-news-invalid",
-            "/admin/news/create",
+            &format!("/admin/news/create?lang={lang}"),
         )),
-        result => result,
+        Ok(response) => Ok(preserve_staff_language(response, &q, lang)),
+        Err(status) => Err(status),
     }
 }
 async fn update(
@@ -515,20 +537,36 @@ async fn update(
     Extension(auth): Extension<MutationAuthorization>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
-    headers: HeaderMap,
+    (headers, chrome): (HeaderMap, Option<Extension<oteryn_ui::Chrome>>),
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
     let scheduled = input.action == "schedule";
+    let lang = q.staff_lang(chrome.as_deref(), &headers);
     match save(&pool, &auth, context, Some(id), input).await {
         Err(StatusCode::UNPROCESSABLE_ENTITY) if scheduled => Ok(editorial::form_error(
-            q.staff_lang(&headers),
+            lang,
             StatusCode::UNPROCESSABLE_ENTITY,
             "publication-news-invalid",
-            &format!("/admin/news/{id}/edit"),
+            &format!("/admin/news/{id}/edit?lang={lang}"),
         )),
-        result => result,
+        Ok(response) => Ok(preserve_staff_language(response, &q, lang)),
+        Err(status) => Err(status),
     }
 }
+fn preserve_staff_language(mut response: Response, q: &Options, lang: &str) -> Response {
+    use axum::http::header::LOCATION;
+    if q.lang.is_some()
+        && let Some(location) = response
+            .headers()
+            .get(LOCATION)
+            .and_then(|value| value.to_str().ok())
+        && let Ok(location) = format!("{location}?lang={lang}").parse()
+    {
+        response.headers_mut().insert(LOCATION, location);
+    }
+    response
+}
+
 fn storage(e: sqlx::Error) -> StatusCode {
     if e.as_database_error().is_some_and(|e| {
         e.is_unique_violation()
@@ -614,7 +652,7 @@ async fn save(
     };
     let end = paired.as_ref().and_then(|window| window.end);
     let (id, expiry) = if let Some(id) = id {
-        sqlx::query_as::<_, (Uuid, Option<time::OffsetDateTime>)>(
+        sqlx::query_as::<_, (Uuid, Option<String>)>(
             "WITH revision AS MATERIALIZED (
                 SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp
                 FROM news WHERE id=$1
@@ -624,9 +662,8 @@ async fn save(
                 translation_published_at=NULLIF($8,'')::timestamptz,
                 expires_at=CASE
                     WHEN $9 THEN $10
-                    WHEN (published_at,translation_published_at) IS NOT DISTINCT FROM
-                        (NULLIF($5,'')::timestamptz,NULLIF($8,'')::timestamptz) THEN expires_at
-                    ELSE NULL END,
+                    WHEN $5='' THEN NULL
+                    ELSE expires_at END,
                 translation_source_updated_at=CASE
                     WHEN $9 THEN (SELECT stamp FROM revision)
                     WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz
@@ -637,7 +674,7 @@ async fn save(
                         (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision)
                     WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision)
                     ELSE NULL END,
-                updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id,expires_at",
+                updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id,to_jsonb(expires_at)#>>'{}'",
         )
         .bind(id).bind(&input.slug).bind(&input.title).bind(&input.body)
         .bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl)
@@ -648,7 +685,7 @@ async fn save(
             "INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,
                               translation_published_at,translation_source_updated_at,expires_at)
              VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),
-                    NULLIF($7,'')::timestamptz,now(),$8) RETURNING id,expires_at",
+                    NULLIF($7,'')::timestamptz,now(),$8) RETURNING id,to_jsonb(expires_at)#>>'{}'",
         )
         .bind(&input.slug)
         .bind(&input.title)
