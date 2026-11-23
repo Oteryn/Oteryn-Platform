@@ -1,5 +1,5 @@
 title = World atlas
-help = Use arrow keys or drag to pan. Use + and − to zoom. Select a floor and toggle layers below. Coordinates are saved in the URL.
+help = Use the controls below or focus the map and use the arrow keys to pan and + or − to zoom. Tab leaves the map. Layer details are listed after the map. Coordinates are saved in the URL.
 floor = Floor
 zoom-in = Zoom in
 zoom-out = Zoom out
@@ -10,3 +10,6 @@ north = North
 south = South
 west = West
 east = East
+
+controls = Map controls
+position = X: %x, Y: %y, floor: %floor, zoom: %zoom

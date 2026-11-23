@@ -41,3 +41,9 @@ axe_level = Walka toporem
 distance_level = Walka dystansowa
 shielding_level = Obrona tarczą
 fishing_level = Łowienie
+
+chart-title = Wykres dziennych obserwacji
+data-table = Dane statystyczne
+view-data = Odczytaj dane wykresu w tabeli
+table-scroll = W razie potrzeby przewiń tabelę klawiszami strzałek.
+detail = Szczegóły

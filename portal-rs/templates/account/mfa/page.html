@@ -2,18 +2,18 @@
 {% block title %}{% if mode == "login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}{% endblock %}
 {% block content %}
 <h1>{% if mode == "login" %}{{ self.text("mfa-login") }}{% else %}{{ self.text("mfa-title") }}{% endif %}</h1>
-{% if failed %}<p class="op-error" role="alert">{{ self.text("mfa-error") }}</p>{% endif %}
+{% if failed %}<p class="op-error" role="alert" id="mfa-error" tabindex="-1" autofocus>{{ self.text("mfa-error") }}</p>{% endif %}
 {% if mode == "login" %}
 <form class="op-stack" method="post" action="/{{ lang }}/login">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
-<div class="op-field"><label for="email">{{ self.text("mfa-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required></div>
-<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required></div>
+<div class="op-field"><label for="email">{{ self.text("mfa-email") }}</label><input class="op-input" id="email" name="email" type="email" autocomplete="username" maxlength="254" required{% if failed %} aria-describedby="mfa-error" aria-invalid="true"{% endif %}></div>
+<div class="op-field"><label for="password">{{ self.text("mfa-password") }}</label><input class="op-input" id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required{% if failed %} aria-describedby="mfa-error" aria-invalid="true"{% endif %}></div>
 <button class="op-button op-button--primary">{{ self.text("mfa-login") }}</button></form>
 <p>{{ self.text("mfa-no-account") }} <a class="op-button" href="/{{ lang }}/register">{{ self.text("mfa-register") }}</a></p>
 {% else if mode == "challenge" %}
 <form class="op-stack" method="post" action="/{{ lang }}/mfa/challenge">
 <input type="hidden" name="_csrf" value="{{ csrf }}">
-<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" maxlength="64" required></div>
+<div class="op-field"><label for="code">{{ self.text("mfa-code") }}</label><input class="op-input" id="code" name="code" autocomplete="one-time-code" maxlength="64" required{% if failed %} aria-describedby="mfa-error" aria-invalid="true"{% endif %}></div>
 <label><input type="checkbox" name="remember" value="yes"> {{ self.text("mfa-remember") }}</label>
 <button class="op-button op-button--primary">{{ self.text("mfa-verify") }}</button></form>
 <form method="post" action="/{{ lang }}/mfa/email"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button">{{ self.text("mfa-send-email") }}</button></form>

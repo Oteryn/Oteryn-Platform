@@ -75,6 +75,7 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
     let guest = cookie(&response)?;
     let html = body(response).await?;
     assert!(html.contains("Log in"));
+    assert!(!html.contains("autofocus"));
     let token = csrf(&html)?;
     let response = app
         .clone()
@@ -106,14 +107,17 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
         )?)
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
-    assert!(
-        body(
-            app.clone()
-                .oneshot(request("GET", "/en/login", &guest, "")?)
-                .await?
-        )
-        .await?
-        .contains("The provided credentials are invalid.")
+    let refused = body(
+        app.clone()
+            .oneshot(request("GET", "/en/login", &guest, "")?)
+            .await?,
+    )
+    .await?;
+    assert!(refused.contains("The provided credentials are invalid."));
+    assert!(refused.contains("id=\"login-error\" tabindex=\"-1\" autofocus"));
+    assert_eq!(
+        refused.matches("aria-describedby=\"login-error\"").count(),
+        2
     );
     let response = app
         .clone()

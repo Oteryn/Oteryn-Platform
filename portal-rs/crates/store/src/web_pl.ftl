@@ -49,3 +49,12 @@ coin-count = { $count } { $count ->
    *[many] coinów
     [other] coinów
     }
+
+offer-filter = Identyfikator oferty
+offer-filter-hint = Wpisz całość lub część identyfikatora albo zostaw pole puste, aby zobaczyć wszystkie oferty.
+apply-filter = Filtruj oferty
+offer-results = { $count ->
+    [one] { $count } pasująca oferta.
+    [few] { $count } pasujące oferty.
+   *[other] { $count } pasujących ofert.
+}

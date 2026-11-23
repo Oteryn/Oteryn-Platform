@@ -115,6 +115,30 @@ struct TopUpForm {
 struct Paging {
     before: Option<Uuid>,
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OfferQuery {
+    #[serde(default)]
+    q: String,
+}
+impl OfferQuery {
+    fn parse(raw: &str) -> Result<Self, Error> {
+        if raw.len() > 512 {
+            return Err(Error::Invalid);
+        }
+        let mut query: Self = serde_urlencoded::from_str(raw).map_err(|_| Error::Invalid)?;
+        query.q = query.q.trim().to_ascii_lowercase();
+        if !query.q.is_empty() && !crate::purchase::offer_key(&query.q) {
+            return Err(Error::Invalid);
+        }
+        Ok(query)
+    }
+
+    fn matches(&self, offer: &crate::catalog::Offer) -> bool {
+        offer.available() && offer.offer_key.contains(&self.q)
+    }
+}
+
 #[derive(Clone)]
 struct Shop {
     pool: PgPool,
@@ -266,14 +290,20 @@ impl Locale {
             .unwrap_or_default()
     }
 }
-async fn account(shop: &Shop, session: &BrowserSession, locale: Locale) -> Result<Uuid, Response> {
+async fn account(
+    shop: &Shop,
+    session: &BrowserSession,
+    locale: Locale,
+) -> Result<Uuid, Box<Response>> {
     let Some(account) = session.account_id().await else {
-        return Err(Redirect::to(&format!("/{}/login", locale.0)).into_response());
+        return Err(Box::new(
+            Redirect::to(&format!("/{}/login", locale.0)).into_response(),
+        ));
     };
     match shop.backend.active(account).await {
         Ok(true) => Ok(account),
-        Ok(false) => Err(failure(locale, Error::Denied)),
-        Err(e) => Err(failure(locale, e)),
+        Ok(false) => Err(Box::new(failure(locale, Error::Denied))),
+        Err(e) => Err(Box::new(failure(locale, e))),
     }
 }
 fn failure(locale: Locale, error: Error) -> Response {
@@ -327,9 +357,9 @@ struct PackageView {
 <html lang="{{ lang }}" data-theme="dark">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
 <body class="op-theme op-stack">
-<header class="op-card op-stack"><a href="#main">{{ skip }}</a><nav class="op-tabs" aria-label="{{ shop }}"><a href="/{{ lang }}/shop">{{ shop }}</a><a href="/{{ lang }}/shop/coins">{{ coins }}</a><a href="/{{ lang }}/shop/history">{{ history }}</a><a href="/{{ lang }}/shop/transfer">{{ transfer }}</a></nav></header>
+<div class="op-card op-stack"><a class="op-skip" href="#main">{{ skip }}</a><nav class="op-tabs" aria-label="{{ shop }}"><a href="/{{ lang }}/shop">{{ shop }}</a><a href="/{{ lang }}/shop/coins">{{ coins }}</a><a href="/{{ lang }}/shop/history">{{ history }}</a><a href="/{{ lang }}/shop/transfer">{{ transfer }}</a></nav></div>
 <main id="main" tabindex="-1" class="op-card op-stack"><h1>{{ title }}</h1>
-{% if !message.is_empty() %}<p class="op-alert" role="status">{{ message }}</p>{% endif %}
+{% if !message.is_empty() %}<p class="op-alert{% if message_role == "alert" %} op-alert--danger{% endif %}" role="{{ message_role }}"{% if focus_message %} tabindex="-1" autofocus{% endif %}>{{ message }}</p>{% endif %}
 {% if let Some(b) = balance %}<section class="op-panel"><dl><dt>{{ available }}</dt><dd>{{ b.available }}</dd><dt>{{ reserved }}</dt><dd>{{ b.reserved }}</dd></dl></section>{% endif %}
 {% if section == "checkout" %}
 <p class="op-alert">{{ test_banner }}</p>
@@ -337,8 +367,18 @@ struct PackageView {
 {% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop/test-checkout/{{ operation }}"><input type="hidden" name="_csrf" value="{{ csrf }}"><button class="op-button" name="action" value="pay">{{ test_pay }}</button><button class="op-button" name="action" value="reject">{{ test_reject }}</button><button class="op-button" name="action" value="cancel">{{ test_cancel }}</button></form>{% endif %}{% endif %}
 <a href="/{{ lang }}/shop/coins">{{ coins }}</a>
 {% else if section == "shop" %}
+{% if let Some(filter) = offer_filter %}
+<form class="op-stack" method="get" action="/{{ lang }}/shop" role="search" aria-label="{{ offer_filter_label }}">
+<div class="op-field">
+<label for="offer-filter">{{ offer_filter_label }}</label>
+<input id="offer-filter" class="op-input" type="search" name="q" maxlength="128" value="{{ filter }}" aria-describedby="offer-filter-hint">
+<p class="op-hint" id="offer-filter-hint">{{ offer_filter_hint }}</p>
+</div>
+<button class="op-button" type="submit">{{ apply_filter }}</button>
+</form>
+{% endif %}
 {% for offer in offers %}<article class="op-card op-stack"><h2>{{ offer.offer_key }}</h2><p>{{ price }}: {{ offer.unit_price }}</p>
-{% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ offer.operation }}"><input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="offer" value="{{ offer.offer_key }}"><input type="hidden" name="price" value="{{ offer.unit_price }}"><label class="op-field">{{ quantity }}<input class="op-input" type="number" name="quantity" min="1" max="{{ offer.max_quantity }}" value="1" required></label><label class="op-field">{{ character }}<input class="op-input" name="character" required maxlength="36"></label><label class="op-field">{{ world }}<input class="op-input" name="world" required maxlength="36"></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}</article>{% else %}<p>{{ empty }}</p>{% endfor %}
+{% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ offer.operation }}"><input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="offer" value="{{ offer.offer_key }}"><input type="hidden" name="price" value="{{ offer.unit_price }}"><label class="op-field">{{ quantity }}<input class="op-input" type="number" name="quantity" min="1" max="{{ offer.max_quantity }}" value="1" required></label><label class="op-field">{{ character }}<input class="op-input" name="character" required maxlength="36"></label><label class="op-field">{{ world }}<input class="op-input" name="world" required maxlength="36"></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}</article>{% endfor %}
 {% else if section == "transfer" %}
 <label class="op-field">{{ own_transfer_label }}<input class="op-input" value="{{ own_transfer_id }}" readonly aria-describedby="transfer-id-hint"></label><p id="transfer-id-hint">{{ transfer_hint }}</p>
 {% if enabled %}<form method="post" class="op-stack" action="/{{ lang }}/shop/transfer"><input type="hidden" name="_csrf" value="{{ csrf }}"><input type="hidden" name="operation" value="{{ operation }}"><label class="op-field">{{ recipient }}<input class="op-input" name="recipient" minlength="36" maxlength="36" pattern="[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}" required></label><label class="op-field">{{ amount }}<input class="op-input" name="amount" inputmode="numeric" pattern="[1-9][0-9]*" required></label><p>{{ confirm }}</p><button class="op-button">{{ submit }}</button></form>{% else %}<p>{{ unavailable }}</p>{% endif %}
@@ -391,6 +431,12 @@ struct Page {
     top_up_hint: String,
     buy: String,
     message: String,
+    message_role: &'static str,
+    focus_message: bool,
+    offer_filter: Option<String>,
+    offer_filter_label: String,
+    offer_filter_hint: String,
+    apply_filter: String,
     section: &'static str,
     balance: Option<oteryn_wallet::Balance>,
     offers: Vec<OfferView>,
@@ -443,6 +489,12 @@ impl Page {
             top_up_hint: l.text("top-up-hint"),
             buy: l.text("buy"),
             message: String::new(),
+            message_role: "status",
+            focus_message: false,
+            offer_filter: None,
+            offer_filter_label: l.text("offer-filter"),
+            offer_filter_hint: l.text("offer-filter-hint"),
+            apply_filter: l.text("apply-filter"),
             section,
             balance: None,
             offers: Vec::new(),
@@ -461,30 +513,41 @@ async fn page(
     session: &BrowserSession,
     lang: &str,
     section: &'static str,
-) -> Result<(Uuid, Locale, Page), Response> {
-    let locale = Locale::parse(lang).map_err(IntoResponse::into_response)?;
+) -> Result<(Uuid, Locale, Page), Box<Response>> {
+    let locale = Locale::parse(lang).map_err(|status| Box::new(status.into_response()))?;
     let account = account(shop, session, locale).await?;
     let mut page = Page::new(locale, section);
     page.balance = Some(
         shop.backend
             .balance(account)
             .await
-            .map_err(|e| failure(locale, e))?,
+            .map_err(|e| Box::new(failure(locale, e)))?,
     );
     page.csrf = session
         .csrf_token()
         .await
-        .map_err(|_| failure(locale, Error::Unavailable))?;
+        .map_err(|_| Box::new(failure(locale, Error::Unavailable)))?;
     Ok((account, locale, page))
 }
 async fn offers(
     State(s): State<Shop>,
     Extension(session): Extension<BrowserSession>,
     Path(lang): Path<String>,
+    RawQuery(raw): RawQuery,
 ) -> Response {
     let (_, l, mut p) = match page(&s, &session, &lang, "shop").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
+    };
+    p.focus_message = raw.is_some();
+    let query = match OfferQuery::parse(raw.as_deref().unwrap_or_default()) {
+        Ok(query) => query,
+        Err(_) => {
+            p.offer_filter = Some(String::new());
+            p.message = l.text("invalid");
+            p.message_role = "alert";
+            return (StatusCode::UNPROCESSABLE_ENTITY, oteryn_web::render(&p)).into_response();
+        }
     };
     match s.backend.catalog().await {
         Ok(Some(c)) => {
@@ -492,7 +555,7 @@ async fn offers(
             p.offers = c
                 .offers()
                 .iter()
-                .filter(|o| o.available())
+                .filter(|offer| query.matches(offer))
                 .map(|o| OfferView {
                     offer_key: o.offer_key.clone(),
                     unit_price: o.unit_price.clone(),
@@ -500,10 +563,18 @@ async fn offers(
                     operation: Uuid::now_v7(),
                 })
                 .collect();
+            if p.focus_message {
+                let mut args = FluentArgs::new();
+                args.set("count", p.offers.len() as i64);
+                p.message = l.text_args("offer-results", Some(&args));
+            } else if p.offers.is_empty() {
+                p.message = l.text("empty");
+            }
         }
         Ok(None) => p.message = l.text("unavailable"),
         Err(e) => return failure(l, e),
     }
+    p.offer_filter = Some(query.q);
     p.enabled = s.flags.purchases;
     oteryn_web::render(&p)
 }
@@ -515,7 +586,7 @@ async fn coins(
 ) -> Response {
     let (account, locale, mut p) = match page(&s, &session, &lang, "coins").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if s.backend.test_checkout() {
         let status = match serde_urlencoded::from_str::<CheckoutStatus>(
@@ -560,7 +631,7 @@ async fn transfer_page(
 ) -> Response {
     let (account, _, mut p) = match page(&s, &session, &lang, "transfer").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     p.own_transfer_id = account.to_string();
     p.enabled = s.flags.transfers;
@@ -574,7 +645,7 @@ async fn history(
 ) -> Response {
     let (a, l, mut p) = match page(&s, &session, &lang, "history").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let Ok(Query(query)) = query else {
         return failure(l, Error::Invalid);
@@ -596,17 +667,17 @@ async fn mutation(
     session: &BrowserSession,
     lang: &str,
     enabled: bool,
-) -> Result<(Uuid, Locale), Response> {
-    let l = Locale::parse(lang).map_err(IntoResponse::into_response)?;
+) -> Result<(Uuid, Locale), Box<Response>> {
+    let l = Locale::parse(lang).map_err(|status| Box::new(status.into_response()))?;
     if !enabled {
-        return Err(failure(l, Error::Unavailable));
+        return Err(Box::new(failure(l, Error::Unavailable)));
     }
     let a = account(s, session, l).await?;
     // Shared PostgreSQL limiter, keyed by the authenticated account, independent of rollback.
     let attempts: i32 = sqlx::query_scalar("INSERT INTO store_wire_limits(scope,subject,attempts) VALUES('purchase',$1,1) ON CONFLICT(scope,subject) DO UPDATE SET window_start=CASE WHEN store_wire_limits.window_start<=clock_timestamp()-interval '60 seconds' THEN clock_timestamp() ELSE store_wire_limits.window_start END, attempts=CASE WHEN store_wire_limits.window_start<=clock_timestamp()-interval '60 seconds' THEN 1 ELSE LEAST(store_wire_limits.attempts+1,11) END, updated_at=clock_timestamp() RETURNING attempts")
-        .bind(format!("web:{a}")).fetch_one(&s.pool).await.map_err(|_| failure(l, Error::Unavailable))?;
+        .bind(format!("web:{a}")).fetch_one(&s.pool).await.map_err(|_| Box::new(failure(l, Error::Unavailable)))?;
     if attempts > 10 {
-        return Err(failure(l, Error::Limited(60)));
+        return Err(Box::new(failure(l, Error::Limited(60))));
     }
     Ok((a, l))
 }
@@ -632,7 +703,7 @@ async fn transfer(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.transfers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: TransferForm = match parse(request).await {
         Ok(v) => v,
@@ -662,7 +733,7 @@ async fn top_up(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.top_ups).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: TopUpForm = match parse(request).await {
         Ok(v) => v,
@@ -691,7 +762,7 @@ async fn buy(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.purchases).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: PurchaseForm = match parse(request).await {
         Ok(v) => v,

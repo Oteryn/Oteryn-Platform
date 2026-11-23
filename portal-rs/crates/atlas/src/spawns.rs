@@ -382,6 +382,8 @@ async fn texts(Path(lang): Path<String>) -> Result<Json<HashMap<String, String>>
         "failed",
         "sign-in",
         "loading",
+        "exit-fullscreen",
+        "spawns-unavailable",
     ] {
         let pattern = bundle
             .get_message(key)

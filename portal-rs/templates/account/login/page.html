@@ -2,7 +2,7 @@
 {% block title %}{{ self.text("login-title") }}{% endblock %}
 {% block content %}
 <h1>{{ self.text("login-title") }}</h1>
-{% if failed %}<p class="op-error" role="alert" id="login-error">{{ self.text("login-error") }}</p>{% endif %}
+{% if failed %}<p class="op-error" role="alert" id="login-error" tabindex="-1" autofocus>{{ self.text("login-error") }}</p>{% endif %}
 
 <form class="op-stack" method="post" action="/{{ lang }}/login">
 <input type="hidden" name="_csrf" value="{{ csrf }}">

@@ -148,6 +148,7 @@ struct Page {
     end: String,
     ids: String,
     comparison: bool,
+    invalid: bool,
     selected_metric: String,
     charts: Vec<(String, String)>,
     metrics: Vec<(String, String)>,
@@ -173,6 +174,11 @@ fn page(lang: &str, text: &Text) -> Page {
             "experience",
             "skills",
             "target",
+            "chart-title",
+            "data-table",
+            "view-data",
+            "table-scroll",
+            "detail",
         ]
         .map(|k| text.get(k))
         .to_vec(),
@@ -180,6 +186,7 @@ fn page(lang: &str, text: &Text) -> Page {
         end: String::new(),
         ids: String::new(),
         comparison: false,
+        invalid: false,
         selected_metric: "level".into(),
         charts: vec![],
         metrics: [
@@ -221,6 +228,8 @@ fn finish(mut page: Page, text: &Text, result: Result<(), Error>) -> Response {
             }
         }
     };
+    page.invalid = status == StatusCode::BAD_REQUEST;
+    page.charts.retain(|(_, points)| !points.is_empty());
     match page.render() {
         Ok(body) => (status, [(header::CACHE_CONTROL,"no-store, private"),(header::CONTENT_LANGUAGE,page.lang.as_str()),(header::CONTENT_SECURITY_POLICY,"default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"),(header::X_CONTENT_TYPE_OPTIONS,"nosniff"),(header::REFERRER_POLICY,"strict-origin-when-cross-origin"),(header::STRICT_TRANSPORT_SECURITY,"max-age=63072000; includeSubDomains"),(header::HeaderName::from_static("permissions-policy"),"camera=(), microphone=(), geolocation=()")],Html(body)).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
@@ -500,6 +509,44 @@ async fn compare(
 mod tests {
     #![allow(clippy::unwrap_used)]
     use super::*;
+    #[tokio::test]
+    async fn chart_data_and_validation_have_accessible_markup() {
+        use axum::body::to_bytes;
+
+        for lang in ["pl", "en"] {
+            let text = Text::new(lang).unwrap();
+            let mut rendered = page(lang, &text);
+            rendered
+                .rows
+                .push(("2026-11-01".into(), "<Name>".into(), "42".into()));
+            rendered
+                .charts
+                .push(("<Name>".into(), "M10,20h3v3h-3z".into()));
+            let response = finish(rendered, &text, Ok(()));
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = to_bytes(response.into_body(), 65_536).await.unwrap();
+            let html = std::str::from_utf8(&bytes).unwrap();
+            assert!(html.contains("href=\"#character-data\""));
+            assert!(html.contains(
+                "role=\"region\" tabindex=\"0\" aria-labelledby=\"character-data-caption\""
+            ));
+            assert!(html.contains("id=\"character-data-caption\""));
+            assert!(html.contains("scope=\"col\""));
+            assert!(html.contains("&#60;Name&#62;"));
+            assert!(!html.contains("<Name>"));
+            assert!(html.contains(">42</td>"));
+        }
+
+        let text = Text::new("en").unwrap();
+        let response = finish(page("en", &text), &text, Err(Error::Invalid));
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = to_bytes(response.into_body(), 65_536).await.unwrap();
+        let html = std::str::from_utf8(&bytes).unwrap();
+        assert!(html.contains("role=\"alert\" tabindex=\"-1\" autofocus"));
+        assert!(!html.contains("<table"));
+        assert!(!html.contains("<svg"));
+    }
+
     #[test]
     fn query_bounds_and_localization() {
         for raw in [
