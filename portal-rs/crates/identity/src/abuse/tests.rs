@@ -597,7 +597,7 @@ async fn audit3_english_challenge_refusal_uses_requested_language() -> TestResul
         .layer(axum::Extension(axum::extract::ConnectInfo(
             "192.0.2.50:1234".parse::<std::net::SocketAddr>()?,
         )));
-    let response = adapter.oneshot(request()?).await?;
+    let response = adapter.clone().oneshot(request()?).await?;
     assert_eq!(
         response.status(),
         axum::http::StatusCode::SERVICE_UNAVAILABLE
@@ -611,10 +611,121 @@ async fn audit3_english_challenge_refusal_uses_requested_language() -> TestResul
     assert!(body.contains("lang=\"en\""));
     assert!(body.contains("Registration is currently unavailable."));
     assert!(!body.contains("/pl/register"));
+    sqlx::query("UPDATE registration_abuse_policy SET reason_en=$1")
+        .bind("Planned maintenance <updates soon>")
+        .execute(&db.pool)
+        .await?;
+    let response = adapter.oneshot(request()?).await?;
+    assert_eq!(
+        response.status(),
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    let body = axum::body::to_bytes(response.into_body(), 65536).await?;
+    let body = std::str::from_utf8(&body)?;
+    assert!(body.contains("Planned maintenance &#60;updates soon&#62;"));
     db.close().await?;
     eprintln!(
         "PG audit3_english_challenge_refusal_uses_requested_language: {:?}",
         started.elapsed()
     );
     Ok(())
+}
+
+#[tokio::test]
+async fn configured_proof_difficulty_and_lifetime_are_enforced() -> TestResult {
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
+    db.enable().await?;
+    sqlx::query("UPDATE registration_abuse_policy SET work_bits=17,work_ttl_seconds=420")
+        .execute(&db.pool)
+        .await?;
+    issue(&db.pool, CSRF).await?;
+    let lifetime: i32 = sqlx::query_scalar(
+        "SELECT extract(epoch FROM expires_at-created_at)::int FROM registration_work",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(lifetime, 420);
+    let token = "A".repeat(64);
+    sqlx::query("UPDATE registration_work SET token_hash=$1")
+        .bind(Sha256::digest(token.as_bytes()).to_vec())
+        .execute(&db.pool)
+        .await?;
+    let default_only = (0..1_000_000_u64)
+        .map(|nonce| nonce.to_string())
+        .find(|nonce| valid_solution(&token, nonce) && !solution_meets(&token, nonce, 17))
+        .ok_or("no proof of default difficulty found")?;
+    assert_eq!(
+        consume(&db.pool, CSRF, &token, &default_only).await,
+        Err(Error::Invalid)
+    );
+    let configured = (0..3_000_000_u64)
+        .map(|nonce| nonce.to_string())
+        .find(|nonce| solution_meets(&token, nonce, 17))
+        .ok_or("no proof of configured difficulty found")?;
+    assert_eq!(consume(&db.pool, CSRF, &token, &configured).await, Ok(()));
+    assert_eq!(
+        consume(&db.pool, CSRF, &token, &configured).await,
+        Err(Error::Invalid)
+    );
+    db.close().await
+}
+
+#[tokio::test]
+async fn concurrent_policy_change_is_applied_before_signup_writes() -> TestResult {
+    use crate::{consents::ConsentConfig, register};
+    use std::time::Duration;
+
+    let db = Database::new()
+        .await?
+        .ok_or("PORTAL_TEST_DATABASE_URL is required for this regression")?;
+    db.enable().await?;
+    let password = "a locally generated signup passphrase";
+    db.range(password, false).await?;
+    let email = "policy-change@example.test";
+    let mut editor = db.pool.begin().await?;
+    let editor_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *editor)
+        .await?;
+    sqlx::query("UPDATE registration_abuse_policy SET enabled=false")
+        .execute(&mut *editor)
+        .await?;
+    let signup = tokio::spawn({
+        let pool = db.pool.clone();
+        async move {
+            let config = ConsentConfig::default();
+            let input = register::Registration {
+                email: email.into(),
+                password: password.into(),
+                password_confirmation: password.into(),
+                terms: Some(config.terms_version.clone()),
+                privacy: Some(config.privacy_version.clone()),
+            };
+            register::register(&pool, input, &config, "en", None).await
+        }
+    });
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let waiting: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))",
+            )
+            .bind(editor_pid)
+            .fetch_one(&db.pool)
+            .await?;
+            if waiting {
+                return Ok::<(), sqlx::Error>(());
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await??;
+    editor.commit().await?;
+    assert!(matches!(signup.await?, Err(register::Error::Closed)));
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE email=$1)")
+        .bind(email)
+        .fetch_one(&db.pool)
+        .await?;
+    assert!(!exists);
+    db.close().await
 }

@@ -42,7 +42,7 @@ fn verified(account: Uuid) -> CheckContext {
 
 #[test]
 fn permission_catalog_is_stable_unique_and_covered() {
-    assert_eq!(Permission::ALL.len(), 77);
+    assert_eq!(Permission::ALL.len(), 79);
     for role in BuiltInRole::ALL {
         for permission in [
             Permission::AdminAnalyticsView,
@@ -54,6 +54,8 @@ fn permission_catalog_is_stable_unique_and_covered() {
             Permission::ListStaffInvites,
             Permission::CreateStaffInvite,
             Permission::RevokeStaffInvite,
+            Permission::ViewRegistrationPolicy,
+            Permission::ManageRegistrationPolicy,
         ] {
             assert_eq!(
                 role.permissions().contains(&permission),

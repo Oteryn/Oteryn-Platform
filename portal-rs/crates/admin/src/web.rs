@@ -25,6 +25,9 @@ use uuid::Uuid;
 #[path = "staff_web.rs"]
 mod invitations;
 
+#[path = "registration_policy.rs"]
+mod registration_policy;
+
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
     pub account: Uuid,
@@ -293,6 +296,14 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
             "/admin/roles/invitations/{id}/revoke",
             post(invitations::revoke::<I, A>),
         )
+        .route(
+            registration_policy::PATH,
+            get(registration_policy::show::<I, A>).post(registration_policy::save::<I, A>),
+        )
+        .route(
+            registration_policy::CONFIRM_PATH,
+            axum::routing::post(registration_policy::confirm::<I, A>),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -397,7 +408,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         return Redirect::to("/login").into_response();
     };
     if !identity.mfa_satisfied {
-        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", language(request.headers()), text(language(request.headers()), "mfa")))).into_response();
+        let lang = language(request.headers());
+        return (StatusCode::FORBIDDEN, axum::response::Html(format!("<html lang=\"{lang}\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><main><h1>{}</h1></main></html>", text(lang, "mfa")))).into_response();
     }
     let proof = match (
         session.identity_hash().await,
@@ -432,6 +444,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         ("/admin/mail-outbox/cancel", _) => &[Permission::MailCancel],
         (invitations::PATH, &Method::POST) => &[Permission::CreateStaffInvite],
         (path, &Method::POST) if path.starts_with("/admin/roles/invitations/") => &[Permission::RevokeStaffInvite],
+        (registration_policy::PATH, &axum::http::Method::GET | &axum::http::Method::HEAD) => &[Permission::ViewRegistrationPolicy],
+        (registration_policy::PATH | registration_policy::CONFIRM_PATH, _) => &[Permission::ManageRegistrationPolicy, Permission::ViewRegistrationPolicy],
         _ => &[],
     };
     let configured_permissions = s.required.as_slice();
@@ -476,6 +490,14 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     tx.commit().await?;
     Ok(())
 }
+fn language_for(requested: Option<&str>, headers: &axum::http::HeaderMap) -> &'static str {
+    match requested {
+        Some("pl") => "pl",
+        Some("en") => "en",
+        _ => language(headers),
+    }
+}
+
 pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     if headers
         .get(header::ACCEPT_LANGUAGE)
@@ -526,6 +548,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    registration_policy_label: Option<String>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -545,6 +568,7 @@ const ROLE_PAGE_SIZE: i64 = 50;
 #[derive(Deserialize, Default)]
 struct RolePageQuery {
     after: Option<Uuid>,
+    lang: Option<String>,
 }
 pub(crate) async fn role_page(
     pool: &PgPool,
@@ -609,7 +633,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         String::new()
     };
-    let lang = language(&headers);
+    let lang = language_for(query.lang.as_deref(), &headers);
     let mail_link = match s.auth.check(context, Permission::MailView).await {
         Ok(()) => Some(text(lang, "mail-title")),
         Err(Error::Denied) => None,
@@ -623,8 +647,18 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         (Ok(false), Ok(false)) => None,
         _ => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let registration_policy_label = match s
+        .auth
+        .check(context, Permission::ViewRegistrationPolicy)
+        .await
+    {
+        Ok(()) => Some(text(lang, "registration-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
+        registration_policy_label,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         reports_label: text(lang, "reports"),

@@ -1,7 +1,7 @@
 //! Credential changes serialize on the account row. Authentication adapters must apply
 //! CSRF and rate limits before calling this API; no account ID is accepted from a form.
 use crate::{AccountId, password};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{PgExecutor, PgPool, Postgres, Transaction, types::time::OffsetDateTime};
 use std::{future::Future, pin::Pin, sync::Arc};
 
 pub type EffectFuture<'a> = Pin<Box<dyn Future<Output = Result<(), sqlx::Error>> + Send + 'a>>;
@@ -150,9 +150,32 @@ impl Credentials {
         if !self.enabled {
             return Ok(None);
         }
-        sqlx::query_scalar("SELECT s.account_id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.sudo_until>clock_timestamp() AND s.sudo_until<=clock_timestamp()+interval '15 minutes' AND a.status='active' AND a.email_verified_at IS NOT NULL")
-            .bind(session_hash).fetch_optional(&self.pool).await
+        sudo_account(&self.pool, session_hash).await
     }
+}
+
+/// Read current sudo on the same connection as the caller's authorization checks.
+pub async fn sudo_account<'e>(
+    db: impl PgExecutor<'e>,
+    session_hash: &[u8],
+) -> Result<Option<AccountId>, sqlx::Error> {
+    sqlx::query_scalar("SELECT s.account_id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp() AND s.sudo_until>clock_timestamp() AND s.sudo_until<=clock_timestamp()+interval '15 minutes' AND a.status='active' AND a.email_verified_at IS NOT NULL")
+            .bind(session_hash).fetch_optional(db).await
+}
+
+/// Record the successful password confirmation inside the session rotation transaction.
+pub async fn record_sudo_confirmation(
+    tx: &mut Transaction<'_, Postgres>,
+    account: AccountId,
+) -> Result<OffsetDateTime, sqlx::Error> {
+    let until = OffsetDateTime::now_utc() + std::time::Duration::from_secs(900);
+    sqlx::query(
+        "INSERT INTO credential_security_events(account_id,kind) VALUES($1,'sudo_confirmed')",
+    )
+    .bind(account)
+    .execute(&mut **tx)
+    .await?;
+    Ok(until)
 }
 /// Shared with the binary sudo adapter. Hold this transaction's account lock until
 /// identifier/CSRF rotation completes so a password change cannot race confirmation.

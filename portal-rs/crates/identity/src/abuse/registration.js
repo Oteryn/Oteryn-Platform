@@ -10,19 +10,20 @@ if (form) {
         busy = true;
         form.setAttribute("aria-busy", "true");
         try {
-            const response = await fetch("/register/abuse/challenge", {
+            const response = await fetch(`${form.action}/abuse/challenge`, {
                 method: "POST",
                 credentials: "same-origin",
                 headers: { "x-csrf-token": form.elements._csrf.value }
             });
             if (!response.ok) throw new Error("unavailable");
             const challenge = await response.json();
-            if (!/^[0-9A-F]{64}$/.test(challenge.token) || challenge.bits !== 16) throw new Error("invalid");
+            if (!/^[0-9A-F]{64}$/.test(challenge.token) || !Number.isInteger(challenge.bits) || challenge.bits < 16 || challenge.bits > 18) throw new Error("invalid");
             const encoder = new TextEncoder();
             const deadline = Date.now() + 240000;
             for (let nonce = 0; Date.now() < deadline; nonce++) {
                 const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(`${challenge.token}:${nonce}`)));
-                if (digest[0] === 0 && digest[1] === 0) {
+                const prefix = (digest[0] << 16) | (digest[1] << 8) | digest[2];
+                if ((prefix >>> (24 - challenge.bits)) === 0) {
                     form.elements.work_token.value = challenge.token;
                     form.elements.work_nonce.value = String(nonce);
                     form.requestSubmit();
