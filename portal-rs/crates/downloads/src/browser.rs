@@ -38,7 +38,7 @@ pub(crate) async fn download(
     chrome: Option<Extension<Chrome>>,
     query: Result<Query<Selection>, QueryRejection>,
 ) -> Response {
-    let Some(chrome) = page_chrome(chrome, &lang, "download") else {
+    let Some(mut chrome) = page_chrome(chrome, &lang, "download") else {
         return status(StatusCode::NOT_FOUND);
     };
     let Ok(channel) = query
@@ -49,6 +49,9 @@ pub(crate) async fn download(
     else {
         return refusal(&chrome, StatusCode::BAD_REQUEST);
     };
+    if channel == Channel::Beta {
+        chrome.alternate_url.push_str("?channel=beta");
+    }
     let release = match downloads.active_release(channel).await {
         Ok(release) => Some(release),
         Err(Error::NotFound | Error::Disabled) => None,

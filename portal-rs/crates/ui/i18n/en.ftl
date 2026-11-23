@@ -35,7 +35,6 @@ thais-home-registration-unavailable = Registration is currently unavailable.
 thais-home-rules-intro = Read the
 thais-home-character-unavailable = Character creation is currently unavailable.
 thais-home-client-info = Check the server information page for client details.
-thais-home-client-unavailable = Client download information is currently unavailable.
 
 brand = Oteryn
 skip = Skip to content

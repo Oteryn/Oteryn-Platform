@@ -49,6 +49,7 @@ async function publishFixtures() {
     writeFileSync(policyFile, JSON.stringify(policy));
     const rejected = publish('beta', beta);
     expect(rejected.status, 'beta candidate was refused').toBe(1);
+    expect(rejected.stderr.trim()).toBe('Publication refused: untrusted or inconsistent signed metadata');
     const stable = publish('stable', fixture('stable'));
     expect(stable.status, 'signed stable release was published').toBe(0);
   } finally {
@@ -119,6 +120,14 @@ test('a new player finds the signed client and follows setup and recovery', asyn
   await expect(main.locator('a[href*="/download/beta/"]')).toHaveCount(0);
   await expect(main).not.toContainText('Unverified fixture');
 
+  const other = lang === 'pl' ? 'en' : 'pl';
+  const switchLanguage = locale => page.locator(`footer a[hreflang="${locale}"]`);
+  await expect(switchLanguage(other)).toHaveAttribute('href', `/${other}/download?channel=beta`);
+  await switchLanguage(other).click();
+  await expect(main).toContainText(copy[other].unavailable);
+  await switchLanguage(lang).click();
+  await expect(main).toContainText(label.unavailable);
+
   await main.getByRole('link', {name: label.guide, exact: true}).click();
   await expect(page).toHaveURL(new RegExp(`/${lang}/start$`));
   await expect(main.getByRole('heading', {level: 1})).toHaveText(label.guide);
@@ -133,6 +142,7 @@ test('a new player finds the signed client and follows setup and recovery', asyn
 
 test('i18n-parity for the onboarding pages', async ({page}, info) => {
   const lang = info.project.metadata.locale;
+  await publishFixtures();
   for (const [route, heading] of [['download', copy[lang].home], ['start', copy[lang].guide]]) {
     expect((await page.goto(`/${lang}/${route}`)).status()).toBe(200);
     await expect(page.locator('html')).toHaveAttribute('lang', lang);
@@ -140,10 +150,20 @@ test('i18n-parity for the onboarding pages', async ({page}, info) => {
     await expect(main.getByRole('heading', {level: 1})).toHaveText(heading);
     await expect(page.locator(`footer a[hreflang="${lang === 'pl' ? 'en' : 'pl'}"][href$="/${route}"]`)).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
-    expect(await main.locator('h2, p, a, li').allTextContents()).not.toContain('');
+    expect((await main.locator('h2, p, a, li').allTextContents()).map(value => value.trim())).not.toContain('');
+    if (route === 'download') {
+      await expect(main.locator('code')).toHaveText(createHash('sha256').update('package').digest('hex'));
+    }
   }
-  const keys = locale => [...readFileSync(new URL(`../../crates/ui/i18n/${locale}.ftl`, import.meta.url), 'utf8')
-    .matchAll(/^(onboarding-[\w-]+)\s*=\s*\S/gm)].map(([, key]) => key).sort();
-  expect(keys('en').length).toBeGreaterThan(0);
-  expect(keys('pl')).toEqual(keys('en'));
+  const read = file => readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
+  const templates = ['downloads/index.html', 'downloads/start.html', 'components/thais-guide.html'];
+  const keys = new Set(templates.flatMap(file => [...read(`templates/${file}`)
+    .matchAll(/chrome\.text\("(onboarding-[\w-]+)"\)/g)].map(([, key]) => key)));
+  expect(keys.size).toBeGreaterThan(0);
+  for (const locale of ['pl', 'en']) {
+    const translations = new Map([...read(`crates/ui/i18n/${locale}.ftl`)
+      .matchAll(/^(onboarding-[\w-]+)[ \t]*=[ \t]*(.*)$/gm)].map(([, key, value]) => [key, value.trim()]));
+    expect([...translations.keys()].sort(), locale).toEqual([...keys].sort());
+    for (const key of keys) expect(translations.get(key), `${locale} ${key}`).toBeTruthy();
+  }
 });
