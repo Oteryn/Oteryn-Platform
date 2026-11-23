@@ -87,6 +87,7 @@ pub enum Permission {
     ImportStoreCatalog,
     ActivateStoreCatalog,
     GenerateStoreCodes,
+    ReviewCharacterCases,
 }
 
 impl Permission {
@@ -182,6 +183,7 @@ impl Permission {
         Self::ImportStoreCatalog,
         Self::ActivateStoreCatalog,
         Self::GenerateStoreCodes,
+        Self::ReviewCharacterCases,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -269,6 +271,7 @@ impl Permission {
             Self::ImportStoreCatalog => "store.catalog.import",
             Self::ActivateStoreCatalog => "store.catalog.activate",
             Self::GenerateStoreCodes => "store.codes.generate",
+            Self::ReviewCharacterCases => "support.character-cases.review",
             Self::ReleaseCoinPurchaseHold => "payments.coin_hold.release",
         }
     }

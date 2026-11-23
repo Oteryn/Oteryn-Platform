@@ -6,6 +6,7 @@ pub mod rbac;
 pub mod web;
 
 pub mod bazaar;
+mod character_cases;
 pub mod commerce;
 mod mail_ops;
 pub use control::controls;

@@ -282,6 +282,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .merge(crate::character_cases::web::routes::<I, A>())
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
         .route(
             "/admin/mail-outbox/retry",
@@ -428,6 +429,8 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     };
     let permission = s.required.unwrap_or_else(|| match request.uri().path() {
         "/admin/roles" => Permission::ManageRoles,
+        "/admin/character-cases" => Permission::ManageSupportTickets,
+        "/admin/character-cases/review" => Permission::ReviewCharacterCases,
         "/admin/mail-outbox" => Permission::MailView,
         "/admin/mail-outbox/retry" => Permission::MailRetry,
         "/admin/mail-outbox/retry-kind" => Permission::MailRetryBatch,
@@ -520,6 +523,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    character_cases_link: Option<String>,
     players_label: String,
     players: bool,
     account_label: String,
@@ -588,18 +592,14 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     } else {
         false
     };
-    let players = if s.players_enabled {
-        match s
-            .auth
-            .check(context, Permission::ManageSupportTickets)
-            .await
-        {
-            Ok(()) => true,
-            Err(Error::Denied) => false,
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        }
-    } else {
-        false
+    let support = match s
+        .auth
+        .check(context, Permission::ManageSupportTickets)
+        .await
+    {
+        Ok(()) => true,
+        Err(Error::Denied) => false,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
     let roles = if manage {
         match role_page(&s.pool, query.after).await {
@@ -630,8 +630,9 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        character_cases_link: support.then(|| text(lang, "character-case-title")),
         players_label: text(lang, "players"),
-        players,
+        players: s.players_enabled && support,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),
         grant: text(lang, "grant"),
