@@ -1,39 +1,24 @@
 //! Successful ADM-01 payloads, selected by the stored operation and version.
+use super::catalog::{ECONOMY_QUERIES, GAME_OPERATIONS};
 use serde_json::{Value, json};
 use std::{collections::HashMap, sync::LazyLock};
 
-static V1: LazyLock<Option<HashMap<&'static str, jsonschema::Validator>>> = LazyLock::new(|| {
-    let mut pinned: Value =
-        serde_json::from_str(include_str!("fixtures/admin-control-v1/result.schema.json")).ok()?;
-    enforce_integer_formats(&mut pinned["$defs"]);
-    super::catalog::READ_OPERATIONS
-        .into_iter()
-        .map(|operation| {
-            let definition = match operation {
-                "ops.overview.get" => "Overview",
-                "world.list" => "WorldPage",
-                "world.get" => "World",
-                "node.list" => "NodePage",
-                "node.get" => "Node",
-                "db.status" => "DatabaseStatus",
-                "db.migrations.list" => "MigrationPage",
-                "player.search" => "PlayerPage",
-                "player.character.get" => "Character",
-                "player.inventory.get" => "Inventory",
-                "sanction.list" => "SanctionPage",
-                "admin.ledger.query" => "LedgerPage",
-                "admin.policy.get" => "PolicyView",
-                "admin.agent.list" => "AgentPage",
-                "analytics.catalog" => "AnalyticsCatalog",
-                _ => return None,
-            };
-            let schema = json!({
-                "$schema": pinned["$schema"],
-                "$defs": pinned["$defs"],
-                "$ref": format!("#/$defs/{definition}"),
-            });
+type Validators = HashMap<(&'static str, Option<&'static str>), jsonschema::Validator>;
+
+static V1: LazyLock<Option<Validators>> = LazyLock::new(|| {
+    GAME_OPERATIONS
+        .iter()
+        .map(|op| ((op.name, None), op.result_schema))
+        .chain(
+            ECONOMY_QUERIES
+                .iter()
+                .map(|query| (("analytics.query", Some(query.id)), query.result_schema)),
+        )
+        .map(|(key, schema)| {
+            let mut schema = serde_json::from_str(schema).ok()?;
+            enforce_integer_formats(&mut schema);
             let validator = jsonschema::validator_for(&schema).ok()?;
-            Some((operation, validator))
+            Some((key, validator))
         })
         .collect()
 });
@@ -65,10 +50,20 @@ pub(super) fn initialize() -> bool {
 }
 
 pub(crate) fn valid_success(operation: &str, version: i32, payload: &Value) -> bool {
+    valid_payload(operation, version, None, payload)
+}
+
+/// Validate against the schema for the operation, or its signed named-query form.
+pub(super) fn valid_payload(
+    operation: &str,
+    version: i32,
+    query_id: Option<&str>,
+    payload: &Value,
+) -> bool {
     version == 1
         && V1
             .as_ref()
-            .and_then(|schemas| schemas.get(operation))
+            .and_then(|schemas| schemas.get(&(operation, query_id)))
             .is_some_and(|validator| validator.is_valid(payload))
 }
 

@@ -320,6 +320,7 @@ fn deserialization_cannot_restore_tampered_signed_members() {
     assert!(serde_json::from_value::<RequestEnvelope>(changed).is_err());
 }
 
+const PHASE_2_VECTOR_DIRECTORY: &str = "phase-2";
 const GOLDEN_VECTORS: &[(&str, Option<&str>)] = &[
     ("busy.json", Some("ADM_BUSY")),
     ("closed-params.json", Some("ADM_INVALID_PARAMS")),
@@ -492,7 +493,11 @@ fn adm_x1_game_golden_envelopes() {
         .join("src/control/fixtures/admin-control-v1");
     let mut actual: Vec<_> = std::fs::read_dir(directory.join("vectors"))
         .unwrap()
-        .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+        .map(|entry| entry.unwrap())
+        .filter(|entry| {
+            entry.file_name() != PHASE_2_VECTOR_DIRECTORY || !entry.file_type().unwrap().is_dir()
+        })
+        .map(|entry| entry.file_name().into_string().unwrap())
         .collect();
     actual.sort();
     assert_eq!(
@@ -539,6 +544,129 @@ fn adm_x1_game_golden_envelopes() {
             _ => verified.unwrap(),
         }
     }
+}
+
+#[test]
+fn adm_x1_game_phase_2_vectors() {
+    use super::super::{
+        catalog::{ECONOMY_QUERIES, GAME_OPERATIONS},
+        result_schema::{valid_payload, valid_success},
+    };
+    use std::collections::BTreeSet;
+
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/control/fixtures/admin-control-v1/vectors")
+        .join(PHASE_2_VECTOR_DIRECTORY);
+    let mut cases = BTreeSet::new();
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name().into_string().unwrap();
+        assert!(name.ends_with(".json"), "{name}");
+        let vector: Value = serde_json::from_slice(&std::fs::read(entry.path()).unwrap()).unwrap();
+        let request: RequestEnvelope = serde_json::from_value(vector["request"].clone()).unwrap();
+        validate_request(&request).unwrap();
+        assert_eq!(
+            adm_x1_signing_bytes(&request).unwrap(),
+            vector["canonical_signed_utf8"].as_str().unwrap().as_bytes(),
+            "{name}"
+        );
+        golden_signature(&vector, &request).unwrap_or_else(|error| panic!("{name}: {error}"));
+        let mut changed = request.clone();
+        changed.dry_run = !changed.dry_run;
+        assert!(
+            matches!(
+                golden_signature(&vector, &changed),
+                Err(Error::BadSignature)
+            ),
+            "{name}"
+        );
+
+        let operation = GAME_OPERATIONS
+            .iter()
+            .find(|op| op.name == request.operation)
+            .unwrap();
+        let query = (operation.name == "analytics.query").then(|| {
+            let id = request.params.0["query_id"].as_str().unwrap();
+            ECONOMY_QUERIES.iter().find(|query| query.id == id).unwrap()
+        });
+        assert_eq!(operation.phase, 2, "{name}");
+        assert_eq!(operation.kind, request.kind, "{name}");
+        assert_eq!(operation.permission, request.actor.permission, "{name}");
+        assert_eq!(
+            query.map_or(operation.minimum, |query| query.minimum),
+            request.risk_class,
+            "{name}"
+        );
+
+        let result = &vector["result"];
+        let version = i32::try_from(request.operation_version).unwrap();
+        let query_id = query.map(|query| query.id);
+        let expected = vector["expected_result_valid"].as_bool().unwrap();
+        assert!(cases.insert((operation.name, query_id, expected)), "{name}");
+        assert_eq!(
+            valid_success(operation.name, version, result),
+            expected,
+            "{name}"
+        );
+        assert_eq!(
+            valid_payload(operation.name, version, query_id, result),
+            expected,
+            "{name}"
+        );
+        let mut changed = result.clone();
+        changed["fixture_extra_member"] = json!(true);
+        assert!(!valid_success(operation.name, version, &changed), "{name}");
+        assert!(
+            !valid_payload(operation.name, version, query_id, &changed),
+            "{name}"
+        );
+    }
+    let expected_cases: BTreeSet<_> = GAME_OPERATIONS
+        .iter()
+        .filter(|op| op.phase == 2 && op.name != "analytics.query")
+        .map(|op| (op.name, None))
+        .chain(
+            ECONOMY_QUERIES
+                .iter()
+                .map(|query| ("analytics.query", Some(query.id))),
+        )
+        .flat_map(|(operation, query)| [(operation, query, true), (operation, query, false)])
+        .collect();
+    assert_eq!(cases.len(), 52);
+    assert_eq!(cases, expected_cases);
+}
+
+#[test]
+fn adm_x1_game_phase_1_recorded_payloads() {
+    use super::super::result_schema::valid_success;
+
+    let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src/control/fixtures/admin-control-v1/vectors");
+    let envelope_schema: Value =
+        serde_json::from_str(include_str!("fixtures/admin-control-v1/result.schema.json")).unwrap();
+    let validator = jsonschema::validator_for(&envelope_schema).unwrap();
+    let mut recorded = 0;
+    for entry in std::fs::read_dir(directory).unwrap() {
+        let entry = entry.unwrap();
+        if !entry.file_type().unwrap().is_file() {
+            continue;
+        }
+        let vector: Value = serde_json::from_slice(&std::fs::read(entry.path()).unwrap()).unwrap();
+        let prior = &vector["prior_result"];
+        if prior.is_null() {
+            continue;
+        }
+        recorded += 1;
+        validator.validate(prior).unwrap();
+        let request = &vector["request"];
+        let operation = request["operation"].as_str().unwrap();
+        let version = i32::try_from(request["operation_version"].as_u64().unwrap()).unwrap();
+        assert!(valid_success(operation, version, &prior["result"]));
+        let mut changed = prior.clone();
+        changed["result"]["fixture_extra_member"] = json!(true);
+        assert!(!valid_success(operation, version, &changed["result"]));
+    }
+    assert_eq!(recorded, 2);
 }
 
 #[test]

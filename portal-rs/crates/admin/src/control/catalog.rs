@@ -171,9 +171,107 @@ pub fn validate_staff_request(
     Ok(policy)
 }
 
-/// The fifteen Phase-1 read operations, all queries at version 1. Source:
+/// Metadata for a pinned Game operation. Runtime support is selected separately.
+#[derive(Debug, Clone, Copy)]
+pub struct GameOperation {
+    pub name: &'static str,
+    pub phase: u8,
+    pub kind: signer::Kind,
+    pub minimum: signer::RiskClass,
+    pub permission: &'static str,
+    pub params_schema: &'static str,
+    pub result_schema: &'static str,
+}
+
+macro_rules! game_operations {
+    ($($name:literal, $phase:literal, $kind:ident, $minimum:ident, $permission:literal;)+) => {
+        &[
+            $(GameOperation {
+                name: $name,
+                phase: $phase,
+                kind: signer::Kind::$kind,
+                minimum: signer::RiskClass::$minimum,
+                permission: $permission,
+                params_schema: include_str!(concat!("fixtures/admin-control-v1/", $name, ".params.schema.json")),
+                result_schema: include_str!(concat!("fixtures/admin-control-v1/", $name, ".result.schema.json")),
+            },)+
+        ]
+    };
+}
+
 /// Oteryn-Game `crates/admin/contracts/src/catalog.rs` `Operation::ALL` at
-/// 3732e96aa2874204dcc97504f13681cf04a65c6e.
+/// 75d6892fd6f9cb54877e79a53b552233ec9be3a2.
+pub const GAME_OPERATIONS: &[GameOperation] = game_operations! {
+    "ops.overview.get", 1, Query, R0, "game.ops.read";
+    "world.list", 1, Query, R0, "game.world.read";
+    "world.get", 1, Query, R0, "game.world.read";
+    "node.list", 1, Query, R0, "game.node.read";
+    "node.get", 1, Query, R0, "game.node.read";
+    "db.status", 1, Query, R0, "game.db.read";
+    "db.migrations.list", 1, Query, R0, "game.db.read";
+    "player.search", 1, Query, R1, "game.player.read";
+    "player.character.get", 1, Query, R1, "game.player.read";
+    "player.inventory.get", 1, Query, R1, "game.player.read";
+    "sanction.list", 1, Query, R1, "game.sanction.read";
+    "admin.ledger.query", 1, Query, R1, "game.audit.read";
+    "admin.policy.get", 1, Query, R0, "game.ops.read";
+    "admin.agent.list", 1, Query, R0, "game.ops.read";
+    "analytics.catalog", 1, Query, R0, "game.analytics.read";
+    "analytics.query", 2, Query, R0, "game.analytics.read";
+    "node.drain", 2, Command, R2, "game.node.ops";
+    "ops.alerts.ack", 2, Command, R2, "game.ops.write";
+    "ops.alerts.list", 2, Query, R0, "game.ops.read";
+    "ops.logs.tail", 2, Query, R1, "game.ops.logs.read";
+    "ops.metrics.series", 2, Query, R0, "game.ops.read";
+    "player.kick", 2, Command, R2, "game.player.moderate";
+    "player.message", 2, Command, R2, "game.player.moderate";
+    "player.teleport", 2, Command, R2, "game.player.moderate";
+    "sanction.ban.account", 2, Command, R3, "game.sanction.ban";
+    "sanction.ban.character", 2, Command, R3, "game.sanction.ban";
+    "sanction.mute", 2, Command, R2, "game.sanction.write";
+    "sanction.notation.add", 2, Command, R2, "game.sanction.write";
+    "sanction.revoke", 2, Command, R3, "game.sanction.ban";
+    "sanction.unmute", 2, Command, R2, "game.sanction.write";
+    "world.broadcast", 2, Command, R2, "game.world.ops";
+    "world.motd.set", 2, Command, R2, "game.world.ops";
+    "world.restart", 2, Command, R3, "game.world.ops";
+    "world.save_now", 2, Command, R2, "game.world.ops";
+    "world.state.set", 2, Command, R3, "game.world.config";
+};
+
+#[derive(Debug, Clone, Copy)]
+pub struct EconomyQuery {
+    pub id: &'static str,
+    pub minimum: signer::RiskClass,
+    pub params_schema: &'static str,
+    pub result_schema: &'static str,
+}
+
+macro_rules! economy_queries {
+    ($($id:literal, $minimum:ident;)+) => {
+        &[
+            $(EconomyQuery {
+                id: $id,
+                minimum: signer::RiskClass::$minimum,
+                params_schema: include_str!(concat!("fixtures/admin-control-v1/analytics.query.", $id, ".params.schema.json")),
+                result_schema: include_str!(concat!("fixtures/admin-control-v1/analytics.query.", $id, ".result.schema.json")),
+            },)+
+        ]
+    };
+}
+
+/// Named forms of `analytics.query` from the pinned Game `phase2.rs`.
+pub const ECONOMY_QUERIES: &[EconomyQuery] = economy_queries! {
+    "gold_sources_sinks", R0;
+    "gold_supply", R0;
+    "item_supply_by_type", R0;
+    "market_price_series", R0;
+    "market_volume", R0;
+    "npc_trade_flow", R0;
+    "top_wealth", R1;
+};
+
+/// Phase-1 query operations eligible for agent advertisement and read-result validation.
 pub const READ_OPERATIONS: [&str; 15] = [
     "ops.overview.get",
     "world.list",

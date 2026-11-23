@@ -1,8 +1,11 @@
 # Agent HTTP transport
 
 ADM-01 `oteryn.admin-control.v1`, pinned Game contract commit
-`5ff65ff759b5d5278d8531728ae604e865b1870e`. Platform only accepts incoming
+`75d6892fd6f9cb54877e79a53b552233ec9be3a2`. Platform only accepts incoming
 agent requests; it never connects to Game. No operation is emulated.
+The pinned Game agent advertises `admin.policy.get`. Phase-2 entries and the
+named `analytics.query` forms are contract metadata. See
+[fixture provenance](fixtures/admin-control-v1/SOURCE.md).
 
 `PORTAL_ADMIN_CONTROL_ENABLED` defaults to false (all six routes return 404).
 When enabled, `PORTAL_ADMIN_CONTROL_AGENTS_JSON` must be a nonempty array of
