@@ -26,6 +26,21 @@ pub async fn append(
     transaction: &mut Transaction<'_, Postgres>,
     entry: Entry<'_>,
 ) -> Result<Uuid, crate::rbac::Error> {
+    append_as(transaction, entry, None).await
+}
+
+pub(crate) async fn append_operator_cli(
+    transaction: &mut Transaction<'_, Postgres>,
+    entry: Entry<'_>,
+) -> Result<Uuid, crate::rbac::Error> {
+    append_as(transaction, entry, Some("operator-cli")).await
+}
+
+async fn append_as(
+    transaction: &mut Transaction<'_, Postgres>,
+    entry: Entry<'_>,
+    actor_source: Option<&str>,
+) -> Result<Uuid, crate::rbac::Error> {
     if entry.context.request_id.is_nil()
         || entry.context.actor.is_some_and(|id| id.is_nil())
         || entry.action.trim().is_empty()
@@ -36,8 +51,8 @@ pub async fn append(
         return Err(crate::rbac::Error::InvalidInput);
     }
     let id = sqlx::query_scalar(
-        "INSERT INTO audit_log (actor, action, target, before, after, request_id)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+        "INSERT INTO audit_log (actor, action, target, before, after, request_id, actor_source)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id",
     )
     .bind(entry.context.actor)
     .bind(entry.action)
@@ -45,6 +60,7 @@ pub async fn append(
     .bind(entry.before)
     .bind(entry.after)
     .bind(entry.context.request_id)
+    .bind(actor_source)
     .fetch_one(&mut **transaction)
     .await?;
     Ok(id)

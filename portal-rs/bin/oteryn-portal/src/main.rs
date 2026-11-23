@@ -70,6 +70,9 @@ async fn main() -> ExitCode {
     if std::env::args().nth(1).as_deref() == Some("game-route") {
         return game_route_cli::main().await;
     }
+    if arg.as_deref() == Some("admin-cli") {
+        return admin_cli::main().await;
+    }
     if std::env::args().nth(1).as_deref() == Some("catalog") {
         return catalog_cli::main().await;
     }
@@ -741,6 +744,7 @@ mod tests {
     }
 }
 
+mod admin_cli;
 mod bootstrap_intent;
 mod coin_purchases;
 mod game_ingress;

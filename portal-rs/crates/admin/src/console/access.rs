@@ -537,6 +537,7 @@ pub(crate) struct Page {
     pub players: String,
     pub audit: String,
     pub access: String,
+    pub invitations: Option<String>,
     pub approvals: String,
     pub search: bool,
     pub csrf: String,
@@ -564,6 +565,7 @@ impl Page {
             players: tr(lang, "players"),
             audit: tr(lang, "audit"),
             access: tr(lang, "access"),
+            invitations: None,
             approvals: tr(lang, "approvals"),
             search: false,
             csrf: String::new(),
@@ -612,6 +614,17 @@ pub(crate) async fn page<B: Backend>(
     let roles: Vec<(String,String)> = sqlx::query_as("SELECT r.key, COALESCE(rp.permission,'') FROM roles r LEFT JOIN role_permissions rp ON rp.role_id = r.id ORDER BY r.key, rp.permission LIMIT 1000").fetch_all(&state.pool).await?;
     let metadata = state.backend.access().await?;
     let mut page = Page::new(lang, "access");
+    if state
+        .backend
+        .permitted(actor, Permission::ListStaffInvites.as_str())
+        .await
+        || state
+            .backend
+            .permitted(actor, Permission::CreateStaffInvite.as_str())
+            .await
+    {
+        page.invitations = Some(crate::web::text(lang, "invite-title"));
+    }
     page.section(
         "roles",
         Some(

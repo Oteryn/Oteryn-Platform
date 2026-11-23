@@ -6,6 +6,7 @@
 
 mod catalog;
 pub mod guard;
+pub mod staff;
 mod storage;
 
 pub use catalog::{BuiltInRole, Permission};

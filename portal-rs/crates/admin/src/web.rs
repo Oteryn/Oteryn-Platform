@@ -10,10 +10,10 @@ use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Query, Request, State},
-    http::{StatusCode, header},
+    http::{Method, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
 };
 use oteryn_web::session::{BrowserSession, SessionLayer};
 use serde::Deserialize;
@@ -21,6 +21,9 @@ use serde_json::json;
 use sqlx::PgPool;
 use std::{future::Future, sync::Arc};
 use uuid::Uuid;
+
+#[path = "staff_web.rs"]
+mod invitations;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StaffIdentity {
@@ -167,8 +170,9 @@ pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Err
         pool.clone(),
         config_from_env()?,
         PortalIdentity::configured(pool.clone()),
-        PortalIdentity::configured(pool),
-    ))
+        PortalIdentity::configured(pool.clone()),
+    )
+    .merge(invitations::acceptance_router(pool)))
 }
 
 /// [`guarded`] with the panel's environment configuration and the server-side
@@ -253,6 +257,14 @@ pub fn router<I: StaffSession, A: AccountStateReader + 'static>(
     Router::new()
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
+        .route(
+            invitations::PATH,
+            get(invitations::list::<I, A>).post(invitations::create::<I, A>),
+        )
+        .route(
+            "/admin/roles/invitations/{id}/revoke",
+            post(invitations::revoke::<I, A>),
+        )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
             authenticate::<I, A>,
@@ -384,13 +396,17 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         mfa_verified: true,
         session_proof: proof,
     };
-    let permission = s
-        .required
-        .unwrap_or(if request.uri().path() == "/admin/roles" {
-            Permission::ManageRoles
-        } else {
-            Permission::Access
-        });
+    let permission = s.required.unwrap_or_else(|| {
+        let path = request.uri().path();
+        match (request.method(), path) {
+            (_, "/admin/roles") => Permission::ManageRoles,
+            (&Method::POST, invitations::PATH) => Permission::CreateStaffInvite,
+            (&Method::POST, path) if path.starts_with("/admin/roles/invitations/") => {
+                Permission::RevokeStaffInvite
+            }
+            _ => Permission::Access,
+        }
+    });
     for required in [Permission::Access, permission] {
         if let Err(error) = s.auth.check(context, required).await {
             if matches!(error, Error::Storage(_)) {
@@ -438,7 +454,7 @@ fn language(headers: &axum::http::HeaderMap) -> &'static str {
         "pl"
     }
 }
-fn text(lang: &str, key: &str) -> String {
+pub(crate) fn text(lang: &str, key: &str) -> String {
     let Ok(locale) = lang.parse::<unic_langid::LanguageIdentifier>() else {
         return String::new();
     };
@@ -473,6 +489,7 @@ struct Page {
     csrf: String,
     roles: Vec<(Uuid, String)>,
     manage: bool,
+    invitations_label: Option<String>,
     next: Option<Uuid>,
 }
 impl Page {
@@ -535,6 +552,14 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         String::new()
     };
     let lang = language(&headers);
+    let invitations_label = match (
+        invitations::allowed(&s, context, Permission::ListStaffInvites).await,
+        invitations::allowed(&s, context, Permission::CreateStaffInvite).await,
+    ) {
+        (Ok(true), _) | (_, Ok(true)) => Some(text(lang, "invite-title")),
+        (Ok(false), Ok(false)) => None,
+        _ => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         title: text(lang, "title"),
@@ -549,6 +574,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .flatten(),
         roles,
         manage,
+        invitations_label,
     })
 }
 #[derive(Deserialize)]

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.label("invite-title") }} · Oteryn</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+  <main class="op-panel op-stack">
+    <h1>{{ self.label("invite-title") }}</h1>
+    <nav class="op-tabs" aria-label="{{ self.label("title") }}">
+      <a href="/admin">{{ self.label("title") }}</a>
+    </nav>
+    {% if let Some(key) = notice %}<p role="status">{{ self.label(key) }}</p>{% endif %}
+    {% if can_create %}
+    <section class="op-card op-stack">
+      <h2>{{ self.label("invite-new") }}</h2>
+      {% if roles.is_empty() %}
+      <p>{{ self.label("invite-no-roles") }}</p>
+      {% else %}
+      <form method="post" action="/admin/roles/invitations" class="op-stack">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <div class="op-field">
+          <label for="email">{{ self.label("invite-email") }}</label>
+          <input class="op-input" id="email" name="email" type="email" maxlength="254" required>
+        </div>
+        <div class="op-field">
+          <label for="role">{{ self.label("role") }}</label>
+          <select class="op-input" id="role" name="role" required>
+            {% for (id, key) in roles %}<option value="{{ id }}">{{ key }}</option>{% endfor %}
+          </select>
+        </div>
+        <div class="op-field">
+          <label for="days">{{ self.label("invite-days") }}</label>
+          <input class="op-input" id="days" name="days" type="number" min="1" max="7" value="7" required>
+        </div>
+        <button class="op-button" type="submit">{{ self.label("invite-send") }}</button>
+      </form>
+      {% endif %}
+    </section>
+    {% endif %}
+    {% if can_list %}
+    <section class="op-stack">
+      <h2>{{ self.label("invite-pending") }}</h2>
+      {% if pending.is_empty() %}<p>{{ self.label("invite-empty") }}</p>{% endif %}
+      {% for (id, email, role, expires) in pending %}
+      <article class="op-card op-stack">
+        <dl>
+          <dt>{{ self.label("invite-email") }}</dt><dd>{{ email }}</dd>
+          <dt>{{ self.label("role") }}</dt><dd>{{ role }}</dd>
+          <dt>{{ self.label("invite-expires") }}</dt><dd>{{ expires }} UTC</dd>
+        </dl>
+        {% if can_revoke %}
+        <form method="post" action="/admin/roles/invitations/{{ id }}/revoke">
+          <input type="hidden" name="_csrf" value="{{ csrf }}">
+          <button class="op-button op-button--secondary" type="submit">{{ self.label("invite-revoke") }}</button>
+        </form>
+        {% endif %}
+      </article>
+      {% endfor %}
+    </section>
+    {% endif %}
+  </main>
+</body>
+</html>

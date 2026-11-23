@@ -2,6 +2,7 @@
 //! Delivery is at least once: a crash after SMTP acceptance and before outbox acknowledgement can resend the message.
 use crate::worker::{Handler, HandlerFuture, Registry};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use oteryn_admin::rbac::staff::{self, InvitationKey};
 use oteryn_identity::verify::token_hash;
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -63,6 +64,9 @@ pub fn register(registry: &mut Registry, pool: PgPool) -> Result<(), Box<dyn std
         origin: origin.trim_end_matches('/').into(),
     });
     registry.register("email.verify", mailer.clone())?;
+    if InvitationKey::configured().is_some() {
+        registry.register(staff::MAIL_JOB, mailer.clone())?;
+    }
     registry.register("email.account_exists", mailer)?;
     Ok(())
 }
@@ -78,7 +82,33 @@ struct ExistingPayload {
     locale: String,
     email: Option<String>,
 }
+#[derive(serde::Deserialize)]
+struct InvitationPayload {
+    invitation: uuid::Uuid,
+}
+
 impl Mailer {
+    async fn prepare_invitation(
+        &self,
+        payload: InvitationPayload,
+    ) -> Result<Option<Message>, String> {
+        let key = InvitationKey::configured().ok_or("invitation mail configuration unavailable")?;
+        let mail = staff::mail(&self.pool, &key, payload.invitation, &self.origin)
+            .await
+            .map_err(|_| "invitation delivery unavailable")?;
+        mail.map(|mail| {
+            Message::builder()
+                .from(self.from.clone())
+                .to(mail
+                    .recipient
+                    .parse()
+                    .map_err(|_| "invalid invitation recipient")?)
+                .subject(mail.subject)
+                .body(mail.body)
+                .map_err(|_| "invitation message unavailable".into())
+        })
+        .transpose()
+    }
     async fn prepare_existing(&self, payload: &ExistingPayload) -> Result<Option<Message>, String> {
         // Primary email changes permanently advance the hold from its initial -infinity.
         // A legacy payload has no address to match once that has happened.
@@ -161,6 +191,10 @@ impl Handler for Mailer {
                 let payload = serde_json::from_str(&job.payload)
                     .map_err(|_| "invalid account-exists payload")?;
                 self.prepare_existing(&payload).await?
+            } else if job.kind == staff::MAIL_JOB {
+                let payload =
+                    serde_json::from_str(&job.payload).map_err(|_| "invalid invitation payload")?;
+                self.prepare_invitation(payload).await?
             } else {
                 let payload = serde_json::from_str(&job.payload)
                     .map_err(|_| "invalid verification payload")?;
@@ -173,7 +207,7 @@ impl Handler for Mailer {
                 .send(message)
                 .await
                 .map(|_| ())
-                .map_err(|_| "verification delivery failed".into())
+                .map_err(|_| "outbox mail delivery failed".into())
         })
     }
 }

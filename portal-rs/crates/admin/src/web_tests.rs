@@ -143,6 +143,7 @@ fn localized_responsive_labelled_template() {
             roles: vec![(Uuid::now_v7(), "<unsafe>".into())],
             manage: true,
             next: None,
+            invitations_label: None,
         }
         .render()
         .unwrap();
