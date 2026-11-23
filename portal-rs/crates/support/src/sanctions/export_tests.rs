@@ -194,6 +194,9 @@ impl Database {
                 "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
             ),
             include_str!("../../../../migrations/20261105220213_t06_mfa.sql"),
+            include_str!(
+                "../../../../migrations/20261124110000_admin-bootstrap_staff_invitations.sql"
+            ),
         ] {
             sqlx::raw_sql(migration).execute(&pool).await?;
         }
