@@ -16,6 +16,7 @@
 {% for (href, label) in editorial_links %}<a href="{{ href }}">{{ label }}</a>{% endfor %}
 {% if let Some(label) = native_login_link %}<a href="/admin/native-login">{{ label }}</a>{% endif %}
 {% if let Some(label) = pages_link %}<a href="/admin/pages">{{ label }}</a>{% endif %}
+{% if let Some(label) = closure_link %}<a href="/admin/account-closure">{{ label }}</a>{% endif %}
 </nav>
 {% if let Some(status) = account_reads %}
 <section class="op-panel op-stack" aria-labelledby="account-read-status">

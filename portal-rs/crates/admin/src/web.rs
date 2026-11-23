@@ -689,6 +689,7 @@ struct Page {
     pages_link: Option<String>,
     account_reads: Option<AccountReadStatus>,
     optional_consents: bool,
+    closure_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -857,6 +858,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         Err(Error::Denied) => None,
         Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };
+    let closure_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "account-closure-status")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         pages_link,
         lang,
@@ -872,6 +878,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .filter(|_| request.uri().path() == "/admin")
             .map(|Extension(status)| status),
         optional_consents: oteryn_identity::consents::OptionalConfig::configured().enabled,
+        closure_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s

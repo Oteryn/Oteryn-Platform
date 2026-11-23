@@ -159,6 +159,7 @@ fn localized_responsive_labelled_template() {
                 configured: lang == "en",
             }),
             optional_consents: lang == "pl",
+            closure_link: Some(text(lang, "account-closure-status")),
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -216,6 +217,12 @@ fn localized_responsive_labelled_template() {
             assert!(!value.is_empty());
             assert!(html.contains(&value));
         }
+        assert!(html.contains("href=\"/admin/account-closure\""));
+        assert!(html.contains(if lang == "pl" {
+            "Stan zamknięcia konta"
+        } else {
+            "Account closure status"
+        }));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(html.contains(&format!("/admin/forum?lang={lang}")));
@@ -296,6 +303,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     )
     .unwrap();
     assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("href=\"/admin/account-closure\""));
     let status_path = "/admin/native-login";
     assert!(!body.contains(status_path));
     assert_eq!(

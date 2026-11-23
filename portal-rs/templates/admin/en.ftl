@@ -311,3 +311,5 @@ account-read-coins-off = Unavailable
 account-read-consents = Optional browser consents
 account-read-consents-enabled = Collection enabled; client contract proposed
 account-read-consents-disabled = Collection disabled; client contract proposed
+
+account-closure-status = Account closure status

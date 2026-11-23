@@ -311,3 +311,5 @@ account-read-coins-off = Niedostępne
 account-read-consents = Dobrowolne zgody w przeglądarce
 account-read-consents-enabled = Zbieranie włączone; umowa z klientem w fazie propozycji
 account-read-consents-disabled = Zbieranie wyłączone; umowa z klientem w fazie propozycji
+
+account-closure-status = Stan zamknięcia konta

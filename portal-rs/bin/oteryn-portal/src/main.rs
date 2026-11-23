@@ -380,6 +380,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
                 closure.terminations.clone(),
             ));
+            let app = app.merge(account_lifecycle_http::configured_operator_router(
+                db.clone(),
+            )?);
             let app = app.merge(shop_web::router(db.clone()));
             let account_oauth = oteryn_gameauth::oauth::Config::from_env();
             let account_reads = oteryn_admin::web::AccountReadStatus {

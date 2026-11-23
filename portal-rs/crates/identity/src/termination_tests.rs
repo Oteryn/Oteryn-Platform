@@ -689,3 +689,73 @@ async fn last_admin_cannot_terminate() -> TestResult {
     ));
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_closure_status_follows_account_lifecycle() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    use super::status::{GameState, PlatformState, operator_status};
+    let service = service(&db, Arc::new(BoundaryFixture::default()))?;
+    let owner = db.account().await?;
+    let other = db.account().await?;
+    let first = request(&service, owner).await?;
+    let pending = service
+        .latest_status(owner)
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(pending.id, first.id);
+    assert_eq!(pending.platform, PlatformState::Scheduled);
+    assert_eq!(service.latest_status(other).await?, None);
+
+    db.due(first.id).await?;
+    let due = service
+        .latest_status(owner)
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(due.platform, PlatformState::Pending);
+    assert_eq!(due.game, GameState::Unavailable);
+    service
+        .cancel(
+            owner,
+            &ActorProof(owner.to_string()),
+            "termination test password",
+        )
+        .await?;
+    let cancelled = service
+        .latest_status(owner)
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(cancelled.platform, PlatformState::Cancelled);
+    assert_eq!(cancelled.game, GameState::NotRequired);
+
+    let second = request(&service, owner).await?;
+    db.due(second.id).await?;
+    assert!(service.finalize(owner).await?);
+    let finalized = service
+        .latest_status(owner)
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(finalized.id, second.id);
+    assert_eq!(finalized.platform, PlatformState::Finalized);
+    assert_eq!(finalized.game, GameState::Unavailable);
+    assert_eq!(
+        operator_status(&db.pool, &second.id.to_string()).await?,
+        Some(finalized)
+    );
+    assert_eq!(
+        operator_status(&db.pool, &first.id.to_string()).await?,
+        Some(cancelled)
+    );
+    assert_eq!(
+        operator_status(&db.pool, &Uuid::now_v7().to_string()).await?,
+        None
+    );
+    for invalid in ["", "not-a-reference", &second.id.simple().to_string()] {
+        assert!(matches!(
+            operator_status(&db.pool, invalid).await,
+            Err(Error::InvalidInput)
+        ));
+    }
+    db.close().await
+}

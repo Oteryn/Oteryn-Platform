@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::panic)]
-use super::super::tests::Database;
+use super::super::{
+    status::{GameState, PlatformState, operator_status},
+    tests::Database,
+};
 use super::*;
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::Value;
@@ -462,8 +465,19 @@ async fn postgres_close_proof_requery_finalize_and_atomic_audit() -> TestResult 
     let account = db.account().await?;
     let (t, intent) = issue(&db, &s, account).await;
     assert_eq!(s.run_worker(100).await?.blocked, 1);
+    let status = s.latest_status(account).await?.ok_or("missing closure")?;
+    assert_eq!(status.platform, PlatformState::Pending);
+    assert_eq!(status.game, GameState::Unavailable);
     publish(&db, &b, &intent, true).await;
+    let status = s.latest_status(account).await?.ok_or("missing closure")?;
+    assert_eq!(status.platform, PlatformState::Pending);
+    assert_eq!(status.game, GameState::CloseReceipt);
     assert_eq!(s.run_worker(100).await?.finalized, 1);
+    let status = operator_status(&db.pool, &t.id.to_string())
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(status.platform, PlatformState::Finalized);
+    assert_eq!(status.game, GameState::Unavailable);
     assert_eq!(s.run_worker(100).await?, WorkerResult::default());
     let finalized: bool =
         sqlx::query_scalar("SELECT finalized_at IS NOT NULL FROM account_terminations WHERE id=$1")
@@ -744,7 +758,12 @@ async fn postgres_terminal_stale_generation_retries_fresh_bytes_and_rescan_keeps
     let bytes = serde_json::to_vec(&receipt)?;
     b.ingest_receipt(&db.pool, &bytes, &seed().sign(&bytes).to_bytes())
         .await?;
+    let status = s.latest_status(account).await?.ok_or("missing closure")?;
+    assert_eq!(status.platform, PlatformState::Pending);
+    assert_eq!(status.game, GameState::Refused);
     assert_eq!(s.run_worker(100).await?.blocked, 1);
+    let status = s.latest_status(account).await?.ok_or("missing closure")?;
+    assert_eq!(status.game, GameState::Unavailable);
     let pending = b.pending_intents(&db.pool, 0, 40).await?;
     assert_eq!(pending.len(), 1);
     let fresh = Intent::parse(&pending[0])?;
@@ -1842,7 +1861,7 @@ async fn delayed_finalize_commit_resolves_original_command() -> TestResult {
     let s = service(&db, b.clone());
     let account = db.account().await?;
     let (t, close) = issue(&db, &s, account).await;
-    publish(&db, &b, &close, true).await;
+    let (_, mut projection) = publish(&db, &b, &close, true).await;
     assert!(s.finalize(account).await?);
     let raw:Vec<u8>=sqlx::query_scalar("SELECT intent FROM plat3_closure_commands WHERE termination_id=$1 AND command='ResolveAccountClosure'").bind(t.id).fetch_one(&db.pool).await?;
     let resolution = Intent::parse(&raw)?;
@@ -1856,6 +1875,11 @@ async fn delayed_finalize_commit_resolves_original_command() -> TestResult {
     result.termination_id = resolution.termination_id.clone();
     result.lifecycle_generation = resolution.lifecycle_generation.clone();
     result.closure_state = "FINALIZED".into();
+    projection.projection_revision =
+        (wire::number(&projection.projection_revision, true)? + 1).to_string();
+    result
+        .projection_revision
+        .clone_from(&projection.projection_revision);
     let bytes = serde_json::to_vec(result)?;
     let marker = b",\"proof_sha256\":";
     let end = bytes
@@ -1866,10 +1890,36 @@ async fn delayed_finalize_commit_resolves_original_command() -> TestResult {
     body.push(b'}');
     result.proof_sha256 = wire::hex(&digest(&body));
 
+    let record = projection
+        .closures
+        .first_mut()
+        .ok_or("missing projection record")?;
+    record.operation_id.clone_from(&resolution.operation_id);
+    record
+        .lifecycle_generation
+        .clone_from(&result.lifecycle_generation);
+    record.closure_state.clone_from(&result.closure_state);
+    record.proof_sha256.clone_from(&result.proof_sha256);
+    projection
+        .source_observed_at
+        .clone_from(&receipt.decided_at);
     let raw = serde_json::to_vec(&receipt)?;
+    record.receipt_digest = wire::hex(&digest(&raw));
     recovery.0.store(4, Ordering::SeqCst);
     b.ingest_receipt(&db.pool, &raw, &seed().sign(&raw).to_bytes())
         .await?;
+    let status = operator_status(&db.pool, &t.id.to_string())
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(status.game, GameState::Unavailable);
+    let snapshot = serde_json::to_vec(&projection)?;
+    b.ingest_projection(&db.pool, &snapshot, &seed().sign(&snapshot).to_bytes())
+        .await?;
+    let status = operator_status(&db.pool, &t.id.to_string())
+        .await?
+        .ok_or("missing closure")?;
+    assert_eq!(status.platform, PlatformState::Finalized);
+    assert_eq!(status.game, GameState::Confirmed);
     db.close().await
 }
 
