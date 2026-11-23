@@ -70,6 +70,16 @@ async fn request(app: Router, path: &str, host: &str) -> Response {
     .unwrap()
 }
 #[tokio::test]
+async fn native_login_status_requires_staff_sign_in() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://localhost:1/unreachable")
+        .unwrap();
+    let response = request(app(pool, None, true), "/admin/native-login", "staff.test").await;
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()[header::LOCATION], "/login");
+}
+#[tokio::test]
 async fn host_flag_session_and_mfa_boundaries() {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let pool = PgPoolOptions::new()
@@ -138,6 +148,7 @@ fn localized_responsive_labelled_template() {
             reports_label: text(lang, "reports"),
             moderate_reports: true,
             mail_link: None,
+            native_login_link: None,
             players_label: text(lang, "players"),
             players: true,
             registration_policy_label: Some(text(lang, "registration-title")),
@@ -251,6 +262,29 @@ async fn database_navigation_authorization_csrf_and_owner() {
     )
     .unwrap();
     assert!(!body.contains("href=\"/admin/roles\""));
+    let status_path = "/admin/native-login";
+    assert!(!body.contains(status_path));
+    assert_eq!(
+        request(app(pool.clone(), identity, true), status_path, "staff.test")
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO role_permissions(role_id,permission) VALUES ($1,'audit.view')")
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let response = request(app(pool.clone(), identity, true), "/admin", "staff.test").await;
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    assert!(String::from_utf8_lossy(&body).contains(status_path));
+    let response = request(app(pool.clone(), identity, true), status_path, "staff.test").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let body = to_bytes(response.into_body(), 100_000).await.unwrap();
+    let body = String::from_utf8_lossy(&body);
+    assert!(body.contains("data-state=\"blocked\""));
+    assert!(body.contains("data-state=\"unavailable\""));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),
@@ -268,7 +302,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(count, 1);
+    assert_eq!(count, 2);
     let review = guarded_with_permissions(
         Router::new().route("/admin/feature", get(|| async { "feature" })),
         pool.clone(),

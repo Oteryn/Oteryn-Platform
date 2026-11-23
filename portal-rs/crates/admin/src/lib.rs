@@ -9,6 +9,7 @@ pub mod web;
 pub mod bazaar;
 pub mod commerce;
 mod mail_ops;
+mod native_login;
 pub use control::controls;
 pub mod players;
 pub mod status;

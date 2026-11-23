@@ -320,6 +320,7 @@ fn panel_router<I: StaffSession, A: AccountStateReader + 'static>(
         .route("/admin", get(page::<I, A>))
         .route("/admin/roles", get(page::<I, A>).post(change::<I, A>))
         .route("/admin/mail-outbox", get(crate::mail_ops::page::<I, A>))
+        .route("/admin/native-login", get(crate::native_login::page))
         .route(
             "/admin/mail-outbox/retry",
             post(crate::mail_ops::retry::<I, A>),
@@ -487,6 +488,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
         session_proof: proof,
     };
     let panel_permissions: &[Permission] = match (request.uri().path(), request.method()) {
+        ("/admin/native-login", _) => &[Permission::ViewAudit],
         ("/admin/roles", _) => &[Permission::ManageRoles],
         ("/admin/mail-outbox", _) => &[Permission::MailView],
         ("/admin/mail-outbox/retry", _) => &[Permission::MailRetry],
@@ -611,6 +613,10 @@ pub(crate) fn language(headers: &axum::http::HeaderMap) -> &'static str {
     }
     preferred.0
 }
+
+pub(super) fn panel_language(headers: &axum::http::HeaderMap) -> &'static str {
+    language(headers)
+}
 pub(crate) fn messages(
     lang: &str,
 ) -> Option<fluent_bundle::FluentBundle<fluent_bundle::FluentResource>> {
@@ -653,6 +659,7 @@ struct Page {
     reports_label: String,
     moderate_reports: bool,
     mail_link: Option<String>,
+    native_login_link: Option<String>,
     players_label: String,
     players: bool,
     registration_policy_label: Option<String>,
@@ -807,6 +814,11 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         }
     }
+    let native_login_link = match s.auth.check(context, Permission::ViewAudit).await {
+        Ok(()) => Some(text(lang, "native-login-title")),
+        Err(Error::Denied) => None,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
     oteryn_web::render(&Page {
         lang,
         editorial_links,
@@ -816,6 +828,7 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         reports_label: text(lang, "reports"),
         moderate_reports,
         mail_link,
+        native_login_link,
         players_label: text(lang, "players"),
         players,
         errors_label: s

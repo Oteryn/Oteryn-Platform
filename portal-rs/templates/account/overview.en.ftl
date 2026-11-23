@@ -33,3 +33,6 @@ character-services = Character services
 character-items = Character inventory
 market-history = Market history
 trade-history = Trade history
+
+native-login = Game sign-in
+native-login-help = Production game sign-in is awaiting release approval. Once it opens, start the official client, sign in through your browser and select a character in the client.

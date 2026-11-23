@@ -33,3 +33,6 @@ character-services = Usługi postaci
 character-items = Ekwipunek postaci
 market-history = Historia rynku
 trade-history = Historia wymian
+
+native-login = Logowanie do gry
+native-login-help = Logowanie do gry na produkcji czeka na zatwierdzenie. Po jego uruchomieniu otwórz oficjalnego klienta, zaloguj się w przeglądarce i wybierz postać w kliencie.
