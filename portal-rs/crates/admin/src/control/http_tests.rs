@@ -1398,7 +1398,16 @@ async fn postgres_adm_results_validate_signed_payload_against_stored_operation()
 }
 
 #[tokio::test]
+async fn exact_legacy_read_retry_is_acknowledged_only_by_its_delivery_owner() {
+    retained_read_retry(json!({"operations":[]}), StatusCode::OK).await;
+}
+
+#[tokio::test]
 async fn postgres_result_replay_rechecks_the_operation_schema() {
+    retained_read_retry(json!({}), StatusCode::BAD_REQUEST).await;
+}
+
+async fn retained_read_retry(result: Value, expected: StatusCode) {
     let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let db = Database::open().await.expect("PostgreSQL required");
     let app = app(db.pool.clone(), true);
@@ -1417,7 +1426,7 @@ async fn postgres_result_replay_rechecks_the_operation_schema() {
         request.request_id.to_string()
     );
     // Seed a retained receipt to verify validation on retry.
-    let payload = signed_result(&request, "succeeded", json!({}), Value::Null);
+    let payload = signed_result(&request, "succeeded", result, Value::Null);
     db.store()
         .record_result(
             &NewResult {
@@ -1442,7 +1451,7 @@ async fn postgres_result_replay_rechecks_the_operation_schema() {
         post(app.clone(), "results", payload.clone(), true)
             .await
             .status(),
-        StatusCode::BAD_REQUEST
+        expected
     );
     assert_eq!(
         post(app.clone(), "hello", hello_body(2), true)

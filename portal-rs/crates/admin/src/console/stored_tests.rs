@@ -918,12 +918,12 @@ async fn a2_stored_console_browser_query_verified_result_and_ownership()
 }
 
 #[tokio::test]
-async fn a3_configured_console_distinguishes_transport_and_receipt_states()
+async fn a3_configured_console_displays_every_lifecycle_outcome()
 -> Result<(), Box<dyn std::error::Error>> {
     let started = std::time::Instant::now();
     let result = stored_console_browser_query_verified_result_and_ownership(true, false).await;
     eprintln!(
-        "a3_configured_console_distinguishes_transport_and_receipt_states duration: {:?}",
+        "a3_configured_console_displays_every_lifecycle_outcome duration: {:?}",
         started.elapsed()
     );
     result
