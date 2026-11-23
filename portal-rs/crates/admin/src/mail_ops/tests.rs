@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 
-use super::{Filters, store};
+use super::{Cursor, Filters, store};
 use crate::{
     rbac::{Authorizer, CheckContext, MutationAuthorization},
     web::PortalIdentity,
@@ -32,6 +32,7 @@ fn validates_filter_fields_and_calendar_range() {
     .unwrap();
     valid.validate().unwrap();
     assert_eq!(valid.recipient, "player@example.test");
+    assert!(serde_urlencoded::from_str::<Filters>("after=invalid").is_err());
 }
 
 #[tokio::test]
@@ -126,13 +127,46 @@ async fn delivery_operations_respect_state_scope_and_batch_size() {
             .as_deref(),
         Some("recipient@example.test")
     );
+    let last_on_page = &masked[store::PAGE_SIZE - 1];
+    let later_page = Filters {
+        state: "failed".into(),
+        after: Some(Cursor {
+            created_at: last_on_page.created_at,
+            id: last_on_page.id,
+        }),
+        ..Filters::default()
+    };
+    let query = later_page.query().unwrap();
+    let later_page: Filters = serde_urlencoded::from_str(&query).unwrap();
+    sqlx::query("DELETE FROM outbox WHERE id=$1")
+        .bind(last_on_page.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let older = store::list(&pool, &later_page, false).await.unwrap();
+    assert_eq!(older.len(), 15);
+    assert_eq!(older[0].id, masked[store::PAGE_SIZE].id);
 
     assert!(matches!(
-        store::apply(&pool, context, &auth, store::Action::Cancel(pending)).await,
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::Cancel(pending, 0),
+            Uuid::now_v7()
+        )
+        .await,
         Err(super::Error::Authorization(crate::rbac::Error::Denied))
     ));
     assert!(matches!(
-        store::apply(&pool, context, &auth, store::Action::Retry(pending)).await,
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::Retry(pending, 0),
+            Uuid::now_v7()
+        )
+        .await,
         Err(super::Error::Conflict)
     ));
     assert!(matches!(
@@ -140,20 +174,33 @@ async fn delivery_operations_respect_state_scope_and_batch_size() {
             &pool,
             context,
             &auth,
-            store::Action::RetryKind("commerce.refund")
+            store::Action::RetryKind("commerce.refund"),
+            Uuid::now_v7()
         )
         .await,
         Err(super::Error::Invalid)
     ));
-    let count = store::apply(
-        &pool,
-        context,
-        &auth,
-        store::Action::RetryKind("email.account_exists"),
-    )
-    .await
-    .unwrap();
+    let request_id = Uuid::now_v7();
+    let batch = || {
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::RetryKind("email.account_exists"),
+            request_id,
+        )
+    };
+    let count = batch().await.unwrap();
     assert_eq!(count, store::BATCH_LIMIT);
+    assert_eq!(batch().await.unwrap(), count);
+    assert_eq!(
+        store::changed(&pool, actor, request_id).await.unwrap(),
+        Some(count)
+    );
+    assert_eq!(
+        store::changed(&pool, actor, Uuid::now_v7()).await.unwrap(),
+        None
+    );
     let audited: (i64, i64) = sqlx::query_as(
         "SELECT count(*), count(DISTINCT request_id) FROM audit_log
          WHERE actor=$1 AND action='mail.outbox.batch_retried' AND after->>'attempts'='2'",
@@ -164,11 +211,28 @@ async fn delivery_operations_respect_state_scope_and_batch_size() {
     .unwrap();
     assert_eq!(audited, (i64::from(count), 1));
     let last = store::list(&pool, &filters, false).await.unwrap();
-    assert_eq!(last.len(), 5);
+    assert_eq!(last.len(), 4);
+    assert!(matches!(
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::Retry(last[0].id, 1),
+            Uuid::now_v7()
+        )
+        .await,
+        Err(super::Error::Conflict)
+    ));
     assert_eq!(
-        store::apply(&pool, context, &auth, store::Action::Retry(last[0].id))
-            .await
-            .unwrap(),
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::Retry(last[0].id, 2),
+            Uuid::now_v7()
+        )
+        .await
+        .unwrap(),
         1
     );
 
@@ -178,9 +242,15 @@ async fn delivery_operations_respect_state_scope_and_batch_size() {
         .await
         .unwrap();
     assert_eq!(
-        store::apply(&pool, context, &auth, store::Action::Cancel(pending))
-            .await
-            .unwrap(),
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::Cancel(pending, 0),
+            Uuid::now_v7()
+        )
+        .await
+        .unwrap(),
         1
     );
     let state: String = sqlx::query_scalar("SELECT state FROM admin_mail_outbox WHERE id=$1")
@@ -190,9 +260,34 @@ async fn delivery_operations_respect_state_scope_and_batch_size() {
         .unwrap();
     assert_eq!(state, "cancelled");
     assert!(matches!(
-        store::apply(&pool, context, &auth, store::Action::Cancel(pending)).await,
+        store::apply(
+            &pool,
+            context,
+            &auth,
+            store::Action::Cancel(pending, 0),
+            Uuid::now_v7()
+        )
+        .await,
         Err(super::Error::Conflict)
     ));
+
+    // Seed the active bucket in one statement to avoid timing a burst of requests.
+    sqlx::query(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         SELECT 'mail-outbox-batch',sha256(uuid_send($1)),window_start,5
+         FROM (VALUES (date_trunc('minute',now())), (date_trunc('minute',now()) + interval '1 min')) w(window_start)",
+    )
+    .bind(actor)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        store::charge(&pool, actor, store::Quota::Batch).await,
+        Err(super::Error::Limited(1..=60))
+    ));
+    store::charge(&pool, actor, store::Quota::Change)
+        .await
+        .unwrap();
 
     pool.close().await;
     sqlx::query(AssertSqlSafe(format!("DROP DATABASE {database}")))

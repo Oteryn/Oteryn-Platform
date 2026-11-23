@@ -11,12 +11,21 @@ test('staff panel links to the outbox', async ({ page }, info) => {
 });
 
 test('i18n-parity for the staff mail outbox', () => {
-  const keys = lang => [...readFileSync(new URL(`../../templates/admin/${lang}.ftl`, import.meta.url), 'utf8')
-    .matchAll(/^(mail-[a-z0-9-]+) = (.+)$/gm)].map(([, key]) => key).sort();
+  const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+  const keys = lang => [...read(`../../templates/admin/${lang}.ftl`)
+    .matchAll(/^(mail-[a-z0-9-]+) = (\S.*)$/gm)].map(([, key]) => key).sort();
   const english = keys('en');
   expect(english.length).toBeGreaterThan(0);
   expect(new Set(english).size).toBe(english.length);
   expect(keys('pl')).toEqual(english);
+  const template = read('../../templates/admin/mail_outbox.html');
+  const handlers = read('../../crates/admin/src/mail_ops/mod.rs');
+  const navigation = read('../../crates/admin/src/web.rs');
+  const used = new Set([
+    ...[...template.matchAll(/tr\("(mail-[a-z0-9-]+)"\)/g)].map(([, key]) => key),
+    ...[...`${handlers}\n${navigation}`.matchAll(/"(mail-[a-z0-9-]+)"/g)].map(([, key]) => key),
+  ]);
+  expect(english).toEqual([...used].sort());
 });
 
 test('staff find and manage mail jobs from the panel', async ({ page }, info) => {
@@ -62,25 +71,32 @@ test('staff find and manage mail jobs from the panel', async ({ page }, info) =>
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
 
   await expect(page.locator('.mail-counts')).toHaveCSS('display', 'grid');
+  await expect(page.locator('.op-shell__page')).toBeVisible();
   await expect(job(verification)).toBeVisible();
   await expect(job(verification)).not.toContainText(body);
   const filter = page.locator('form[method=get]');
+  await expect(filter.locator('[name=recipient]')).toHaveCount(0);
+  await expect(job(failed)).not.toContainText(recipient);
+  const recipientSearch = `${path}?${new URLSearchParams({ recipient })}`;
+  expect((await page.request.get(recipientSearch)).status()).toBe(403);
   await filter.locator('[name=kind]').selectOption('email.account_exists');
-  await filter.locator('[name=recipient]').fill(recipient);
   await filter.locator('button').click();
   for (const [id, state] of [[failed, 'failed'], [pending, 'pending'], [sent, 'sent'], [dead, 'dead']]) {
     await expect(job(id)).toHaveAttribute('data-state', state);
     await expect(job(id)).not.toContainText(recipient);
   }
-  await expect(job(otherRecipient)).toHaveCount(0);
+  await expect(job(otherRecipient)).toBeVisible();
   await expect(page.locator('main')).not.toContainText(body);
   await expect(job(failed)).toContainText(lang === 'pl' ? 'Wysyłka wiadomości nie powiodła się' : 'Mail delivery failed');
   await expect(page.locator('[data-count="failed-7d"]')).toBeVisible();
 
   await filter.locator('[name=state]').selectOption('failed');
-  const today = new Date().toISOString().slice(0, 10);
-  await filter.locator('[name=from]').fill(today);
-  await filter.locator('[name=to]').fill(today);
+  const [{ queuedDate }] = await query(
+    `SELECT to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD') AS "queuedDate" FROM outbox WHERE id=$1`,
+    [failed],
+  );
+  await filter.locator('[name=from]').fill(queuedDate);
+  await filter.locator('[name=to]').fill(queuedDate);
   await filter.locator('button').click();
   await expect(job(failed)).toBeVisible();
   await expect(job(failedBatch)).toHaveCount(0);
@@ -93,24 +109,34 @@ test('staff find and manage mail jobs from the panel', async ({ page }, info) =>
   };
   const initialMailCount = await mailCount();
   const retry = job(failed).locator('form[action$="/retry"]');
-  await csrfRejected(page, `${path}/retry`, { id: failed });
+  await csrfRejected(page, `${path}/retry`, { id: failed, attempts: 1 });
+  await csrfRejected(page, `${path}/retry-kind`, { kind: 'email.account_exists', request_id: randomUUID() });
   const csrf = await retry.locator('[name=_csrf]').inputValue();
   const post = (action, fields) => page.request.post(`${path}/${action}`, {
     form: { ...fields, _csrf: csrf },
     headers: { origin: new URL(page.url()).origin },
     maxRedirects: 0,
   });
-  expect((await post('cancel', { id: pending })).status()).toBe(403);
-  expect((await post('retry', { id: dead })).status()).toBe(409);
+  const submitAction = async (action, button) => {
+    const [response] = await Promise.all([
+      page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === `${path}/${action}`),
+      button.click(),
+    ]);
+    expect(response.status()).toBe(303);
+  };
+  expect((await post('cancel', { id: pending, attempts: 0 })).status()).toBe(403);
+  expect((await post('retry', { id: dead, attempts: 1 })).status()).toBe(409);
+  expect((await post('retry', { id: 'invalid', attempts: 1 })).status()).toBe(400);
+  expect((await post('retry-kind', { kind: 'invalid', request_id: randomUUID() })).status()).toBe(400);
 
-  await retry.locator('button').click();
+  await submitAction('retry', retry.locator('button'));
   await expect.poll(async () => (await query('SELECT action FROM audit_log WHERE actor=$1 AND target=$2', [account.id, failed])).map(row => row.action)).toContain('mail.outbox.retried');
   await expect.poll(async () => (await query('SELECT state FROM outbox WHERE id=$1', [failed]))[0].state).toBe('done');
   await expect.poll(mailCount).toBe(initialMailCount + 1);
 
   const batch = page.locator('form[action$="/retry-kind"]');
   await batch.locator('[name=kind]').selectOption('email.account_exists');
-  await batch.locator('button').click();
+  await submitAction('retry-kind', batch.locator('button'));
   await expect.poll(async () => (await query('SELECT action FROM audit_log WHERE actor=$1 AND target=$2', [account.id, failedBatch])).map(row => row.action)).toContain('mail.outbox.batch_retried');
 
   await expect.poll(mailCount).toBe(initialMailCount + 2);
@@ -118,9 +144,12 @@ test('staff find and manage mail jobs from the panel', async ({ page }, info) =>
   await query('INSERT INTO role_permissions(role_id,permission) SELECT $1,unnest($2::text[])', [
     role, ['mail.outbox.cancel', 'mail.outbox.recipient'],
   ]);
-  await page.goto(`${path}?${new URLSearchParams({ recipient })}`);
+  await page.goto(recipientSearch);
   await expect(job(pending)).toContainText(recipient);
-  await job(pending).locator('form[action$="/cancel"] button').click();
+  await expect(job(otherRecipient)).toHaveCount(0);
+  await csrfRejected(page, `${path}/cancel`, { id: pending, attempts: 0 });
+  await submitAction('cancel', job(pending).locator('form[action$="/cancel"] button'));
+  await expect(page.locator('main [role=status]')).toHaveText(lang === 'pl' ? 'Zaktualizowane zadania · 1' : 'Jobs updated · 1');
   await expect(job(pending)).toHaveAttribute('data-state', 'cancelled');
   expect(await query("SELECT action FROM audit_log WHERE actor=$1 AND target=$2 AND action='mail.outbox.cancelled'", [account.id, pending])).toHaveLength(1);
 });

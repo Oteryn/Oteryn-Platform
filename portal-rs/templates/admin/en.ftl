@@ -55,6 +55,7 @@ mail-notification = Notification email
 mail-invalid = Check the filters and submitted job details.
 mail-denied = You do not have permission to perform this action.
 mail-conflict = No matching job is currently eligible. Refresh the queue and try again.
+mail-limited = Too many queue requests. Try again shortly.
 mail-unavailable = Mail outbox is temporarily unavailable.
 mail-error-delivery = Mail delivery failed.
 mail-error-payload = Invalid delivery data.

@@ -8,8 +8,11 @@ use crate::{
 use askama::Template;
 use axum::{
     Extension, Form,
-    extract::{Query, State},
-    http::{HeaderMap, StatusCode},
+    extract::{
+        Query, State,
+        rejection::{FormRejection, QueryRejection},
+    },
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Redirect, Response},
 };
 use oteryn_web::session::BrowserSession;
@@ -90,6 +93,8 @@ enum Error {
     Invalid,
     #[error("no eligible mail jobs")]
     Conflict,
+    #[error("mail outbox request limit reached")]
+    Limited(i64),
     #[error(transparent)]
     Authorization(#[from] rbac::Error),
     #[error(transparent)]
@@ -98,6 +103,14 @@ enum Error {
 
 impl Error {
     fn response(&self, lang: &str) -> Response {
+        if let Self::Limited(retry_after) = self {
+            return (
+                StatusCode::TOO_MANY_REQUESTS,
+                [(header::RETRY_AFTER, retry_after.to_string())],
+                text(lang, "mail-limited"),
+            )
+                .into_response();
+        }
         let (status, key) = match self {
             Self::Invalid | Self::Authorization(rbac::Error::InvalidInput) => {
                 (StatusCode::BAD_REQUEST, "mail-invalid")
@@ -124,9 +137,42 @@ pub(super) struct Filters {
     #[serde(skip_serializing_if = "String::is_empty")]
     recipient: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    after: Option<Uuid>,
+    after: Option<Cursor>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    changed: Option<u8>,
+    receipt: Option<Uuid>,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(try_from = "String", into = "String")]
+struct Cursor {
+    created_at: time::OffsetDateTime,
+    id: Uuid,
+}
+
+impl TryFrom<String> for Cursor {
+    type Error = Error;
+
+    fn try_from(value: String) -> Result<Self, Error> {
+        let (micros, id) = value.split_once('_').ok_or(Error::Invalid)?;
+        let micros = micros.parse::<i64>().map_err(|_| Error::Invalid)?;
+        let id: Uuid = id.parse().map_err(|_| Error::Invalid)?;
+        let created_at = time::OffsetDateTime::from_unix_timestamp_nanos(i128::from(micros) * 1000)
+            .map_err(|_| Error::Invalid)?;
+        if id.is_nil() {
+            return Err(Error::Invalid);
+        }
+        Ok(Self { created_at, id })
+    }
+}
+
+impl From<Cursor> for String {
+    fn from(cursor: Cursor) -> Self {
+        format!(
+            "{}_{}",
+            cursor.created_at.unix_timestamp_nanos() / 1000,
+            cursor.id
+        )
+    }
 }
 
 fn valid_date(value: &str) -> bool {
@@ -163,10 +209,7 @@ impl Filters {
             || (!self.to.is_empty() && !valid_date(&self.to))
             || (!self.from.is_empty() && !self.to.is_empty() && self.from > self.to)
             || (!self.recipient.is_empty() && !oteryn_identity::reset::valid_email(&self.recipient))
-            || self.after.is_some_and(|id| id.is_nil())
-            || self
-                .changed
-                .is_some_and(|count| !(1..=store::BATCH_LIMIT).contains(&count))
+            || self.receipt.is_some_and(|id| id.is_nil())
         {
             return Err(Error::Invalid);
         }
@@ -189,6 +232,9 @@ struct Page {
     next: Option<String>,
     return_query: String,
     csrf: String,
+    reveal: bool,
+    changed: Option<u8>,
+    batch_request: Uuid,
     retry: bool,
     retry_batch: bool,
     cancel: bool,
@@ -241,29 +287,41 @@ pub(super) async fn page<I: StaffSession, A: rbac::AccountStateReader>(
     Extension(actor): Extension<CheckContext>,
     Extension(session): Extension<BrowserSession>,
     headers: HeaderMap,
-    Query(mut filters): Query<Filters>,
+    query: Result<Query<Filters>, QueryRejection>,
 ) -> Response {
     let lang = language(&headers);
     let result = async {
+        let Query(mut filters) = query.map_err(|_| Error::Invalid)?;
         filters.validate()?;
         let reveal = has(&panel.auth, actor, Permission::MailRecipient).await?;
+        if !reveal && !filters.recipient.is_empty() {
+            return Err(rbac::Error::Denied.into());
+        }
+        store::charge(&panel.pool, actor.account, store::Quota::Read).await?;
         let retry = has(&panel.auth, actor, Permission::MailRetry).await?;
         let retry_batch = has(&panel.auth, actor, Permission::MailRetryBatch).await?;
         let cancel = has(&panel.auth, actor, Permission::MailCancel).await?;
         let mut jobs = store::list(&panel.pool, &filters, reveal).await?;
         let counts = store::counts(&panel.pool).await?;
-        let changed = filters.changed.take();
+        let changed = match filters.receipt.take() {
+            Some(receipt) => store::changed(&panel.pool, actor.account, receipt).await?,
+            None => None,
+        };
         let after = filters.after.take();
         let return_query = filters.query()?;
         filters.after = after;
         let next = if jobs.len() > store::PAGE_SIZE {
             jobs.pop();
-            filters.after = jobs.last().map(|job| job.id);
-            Some(format!("{PATH}?{}", filters.query()?))
+            filters.after = jobs.last().map(|job| Cursor {
+                created_at: job.created_at,
+                id: job.id,
+            });
+            let next = format!("{PATH}?{}", filters.query()?);
+            filters.after = after;
+            Some(next)
         } else {
             None
         };
-        filters.changed = changed;
         let csrf = session.csrf_token().await?;
         Ok(Page {
             lang,
@@ -274,6 +332,9 @@ pub(super) async fn page<I: StaffSession, A: rbac::AccountStateReader>(
             next,
             return_query,
             csrf,
+            reveal,
+            changed,
+            batch_request: Uuid::now_v7(),
             retry,
             retry_batch,
             cancel,
@@ -290,6 +351,7 @@ pub(super) async fn page<I: StaffSession, A: rbac::AccountStateReader>(
 #[serde(deny_unknown_fields)]
 pub(super) struct JobForm {
     id: Uuid,
+    attempts: i32,
     #[serde(default)]
     filters: String,
     #[serde(default)]
@@ -300,6 +362,7 @@ pub(super) struct JobForm {
 #[serde(deny_unknown_fields)]
 pub(super) struct BatchForm {
     kind: String,
+    request_id: Uuid,
     #[serde(default)]
     filters: String,
     #[serde(default)]
@@ -311,13 +374,17 @@ pub(super) async fn retry<I: StaffSession, A: rbac::AccountStateReader>(
     Extension(actor): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     headers: HeaderMap,
-    Form(form): Form<JobForm>,
+    form: Result<Form<JobForm>, FormRejection>,
 ) -> Response {
+    let Ok(Form(form)) = form else {
+        return Error::Invalid.response(language(&headers));
+    };
     change(
         &panel.pool,
         actor,
         &auth,
-        store::Action::Retry(form.id),
+        store::Action::Retry(form.id, form.attempts),
+        Uuid::now_v7(),
         &form.filters,
         &headers,
     )
@@ -329,13 +396,17 @@ pub(super) async fn cancel<I: StaffSession, A: rbac::AccountStateReader>(
     Extension(actor): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     headers: HeaderMap,
-    Form(form): Form<JobForm>,
+    form: Result<Form<JobForm>, FormRejection>,
 ) -> Response {
+    let Ok(Form(form)) = form else {
+        return Error::Invalid.response(language(&headers));
+    };
     change(
         &panel.pool,
         actor,
         &auth,
-        store::Action::Cancel(form.id),
+        store::Action::Cancel(form.id, form.attempts),
+        Uuid::now_v7(),
         &form.filters,
         &headers,
     )
@@ -347,13 +418,17 @@ pub(super) async fn retry_kind<I: StaffSession, A: rbac::AccountStateReader>(
     Extension(actor): Extension<CheckContext>,
     Extension(auth): Extension<MutationAuthorization>,
     headers: HeaderMap,
-    Form(form): Form<BatchForm>,
+    form: Result<Form<BatchForm>, FormRejection>,
 ) -> Response {
+    let Ok(Form(form)) = form else {
+        return Error::Invalid.response(language(&headers));
+    };
     change(
         &panel.pool,
         actor,
         &auth,
         store::Action::RetryKind(&form.kind),
+        form.request_id,
         &form.filters,
         &headers,
     )
@@ -365,6 +440,7 @@ async fn change(
     actor: CheckContext,
     auth: &MutationAuthorization,
     action: store::Action<'_>,
+    request_id: Uuid,
     filters: &str,
     headers: &HeaderMap,
 ) -> Response {
@@ -372,8 +448,12 @@ async fn change(
         let mut filters =
             serde_urlencoded::from_str::<Filters>(filters).map_err(|_| Error::Invalid)?;
         filters.validate()?;
-        filters.changed = Some(store::apply(pool, actor, auth, action).await?);
-        Ok(Redirect::to(&format!("{PATH}?{}", filters.query()?)))
+        filters.after = None;
+        filters.receipt = Some(request_id);
+        let query = filters.query()?;
+        store::charge(pool, actor.account, action.quota()).await?;
+        store::apply(pool, actor, auth, action, request_id).await?;
+        Ok(Redirect::to(&format!("{PATH}?{query}")))
     }
     .await;
     match result {

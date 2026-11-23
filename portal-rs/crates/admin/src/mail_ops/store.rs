@@ -10,6 +10,37 @@ use uuid::Uuid;
 pub(super) const PAGE_SIZE: usize = 40;
 pub(super) const BATCH_LIMIT: u8 = 50;
 
+pub(super) enum Quota {
+    Read,
+    Change,
+    Batch,
+}
+
+pub(super) async fn charge(pool: &PgPool, actor: Uuid, quota: Quota) -> Result<(), Error> {
+    let (name, limit) = match quota {
+        Quota::Read => ("mail-outbox-read", 60_i64),
+        Quota::Change => ("mail-outbox-change", 30),
+        Quota::Batch => ("mail-outbox-batch", 5),
+    };
+    let (count, retry_after): (i64, i64) = sqlx::query_as(
+        "INSERT INTO web_rate_limits(limiter_name,key_hash,window_start,count)
+         VALUES($1,sha256(uuid_send($2)),date_trunc('minute',statement_timestamp()),1)
+         ON CONFLICT(limiter_name,key_hash,window_start) DO UPDATE
+         SET count=least(web_rate_limits.count+1,$3+1)
+         RETURNING count,greatest(1,ceil(extract(epoch FROM
+           window_start + interval '1 minute' - statement_timestamp())))::bigint",
+    )
+    .bind(name)
+    .bind(actor)
+    .bind(limit)
+    .fetch_one(pool)
+    .await?;
+    if count > limit {
+        return Err(Error::Limited(retry_after));
+    }
+    Ok(())
+}
+
 #[derive(sqlx::FromRow)]
 pub(super) struct Job {
     pub id: Uuid,
@@ -19,7 +50,8 @@ pub(super) struct Job {
     pub has_recipient: bool,
     pub attempts: i32,
     pub last_error: Option<String>,
-    pub created_at: String,
+    pub created_at: time::OffsetDateTime,
+    pub queued_at: String,
 }
 
 pub(super) async fn list(
@@ -27,17 +59,20 @@ pub(super) async fn list(
     filters: &Filters,
     reveal: bool,
 ) -> Result<Vec<Job>, Error> {
+    let (created_at, id) = filters.after.map_or((None, None), |cursor| {
+        (Some(cursor.created_at), Some(cursor.id))
+    });
     Ok(sqlx::query_as(
         "SELECT id,state,kind,CASE WHEN $1 THEN recipient END AS recipient,
             recipient IS NOT NULL AS has_recipient,attempts,last_error,
-            to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS created_at
+            created_at, to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD HH24:MI:SS') AS queued_at
          FROM admin_mail_outbox
          WHERE ($2 = '' OR state = $2) AND ($3 = '' OR kind = $3)
            AND (NULLIF($4,'') IS NULL OR created_at >= NULLIF($4,'')::date::timestamp AT TIME ZONE 'UTC')
            AND (NULLIF($5,'') IS NULL OR created_at < (NULLIF($5,'')::date + 1)::timestamp AT TIME ZONE 'UTC')
-           AND ($6 = '' OR lower(recipient) = $6)
-           AND ($7::uuid IS NULL OR (created_at,id) < (SELECT created_at,id FROM outbox WHERE id=$7))
-         ORDER BY created_at DESC,id DESC LIMIT $8",
+           AND (NOT $1 OR $6 = '' OR lower(recipient) = $6)
+           AND ($7::timestamptz IS NULL OR (created_at,id) < ($7,$8::uuid))
+         ORDER BY created_at DESC,id DESC LIMIT $9",
     )
     .bind(reveal)
     .bind(&filters.state)
@@ -45,7 +80,8 @@ pub(super) async fn list(
     .bind(&filters.from)
     .bind(&filters.to)
     .bind(&filters.recipient)
-    .bind(filters.after)
+    .bind(created_at)
+    .bind(id)
     .bind((PAGE_SIZE + 1) as i64)
     .fetch_all(pool)
     .await?)
@@ -76,19 +112,44 @@ pub(super) async fn counts(pool: &PgPool) -> Result<Vec<Count>, Error> {
 }
 
 pub(super) enum Action<'a> {
-    Retry(Uuid),
+    Retry(Uuid, i32),
     RetryKind(&'a str),
-    Cancel(Uuid),
+    Cancel(Uuid, i32),
 }
 
 impl Action<'_> {
-    fn permission(&self) -> Permission {
+    pub(super) fn quota(&self) -> Quota {
         match self {
-            Self::Retry(_) => Permission::MailRetry,
-            Self::RetryKind(_) => Permission::MailRetryBatch,
-            Self::Cancel(_) => Permission::MailCancel,
+            Self::RetryKind(_) => Quota::Batch,
+            _ => Quota::Change,
         }
     }
+
+    fn permission(&self) -> Permission {
+        match self {
+            Self::Retry(..) => Permission::MailRetry,
+            Self::RetryKind(_) => Permission::MailRetryBatch,
+            Self::Cancel(..) => Permission::MailCancel,
+        }
+    }
+}
+
+pub(super) async fn changed(
+    pool: &PgPool,
+    actor: Uuid,
+    request_id: Uuid,
+) -> Result<Option<u8>, Error> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_log WHERE actor=$1 AND request_id=$2
+         AND action IN ('mail.outbox.retried','mail.outbox.batch_retried','mail.outbox.cancelled')",
+    )
+    .bind(actor)
+    .bind(request_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(u8::try_from(count)
+        .ok()
+        .filter(|count| (1..=BATCH_LIMIT).contains(count)))
 }
 
 pub(super) async fn apply(
@@ -96,21 +157,36 @@ pub(super) async fn apply(
     actor: CheckContext,
     auth: &MutationAuthorization,
     action: Action<'_>,
+    request_id: Uuid,
 ) -> Result<u8, Error> {
-    let (id, kind, cancel, event, before) = match action {
-        Action::Retry(id) if !id.is_nil() => {
-            (Some(id), None, false, "mail.outbox.retried", "failed")
-        }
+    if request_id.is_nil() {
+        return Err(Error::Invalid);
+    }
+    let (id, attempts, kind, cancel, event, before) = match action {
+        Action::Retry(id, attempts) if !id.is_nil() && attempts >= 0 => (
+            Some(id),
+            Some(attempts),
+            None,
+            false,
+            "mail.outbox.retried",
+            "failed",
+        ),
         Action::RetryKind(kind) if KINDS.contains(&kind) => (
+            None,
             None,
             Some(kind),
             false,
             "mail.outbox.batch_retried",
             "failed",
         ),
-        Action::Cancel(id) if !id.is_nil() => {
-            (Some(id), None, true, "mail.outbox.cancelled", "pending")
-        }
+        Action::Cancel(id, attempts) if !id.is_nil() && attempts >= 0 => (
+            Some(id),
+            Some(attempts),
+            None,
+            true,
+            "mail.outbox.cancelled",
+            "pending",
+        ),
         _ => return Err(Error::Invalid),
     };
     let permissions = [
@@ -122,6 +198,26 @@ pub(super) async fn apply(
     rbac::mutation_budget(&mut tx).await?;
     rbac::authorize_mutation(&mut tx, &[], auth, actor, &permissions).await?;
 
+    if let Some(kind) = kind {
+        let (count, matches): (i64, Option<bool>) = sqlx::query_as(
+            "SELECT count(*),bool_and(after->>'kind'=$4) FROM audit_log
+             WHERE actor=$1 AND request_id=$2 AND action=$3",
+        )
+        .bind(actor.account)
+        .bind(request_id)
+        .bind(event)
+        .bind(kind)
+        .fetch_one(&mut *tx)
+        .await?;
+        if let Some(matches) = matches {
+            return if matches {
+                u8::try_from(count).map_err(|_| Error::Invalid)
+            } else {
+                Err(Error::Conflict)
+            };
+        }
+    }
+
     // Pending rows are the only candidates. Lock the actual worker rows before
     // changing them so an in-flight attempt always wins over an operator action.
     let jobs: Vec<(Uuid, String, i32)> = sqlx::query_as(
@@ -130,6 +226,7 @@ pub(super) async fn apply(
             WHERE o.kind IN ('email.account_exists', 'email.verify', 'email.password-reset', 'notify.email')
               AND o.state = 'pending' AND (o.last_error IS NULL) = $1
               AND ($2::uuid IS NULL OR o.id = $2) AND ($3::text IS NULL OR m.kind = $3)
+              AND ($5::integer IS NULL OR o.attempts = $5)
             ORDER BY o.created_at,o.id LIMIT $4 FOR UPDATE OF o SKIP LOCKED
          )
          UPDATE outbox o
@@ -143,6 +240,7 @@ pub(super) async fn apply(
     .bind(id)
     .bind(kind)
     .bind(i64::from(BATCH_LIMIT))
+    .bind(attempts)
     .fetch_all(&mut *tx)
     .await?;
     if jobs.is_empty() {
@@ -151,7 +249,7 @@ pub(super) async fn apply(
 
     let context = AuditContext {
         actor: Some(actor.account),
-        request_id: Uuid::now_v7(),
+        request_id,
     };
     let after = if cancel { "cancelled" } else { "pending" };
     for (job, kind, attempts) in &jobs {

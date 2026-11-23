@@ -65,3 +65,4 @@ mail-error-unavailable = Nie udało się odczytać danych wysyłki.
 mail-error-audit = Nie udało się zapisać wyniku wysyłki.
 mail-error-lease = Blokada zadania wygasła podczas ostatniej próby.
 mail-error-recorded = Zarejestrowano błąd wysyłki.
+mail-limited = Zbyt wiele żądań do kolejki. Spróbuj ponownie za chwilę.
