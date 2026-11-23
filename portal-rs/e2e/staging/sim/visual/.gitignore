@@ -1,0 +1,13 @@
+/test-results/
+/playwright-report/
+/blob-report/
+*.png
+*.jpg
+*.webp
+*.har
+*.trace
+*.zip
+*.eml
+*mail-body*
+*reset-link*
+*token*

@@ -1,0 +1,1801 @@
+{
+  "anonymous": [
+    {
+      "locale": "en",
+      "width": 1440,
+      "routes": [
+        {
+          "route": "/:locale/",
+          "source": "home",
+          "status": 200,
+          "destination": "/:locale/",
+          "menuFrom": "/:locale/login"
+        },
+        {
+          "route": "/:locale/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/register",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register"
+        },
+        {
+          "route": "/:locale/forgot-password",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/forgot-password"
+        },
+        {
+          "route": "/:locale/register/check-inbox",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register/check-inbox"
+        },
+        {
+          "route": "/:locale/mfa/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/mfa/login"
+        },
+        {
+          "route": "/:locale/characters",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/characters",
+          "state": "unmounted or refused"
+        },
+        {
+          "route": "/:locale/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/search"
+        },
+        {
+          "route": "/:locale/help",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/help",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/rules",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/rules",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/server-information",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/server-information",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/cookies",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/legal/cookies"
+        },
+        {
+          "route": "/:locale/wiki/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/wiki/search"
+        },
+        {
+          "route": "/:locale/wiki/places",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/wiki/places",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/stats/rankings/yesterday",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/yesterday",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/week"
+        },
+        {
+          "route": "/:locale/stats/rankings/week",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/week",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/month",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/month",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/record",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/record",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/oldest",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/oldest",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/anniversaries",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/anniversaries",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/name-changes",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/name-changes",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/transfers",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/transfers",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/sold",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/sold",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/collection-pvp",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login"
+        },
+        {
+          "route": "/:locale/bazaar/items",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/bazaar/items",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/wiki",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/wiki",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/atlas/delivery",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/atlas/delivery",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/league",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/league",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/puzzles",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/collection",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/bazaar",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/bazaar",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/news",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/news",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/static/thais/shop-en.html",
+          "source": "menu",
+          "status": 200,
+          "destination": "/static/thais/shop-en.html",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/events",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/events",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/today",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/today",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/support/report-a-bug",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/support/report-a-bug",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/terms",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/terms",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/privacy",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/privacy",
+          "menuFrom": "/:locale/"
+        }
+      ],
+      "aliases": {
+        "/:locale/collection-pvp": "/:locale/login",
+        "/:locale/puzzles": "/:locale/login",
+        "/:locale/collection": "/:locale/login"
+      }
+    },
+    {
+      "locale": "en",
+      "width": 768,
+      "routes": [
+        {
+          "route": "/:locale/",
+          "source": "home",
+          "status": 200,
+          "destination": "/:locale/",
+          "menuFrom": "/:locale/login"
+        },
+        {
+          "route": "/:locale/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/register",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register"
+        },
+        {
+          "route": "/:locale/forgot-password",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/forgot-password"
+        },
+        {
+          "route": "/:locale/register/check-inbox",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register/check-inbox"
+        },
+        {
+          "route": "/:locale/mfa/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/mfa/login"
+        },
+        {
+          "route": "/:locale/characters",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/characters",
+          "state": "unmounted or refused"
+        },
+        {
+          "route": "/:locale/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/search"
+        },
+        {
+          "route": "/:locale/help",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/help",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/rules",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/rules",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/server-information",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/server-information",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/cookies",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/legal/cookies"
+        },
+        {
+          "route": "/:locale/wiki/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/wiki/search"
+        },
+        {
+          "route": "/:locale/wiki/places",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/wiki/places",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/stats/rankings/yesterday",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/yesterday",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/week"
+        },
+        {
+          "route": "/:locale/stats/rankings/week",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/week",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/month",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/month",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/record",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/record",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/oldest",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/oldest",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/anniversaries",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/anniversaries",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/name-changes",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/name-changes",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/transfers",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/transfers",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/sold",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/sold",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/collection-pvp",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login"
+        },
+        {
+          "route": "/:locale/bazaar/items",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/bazaar/items",
+          "state": "unavailable"
+        },
+        {
+          "route": "/static/thais/shop-en.html",
+          "source": "menu",
+          "status": 200,
+          "destination": "/static/thais/shop-en.html",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/wiki",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/wiki",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/atlas/delivery",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/atlas/delivery",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/league",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/league",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/puzzles",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/collection",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/bazaar",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/bazaar",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/news",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/news",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/events",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/events",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/today",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/today",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/support/report-a-bug",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/support/report-a-bug",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/terms",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/terms",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/privacy",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/privacy",
+          "menuFrom": "/:locale/"
+        }
+      ],
+      "aliases": {
+        "/:locale/collection-pvp": "/:locale/login",
+        "/:locale/puzzles": "/:locale/login",
+        "/:locale/collection": "/:locale/login"
+      }
+    },
+    {
+      "locale": "en",
+      "width": 390,
+      "routes": [
+        {
+          "route": "/:locale/",
+          "source": "home",
+          "status": 200,
+          "destination": "/:locale/",
+          "menuFrom": "/:locale/login"
+        },
+        {
+          "route": "/:locale/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/register",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register"
+        },
+        {
+          "route": "/:locale/forgot-password",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/forgot-password"
+        },
+        {
+          "route": "/:locale/register/check-inbox",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register/check-inbox"
+        },
+        {
+          "route": "/:locale/mfa/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/mfa/login"
+        },
+        {
+          "route": "/:locale/characters",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/characters",
+          "state": "unmounted or refused"
+        },
+        {
+          "route": "/:locale/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/search"
+        },
+        {
+          "route": "/:locale/help",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/help",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/rules",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/rules",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/server-information",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/server-information",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/cookies",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/legal/cookies"
+        },
+        {
+          "route": "/:locale/wiki/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/wiki/search"
+        },
+        {
+          "route": "/:locale/wiki/places",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/wiki/places",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/stats/rankings/yesterday",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/yesterday",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/week"
+        },
+        {
+          "route": "/:locale/stats/rankings/week",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/week",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/month",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/month",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/record",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/record",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/oldest",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/oldest",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/anniversaries",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/anniversaries",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/name-changes",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/name-changes",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/transfers",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/transfers",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/sold",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/sold",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/collection-pvp",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login"
+        },
+        {
+          "route": "/:locale/bazaar/items",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/bazaar/items",
+          "state": "unavailable"
+        },
+        {
+          "route": "/static/thais/shop-en.html",
+          "source": "menu",
+          "status": 200,
+          "destination": "/static/thais/shop-en.html",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/wiki",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/wiki",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/atlas/delivery",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/atlas/delivery",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/league",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/league",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/puzzles",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/collection",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/bazaar",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/bazaar",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/news",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/news",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/events",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/events",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/today",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/today",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/support/report-a-bug",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/support/report-a-bug",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/terms",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/terms",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/privacy",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/privacy",
+          "menuFrom": "/:locale/"
+        }
+      ],
+      "aliases": {
+        "/:locale/collection-pvp": "/:locale/login",
+        "/:locale/puzzles": "/:locale/login",
+        "/:locale/collection": "/:locale/login"
+      }
+    },
+    {
+      "locale": "pl",
+      "width": 1440,
+      "routes": [
+        {
+          "route": "/:locale/",
+          "source": "home",
+          "status": 200,
+          "destination": "/:locale/",
+          "menuFrom": "/:locale/login"
+        },
+        {
+          "route": "/:locale/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/register",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register"
+        },
+        {
+          "route": "/:locale/forgot-password",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/forgot-password"
+        },
+        {
+          "route": "/:locale/register/check-inbox",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register/check-inbox"
+        },
+        {
+          "route": "/:locale/mfa/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/mfa/login"
+        },
+        {
+          "route": "/:locale/characters",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/characters",
+          "state": "unmounted or refused"
+        },
+        {
+          "route": "/:locale/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/search"
+        },
+        {
+          "route": "/:locale/help",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/help",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/rules",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/rules",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/server-information",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/server-information",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/cookies",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/legal/cookies"
+        },
+        {
+          "route": "/:locale/wiki/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/wiki/search"
+        },
+        {
+          "route": "/:locale/wiki/places",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/wiki/places",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/stats/rankings/yesterday",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/yesterday",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/week"
+        },
+        {
+          "route": "/:locale/stats/rankings/week",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/week",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/month",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/month",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/record",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/record",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/oldest",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/oldest",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/anniversaries",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/anniversaries",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/name-changes",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/name-changes",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/transfers",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/transfers",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/sold",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/sold",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/collection-pvp",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login"
+        },
+        {
+          "route": "/:locale/bazaar/items",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/bazaar/items",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/wiki",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/wiki",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/atlas/delivery",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/atlas/delivery",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/league",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/league",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/puzzles",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/collection",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/bazaar",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/bazaar",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/news",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/news",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/static/thais/shop-pl.html",
+          "source": "menu",
+          "status": 200,
+          "destination": "/static/thais/shop-pl.html",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/events",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/events",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/today",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/today",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/support/report-a-bug",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/support/report-a-bug",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/terms",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/terms",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/privacy",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/privacy",
+          "menuFrom": "/:locale/"
+        }
+      ],
+      "aliases": {
+        "/:locale/collection-pvp": "/:locale/login",
+        "/:locale/puzzles": "/:locale/login",
+        "/:locale/collection": "/:locale/login"
+      }
+    },
+    {
+      "locale": "pl",
+      "width": 768,
+      "routes": [
+        {
+          "route": "/:locale/",
+          "source": "home",
+          "status": 200,
+          "destination": "/:locale/",
+          "menuFrom": "/:locale/login"
+        },
+        {
+          "route": "/:locale/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/register",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register"
+        },
+        {
+          "route": "/:locale/forgot-password",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/forgot-password"
+        },
+        {
+          "route": "/:locale/register/check-inbox",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register/check-inbox"
+        },
+        {
+          "route": "/:locale/mfa/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/mfa/login"
+        },
+        {
+          "route": "/:locale/characters",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/characters",
+          "state": "unmounted or refused"
+        },
+        {
+          "route": "/:locale/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/search"
+        },
+        {
+          "route": "/:locale/help",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/help",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/rules",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/rules",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/server-information",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/server-information",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/cookies",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/legal/cookies"
+        },
+        {
+          "route": "/:locale/wiki/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/wiki/search"
+        },
+        {
+          "route": "/:locale/wiki/places",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/wiki/places",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/stats/rankings/yesterday",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/yesterday",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/week"
+        },
+        {
+          "route": "/:locale/stats/rankings/week",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/week",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/month",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/month",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/record",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/record",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/oldest",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/oldest",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/anniversaries",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/anniversaries",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/name-changes",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/name-changes",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/transfers",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/transfers",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/sold",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/sold",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/collection-pvp",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login"
+        },
+        {
+          "route": "/:locale/bazaar/items",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/bazaar/items",
+          "state": "unavailable"
+        },
+        {
+          "route": "/static/thais/shop-pl.html",
+          "source": "menu",
+          "status": 200,
+          "destination": "/static/thais/shop-pl.html",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/wiki",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/wiki",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/atlas/delivery",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/atlas/delivery",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/league",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/league",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/puzzles",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/collection",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/bazaar",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/bazaar",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/news",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/news",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/events",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/events",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/today",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/today",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/support/report-a-bug",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/support/report-a-bug",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/terms",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/terms",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/privacy",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/privacy",
+          "menuFrom": "/:locale/"
+        }
+      ],
+      "aliases": {
+        "/:locale/collection-pvp": "/:locale/login",
+        "/:locale/puzzles": "/:locale/login",
+        "/:locale/collection": "/:locale/login"
+      }
+    },
+    {
+      "locale": "pl",
+      "width": 390,
+      "routes": [
+        {
+          "route": "/:locale/",
+          "source": "home",
+          "status": 200,
+          "destination": "/:locale/",
+          "menuFrom": "/:locale/login"
+        },
+        {
+          "route": "/:locale/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/register",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register"
+        },
+        {
+          "route": "/:locale/forgot-password",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/forgot-password"
+        },
+        {
+          "route": "/:locale/register/check-inbox",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/register/check-inbox"
+        },
+        {
+          "route": "/:locale/mfa/login",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/mfa/login"
+        },
+        {
+          "route": "/:locale/characters",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/characters",
+          "state": "unmounted or refused"
+        },
+        {
+          "route": "/:locale/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/search"
+        },
+        {
+          "route": "/:locale/help",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/help",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/rules",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/rules",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/server-information",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/server-information",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/cookies",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/legal/cookies"
+        },
+        {
+          "route": "/:locale/wiki/search",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/wiki/search"
+        },
+        {
+          "route": "/:locale/wiki/places",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/wiki/places",
+          "state": "unavailable"
+        },
+        {
+          "route": "/:locale/stats/rankings/yesterday",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/yesterday",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/week"
+        },
+        {
+          "route": "/:locale/stats/rankings/week",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/week",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/month",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/month",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/record",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/record",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/oldest",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/oldest",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/anniversaries",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/anniversaries",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/name-changes",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/name-changes",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/transfers",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/transfers",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/stats/rankings/sold",
+          "source": "template",
+          "status": 404,
+          "destination": "/:locale/stats/rankings/sold",
+          "state": "unmounted or refused",
+          "menuFrom": "/:locale/stats/rankings/yesterday"
+        },
+        {
+          "route": "/:locale/collection-pvp",
+          "source": "template",
+          "status": 200,
+          "destination": "/:locale/login"
+        },
+        {
+          "route": "/:locale/bazaar/items",
+          "source": "template",
+          "status": 503,
+          "destination": "/:locale/bazaar/items",
+          "state": "unavailable"
+        },
+        {
+          "route": "/static/thais/shop-pl.html",
+          "source": "menu",
+          "status": 200,
+          "destination": "/static/thais/shop-pl.html",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/wiki",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/wiki",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/atlas/delivery",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/atlas/delivery",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/league",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/league",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/puzzles",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/collection",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/login",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/bazaar",
+          "source": "menu",
+          "status": 503,
+          "destination": "/:locale/bazaar",
+          "state": "unavailable",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/news",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/news",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/events",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/events",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/today",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/today",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/support/report-a-bug",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/support/report-a-bug",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/terms",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/terms",
+          "menuFrom": "/:locale/"
+        },
+        {
+          "route": "/:locale/legal/privacy",
+          "source": "menu",
+          "status": 200,
+          "destination": "/:locale/legal/privacy",
+          "menuFrom": "/:locale/"
+        }
+      ],
+      "aliases": {
+        "/:locale/collection-pvp": "/:locale/login",
+        "/:locale/puzzles": "/:locale/login",
+        "/:locale/collection": "/:locale/login"
+      }
+    }
+  ],
+  "player": {
+    "state": "registration blocked by shared-egress refusal and a valid HTTP 503",
+    "candidates": [
+      "/account",
+      "/{locale}/account/dashboard",
+      "/{locale}/account/security",
+      "/{locale}/account/privacy",
+      "/{locale}/account/characters/new",
+      "/{locale}/panel/premium",
+      "/{locale}/panel/payments",
+      "/{locale}/shop"
+    ]
+  },
+  "player-with-character": {
+    "state": "blocked before character creation",
+    "candidates": [
+      "/account",
+      "/{locale}/account/characters/requests/{operation}",
+      "/{locale}/account/characters/{name}/profile",
+      "/{locale}/characters/{name}",
+      "/{locale}/rankings/experience"
+    ]
+  },
+  "content-editor": {
+    "state": "reset mail delivered, valid password-reset POST returned HTTP 503",
+    "candidates": [
+      "/admin",
+      "/admin/news",
+      "/admin/news/create",
+      "/admin/news/{id}/edit",
+      "/admin/pages",
+      "/admin/media",
+      "/admin/events",
+      "/admin/events/create",
+      "/admin/wiki",
+      "/admin/console/players",
+      "/admin/console/audit"
+    ],
+    "attempted": [
+      {
+        "route": "/en/forgot-password",
+        "postStatus": 302
+      },
+      {
+        "route": "/en/reset-password",
+        "postStatus": 503
+      }
+    ]
+  },
+  "moderator": {
+    "state": "reset mail delivered, valid password-reset POST returned HTTP 503",
+    "candidates": [
+      "/admin",
+      "/admin/players",
+      "/admin/reports",
+      "/admin/sanctions",
+      "/admin/console/players",
+      "/admin/console/audit"
+    ],
+    "attempted": [
+      {
+        "route": "/en/forgot-password",
+        "postStatus": 302
+      },
+      {
+        "route": "/en/reset-password",
+        "postStatus": 503
+      }
+    ]
+  },
+  "crateTemplates": [
+    {
+      "source": "crates/admin/src/console/templates/page.html",
+      "candidates": [
+        "/console/dashboard",
+        "/console/worlds",
+        "/console/nodes",
+        "/console/database"
+      ],
+      "state": "operator console permissions; the two audit roles do not have these grants",
+      "routeSource": "crates/admin/src/console/mod.rs:393"
+    },
+    {
+      "source": "crates/admin/src/console/templates/read.html",
+      "candidates": [
+        "/admin/console/players",
+        "/admin/console/audit",
+        "/admin/console/access",
+        "/admin/console/approvals"
+      ],
+      "state": "staff session and permission gates; no staff session available",
+      "routeSource": "crates/admin/src/console/access.rs:430"
+    },
+    {
+      "source": "crates/payments/templates/account/page.html",
+      "candidates": [
+        "/{locale}/panel/premium",
+        "/{locale}/panel/payments"
+      ],
+      "state": "player session required; no verified session available",
+      "routeSource": "crates/payments/src/account.rs:39"
+    },
+    {
+      "source": "crates/payments/templates/coin/checkout.html",
+      "candidates": [
+        "/native-account/coin-checkout/{order_id}"
+      ],
+      "state": "requires an order from the native flow; staged Shop reports payments unavailable",
+      "routeSource": "crates/payments/src/coin_http.rs:37"
+    }
+  ]
+}
