@@ -304,7 +304,7 @@ async fn end_authenticate(
     }
     let proof = match service.finish_authorized(binding, input).await {
         Err(Error::Refused) => {
-            crate::login_http::record_failure(&service.pool).await?;
+            crate::login_http::record_failure(&service.pool).await;
             return Err(Error::Refused);
         }
         result => result?,

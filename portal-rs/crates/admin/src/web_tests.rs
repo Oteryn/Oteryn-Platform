@@ -303,10 +303,18 @@ async fn database_navigation_authorization_csrf_and_owner() {
         .status(),
         StatusCode::FORBIDDEN
     );
+    let css = request(panel.clone(), crate::charts::STYLESHEET, "staff.test").await;
+    assert_eq!(css.status(), StatusCode::OK);
     assert_eq!(
-        request(panel, "/admin/charts", "staff.test").await.status(),
-        StatusCode::OK
+        css.headers()[header::CONTENT_TYPE],
+        "text/css; charset=utf-8"
     );
+    assert_eq!(css.headers()[header::CACHE_CONTROL], "no-store");
+    let page = request(panel, "/admin/charts", "staff.test").await;
+    assert_eq!(page.status(), StatusCode::OK);
+    let html = to_bytes(page.into_body(), 100_000).await.unwrap();
+    let html = std::str::from_utf8(&html).unwrap();
+    assert!(!html.contains(" download href="));
     sqlx::query(
         "INSERT INTO role_permissions(role_id,permission) VALUES ($1,'admin.analytics.export')",
     )

@@ -8,23 +8,37 @@ pub(super) type Values = BTreeMap<String, BTreeMap<String, i128>>;
 
 pub(super) async fn snapshot(pool: &PgPool) -> Result<Transaction<'_, Postgres>, Error> {
     let mut tx = pool.begin().await?;
-    sqlx::query("SET LOCAL statement_timeout = '3s'")
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        .execute(&mut *tx)
-        .await?;
+    sqlx::raw_sql(
+        "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY;
+         SET LOCAL statement_timeout = '3s';
+         SET LOCAL transaction_timeout = '6s';
+         SET LOCAL DateStyle = 'ISO, YMD'",
+    )
+    .execute(&mut *tx)
+    .await?;
     Ok(tx)
 }
 
 pub(super) async fn worlds(
     tx: &mut Transaction<'_, Postgres>,
+    selected: Option<Uuid>,
 ) -> Result<Vec<(Uuid, String)>, Error> {
-    Ok(
+    let mut worlds: Vec<(Uuid, String)> =
         sqlx::query_as("SELECT id,name FROM world_status ORDER BY name,id LIMIT 500")
             .fetch_all(&mut **tx)
-            .await?,
-    )
+            .await?;
+    if let Some(selected) = selected
+        && !worlds.iter().any(|(id, _)| *id == selected)
+    {
+        let row = sqlx::query_as("SELECT id,name FROM world_status WHERE id=$1")
+            .bind(selected)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or(Error::Invalid)?;
+        worlds.pop();
+        worlds.push(row);
+    }
+    Ok(worlds)
 }
 
 pub(super) async fn world_exists(

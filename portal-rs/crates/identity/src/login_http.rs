@@ -176,23 +176,24 @@ async fn submit(
     if let Some(proof) = account {
         establish(&pool, language, &session, proof).await
     } else {
-        record_failure(&pool)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        record_failure(&pool).await;
         refuse(language, &session).await
     }
 }
 
 /// Count credential refusals without storing any account or network identifiers.
-pub(crate) async fn record_failure(pool: &PgPool) -> Result<(), sqlx::Error> {
-    sqlx::query(
+pub(crate) async fn record_failure(pool: &PgPool) {
+    let increment = sqlx::query(
         "INSERT INTO dashboard_login_failures (day, failures)
-         VALUES ((clock_timestamp() AT TIME ZONE 'UTC')::date, 1)
+         VALUES ((statement_timestamp() AT TIME ZONE 'UTC')::date, 1)
          ON CONFLICT (day) DO UPDATE SET failures=dashboard_login_failures.failures+1",
     )
-    .execute(pool)
-    .await?;
-    Ok(())
+    .execute(pool);
+    match tokio::time::timeout(std::time::Duration::from_millis(250), increment).await {
+        Ok(Ok(_)) => (),
+        Ok(Err(error)) => tracing::warn!(%error, "sign-in statistics unavailable"),
+        Err(_) => tracing::warn!("sign-in statistics write timed out"),
+    }
 }
 
 /// The proof remains immutable while credential mutations may commit before rotation.

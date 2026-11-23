@@ -6,7 +6,7 @@
   <title>{{ self.text("statistics") }}</title>
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/components.css">
-  <link rel="stylesheet" href="/static/css/admin-charts.css">
+  <link rel="stylesheet" href="/admin/charts/charts.css">
 </head>
 <body class="op-theme">
 <main class="staff-charts op-stack">
@@ -66,7 +66,11 @@
         <p class="staff-charts__muted">{{ self.text("last-update") }}
         {% if let Some(update) = last_online_update %}{{ update }}{% else %}{{ self.text("no-update") }}{% endif %}</p>
       {% endif %}
-      {% if !card.available %}<p data-state="unavailable">{{ self.text("unavailable") }}</p>{% endif %}
+      {% if card.series.is_empty() %}
+        <p>{{ self.text("wallet-empty") }}</p>
+      {% else if !card.available %}
+        <p data-state="unavailable">{{ self.text("unavailable") }}</p>
+      {% endif %}
       <div class="staff-charts__series-grid">
       {% for series in card.series %}
         <div class="op-stack staff-charts__series">

@@ -33,15 +33,25 @@ test('staff dashboard charts reflect a player ticket and its support resolution'
       );
       expect(response.status()).toBe(200);
       expect(response.headers()['content-type']).toContain('text/csv');
-      return (await response.text()).trim().split('\n').find(row => row.startsWith(day)).split(',').at(-1);
+      expect(response.headers()['cache-control']).toContain('no-store');
+      const [header, row, end] = (await response.text()).split('\r\n');
+      expect([header, end]).toEqual(['date_utc,series,value', '']);
+      const [date, series, value] = row.split(',');
+      expect([date, series]).toEqual([day, chart]);
+      return value;
     };
-    const registrations = Number(await read('registrations'));
-    const verified = Number(await read('verified'));
-    const opened = Number(await read('tickets-opened'));
-    const resolved = Number(await read('tickets-resolved'));
-    const sanctions = Number(await read('sanctions'));
-    const failures = Number(await read('logins-failed'));
-    const successful = Number(await read('logins-succeeded'));
+    const count = async chart => {
+      const value = await read(chart);
+      expect(value).toMatch(/^\d+$/);
+      return Number(value);
+    };
+    const registrations = await count('registrations');
+    const verified = await count('verified');
+    const opened = await count('tickets-opened');
+    const resolved = await count('tickets-resolved');
+    const sanctions = await count('sanctions');
+    const failures = await count('logins-failed');
+    const successful = await count('logins-succeeded');
     const account = await seededAccount(lang);
     await waitForLoginBudget();
     await page.goto(`/${lang}/login`);
@@ -71,14 +81,14 @@ test('staff dashboard charts reflect a player ticket and its support resolution'
     await expect(staff).toHaveURL(/enforcement\/[a-f0-9-]+$/);
 
     await staff.goto(dashboard);
-    expect(Number(await read('registrations'))).toBeGreaterThan(registrations);
-    expect(Number(await read('verified'))).toBeGreaterThan(verified);
-    expect(Number(await read('tickets-opened'))).toBeGreaterThan(opened);
-    expect(Number(await read('tickets-resolved'))).toBeGreaterThan(resolved);
-    expect(Number(await read('sanctions'))).toBeGreaterThan(sanctions);
-    expect(Number(await read('logins-failed'))).toBeGreaterThan(failures);
-    expect(Number(await read('logins-succeeded'))).toBeGreaterThan(successful);
-    expect(Number(await read('web-sessions'))).toBeGreaterThan(0);
+    expect(await count('registrations')).toBe(registrations + 1);
+    expect(await count('verified')).toBe(verified + 1);
+    expect(await count('tickets-opened')).toBe(opened + 1);
+    expect(await count('tickets-resolved')).toBe(resolved + 1);
+    expect(await count('sanctions')).toBe(sanctions + 1);
+    expect(await count('logins-failed')).toBe(failures + 1);
+    expect(await count('logins-succeeded')).toBe(successful + 1);
+    expect(await count('web-sessions')).toBeGreaterThan(0);
     const chart = staff.locator('[data-chart="first-response"]');
     expect(await read('first-response')).toMatch(/^\d+$/);
     await expect(chart.locator('svg title')).toHaveCount(1);
@@ -115,7 +125,7 @@ test('staff dashboard charts reflect a player ticket and its support resolution'
         data: body, headers: {'content-type': 'application/json', 'x-test-payment-signature': signature},
       });
       expect(paid.status()).toBe(204);
-      await expect.poll(series, {timeout: 30_000}).toBeGreaterThanOrEqual(before + 1234);
+      await expect.poll(series, {timeout: 30_000}).toBe(before + 1234);
     });
 
     await test.step('a world with no sample stays unavailable and a recorded zero is exported', async () => {
@@ -127,11 +137,23 @@ test('staff dashboard charts reflect a player ticket and its support resolution'
         const online = staff.locator('[data-chart="game-online"]');
         await expect(online.locator('[data-state=unavailable]')).toBeVisible();
         await expect(online).toContainText(lang === 'en' ? 'No samples recorded' : 'Brak zapisanych pomiarów');
+        expect(await read('game-online')).toBe('');
         await query('INSERT INTO stats_world_samples (world,sampled_at,players_online) VALUES ($1,clock_timestamp(),0)', [world.id]);
         await staff.reload();
         await expect(online.locator('[data-state=unavailable]')).toHaveCount(0);
         expect(await read('game-online')).toBe('0');
         await expect(online.locator('svg title')).toHaveCount(1);
+
+        const prefix = `AAA Charts ${world.id} `;
+        try {
+          await query(`INSERT INTO world_status (id,name)
+            SELECT uuidv7(), $1 || n FROM generate_series(1,500) n`, [prefix]);
+          await staff.reload();
+          await expect(staff.locator('[name=world]')).toHaveValue(world.id);
+          await expect(staff.locator('[name=world] option')).toHaveCount(501);
+        } finally {
+          await query('DELETE FROM world_status WHERE starts_with(name,$1)', [prefix]);
+        }
       } finally {
         await query('DELETE FROM stats_world_samples WHERE world=$1', [world.id]);
         await query('DELETE FROM world_status WHERE id=$1', [world.id]);
@@ -146,7 +168,14 @@ test('staff dashboard charts reflect a player ticket and its support resolution'
 test('i18n-parity renders the Statistics filters and every metric in the selected language', async ({page}, info) => {
   const lang = info.project.metadata.locale;
   await seededStaff(page, lang, 'platform_admin');
-  expect((await page.goto(`/admin/charts?lang=${lang}&range=30`)).status()).toBe(200);
+  await page.context().addCookies([{name: 'portal_language', value: lang, url: new URL(page.url()).origin}]);
+  await page.setExtraHTTPHeaders({'Accept-Language': lang === 'en' ? 'pl' : 'en'});
+  expect((await page.goto('/admin')).status()).toBe(200);
+  await page.locator('nav a[href^="/admin/charts"]').click();
+  await expect(page.locator('html')).toHaveAttribute('lang', lang);
+  await expect(page.locator(`footer.foot a[hreflang="${lang}"]`)).toHaveAttribute('aria-current', 'true');
+  await page.locator('[name=range]').selectOption('30');
+  await page.locator('#dashboard-filters button').click();
   await expect(page.locator('html')).toHaveAttribute('lang', lang);
   await expect(page.getByRole('heading', {level: 1})).toHaveText(lang === 'en' ? 'Statistics' : 'Statystyki');
   await expect(page.locator('select[name=range] option:checked')).toHaveText(lang === 'en' ? 'Last 30 days' : 'Ostatnie 30 dni');

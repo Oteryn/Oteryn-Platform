@@ -11,23 +11,38 @@ use axum::{
 };
 use serde::Deserialize;
 use sqlx::PgPool;
-use std::{collections::BTreeMap, fmt::Write};
+use std::{collections::BTreeMap, fmt::Write, sync::Arc};
 use time::{Date, Duration, OffsetDateTime, format_description::well_known::Iso8601};
+use tokio::sync::Semaphore;
 use uuid::Uuid;
 
 pub(super) const PAGE: &str = "/admin/charts";
+pub(super) const STYLESHEET: &str = "/admin/charts/charts.css";
 
 #[derive(Clone)]
 struct Charts {
     pool: PgPool,
     extended: bool,
+    queries: Arc<Semaphore>,
 }
 
 pub(super) fn routes<S: Clone + Send + Sync + 'static>(pool: PgPool, extended: bool) -> Router<S> {
     Router::new()
         .route(PAGE, get(page))
+        .route(STYLESHEET, get(stylesheet))
         .route("/admin/charts/{file}", get(export))
-        .with_state(Charts { pool, extended })
+        .with_state(Charts {
+            pool,
+            extended,
+            queries: Arc::new(Semaphore::new(2)),
+        })
+}
+
+async fn stylesheet() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        include_str!("../../../../templates/admin/charts/charts.css"),
+    )
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -36,6 +51,8 @@ enum Error {
     Invalid,
     #[error("chart unavailable")]
     Missing,
+    #[error("statistics busy")]
+    Busy,
     #[error("statistics storage unavailable")]
     Storage(#[from] sqlx::Error),
     #[error("invalid aggregate")]
@@ -47,6 +64,10 @@ impl IntoResponse for Error {
         match self {
             Self::Invalid => StatusCode::BAD_REQUEST,
             Self::Missing => StatusCode::NOT_FOUND,
+            Self::Busy => {
+                return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "1")])
+                    .into_response();
+            }
             Self::Storage(_) | Self::Aggregate(_) => {
                 tracing::warn!(error = %self, "staff statistics unavailable");
                 StatusCode::SERVICE_UNAVAILABLE
@@ -407,7 +428,7 @@ impl Series {
 
 impl Card {
     fn new(chart: Chart, mut values: data::Values, range: Range, first_failure_day: Date) -> Self {
-        if values.is_empty() {
+        if values.is_empty() && chart != Chart::Ledger {
             values.insert(String::new(), BTreeMap::new());
         }
         let series: Vec<_> = values
@@ -473,13 +494,11 @@ async fn page(
         Some("pl") => "pl",
         _ => web::language(&headers),
     };
+    let _query = state.queries.try_acquire().map_err(|_| Error::Busy)?;
     let mut tx = data::snapshot(&state.pool).await?;
     let (worlds, last_online_update) = if state.extended {
-        if let Some(world) = range.world {
-            data::world_exists(&mut tx, world).await?;
-        }
         (
-            data::worlds(&mut tx).await?,
+            data::worlds(&mut tx, range.world).await?,
             data::last_online_update(&mut tx, range.world, now).await?,
         )
     } else {
@@ -523,6 +542,7 @@ async fn export(
     let chart = Chart::from_file(&file, state.extended)?;
     let now = OffsetDateTime::now_utc();
     let range = selection.range(now.date(), state.extended)?;
+    let _query = state.queries.try_acquire().map_err(|_| Error::Busy)?;
     let mut tx = data::snapshot(&state.pool).await?;
     if let Some(world) = range.world {
         data::world_exists(&mut tx, world).await?;

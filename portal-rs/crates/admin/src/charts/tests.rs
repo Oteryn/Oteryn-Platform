@@ -98,6 +98,15 @@ fn csv_distinguishes_missing_samples_from_zero_and_kpis_compare_periods() {
 }
 
 #[test]
+fn empty_ledger_has_no_operation_series() {
+    let today = date("2026-11-23");
+    let range = Selection::default().range(today, true).unwrap();
+    let card = Card::new(Chart::Ledger, BTreeMap::new(), range, today);
+    assert!(card.series.is_empty());
+    assert_eq!(card.csv(), "date_utc,series,value\r\n");
+}
+
+#[test]
 fn i18n_parity_covers_all_chart_labels() {
     let keys = |source: &'static str| -> BTreeSet<&'static str> {
         source
@@ -116,5 +125,38 @@ fn i18n_parity_covers_all_chart_labels() {
         for chart in Chart::ALL {
             assert!(english.contains(chart.key()));
         }
+    }
+}
+
+#[tokio::test]
+async fn report_requests_share_a_query_budget() {
+    let state = Charts {
+        pool: sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap(),
+        extended: false,
+        queries: Arc::new(Semaphore::new(2)),
+    };
+    let _running = state.queries.acquire_many(2).await.unwrap();
+    let dashboard = page(
+        State(state.clone()),
+        Extension(CanExport(false)),
+        HeaderMap::new(),
+        Query(Selection::default()),
+    )
+    .await
+    .unwrap_err()
+    .into_response();
+    let download = export(
+        State(state.clone()),
+        Path("registrations.csv".into()),
+        Query(Selection::default()),
+    )
+    .await
+    .unwrap_err()
+    .into_response();
+    for response in [dashboard, download] {
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(response.headers()[header::RETRY_AFTER], "1");
     }
 }

@@ -209,6 +209,7 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
         limiter.check(policy, std::slice::from_ref(&keys)).await?;
     }
     let response = app
+        .clone()
         .oneshot(request(
             "POST",
             "/en/login",
@@ -242,6 +243,25 @@ async fn postgres_browser_login_logout_csrf_and_limits() -> TestResult {
         .await?
             > 0
     );
+    let failures: i64 =
+        sqlx::query_scalar("SELECT sum(failures)::bigint FROM dashboard_login_failures")
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(failures, 4);
+
+    sqlx::query("DROP TABLE dashboard_login_failures")
+        .execute(&pool)
+        .await?;
+    let response = app
+        .oneshot(request(
+            "POST",
+            "/en/login",
+            &guest,
+            &format!("_csrf={token}&email={email}&password=wrong"),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()[header::LOCATION], "/en/login");
     database.close().await?;
     Ok(())
 }

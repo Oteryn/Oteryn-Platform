@@ -40,6 +40,7 @@ sanctions = Sanctions issued
 sanctions-note = Counts sanctions issued immediately and permanent sanctions on their approval date.
 wallet = Wallet and Store ledger
 wallet-note = Absolute operation amounts in coins, by recorded kind. Sandbox top-ups are listed separately when identified by the stored provider.
+wallet-empty = No ledger operations in either period.
 game-online = Game players online
 game-online-note = Highest recorded world peak on each day. The headline shows the peak of the selected period.
 game-online-world-note = Highest recorded online count for the selected world on each day. The headline shows the peak of the selected period.

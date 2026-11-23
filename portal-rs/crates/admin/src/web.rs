@@ -392,7 +392,7 @@ async fn authenticate<I: StaffSession, A: AccountStateReader + 'static>(
     let path = request.uri().path();
     let panel_permissions: &[_] = match path {
         "/admin/roles" => &[Permission::ManageRoles],
-        crate::charts::PAGE => &[Permission::AdminAnalyticsView],
+        crate::charts::PAGE | crate::charts::STYLESHEET => &[Permission::AdminAnalyticsView],
         path if path.starts_with("/admin/charts/") => &[
             Permission::AdminAnalyticsView,
             Permission::AdminAnalyticsExport,
@@ -452,6 +452,19 @@ async fn refusal(pool: &PgPool, actor: Uuid, target: &str) -> Result<(), Error> 
     Ok(())
 }
 pub(super) fn language(headers: &axum::http::HeaderMap) -> &'static str {
+    let saved = headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|cookie| cookie.to_str().ok())
+        .flat_map(|cookie| cookie.split(';'))
+        .find_map(|part| match part.trim() {
+            "portal_language=pl" => Some("pl"),
+            "portal_language=en" => Some("en"),
+            _ => None,
+        });
+    if let Some(lang) = saved {
+        return lang;
+    }
     if headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|v| v.to_str().ok())

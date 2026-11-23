@@ -40,6 +40,7 @@ sanctions = Nałożone sankcje
 sanctions-note = Obejmuje sankcje nałożone od razu oraz sankcje bezterminowe w dniu zatwierdzenia.
 wallet = Księga portfela i sklepu
 wallet-note = Wartości bezwzględne operacji w monetach według zapisanego rodzaju. Doładowania testowe są wykazane osobno, jeżeli wskazuje je zapis dostawcy.
+wallet-empty = Brak operacji w księdze w obu okresach.
 game-online = Gracze online w grze
 game-online-note = Najwyższy zarejestrowany wynik pojedynczego świata w danym dniu. Główna wartość to maksimum z wybranego okresu.
 game-online-world-note = Najwyższa zarejestrowana liczba graczy online na wybranym świecie w danym dniu. Główna wartość to maksimum z wybranego okresu.
