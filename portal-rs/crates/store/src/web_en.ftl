@@ -47,3 +47,11 @@ coin-count = { $count } { $count ->
     [one] coin
    *[other] coins
     }
+
+offer-filter = Offer identifier
+offer-filter-hint = Enter all or part of an offer identifier, or leave it blank to see all offers.
+apply-filter = Filter offers
+offer-results = { $count ->
+    [one] { $count } matching offer.
+   *[other] { $count } matching offers.
+}

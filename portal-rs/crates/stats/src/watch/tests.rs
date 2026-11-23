@@ -63,21 +63,7 @@ async fn database() -> Result<Option<PgPool>> {
     sqlx::query(sqlx::AssertSqlSafe(format!("SET search_path TO {schema}")))
         .execute(&pool)
         .await?;
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105231206_t70_watches.sql"
-    ))
-    .execute(&pool)
-    .await?;
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105130000_t36_notifications.sql"
-    ))
-    .execute(&pool)
-    .await?;
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105120000_t37_outbox.sql"
-    ))
-    .execute(&pool)
-    .await?;
+    oteryn_db::migrate(&pool).await?;
     Ok(Some(pool))
 }
 async fn dispose(pool: PgPool) -> Result<()> {
@@ -191,6 +177,10 @@ async fn postgres_notification_outbox_retry_and_hidden_guild_member() -> Result<
         .fetch_one(&pool)
         .await?;
     assert_eq!(count, 1);
+    let template_kind: String = sqlx::query_scalar("SELECT template_kind FROM email_outbox")
+        .fetch_one(&pool)
+        .await?;
+    assert_eq!(template_kind, "news");
     for kind in [
         EventKind::Online,
         EventKind::LevelUp,

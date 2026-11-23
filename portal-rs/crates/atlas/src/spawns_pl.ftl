@@ -16,3 +16,6 @@ saved = Zapisano
 failed = Niedostępne lub błędne dane. Spróbuj ponownie.
 sign-in = Zaloguj się, aby zapisywać prywatne znaczniki i zgłaszać błędy.
 loading = Wczytywanie spawnów…
+
+exit-fullscreen = Wyjdź z pełnego ekranu
+spawns-unavailable = Dane o spawnach są niedostępne.

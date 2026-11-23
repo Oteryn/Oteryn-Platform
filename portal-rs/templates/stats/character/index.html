@@ -1,9 +1,25 @@
 <!doctype html>
 <html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
-<body class="op-theme"><main id="main" class="op-stack"><h1>{{ title }}</h1><p>{{ hint }}</p><p role="status">{{ message }}</p>
+<body class="op-theme"><main id="main" class="op-stack"><h1>{{ title }}</h1><p>{{ hint }}</p>{% if !message.is_empty() %}<p {% if invalid %}role="alert" tabindex="-1" autofocus{% else %}role="status"{% endif %}>{{ message }}</p>{% endif %}
 <nav aria-label="{{ title }}"><ul>{% for (url,label) in tabs %}<li><a href="{{ url }}">{{ label }}</a></li>{% endfor %}</ul></nav>
 <form method="get" class="op-stack"><p><label for="start">{{ labels[3] }}</label><input class="op-input" id="start" name="start" type="date" value="{{ start }}" required></p><p><label for="end">{{ labels[4] }}</label><input class="op-input" id="end" name="end" type="date" value="{{ end }}" required></p>
 {% if comparison %}<p><label for="ids">{{ labels[6] }}</label><input class="op-input" id="ids" name="ids" value="{{ ids }}" required></p><p><label for="metric">{{ labels[7] }}</label><select class="op-input" name="metric" id="metric">{% for (key,label) in metrics %}<option value="{{ key }}"{% if selected_metric == *key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></p>{% else %}<p><label for="target">{{ labels[11] }}</label><input class="op-input" id="target" type="number" min="1" max="4294967295" name="target"></p>{% endif %}<button type="submit" class="op-button">{{ labels[5] }}</button></form>
-{% if !charts.is_empty() %}<figure><figcaption>{{ hint }}</figcaption><ul>{% for (name,points) in charts %}<li>{{ loop.index }}. {{ name }}</li>{% endfor %}</ul><svg viewBox="0 0 300 150" role="img" aria-label="{{ title }}" width="100%" height="150">{% for (name,points) in charts %}<path d="{{ points }}" stroke="currentColor" stroke-width="4"><title>{{ name }}</title></path>{% endfor %}</svg></figure>{% endif %}
-{% for (day,name,value) in rows %}<article class="op-card"><h2>{{ name }}</h2><dl><dt>{{ labels[0] }}</dt><dd>{{ day }}</dd><dt>{{ labels[2] }}</dt><dd>{{ value }}</dd></dl></article>{% endfor %}
+{% if !charts.is_empty() %}
+<figure aria-labelledby="character-chart-caption">
+  <figcaption id="character-chart-caption">{{ labels[12] }}</figcaption>
+  <p><a href="#character-data">{{ labels[14] }}</a></p>
+  <ul>{% for (name, points) in charts %}<li>{{ name }}</li>{% endfor %}</ul>
+  <svg viewBox="0 0 300 150" aria-hidden="true" width="100%" height="150">{% for (name, points) in charts %}<path d="{{ points }}" stroke="currentColor" stroke-width="4"><title>{{ name }}</title></path>{% endfor %}</svg>
+</figure>
+{% endif %}
+{% if !rows.is_empty() %}
+<p id="character-data-hint" class="op-hint">{{ labels[15] }}</p>
+<div id="character-data" class="op-table-wrap" role="region" tabindex="0" aria-labelledby="character-data-caption" aria-describedby="character-data-hint">
+  <table class="op-table">
+    <caption id="character-data-caption">{{ labels[13] }}</caption>
+    <thead><tr><th scope="col">{{ labels[0] }}</th><th scope="col">{% if comparison %}{{ labels[1] }}{% else %}{{ labels[16] }}{% endif %}</th><th scope="col">{{ labels[2] }}</th></tr></thead>
+    <tbody>{% for (day, name, value) in rows %}<tr><td>{{ day }}</td><th scope="row">{{ name }}</th><td>{{ value }}</td></tr>{% endfor %}</tbody>
+  </table>
+</div>
+{% endif %}
 </main></body></html>
