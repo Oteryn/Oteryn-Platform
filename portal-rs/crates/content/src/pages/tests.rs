@@ -878,6 +878,73 @@ fn legal_edition(slug: &str, locale: &str, version: &str) -> LegalEdition {
 }
 
 #[tokio::test]
+async fn staff_pages_only_links_to_a_populated_next_page() -> Result<(), Box<dyn std::error::Error>>
+{
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
+    let (root, pool, schema) = pages_database().await?.ok_or("PostgreSQL required")?;
+    let actor = legal_operator(&pool, "content_editor").await?;
+    sqlx::query(
+        "WITH seeded AS (
+             INSERT INTO pages(id,slug)
+             SELECT uuidv7(),'page-' || lpad(n::text,3,'0') FROM generate_series(1,500) n
+             RETURNING id
+         )
+         INSERT INTO editorial_pages(page_id,locale,title,body)
+         SELECT id,'en','Page','Test page.' FROM seeded",
+    )
+    .execute(&pool)
+    .await?;
+    let app = staff_router(
+        pool.clone(),
+        oteryn_admin::web::PanelConfig {
+            admin_panel: true,
+            host: "staff.test".into(),
+        },
+        Identity(actor),
+        oteryn_admin::web::PortalIdentity::configured(pool.clone()),
+    );
+    let load = |uri: &'static str, lang: &'static str| {
+        let app = app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::get(uri)
+                        .header("host", "staff.test")
+                        .header("accept-language", lang)
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = to_bytes(response.into_body(), 100_000).await?;
+            Ok::<_, Box<dyn std::error::Error>>(String::from_utf8(body.to_vec())?)
+        }
+    };
+    let first = load("/admin/pages", "en").await?;
+    assert!(first.contains("/admin/pages/page-500/en"));
+    assert!(!first.contains("href=\"?page=1\""));
+
+    sqlx::query(
+        "WITH seeded AS (
+             INSERT INTO pages(id,slug) VALUES(uuidv7(),'page-501') RETURNING id
+         )
+         INSERT INTO editorial_pages(page_id,locale,title,body)
+         SELECT id,'en','Page','Test page.' FROM seeded",
+    )
+    .execute(&pool)
+    .await?;
+    for (lang, label) in [("en", "Next page"), ("pl", "Następna strona")] {
+        let first = load("/admin/pages", lang).await?;
+        assert!(first.contains(&format!("href=\"?page=1\">{label}</a>")));
+        assert!(!first.contains("/admin/pages/page-501/en"));
+        let second = load("/admin/pages?page=1", lang).await?;
+        assert!(second.contains("/admin/pages/page-501/en"));
+        assert!(!second.contains("href=\"?page=2\""));
+    }
+    drop_pages_schema(root, pool, &schema).await?;
+    Ok(())
+}
+
+#[tokio::test]
 async fn operator_publishes_bilingual_signup_editions() -> Result<(), Box<dyn std::error::Error>> {
     use oteryn_identity::{
         consents::{PLACEHOLDER_LEGAL_VERSION, SignupEditionIssue},

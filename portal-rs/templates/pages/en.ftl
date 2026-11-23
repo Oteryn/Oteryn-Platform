@@ -41,3 +41,4 @@ terms-of-service = Terms of service
 privacy-policy = Privacy policy
 en = English
 pl = Polish
+next = Next page

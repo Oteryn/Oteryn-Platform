@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { register } from '../helpers.mjs';
 import { query, seededStaff } from '../staff-rbac-helpers.mjs';
@@ -16,6 +17,35 @@ const labels = {
     draft: 'Zastąp tymczasowe dane operatora i opublikuj wersję ostateczną.',
   },
 };
+
+test('i18n-parity for signup legal readiness and pause messages', () => {
+  const read = path => readFileSync(new URL(path, import.meta.url), 'utf8');
+  const keys = (locale, path, pattern) => [...read(path.replace('{lang}', locale))
+    .matchAll(/^([a-z][a-z0-9-]*)[ \t]*=[ \t]*\S/gm)]
+    .map(([, key]) => key).filter(key => pattern.test(key)).sort();
+  const check = (catalogue, pattern, sources) => {
+    const expected = new Set();
+    for (const path of sources) {
+      const literals = path.endsWith('.html')
+        ? /self\.text\("([a-z][a-z0-9-]*)"\)/g
+        : /"([a-z][a-z0-9-]*)"/g;
+      for (const [, key] of read(path).matchAll(literals)) {
+        if (pattern.test(key)) expected.add(key);
+      }
+    }
+    expect(expected.size).toBeGreaterThan(0);
+    for (const lang of ['en', 'pl']) {
+      expect(keys(lang, catalogue, pattern)).toEqual([...expected].sort());
+    }
+  };
+  check('../../templates/pages/{lang}.ftl', /^signup-/, [
+    '../../crates/content/src/pages/staff.rs',
+    '../../templates/admin/pages/index.html',
+  ]);
+  check('../../crates/ui/i18n/{lang}.ftl', /^register-paused-/, [
+    '../../templates/account/register_paused.html',
+  ]);
+});
 
 test('staff inspect live signup readiness and a test signup records the displayed editions', async (
   { page, browser },
@@ -53,11 +83,18 @@ test('staff inspect live signup readiness and a test signup records the displaye
     viewport: project.use.viewport,
   });
   try {
+    expect(await query(
+      'UPDATE registration_abuse_policy SET enabled=true WHERE singleton=true RETURNING enabled',
+    )).toEqual([{ enabled: true }]);
     const signup = await visitor.newPage();
     for (const kind of Object.keys(paths)) {
-      await signup.goto(`/${lang}/register`);
+      expect((await signup.goto(`/${lang}/register`)).status()).toBe(200);
       await expect(signup.locator(`input[name=${kind}]`)).toHaveValue(versions[kind]);
-      await signup.locator(`main a[href="/${lang}/legal/${kind}"]`).click();
+      const [policy] = await Promise.all([
+        signup.waitForResponse(response => new URL(response.url()).pathname === `/${lang}/legal/${kind}`),
+        signup.locator(`main a[href="/${lang}/legal/${kind}"]`).click(),
+      ]);
+      expect(policy.status()).toBe(200);
       await expect(signup.locator('main > p').first()).toContainText(versions[kind]);
       await expect(signup.getByRole('note')).toBeVisible();
     }

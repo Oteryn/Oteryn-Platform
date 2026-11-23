@@ -147,9 +147,19 @@ async fn index(
     } else {
         "pl"
     };
-    let rows:Result<Vec<(String,String)>,_>=sqlx::query_as("SELECT p.slug,e.locale FROM pages p JOIN editorial_pages e ON e.page_id=p.id ORDER BY p.slug,e.locale LIMIT 500 OFFSET $1").bind(i64::from(query.page)*500).fetch_all(&pool).await;
+    const PAGE_SIZE: usize = 500;
+    let rows = sqlx::query_as(
+        "SELECT p.slug,e.locale FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+         ORDER BY p.slug,e.locale LIMIT $1 OFFSET $2",
+    )
+    .bind((PAGE_SIZE + 1) as i64)
+    .bind(i64::from(query.page) * PAGE_SIZE as i64)
+    .fetch_all(&pool)
+    .await;
     match rows {
-        Ok(rows) => {
+        Ok(mut rows) => {
+            let more = rows.len() > PAGE_SIZE && query.page < u32::MAX;
+            rows.truncate(PAGE_SIZE);
             let editions = consent
                 .map(|Extension(config)| config)
                 .unwrap_or_default()
@@ -159,7 +169,7 @@ async fn index(
             oteryn_web::render(&Listing {
                 readiness: editions.ok(),
                 next: u64::from(query.page) + 1,
-                more: rows.len() == 500,
+                more,
                 lang: lang.to_owned(),
                 title: text(lang, "pages"),
                 slug_label: text(lang, "slug"),
