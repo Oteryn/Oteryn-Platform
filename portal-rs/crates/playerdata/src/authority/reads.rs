@@ -509,10 +509,17 @@ impl CollectionEvidence {
             return Err(Error::Unavailable);
         }
         scope.recovery = recovery;
+        // Retention strips the race key from expired records. A redacted row
+        // could have replaced any earlier race in this subject.
         let rows = sqlx::query(
             "SELECT DISTINCT ON (entity_key) entity_key,kind,payload,expires_ms,occurred_ms,ownership_revision
              FROM pd_records WHERE stream_key=$1 AND scope_key=$2
                AND source_revision <= $3::numeric
+               AND source_revision > COALESCE((
+                   SELECT max(source_revision) FROM pd_records
+                   WHERE stream_key=$1 AND scope_key=$2 AND entity_key=''
+                     AND source_revision <= $3::numeric
+               ),0)
              ORDER BY entity_key,source_revision DESC LIMIT 4097",
         )
         .bind(&key)
@@ -536,10 +543,10 @@ impl CollectionEvidence {
                 return Err(Error::Unavailable);
             }
             let kind: String = row.try_get("kind")?;
-            if kind == "REMOVE" {
+            if kind == "REMOVE" || row.try_get::<i64, _>("expires_ms")? <= now {
                 continue;
             }
-            if kind != "UPSERT" || row.try_get::<i64, _>("expires_ms")? <= now {
+            if kind != "UPSERT" {
                 return Err(Error::Unavailable);
             }
             let bytes: Vec<u8> = row

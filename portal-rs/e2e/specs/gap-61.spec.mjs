@@ -46,7 +46,7 @@ test('an owner opens Collection from navigation and sees the current progress st
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
 
   const save = `${path}/${character}/decks`;
-  const form = { name: 'First deck', first: card };
+  const form = { name: 'W'.repeat(40), first: card };
   await csrfRejected(page, save, form);
   expect((await page.goto(`/${lang}/account/sudo`)).status()).toBe(200);
   const csrf = await page.locator('main form input[name=_csrf]').inputValue();
@@ -56,6 +56,43 @@ test('an owner opens Collection from navigation and sees the current progress st
   const invalid = await page.request.post(save, { headers, form: { ...form, second: card, _csrf: csrf } });
   expect(invalid.status()).toBe(400);
   expect(await query('SELECT id FROM collection_decks WHERE account_id=$1', [owner.id])).toEqual([]);
+
+  const [{ id: deck }] = await query(
+    'INSERT INTO collection_decks(id,account_id,character_id,name,cards) VALUES(uuidv7(),$1,$2,$3,ARRAY[$4::uuid]) RETURNING id',
+    [owner.id, character, form.name, card],
+  );
+  const [{ id: battle }] = await query(
+    `INSERT INTO collection_battles(id,account_id,character_id,deck_id,state)
+     VALUES(uuidv7(),$1,$2,$3,'{"outcome":"active"}') RETURNING id`,
+    [owner.id, character, deck],
+  );
+  expect((await page.goto(`${path}/${character}`)).status()).toBe(200);
+  await expect(page.getByRole('region', { name: t.cards })).toContainText(t.unavailable);
+  await expect(page.getByRole('heading', { name: form.name })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
+  await expect(page.getByRole('button', { name: t.save })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: t.fight })).toHaveCount(0);
+  await page.getByRole('button', { name: t.forfeit }).click();
+  await expect(page).toHaveURL(new RegExp(`${path}$`));
+  await expect(page.getByRole('button', { name: t.forfeit })).toHaveCount(0);
+  expect(await query("SELECT state->>'outcome' AS outcome FROM collection_battles WHERE id=$1", [battle]))
+    .toEqual([{ outcome: 'defeat' }]);
+  expect((await page.goto(`${path}/${character}`)).status()).toBe(200);
+  await page.getByRole('button', { name: t.delete }).click();
+  await expect(page.getByRole('region', { name: t.cards })).toContainText(t.unavailable);
+  await expect(page.getByRole('button', { name: t.delete })).toHaveCount(0);
+  expect(await query('SELECT id FROM collection_decks WHERE id=$1', [deck])).toEqual([]);
+
+  const [{ id: archivedBattle }] = await query(
+    `INSERT INTO collection_battles(id,account_id,character_id,state)
+     VALUES(uuidv7(),$1,uuidv7(),'{"outcome":"active"}') RETURNING id`,
+    [owner.id],
+  );
+  expect((await page.goto(path)).status()).toBe(200);
+  await page.getByRole('button', { name: t.forfeit }).click();
+  await expect(page.getByRole('button', { name: t.forfeit })).toHaveCount(0);
+  expect(await query("SELECT state->>'outcome' AS outcome FROM collection_battles WHERE id=$1", [archivedBattle]))
+    .toEqual([{ outcome: 'defeat' }]);
 
   const context = await browser.newContext({
     baseURL: info.project.use.baseURL, ignoreHTTPSErrors: true, viewport: info.project.use.viewport,
@@ -73,12 +110,26 @@ test('an owner opens Collection from navigation and sees the current progress st
 test('a world operator sees the collection readiness checks', async ({ page }, info) => {
   const lang = info.project.metadata.locale;
   const t = messages(localeDirectory, lang);
-  await seededStaff(page, lang, 'game_admin');
+  const operator = await seededStaff(page, lang, 'game_admin');
   expect((await page.goto(`/${lang}/collection`)).status()).toBe(200);
   const status = page.getByRole('region', { name: t['operator-status'] });
   await expect(status).toContainText(t['operator-journal']);
+  await expect(status.getByRole('definition').nth(0)).toHaveText(t['operator-enabled']);
   await expect(status).toContainText(t['operator-source']);
+  await expect(status.getByRole('definition').nth(1)).toHaveText(t[
+    process.env.PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY ? 'operator-configured' : 'source-unavailable'
+  ]);
   await expect(status).toContainText(t['operator-awaiting-mapping']);
   await expect(status).toContainText(t['operator-publication']);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
+
+  await query("UPDATE web_sessions SET data=data-'mfa_grant' WHERE account_id=$1", [operator]);
+  expect((await page.reload()).status()).toBe(200);
+  await expect(status).toHaveCount(0);
+});
+
+test('i18n-parity for Collection', () => {
+  const en = Object.keys(messages(localeDirectory, 'en')).sort();
+  expect(en.length).toBeGreaterThan(0);
+  expect(Object.keys(messages(localeDirectory, 'pl')).sort()).toEqual(en);
 });

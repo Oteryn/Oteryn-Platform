@@ -9,11 +9,12 @@ use axum::{
     routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
+use oteryn_identity::mfa::{Mfa, SESSION_GRANT_KEY};
 use oteryn_playerdata::authority::CollectionEvidence;
 use oteryn_playerdata::progress::{Authority, Payload, Subject};
 use oteryn_web::{
     csrf::CsrfConfig,
-    session::{BrowserSession, SessionLayer},
+    session::{BrowserSession, SessionKey, SessionLayer},
 };
 use oteryn_world::{WorldOptions, WorldStore};
 use sqlx::PgPool;
@@ -53,6 +54,7 @@ impl Authority for Ownership {
 struct HttpState {
     service: Collection,
     evidence: Option<EvidenceSources>,
+    mfa: Option<Mfa>,
     pool: PgPool,
 }
 
@@ -106,6 +108,7 @@ pub(super) fn router_with_evidence(
         .with_state(HttpState {
             service,
             evidence,
+            mfa: Mfa::configured(pool.clone()).ok(),
             pool,
         })
 }
@@ -177,7 +180,7 @@ async fn response_policy(request: Request, next: Next) -> Response {
             "default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
         ),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
-        (header::REFERRER_POLICY, "no-referrer"),
+        (header::REFERRER_POLICY, "same-origin"),
         (
             header::STRICT_TRANSPORT_SECURITY,
             "max-age=63072000; includeSubDomains",
@@ -237,6 +240,7 @@ struct EvidencePage {
     evidence: Option<CollectionEvidence>,
     operator: Option<OperatorStatus>,
     verified_progress: bool,
+    cleanup: Option<(Uuid, String)>,
 }
 
 struct OperatorStatus {
@@ -246,7 +250,23 @@ struct OperatorStatus {
     published_cards: Option<bool>,
 }
 
-async fn operator_status(s: &HttpState, account: Uuid) -> Result<Option<OperatorStatus>> {
+async fn operator_status(
+    s: &HttpState,
+    session: &BrowserSession,
+    account: Uuid,
+) -> Result<Option<OperatorStatus>> {
+    let Some(mfa) = &s.mfa else {
+        return Ok(None);
+    };
+    let Ok(Some(grant)) = session
+        .get(SessionKey::<String>::new(SESSION_GRANT_KEY))
+        .await
+    else {
+        return Ok(None);
+    };
+    if !mfa.satisfied(account, &grant).await? {
+        return Ok(None);
+    }
     let permitted: bool = sqlx::query_scalar(
         "SELECT count(DISTINCT p.permission)=2
          FROM account_roles r JOIN role_permissions p ON p.role_id=r.role_id
@@ -313,12 +333,30 @@ async fn index(
     } else {
         Vec::new()
     };
+    let cleanup = match s
+        .service
+        .find_active_battle(account, None)
+        .await
+        .map_err(status)?
+    {
+        Some(id) => Some((
+            id,
+            session
+                .csrf_token()
+                .await
+                .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        )),
+        None => None,
+    };
     EvidencePage {
         lang: lang.clone(),
         characters,
         evidence: None,
-        operator: operator_status(&s, account).await.map_err(status)?,
+        operator: operator_status(&s, &session, account)
+            .await
+            .map_err(status)?,
         verified_progress: false,
+        cleanup,
     }
     .html()
 }
@@ -342,6 +380,7 @@ struct Page {
     forfeit: String,
     lang: String,
     character: Uuid,
+    new_deck: Uuid,
     csrf: String,
     title: String,
     rules: String,
@@ -355,6 +394,7 @@ struct Page {
     empty: String,
     cards: Vec<CardView>,
     decks: Vec<DeckView>,
+    cards_available: bool,
     has_unlocked: bool,
     sources: EvidencePage,
 }
@@ -388,16 +428,27 @@ async fn page(
         evidence,
         operator: None,
         verified_progress: false,
+        cleanup: None,
     };
     let cards = match s
         .service
         .cards(account, character, now().map_err(status)?)
         .await
     {
-        Ok(cards) => cards,
-        Err(Error::Unavailable) if sources.evidence.is_some() => return sources.html(),
+        Ok(cards) => Some(cards),
+        Err(Error::Unavailable) if sources.evidence.is_some() => None,
         Err(error) => return Err(status(error)),
     };
+    let cards_available = cards.is_some();
+    let empty = text(
+        &lang,
+        if cards_available {
+            "empty"
+        } else {
+            "unavailable"
+        },
+    );
+    let cards = cards.unwrap_or_default();
     sources.verified_progress = cards.iter().any(|c| c.state != CardState::Unavailable);
     let unlocked: std::collections::HashSet<_> = cards
         .iter()
@@ -447,6 +498,7 @@ async fn page(
         delete: text(&lang, "delete"),
         forfeit: text(&lang, "forfeit"),
         character,
+        new_deck: Uuid::now_v7(),
         csrf: session
             .csrf_token()
             .await
@@ -460,10 +512,11 @@ async fn page(
         save: text(&lang, "save"),
         fight: text(&lang, "fight"),
         skip: text(&lang, "skip"),
-        empty: text(&lang, "empty"),
+        empty,
         lang,
         cards,
         decks,
+        cards_available,
         has_unlocked: !unlocked.is_empty(),
         sources,
     };
@@ -644,12 +697,11 @@ async fn forfeit(
     Extension(session): Extension<BrowserSession>,
     Form(_): Form<StartForm>,
 ) -> std::result::Result<Redirect, StatusCode> {
-    let character = s
-        .service
+    s.service
         .forfeit(account(&session).await?, id)
         .await
         .map_err(status)?;
-    Ok(Redirect::to(&format!("/{lang}/collection/{character}")))
+    Ok(Redirect::to(&format!("/{lang}/collection")))
 }
 
 async fn delete_deck(
@@ -664,29 +716,4 @@ async fn delete_deck(
         .await
         .map_err(status)?;
     Ok(Redirect::to(&format!("/{lang}/collection/{character}")))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn owned_character_explains_when_cards_are_unavailable()
-    -> std::result::Result<(), askama::Error> {
-        let page = EvidencePage {
-            lang: "en".into(),
-            characters: Vec::new(),
-            evidence: Some(CollectionEvidence {
-                inventory_updated_ms: None,
-                bestiary_feed_updated_ms: None,
-            }),
-            operator: None,
-            verified_progress: false,
-        };
-        let html = page.render()?;
-        assert!(html.contains("<h2 id=\"cards\">Cards</h2>"));
-        assert!(html.contains(&text("en", "unavailable")));
-        assert!(!html.contains("<form"));
-        Ok(())
-    }
 }

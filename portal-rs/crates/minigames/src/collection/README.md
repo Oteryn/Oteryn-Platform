@@ -98,6 +98,18 @@ snapshot at the current custody cut and the account-wide bestiary watermark.
 The bestiary data remains unavailable while its catalogue mapping is a
 candidate. Missing evidence has an unknown update time. The read flag defaults
 to off and the journal adapter performs only local PostgreSQL reads. Operators
-with `admin.access` and `game.world.admin` can see the collection readiness summary
-on the landing page. The activation dependencies are in
-[`GAP-61_COLLECTION.md`](../../../../../docs/product/GAP-61_COLLECTION.md).
+with `admin.access`, `game.world.admin` and a current MFA grant can see the
+collection readiness summary on the landing page.
+
+Before enabling Collection for players, qualify authenticated LCFA and G-11
+bestiary delivery for the target runtime. Cover complete baselines, corrections,
+transfers, replay and restore. Configure the confirmed source with
+`PORTAL_PLAYERDATA_PROGRESS_SOURCE_AUTHORITY`, approve the revision-bound
+bestiary and appearance mappings, and publish verified cards and sprites through
+the trusted Platform publisher. The bestiary receiver still awaits mapping
+approval. Qualify the complete unlock, deck and battle flow using two accounts,
+including foreign-account refusal and the read flag disabled.
+
+The Rust integration test uses a synthetic published cut to verify eligibility,
+deck save and a terminal battle. The browser spec covers the owner and operator
+flows while mapping approval is pending.

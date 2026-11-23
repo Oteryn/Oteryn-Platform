@@ -239,11 +239,56 @@ impl Collection {
     /// Current owner-only G-11 reads, not historical unlocks retained after sale.
     /// Unknown ownership, baseline, revision, freshness or catalog state denies.
     pub async fn cards(&self, account: Uuid, character: Uuid, now: u64) -> Result<Vec<OwnedCard>> {
+        let progress = self.authorized_progress(account, character, now).await?;
+        let active = self
+            .world
+            .active_version_id()
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Unavailable)?;
+        let definitions: Vec<(
+            sqlx::types::Json<Card>,
+            sqlx::types::Json<oteryn_world::Entity>,
+        )> = sqlx::query_as(
+            "SELECT c.definition,jsonb_build_object(
+                    'version_id',e.version_id,'kind',e.kind,'key',e.key,'data',e.data)
+                 FROM collection_cards c
+                 JOIN world_active_version a ON a.version_id=$1
+                 JOIN world_entities e ON e.version_id=a.version_id
+                    AND e.kind=c.definition->>'kind' AND e.key=c.definition->>'key'
+                 JOIN world_visibility v ON v.kind=e.kind AND v.key=e.key AND v.allowed
+                 WHERE e.publishable AND c.definition->>'world_version'=$1::uuid::text
+                 ORDER BY c.id LIMIT 1001",
+        )
+        .bind(active)
+        .fetch_all(&self.pool)
+        .await?;
+        if definitions.len() > 1000 {
+            return Err(Error::Unavailable);
+        }
+        let mut cards = Vec::with_capacity(definitions.len());
+        for (sqlx::types::Json(card), sqlx::types::Json(entity)) in definitions {
+            card.validate()?;
+            card.matches_entity(&entity)?;
+            let state = card_state(&card, &progress);
+            cards.push(OwnedCard { card, state });
+        }
+        if cards.is_empty() && matches!(self.source, BestiarySource::Journal(_)) {
+            return Err(Error::Unavailable);
+        }
+        Ok(cards)
+    }
+    async fn authorized_progress(
+        &self,
+        account: Uuid,
+        character: Uuid,
+        now: u64,
+    ) -> Result<Vec<Payload>> {
         self.eligible(account).await?;
         if character.get_version_num() != 7 {
             return Err(Error::BadInput);
         }
-        let progress = match &self.source {
+        match &self.source {
             BestiarySource::Projection(store, authority) => store
                 .read(
                     Actor::Owner(account),
@@ -259,52 +304,14 @@ impl Collection {
                 .map_err(|e| match e {
                     oteryn_playerdata::progress::Error::Denied => Error::Denied,
                     _ => Error::Unavailable,
-                })?,
+                }),
             BestiarySource::Journal(_) => {
                 let mut tx = crate::browser::begin(&self.pool).await?;
                 let progress = self.progress(&mut tx, account, character, now).await?;
                 tx.commit().await?;
-                progress
+                Ok(progress)
             }
-        };
-        let active = self
-            .world
-            .active_version_id()
-            .await
-            .map_err(|_| Error::Unavailable)?
-            .ok_or(Error::Unavailable)?;
-        let definitions: Vec<sqlx::types::Json<Card>> =
-            sqlx::query_scalar("SELECT definition FROM collection_cards WHERE definition->>'world_version'=$1 ORDER BY id LIMIT 1001")
-                .bind(active.to_string())
-                .fetch_all(&self.pool)
-                .await?;
-        if definitions.len() > 1000 {
-            return Err(Error::Unavailable);
         }
-        let mut cards = Vec::new();
-        for sqlx::types::Json(card) in definitions {
-            // Retired/hidden entities disappear; a deck referencing one is refused.
-            card.validate()?;
-            if card.world_version != active {
-                continue;
-            }
-            if self
-                .world
-                .get_entity(&card.kind, &card.key)
-                .await
-                .map_err(|_| Error::Unavailable)?
-                .is_none()
-            {
-                continue;
-            }
-            self.visible(&card).await?;
-            let state = card_state(&card, &progress);
-            cards.push(OwnedCard { card, state });
-        }
-        if cards.is_empty() && matches!(self.source, BestiarySource::Journal(_)) {
-            return Err(Error::Unavailable);
-        }
-        Ok(cards)
     }
     pub async fn decks(&self, account: Uuid) -> Result<Vec<Deck>> {
         self.eligible(account).await?;
@@ -481,19 +488,32 @@ impl Collection {
         id: Uuid,
         now: u64,
     ) -> Result<Vec<u8>> {
-        if !self
-            .cards(account, character, now)
-            .await?
-            .iter()
-            .any(|c| c.card.id == id)
-        {
-            return Err(Error::Denied);
-        }
-        sqlx::query_scalar("SELECT sprite FROM collection_cards WHERE id=$1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or(Error::Unavailable)
+        self.authorized_progress(account, character, now).await?;
+        let active = self
+            .world
+            .active_version_id()
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .ok_or(Error::Unavailable)?;
+        let (sqlx::types::Json(card), sprite): (sqlx::types::Json<Card>, Vec<u8>) = sqlx::query_as(
+            "SELECT definition,sprite FROM collection_cards
+                 WHERE id=$1 AND definition->>'world_version'=$2",
+        )
+        .bind(id)
+        .bind(active.to_string())
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(Error::Denied)?;
+        card.validate()?;
+        let entity = self
+            .world
+            .get_entity(&card.kind, &card.key)
+            .await
+            .map_err(|_| Error::Unavailable)?
+            .filter(|entity| entity.version_id == card.world_version)
+            .ok_or(Error::Denied)?;
+        card.matches_entity(&entity)?;
+        Ok(sprite)
     }
 }
 fn require_cards(cards: &[OwnedCard], ids: &[Uuid]) -> Result<Vec<Fighter>> {
@@ -512,8 +532,22 @@ fn require_cards(cards: &[OwnedCard], ids: &[Uuid]) -> Result<Vec<Fighter>> {
 impl Collection {
     /// Private resume link; the actual battle still revalidates its source.
     pub async fn active_battle(&self, account: Uuid, character: Uuid) -> Result<Option<Uuid>> {
+        self.find_active_battle(account, Some(character)).await
+    }
+    pub(super) async fn find_active_battle(
+        &self,
+        account: Uuid,
+        character: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
         self.eligible(account).await?;
-        Ok(sqlx::query_scalar("SELECT id FROM collection_battles WHERE account_id=$1 AND character_id=$2 AND state->>'outcome'='active'").bind(account).bind(character).fetch_optional(&self.pool).await?)
+        Ok(sqlx::query_scalar(
+            "SELECT id FROM collection_battles WHERE account_id=$1
+             AND ($2::uuid IS NULL OR character_id=$2) AND state->>'outcome'='active'",
+        )
+        .bind(account)
+        .bind(character)
+        .fetch_optional(&self.pool)
+        .await?)
     }
     /// Owner-only cleanup remains possible after a source is retired or a
     /// character is transferred. It exposes no history and grants no rewards.

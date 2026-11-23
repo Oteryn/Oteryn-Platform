@@ -578,6 +578,7 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
             ..CsrfConfig::default()
         },
     );
+    let mut deck_id = Uuid::nil();
     for (lang, label) in [("en", "Monster collection"), ("pl", "Kolekcja potworów")] {
         let response = app
             .clone()
@@ -613,8 +614,15 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
         assert!(html.contains(&csrf));
         assert!(html.contains("name=\"first\""));
         assert!(html.contains("initial-scale=1"));
+        let (_, value) = html.split_once("name=\"id\" value=\"").unwrap();
+        deck_id = value.split('"').next().unwrap().parse().unwrap();
+        assert_eq!(deck_id.get_version_num(), 7);
     }
     let path = format!("/en/collection/{}/decks", db.trust.character);
+    let save = format!(
+        "name=Deck&first={}&second=&third=&id={deck_id}&_csrf={csrf}",
+        db.card.id
+    );
     for (body, status) in [
         (
             format!("name=Deck&first={}", db.card.id),
@@ -628,10 +636,8 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
             format!("name=Deck&first={}&owner=bad&_csrf={csrf}", db.card.id),
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
-        (
-            format!("name=Deck&first={}&second=&third=&_csrf={csrf}", db.card.id),
-            StatusCode::SEE_OTHER,
-        ),
+        (save.clone(), StatusCode::SEE_OTHER),
+        (save, StatusCode::SEE_OTHER),
     ] {
         let response = app
             .clone()
@@ -647,7 +653,10 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
             .unwrap();
         assert_eq!(response.status(), status);
     }
-    let deck = db.service.decks(db.trust.account).await.unwrap().remove(0);
+    let mut decks = db.service.decks(db.trust.account).await.unwrap();
+    assert_eq!(decks.len(), 1);
+    let deck = decks.remove(0);
+    assert_eq!(deck.id, deck_id);
     let response = app
         .clone()
         .oneshot(
@@ -842,7 +851,7 @@ async fn postgres_browser_collection_deck_battle_csrf_and_bad_input() {
 }
 
 #[tokio::test]
-async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
+async fn postgres_only_visible_cards_count_towards_catalogue_limit() {
     let started = std::time::Instant::now();
     let db = Database::new().await.unwrap();
     let retired = Uuid::now_v7();
@@ -854,14 +863,19 @@ async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
         .unwrap();
     // One statement: the progress stream seeded by the fixture turns stale after ten
     // seconds, and a thousand round trips can exceed that on a loaded database.
-    let (ids, definitions): (Vec<Uuid>, Vec<serde_json::Value>) = (0..1000)
-        .map(|_| {
+    let (ids, definitions): (Vec<Uuid>, Vec<serde_json::Value>) = (0..2000)
+        .map(|i| {
             let mut c = db.card.clone();
             c.id = Uuid::now_v7();
-            c.world_version = retired;
+            if i < 1000 {
+                c.world_version = retired;
+            } else {
+                c.key = "not-published".into();
+            }
             (c.id, serde_json::to_value(c).unwrap())
         })
         .unzip();
+    let missing_sprite = ids[1000];
     sqlx::query("INSERT INTO collection_cards(id,definition,sprite) SELECT u.id,u.definition,c.sprite FROM UNNEST($1::uuid[],$2::jsonb[]) AS u(id,definition) CROSS JOIN (SELECT sprite FROM collection_cards WHERE id=$3) AS c")
         .bind(ids)
         .bind(definitions)
@@ -876,13 +890,31 @@ async fn postgres_retired_catalogue_does_not_exhaust_active_limit() {
         .unwrap();
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0].card.id, db.card.id);
+    assert!(matches!(
+        db.service
+            .sprite(db.trust.account, db.trust.character, missing_sprite, now())
+            .await,
+        Err(Error::Denied)
+    ));
     db.service
         .save_deck(db.trust.account, db.deck(), now())
         .await
         .unwrap();
+    sqlx::query("UPDATE world_active_version SET version_id=NULL WHERE singleton")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for id in [db.card.id, missing_sprite] {
+        assert!(matches!(
+            db.service
+                .sprite(db.trust.account, db.trust.character, id, now())
+                .await,
+            Err(Error::Unavailable)
+        ));
+    }
     db.close().await;
     eprintln!(
-        "postgres_retired_catalogue_does_not_exhaust_active_limit duration={:?}",
+        "postgres_only_visible_cards_count_towards_catalogue_limit duration={:?}",
         started.elapsed()
     );
 }
@@ -1014,6 +1046,7 @@ async fn postgres_collection_rechecks_source_and_unlock_after_account_wait() {
 
 #[tokio::test]
 async fn postgres_journal_collection_completes_battle_from_published_progress() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
     let Some(db) = Database::new().await else {
         return;
     };
@@ -1161,6 +1194,49 @@ async fn postgres_journal_collection_completes_battle_from_published_progress() 
     }
     let state = service.battle(account, battle, now()).await.unwrap();
     assert_ne!(state.outcome, Outcome::Active);
+
+    // A retained expiry marker has no race key. New published evidence can
+    // establish a card again without using values from before that marker.
+    sqlx::query(
+        "INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,
+             entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision)
+         SELECT stream_key,2,authority,recovery_generation,uuidv7()::text,
+             '',NULL,scope_key,'REMOVE',0,0,digest,NULL,occurred_ms-1,ownership_revision
+         FROM pd_records WHERE stream_key=$1 AND source_revision=1",
+    )
+    .bind(&stream)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE pd_streams SET stored_through=2,applied_through=2,published_through=2,highest_seen=2 WHERE stream_key=$1")
+        .bind(&stream)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        service.cards(account, character, now()).await.unwrap()[0].state,
+        CardState::Unavailable
+    );
+    sqlx::query(
+        "INSERT INTO pd_records(stream_key,source_revision,authority,recovery_generation,record_id,
+             entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision)
+         SELECT stream_key,3,authority,recovery_generation,uuidv7()::text,
+             entity_key,character_id,scope_key,kind,occurred_ms,coverage_ms,digest,payload,expires_ms,ownership_revision
+         FROM pd_records WHERE stream_key=$1 AND source_revision=1",
+    )
+    .bind(&stream)
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE pd_streams SET stored_through=3,applied_through=3,published_through=3,highest_seen=3 WHERE stream_key=$1")
+        .bind(&stream)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        service.cards(account, character, now()).await.unwrap()[0].state,
+        CardState::Unlocked
+    );
 
     sqlx::query("UPDATE pd_streams SET observed_ms=observed_ms-11000 WHERE stream_key=$1")
         .bind(&stream)

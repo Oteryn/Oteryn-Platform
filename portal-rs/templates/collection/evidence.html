@@ -7,29 +7,26 @@
 <link rel="stylesheet" href="/static/css/tokens.css">
 <link rel="stylesheet" href="/static/css/components.css">
 <link rel="stylesheet" href="/static/css/app.css">
-<link rel="stylesheet" href="/static/collection/collection.css">
 </head>
 <body class="op-theme">
+<header class="site-header"><a href="#main">{{ self.label("skip") }}</a></header>
 <main id="main" tabindex="-1" class="op-stack">
 <h1>{{ self.label("title") }}</h1>
-{% if evidence.is_some() %}
-<a href="/{{ lang }}/collection">{{ self.label("characters") }}</a>
-<section class="op-panel" aria-labelledby="cards">
-<h2 id="cards">{{ self.label("cards") }}</h2>
-<p>{{ self.label("unavailable") }}</p>
-</section>
-{% let journal = self %}
-{% include "collection/sources.html" %}
-{% else %}
 {% if characters.is_empty() %}
 <p>{{ self.label("unavailable") }}</p>
 {% else %}
 <h2>{{ self.label("characters") }}</h2>
 <ul>
 {% for (id, name) in characters %}
-<li class="collection-name"><a href="/{{ lang }}/collection/{{ id }}">{{ name }}</a></li>
+<li><a href="/{{ lang }}/collection/{{ id }}">{{ name }}</a></li>
 {% endfor %}
 </ul>
+{% endif %}
+{% if let Some((id, csrf)) = cleanup %}
+<form method="post" action="/{{ lang }}/collection/battles/{{ id }}/forfeit">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<button class="op-button" type="submit">{{ self.label("forfeit") }}</button>
+</form>
 {% endif %}
 {% if let Some(settings) = operator %}
 <section class="op-panel" aria-labelledby="operator-status">
@@ -45,7 +42,6 @@
 <dd>{% if let Some(published) = settings.published_cards %}{% if published %}{{ self.label("operator-published") }}{% else %}{{ self.label("empty") }}{% endif %}{% else %}{{ self.label("source-unavailable") }}{% endif %}</dd>
 </dl>
 </section>
-{% endif %}
 {% endif %}
 </main>
 </body>
