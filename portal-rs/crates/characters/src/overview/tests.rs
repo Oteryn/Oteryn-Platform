@@ -69,11 +69,13 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
         })
         .connect(&url)
         .await?;
-    sqlx::raw_sql(include_str!(
-        "../../../../migrations/20261105155256_t03_accounts.sql"
-    ))
-    .execute(&pool)
-    .await?;
+    for sql in [
+        include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
+        include_str!("../../../../migrations/20261105220225_t09b_account_terminations.sql"),
+    ] {
+        sqlx::raw_sql(sql).execute(&pool).await?;
+    }
     let id = Uuid::now_v7();
     sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES($1,$2,'test-hash','active','en')").bind(id).bind(format!("overview-{id}@example.invalid")).execute(&pool).await?;
     let response = show(&pool, Some(id), "en", true, Settings::default()).await;
@@ -89,6 +91,24 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     assert!(!html.contains("/panel/balance"));
     assert!(html.contains("Unavailable"));
     assert!(!html.contains("test-hash"));
+    assert!(html.contains("No closure scheduled"));
+    sqlx::query("INSERT INTO account_terminations(account_id,scheduled_for) VALUES($1,now()+interval '14 days')")
+        .bind(id)
+        .execute(&pool)
+        .await?;
+    let pending = show(&pool, Some(id), "en", true, Settings::default()).await;
+    assert_eq!(pending.status(), StatusCode::OK);
+    let pending = String::from_utf8(
+        axum::body::to_bytes(pending.into_body(), 65536)
+            .await?
+            .to_vec(),
+    )?;
+    assert!(pending.contains("Pending account closure"));
+    assert!(pending.contains("href=\"/en/account/privacy/delete\""));
+    sqlx::query("DELETE FROM account_terminations WHERE account_id=$1")
+        .bind(id)
+        .execute(&pool)
+        .await?;
     sqlx::raw_sql(include_str!(
         "../../../../migrations/20261105145653_t18_account_characters.sql"
     ))
@@ -200,6 +220,8 @@ async fn audit_a210_postgres_overview_main_selection_and_removed_ownership()
         .await?;
     for sql in [
         include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!("../../../../migrations/20261105220202_t04_login_guard.sql"),
+        include_str!("../../../../migrations/20261105220225_t09b_account_terminations.sql"),
         include_str!("../../../../migrations/20261105160001_t22_character_commands.sql"),
         include_str!("../../../../migrations/20261105145653_t18_account_characters.sql"),
         include_str!("../../../../migrations/20261105231104_t45_profile_preferences.sql"),

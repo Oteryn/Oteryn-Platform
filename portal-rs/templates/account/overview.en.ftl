@@ -9,7 +9,8 @@ profession = Profession
 unavailable = Unavailable
 linked = Current game connection
 shortcuts = Shortcuts
-security = Security
+security = Security and privacy
+security-shortcut = Security
 premium = Premium
 balance = Balance
 loyalty = Loyalty points
@@ -26,3 +27,5 @@ available = Available
 
 main-character = Main character
 profile-preferences = Profile preferences
+termination-none = No closure scheduled
+termination-pending = Pending closure

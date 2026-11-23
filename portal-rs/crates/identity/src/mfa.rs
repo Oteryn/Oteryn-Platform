@@ -56,7 +56,7 @@ pub fn random_token() -> Result<String, sqlx::Error> {
     getrandom::fill(&mut bytes).map_err(|_| error())?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
-fn valid_token(value: &str) -> bool {
+pub(crate) fn valid_token(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|b| b.is_ascii_hexdigit())
 }
 /// Debug always redacts encryption keys and provisioning material.

@@ -1,5 +1,7 @@
 //! Owner-only JSON export. T08 integration seam: existing browser sessions with sudo.
 //! Only explicitly selected fields are exported; credentials and session data never are.
+#[doc(hidden)]
+pub use crate::navigation;
 use axum::http::StatusCode;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -181,13 +183,35 @@ fn validate_request(config: &ExportConfig, session: &str) -> Result<(), StatusCo
     Ok(())
 }
 
+async fn session_access<'e>(
+    executor: impl PgExecutor<'e>,
+    session: &str,
+) -> Result<(Uuid, bool), StatusCode> {
+    sqlx::query_as("SELECT a.id, COALESCE(s.sudo_until > now(), false) FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
+        .bind(Sha256::digest(session.as_bytes()).to_vec())
+        .fetch_optional(executor)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::FORBIDDEN)
+}
+
 async fn authorized_account<'e>(
     executor: impl PgExecutor<'e>,
     session: &str,
 ) -> Result<Uuid, StatusCode> {
-    let id: Option<Uuid> = sqlx::query_scalar("SELECT a.id FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$1 AND s.idle_expires_at>now() AND s.absolute_expires_at>now() AND s.sudo_until>now() AND a.status='active' AND a.email_verified_at IS NOT NULL")
-        .bind(Sha256::digest(session.as_bytes()).to_vec()).fetch_optional(executor).await.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-    id.ok_or(StatusCode::FORBIDDEN)
+    let (account, sudo) = session_access(executor, session).await?;
+    sudo.then_some(account).ok_or(StatusCode::FORBIDDEN)
+}
+
+/// Check whether the owner can download now or needs to confirm their password.
+pub async fn confirmation_access(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<bool, StatusCode> {
+    validate_request(config, session)?;
+    let (_, sudo) = session_access(pool, session).await?;
+    Ok(sudo)
 }
 
 /// Resolve the same sudo-authorized account used by the streaming snapshot.

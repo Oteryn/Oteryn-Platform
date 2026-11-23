@@ -73,6 +73,11 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     sqlx::query("INSERT INTO account_consents(account_id,document_kind,document_version) VALUES ($1,'terms','v1')").bind(id).execute(&pool).await?;
     sqlx::query("INSERT INTO account_consents(account_id,document_kind,document_version) SELECT $1,'privacy','batch-' || n FROM generate_series(1,193) n").bind(id).execute(&pool).await?;
     let config = ExportConfig { enabled: true };
+    assert_eq!(confirmation_access(&pool, &config, &token).await, Ok(true));
+    assert_eq!(
+        confirmation_access(&pool, &config, &"b".repeat(64)).await,
+        Err(StatusCode::FORBIDDEN)
+    );
     let unread = stream_download(&pool, &config, &token)
         .await
         .map_err(|s| s.to_string())?;
@@ -179,8 +184,15 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     ] {
         assert!(!encoded.contains(forbidden));
     }
+    sqlx::query("UPDATE web_sessions SET sudo_until=NULL")
+        .execute(&pool)
+        .await?;
+    assert_eq!(confirmation_access(&pool, &config, &token).await, Ok(false));
+    assert_eq!(
+        stream_download(&pool, &config, &token).await.err(),
+        Some(StatusCode::FORBIDDEN)
+    );
     for query in [
-        "UPDATE web_sessions SET sudo_until=NULL",
         "UPDATE web_sessions SET sudo_until=now()+interval '1 minute',idle_expires_at=now()-interval '1 second'",
         "UPDATE web_sessions SET idle_expires_at=now()+interval '1 hour'; UPDATE accounts SET status='suspended'",
     ] {

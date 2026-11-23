@@ -73,7 +73,7 @@ pub fn router(service: Service, sessions: SessionLayer) -> Router {
 }
 #[derive(Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\"><h1>{{ title }}</h1><p role=\"status\">{{ status }}</p><form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\">{% if request %}<p><label>{{ email }} <input class=\"op-input\" type=\"email\" name=\"email\" autocomplete=\"email\" maxlength=\"254\" required></label></p><p><label>{{ repeat }} <input class=\"op-input\" type=\"email\" name=\"email_confirmation\" maxlength=\"254\" required></label></p><p><label>{{ password }} <input class=\"op-input\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></label></p><p><label>{{ proof }} <input class=\"op-input\" type=\"password\" name=\"proof\" maxlength=\"1024\" required></label></p><p><label><input type=\"checkbox\" name=\"recovery\" value=\"true\">{{ recovery }}</label></p><p><label><input type=\"checkbox\" name=\"backup\" value=\"true\">{{ backup }}</label></p>{% else %}<p>{{ explanation }}</p>{% endif %}<button class=\"op-button\" type=\"submit\">{{ submit }}</button></form></main></body></html>",
+    source = "<!doctype html><html lang=\"{{ lang }}\"><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"></head><body class=\"op-theme\"><main class=\"op-card op-stack\"><h1>{{ title }}</h1><p role=\"status\">{{ status }}</p><form class=\"op-stack\" method=\"post\"><input type=\"hidden\" name=\"_csrf\" value=\"{{ csrf }}\">{% if request %}<p><label>{{ email }} <input class=\"op-input\" type=\"email\" name=\"email\" autocomplete=\"email\" maxlength=\"254\" required></label></p><p><label>{{ repeat }} <input class=\"op-input\" type=\"email\" name=\"email_confirmation\" maxlength=\"254\" required></label></p><p><label>{{ password }} <input class=\"op-input\" type=\"password\" name=\"current_password\" autocomplete=\"current-password\" maxlength=\"1024\" required></label></p><p><label>{{ proof }} <input class=\"op-input\" type=\"password\" name=\"proof\" maxlength=\"1024\" required></label></p><p><label><input type=\"checkbox\" name=\"recovery\" value=\"true\">{{ recovery }}</label></p><p><label><input type=\"checkbox\" name=\"backup\" value=\"true\">{{ backup }}</label></p>{% else %}<p>{{ explanation }}</p>{% endif %}<button class=\"op-button\" type=\"submit\">{{ submit }}</button></form>{% if request && self.overview_enabled() %}<p><a href=\"/account\">{{ self.back_label() }}</a></p>{% endif %}</main></body></html>",
     ext = "html"
 )]
 struct Page {
@@ -90,6 +90,15 @@ struct Page {
     backup: String,
     explanation: String,
     submit: String,
+}
+impl Page {
+    fn overview_enabled(&self) -> bool {
+        oteryn_identity::navigation::overview_enabled()
+    }
+
+    fn back_label(&self) -> String {
+        oteryn_ui::text(&self.lang, "shell-account-overview-back")
+    }
 }
 async fn page(
     language: Language,

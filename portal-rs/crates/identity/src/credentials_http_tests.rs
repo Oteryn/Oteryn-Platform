@@ -89,11 +89,26 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
     };
     let app = router(service.clone());
     let cookie = format!("{}={raw}", session::COOKIE_NAME);
+    let malformed = "/en/account/sudo?return_to=https%3A%2F%2Fexample.invalid";
+    for method in ["GET", "POST"] {
+        let response = app
+            .clone()
+            .oneshot(request(
+                method,
+                malformed,
+                &cookie,
+                &csrf,
+                "current_password=test+password",
+            )?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(service.require_sudo(&hash).await?, None);
+    }
     assert_eq!(
         app.clone()
             .oneshot(request(
                 "POST",
-                "/en/account/sudo",
+                "/en/account/sudo?return_to=export",
                 &cookie,
                 "",
                 "current_password=test+password"
@@ -106,7 +121,7 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         app.clone()
             .oneshot(request(
                 "POST",
-                "/en/account/sudo",
+                "/en/account/sudo?return_to=export",
                 &cookie,
                 &csrf,
                 "current_password=wrong"
@@ -131,13 +146,17 @@ async fn postgres_sudo_rotation_csrf_refusal_and_expiry() -> Result<(), Box<dyn 
         .clone()
         .oneshot(request(
             "POST",
-            "/en/account/sudo",
+            "/en/account/sudo?return_to=export",
             &cookie,
             &csrf,
             "current_password=test+password",
         )?)
         .await?;
     assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(
+        response.headers()[header::LOCATION],
+        "/en/account/privacy/export"
+    );
     let rotated = response
         .headers()
         .get(header::SET_COOKIE)
