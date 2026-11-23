@@ -53,7 +53,7 @@ async fn redirect_event(
         Ok(Some((locale, slug))) => {
             Redirect::to(&format!("/{locale}/events/{slug}")).into_response()
         }
-        Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Ok(None) => Redirect::to(&format!("/{preferred}/events/{slug}")).into_response(),
         Err(error) => response(error),
     }
 }

@@ -125,8 +125,14 @@
     "actor": "gm",
     "method": "GET",
     "status": 200,
-    "redirect": {"status": 303, "location": "/console/dashboard?lang={lang}"},
-    "disabled": {"flag": "OTERYN_ADMIN_CONSOLE", "status": 404},
+    "redirect": {
+      "status": 303,
+      "location": "/console/dashboard?lang={lang}"
+    },
+    "disabled": {
+      "flag": "OTERYN_ADMIN_CONSOLE",
+      "status": 404
+    },
     "reason": "GM landing redirects to the first authorized section when enabled"
   },
   {
@@ -135,44 +141,31 @@
     "actor": "gm",
     "method": "GET",
     "status": 200,
-    "redirect": "/console/dashboard?lang={lang}",
-    "reason": "redirects to the first permitted Game page"
-  },
-  {
-    "crate": "admin",
-    "route": "/console/dashboard",
-    "actor": "game_master_senior",
-    "staffRefusal": 403,
-    "method": "GET",
-    "status": 200,
-    "reason": "Game read permission required"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/worlds",
-    "actor": "game_master_senior",
-    "staffRefusal": 403,
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "Game read permission required"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/nodes",
-    "actor": "game_master_senior",
-    "staffRefusal": 403,
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "Game read permission required"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
     "route": "/console/database",
-    "actor": "game_master_senior",
-    "staffRefusal": 403,
+    "actor": "gm",
     "method": "GET",
     "status": 200,
-    "reason": "Game read permission required"
+    "reason": "page requires the corresponding Game read permission"
   },
   {
     "crate": "admin",
@@ -180,7 +173,10 @@
     "actor": "staff",
     "method": "GET",
     "status": 403,
-    "disabled": {"flag": "OTERYN_ADMIN_CONSOLE", "status": 404},
+    "disabled": {
+      "flag": "OTERYN_ADMIN_CONSOLE",
+      "status": 404
+    },
     "reason": "Platform-only staff lack the Game read permission"
   },
   {

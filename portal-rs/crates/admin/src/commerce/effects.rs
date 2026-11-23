@@ -152,10 +152,8 @@ pub(super) fn reason_digest(hex: &str) -> Result<[u8; 32], Error> {
         return Err(Error::Invalid);
     }
     let mut digest = [0; 32];
-    for (slot, pair) in digest.iter_mut().zip(bytes.chunks_exact(2)) {
-        if let [high, low] = pair {
-            *slot = (nibble(*high)? << 4) | nibble(*low)?;
-        }
+    for (slot, [high, low]) in digest.iter_mut().zip(bytes.as_chunks::<2>().0) {
+        *slot = (nibble(*high)? << 4) | nibble(*low)?;
     }
     Ok(digest)
 }

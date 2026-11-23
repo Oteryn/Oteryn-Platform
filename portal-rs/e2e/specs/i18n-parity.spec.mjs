@@ -154,6 +154,11 @@ async function assertDocument(page, locale, target, actor = 'anonymous') {
 
 // The shell and checkout expectations are pinned independently of the catalogs.
 const shellCopy = {
+  "shell-mfa": ["Uwierzytelnianie dwuskładnikowe", "Two-factor authentication"],
+  "shell-sudo": ["Potwierdź hasło", "Confirm your password"],
+  "shell-email": ["Zmień adres e-mail", "Change email address"],
+  "shell-export": ["Pobierz dane konta", "Download account data"],
+  "shell-termination": ["Zamknij konto", "Close account"],
   "shell-appeals": ["Odwołania od sankcji", "Sanction appeals"],
   "home-link": ["Strona główna", "Home"],
   "navigation": ["Nawigacja główna", "Main navigation"],
@@ -239,6 +244,11 @@ const shellCopy = {
 
 const shellLinkKeys = new Map(inventory.sections.map(({ path, label }) => ['/' + path.replace(/^\//u, ''), label]));
 for (const [path, key] of Object.entries({
+  '/mfa': 'shell-mfa',
+  '/account/sudo': 'shell-sudo',
+  '/account/security/email': 'shell-email',
+  '/account/privacy/export': 'shell-export',
+  '/account/privacy/delete': 'shell-termination',
   '/account/game-logins': 'thais-account-game-logins',
   '/admin': 'panel-admin',
   '/help': 'shell-support',
@@ -538,7 +548,7 @@ function routeContract(target, inventoryStatus, actor, locale) {
 function destinations(actor, locale) {
   const targets = new Map();
   for (const row of expectations) {
-    if (row.actor === 'gm') continue;
+    if (['gm', 'game_master_senior'].includes(row.actor)) continue;
     if (row.method !== 'GET' || (row.actor === 'staff') !== (actor === 'staff')) continue;
     targets.set(sample(row.route, locale), row.status);
   }
@@ -912,6 +922,11 @@ async function publishOwnership(email) {
     }],
   });
   expect(reply, 'owned character snapshot').toEqual({ contract_version: 1, result: 'accepted' });
+  // The listing also requires a current, accepted ownership baseline.
+  await query(`INSERT INTO pd_ownership_baselines
+    (character_id,account_id,world_id,character_revision,from_projection_revision,to_projection_revision,projection_epoch,recovery_generation)
+    VALUES ($1,$2,$3,1,1,1,$4,3)`,
+    [character.character_id, character.account_id, character.world_id, projectionEpoch]);
 }
 
 async function ownershipWatermark() {

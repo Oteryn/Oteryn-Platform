@@ -57,20 +57,21 @@ async fn browser_export_mounting_is_independent_of_password_confirmation() -> Te
 }
 
 #[tokio::test]
-async fn configured_export_requires_mounted_password_confirmation() -> TestResult {
+async fn configured_export_requires_ownership_without_password_confirmation() -> TestResult {
+    use tower::ServiceExt;
     let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
-    for enabled in [false, true] {
-        for password_confirmation in [false, true] {
-            assert_eq!(
-                configured_router(
-                    pool.clone(),
-                    ExportConfig { enabled },
-                    password_confirmation
-                )
-                .has_routes(),
-                enabled && password_confirmation,
-            );
-        }
+    for (enabled, status) in [
+        (false, StatusCode::NOT_FOUND),
+        (true, StatusCode::UNAUTHORIZED),
+    ] {
+        let response = configured_browser_router(pool.clone(), ExportConfig { enabled }, false)
+            .oneshot(
+                axum::http::Request::get("/en/account/privacy/export")
+                    .body(axum::body::Body::empty())?,
+            )
+            .await?;
+        assert_eq!(response.status(), status);
+        assert!(!response.headers().contains_key(header::LOCATION));
     }
     Ok(())
 }

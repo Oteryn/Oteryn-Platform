@@ -52,7 +52,7 @@ impl EconomyPage {
 
     fn unavailable_reason(&self, group: &Group) -> String {
         let key = match group.unavailable_reason {
-            Some(UnavailableReason::GameEvidence) => "economy-unavailable",
+            Some(UnavailableReason::GameEvidence) => return self.text("ops-economy-unavailable"),
             Some(UnavailableReason::GameReleaseDelay) => "economy-game-delay",
             Some(UnavailableReason::PlatformReleaseDelay) => "economy-purchased-delay",
             None => return String::new(),
@@ -335,13 +335,13 @@ mod presentation_tests {
         for (lang, expected, other) in [
             (
                 "pl",
-                "Wymagana jest zaakceptowana baza ponownej synchronizacji",
+                "wymagana zaakceptowana baza synchronizacji",
                 "accepted resync baseline",
             ),
             (
                 "en",
                 "accepted resync baseline",
-                "Wymagana jest zaakceptowana baza ponownej synchronizacji",
+                "wymagana zaakceptowana baza synchronizacji",
             ),
         ] {
             let html = EconomyPage {

@@ -657,7 +657,7 @@ test('roles pagination follows the cursor and keeps later roles actionable', asy
         next.click(),
       ]);
     } while (!(await lastRole.count()));
-    await expect(staff).toHaveURL(/\/admin\/roles\?after=[a-f0-9-]+$/);
+    await expect(staff).toHaveURL(new RegExp(`/admin/roles\\?after=[a-f0-9-]+&lang=${lang}$`));
     const cursorPage = staff.url();
     await expect(staff.locator('main section > ul > li').filter({ hasText: new RegExp(`^${last.key}$`) })).toBeVisible();
     const actor = seedAdminAccount(lang);

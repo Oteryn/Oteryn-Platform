@@ -461,15 +461,15 @@ async fn postgres_replies_status_ownership_and_internal_privacy() -> TestResult 
         Err(Error::Conflict)
     ));
     assert!(matches!(
-        t.change_checked(
+        t.change_direct(
             owner,
             None,
-            ticket.id,
-            4,
+            (ticket.id, 4),
             Change::Reply {
                 body: "composed before resolution",
                 internal: false
-            }
+            },
+            None,
         )
         .await,
         Err(Error::StateConflict)
