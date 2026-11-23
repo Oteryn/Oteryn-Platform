@@ -56,7 +56,7 @@ version = "0.6.2"
 features = ["softpasskey"]
 
 [dev-dependencies.base64]
-version = "0.22"
+version = "0.23"
 [dependencies.oteryn-notify]
 workspace = true
 

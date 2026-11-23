@@ -22,7 +22,7 @@ uuid = { version = "1.23.4", features = ["v7", "serde"] }
 tokio = { version = "1.54.1", features = ["net", "rt", "time", "sync", "rt-multi-thread", "macros"] }
 
 tower = { version = "0.5.3", features = ["util"] }
-base64 = "0.22.1"
+base64 = "0.23.1"
 getrandom = "0.4.3"
 
 [dev-dependencies]

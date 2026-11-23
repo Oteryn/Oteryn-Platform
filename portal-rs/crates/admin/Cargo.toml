@@ -68,7 +68,7 @@ workspace = true
 [dependencies.serde_json_canonicalizer]
 workspace = true
 [dependencies.base64]
-version = "0.22"
+version = "0.23"
 [dev-dependencies.rand_core]
 version = "0.6"
 features = ["getrandom"]
