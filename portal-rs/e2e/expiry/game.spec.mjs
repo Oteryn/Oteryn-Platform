@@ -77,7 +77,7 @@ test('time-bound suspension blocks ticket issuance only while effective', async 
   const staff = await seed();
   expect((await db.query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'", [staff.id])).rowCount).toBe(1);
   const staffContext = await browser.newContext({
-    baseURL: new URL(page.url()).origin, ignoreHTTPSErrors: true, locale: lang, viewport: info.project.use.viewport,
+    baseURL: new URL(page.url()).origin, locale: lang, viewport: info.project.use.viewport,
   });
   try {
     const admin = await staffContext.newPage();
@@ -87,7 +87,7 @@ test('time-bound suspension blocks ticket issuance only while effective', async 
     await expect(firstRecoveryCode).toBeVisible();
     const code = await firstRecoveryCode.inputValue();
     await login(admin, lang, staff);
-    await expect(admin).toHaveURL(new RegExp(`/${lang}/mfa/challenge$`));
+    await expect(admin).toHaveURL(url => url.pathname === `/${lang}/mfa/challenge` && !url.search && !url.hash);
     await submit(admin, 'form[action$="/mfa/challenge"]', { code });
     expect((await admin.goto('/admin/moderation/enforcement/create')).status()).toBe(200);
     const start = Math.floor(Date.now() / 1000) - 60;

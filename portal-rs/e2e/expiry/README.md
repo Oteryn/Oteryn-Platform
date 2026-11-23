@@ -9,10 +9,11 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm ci --ignore-scripts --cache /tmp/portal-b
 node expiry/launch.mjs
 ```
 
-In a second shell, use the scratch path the launcher printed.
+In a second shell, set `EXPIRY_SCRATCH` to the scratch directory printed by the launcher. Import `$EXPIRY_SCRATCH/ca.pem` as a trusted HTTPS CA into the test Chromium user's certificate store and remove it after the run. On Linux, Chromium uses an NSS database, typically `~/.local/share/pki/nssdb` or the legacy `~/.pki/nssdb` when present. Pass the same CA to Node for Playwright's HTTP requests.
 
 ```sh
-CHROMIUM_PATH=/usr/bin/chromium node run.mjs /absolute/scratch/env.json test -c expiry/playwright.config.mjs
+NODE_EXTRA_CA_CERTS="$EXPIRY_SCRATCH/ca.pem" CHROMIUM_PATH=/usr/bin/chromium \
+  node run.mjs "$EXPIRY_SCRATCH/env.json" test -c expiry/playwright.config.mjs
 ```
 
 The launcher delegates to `local.mjs` and its `harness.mjs` child. It adds a test-only native OAuth client to the configured allowlist, a disposable private admission service bearer and one sandbox coin package. The account and native OAuth client are provisioned through the portal seed CLI. Playwright writes its detailed result to `expiry/test-results/expiry.json`. Keep the scratch environment, mail, browser traces and reports private. The launcher selects the supported closure disposition `hold` so that the grace test measures Platform worker command issuance independently of any Game receipt.

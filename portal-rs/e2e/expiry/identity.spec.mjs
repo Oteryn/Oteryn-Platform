@@ -11,15 +11,21 @@ async function cookieDigest(context, name) {
 const sessionDigest = context => cookieDigest(context, '__Host-oteryn_session');
 const loginTitle = lang => text(lang, 'Account security', 'Bezpieczeństwo konta');
 
-for (const [kind, column] of [['idle', 'idle_expires_at'], ['absolute', 'absolute_expires_at']]) {
+const sessionDeadlineUpdates = {
+  idle: `UPDATE web_sessions SET idle_expires_at=clock_timestamp()+make_interval(secs=>$3)
+    WHERE id_hash=$1 AND account_id=$2 RETURNING session_id`,
+  absolute: `UPDATE web_sessions SET absolute_expires_at=clock_timestamp()+make_interval(secs=>$3)
+    WHERE id_hash=$1 AND account_id=$2 RETURNING session_id`,
+};
+
+for (const [kind, updateDeadline] of Object.entries(sessionDeadlineUpdates)) {
   test(`web session expires at its ${kind} deadline`, async ({ page, context, lang, db, seed }) => {
     const account = await seed();
     await login(page, lang, account);
     const hash = await sessionDigest(context);
     const path = `/${lang}/account/sessions`;
     const args = [hash, account.id];
-    const move = seconds => one(db, `UPDATE web_sessions SET ${column}=clock_timestamp()+make_interval(secs=>$3)
-      WHERE id_hash=$1 AND account_id=$2 RETURNING session_id`, [...args, seconds]);
+    const move = seconds => one(db, updateDeadline, [...args, seconds]);
     expect(await one(db, `SELECT
         extract(epoch FROM idle_expires_at-last_seen_at)::int AS idle,
         extract(epoch FROM absolute_expires_at-created_at)::int AS absolute
@@ -28,7 +34,7 @@ for (const [kind, column] of [['idle', 'idle_expires_at'], ['absolute', 'absolut
     // A second browser login for this account must survive both the refused
     // bulk revoke and the worker's cleanup of the expired session.
     const sibling = await context.browser().newContext({
-      baseURL: new URL(page.url()).origin, ignoreHTTPSErrors: true, locale: lang,
+      baseURL: new URL(page.url()).origin, locale: lang,
     });
     let siblingHash;
     try {
@@ -103,7 +109,7 @@ test('the staff MFA session grant expires while the browser session stays live',
   await expect(firstRecoveryCode).toBeVisible();
   const code = await firstRecoveryCode.inputValue();
   await login(page, lang, account);
-  await expect(page).toHaveURL(new RegExp(`/${lang}/mfa/challenge$`));
+  await expect(page).toHaveURL(url => url.pathname === `/${lang}/mfa/challenge` && !url.search && !url.hash);
   await submit(page, 'form[action$="/mfa/challenge"]', { code });
   const hash = await sessionDigest(context);
   const grant = await one(db, `SELECT t.token_hash,extract(epoch FROM t.expires_at-t.created_at)::int AS lifetime
@@ -137,7 +143,7 @@ test('remembered browser device stops satisfying MFA after its deadline', async 
   await expect(firstRecoveryCode).toBeVisible();
   const code = await firstRecoveryCode.inputValue();
   await login(page, lang, account);
-  await expect(page).toHaveURL(new RegExp(`/${lang}/mfa/challenge$`));
+  await expect(page).toHaveURL(url => url.pathname === `/${lang}/mfa/challenge` && !url.search && !url.hash);
   await submit(page, 'form[action$="/mfa/challenge"]', { code, remember: true });
 
   const device = async () => cookieDigest(context, '__Host-oteryn_mfa_device');
@@ -182,7 +188,8 @@ for (const expired of [false, true]) {
     expect((await page.goto(`/${lang}/register`)).status()).toBe(200);
     await page.locator('[name=work_token]').waitFor({ state: 'attached' });
     await submit(page, 'main form', { email, password: pass, password_confirmation: pass, terms: true, privacy: true });
-    await expect(page).toHaveURL(new RegExp(`/${lang}/register/check-inbox$`), { timeout: 90_000 });
+    await expect(page).toHaveURL(url => url.pathname === `/${lang}/register/check-inbox` && !url.search && !url.hash,
+      { timeout: 90_000 });
     const link = await mailLink(page, email, /https:\/\/localhost:18443\/(?:pl|en)\/verify-email\?token=[a-f0-9]+/);
     const tokenHash = digest(new URL(link).searchParams.get('token'));
     const token = await one(db, `SELECT account_id,extract(epoch FROM expires_at-created_at)::int AS lifetime
@@ -259,7 +266,7 @@ for (const expired of [false, true]) {
       expect(result.password_hash === issued.password_hash, 'password digest unchanged').toBe(true);
       expect(result.native_security_generation).toBe(issued.native_security_generation);
     } else {
-      await expect(page).toHaveURL(new RegExp(`/${lang}/login$`));
+      await expect(page).toHaveURL(url => url.pathname === `/${lang}/login` && !url.search && !url.hash);
       expect(result.used_at).toBeInstanceOf(Date);
       expect(result.password_hash === issued.password_hash, 'password digest changed').toBe(false);
       await login(page, lang, { ...account, password: next });
