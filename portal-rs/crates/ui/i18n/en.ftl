@@ -373,3 +373,10 @@ onboarding-recovery-help = If you forgot your password or lost access to your ac
 onboarding-support = Account recovery and support
 
 service-status = Service status
+shell-downloads = Client downloads
+download-stable = Stable channel
+download-beta = Beta channel
+download-all-channels = All release channels
+shell-account-email = Change email address
+shell-account-consents = Optional consents
+shell-account-badges = Profile badges

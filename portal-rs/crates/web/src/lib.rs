@@ -736,6 +736,7 @@ mod tests {
     }
 }
 
+pub mod entry_points;
 mod surface;
 
 pub use surface::{

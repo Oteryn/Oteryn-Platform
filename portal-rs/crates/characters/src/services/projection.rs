@@ -185,6 +185,18 @@ impl Services {
         tx.commit().await?;
         Ok("accepted")
     }
+    /// Discover the existing owner view using the same qualified state as its GET handler.
+    pub(crate) async fn has_owner_view(&self, account: Uuid, character: Uuid) -> bool {
+        if !self.settings.enabled || !self.settings.projection_ready() {
+            return false;
+        }
+        let Ok(mut tx) = self.pool.begin().await else {
+            return false;
+        };
+        let available = self.owner_state(&mut tx, account, character).await.is_ok();
+        tx.rollback().await.is_ok() && available
+    }
+
     pub(super) async fn owner_state(
         &self,
         tx: &mut Transaction<'_, Postgres>,

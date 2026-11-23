@@ -1,0 +1,7 @@
+{% extends "layout.html" %}
+{% block title %}{{ chrome.text("thais-nav-start") }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/thais/home.css">{% endblock %}
+{% block content %}
+{% let standalone_guide = true %}
+{% include "components/thais-guide.html" %}
+{% endblock %}

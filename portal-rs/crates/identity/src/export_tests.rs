@@ -184,21 +184,25 @@ async fn postgres_owner_export_and_refusals() -> TestResult {
     ] {
         assert!(!encoded.contains(forbidden));
     }
-    sqlx::query("UPDATE web_sessions SET sudo_until=NULL")
-        .execute(&pool)
-        .await?;
-    assert_eq!(confirmation_access(&pool, &config, &token).await, Ok(false));
-    assert_eq!(
-        stream_download(&pool, &config, &token).await.err(),
-        Some(StatusCode::FORBIDDEN)
-    );
-    for query in [
-        "UPDATE web_sessions SET sudo_until=now()+interval '1 minute',idle_expires_at=now()-interval '1 second'",
-        "UPDATE web_sessions SET idle_expires_at=now()+interval '1 hour'; UPDATE accounts SET status='suspended'",
+    for (query, expected) in [
+        ("UPDATE web_sessions SET sudo_until=NULL", Ok(None)),
+        (
+            "UPDATE web_sessions SET sudo_until=now()+interval '1 minute',idle_expires_at=now()-interval '1 second'",
+            Err(StatusCode::FORBIDDEN),
+        ),
+        (
+            "UPDATE web_sessions SET idle_expires_at=now()+interval '1 hour'; UPDATE accounts SET status='suspended'",
+            Err(StatusCode::FORBIDDEN),
+        ),
     ] {
         sqlx::raw_sql(sqlx::AssertSqlSafe(query))
             .execute(&pool)
             .await?;
+        assert_eq!(export_confirmation(&pool, &config, &token).await, expected);
+        assert_eq!(
+            confirmation_access(&pool, &config, &token).await,
+            expected.map(|account| account.is_some())
+        );
         assert_eq!(
             stream_download(&pool, &config, &token).await.err(),
             Some(StatusCode::FORBIDDEN)

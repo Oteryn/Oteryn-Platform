@@ -132,6 +132,22 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        crate::consents::OptionalConfig::configured().enabled,
+        "account-consents",
+        "shell-account-consents",
+        "account/consents",
+        Group::Account,
+        false,
+    );
+    registry.section(
+        export_action().is_some(),
+        "account-export-confirmation",
+        "shell-account-export",
+        "account/privacy/export",
+        Group::Account,
+        false,
+    );
 }
 
 pub fn overview_actions(

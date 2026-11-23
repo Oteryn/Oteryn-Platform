@@ -29,3 +29,7 @@ main-character = Główna postać
 profile-preferences = Preferencje profilu
 termination-none = Brak zaplanowanego zamknięcia
 termination-pending = Zamknięcie w toku
+character-services = Usługi postaci
+character-items = Ekwipunek postaci
+market-history = Historia rynku
+trade-history = Historia wymian

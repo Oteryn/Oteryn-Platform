@@ -168,6 +168,7 @@ pub(crate) fn valid_origin(origin: &str) -> bool {
         && !origin[8..].is_empty()
         && !origin[8..].contains(['/', '?', '#', '<', '>', '"', '\'', ' ', '\r', '\n'])
 }
+
 impl Service {
     pub fn ready(&self) -> bool {
         self.enabled && valid_origin(&self.origin)

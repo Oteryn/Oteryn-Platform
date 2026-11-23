@@ -14,6 +14,14 @@ pub fn register(registry: &mut Registry) {
         Group::Account,
         false,
     );
+    registry.section(
+        flag("OTERYN_ACCOUNT_BADGES_ENABLED"),
+        "account-badges",
+        "shell-account-badges",
+        "account/badges",
+        Group::Account,
+        false,
+    );
 }
 
 #[cfg(test)]

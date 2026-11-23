@@ -2,7 +2,7 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{Query, State},
+    extract::{OriginalUri, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -12,6 +12,7 @@ use oteryn_identity::{
     accounts::Accounts,
     credentials::{self, Credentials, Outcome, PasswordChange},
     navigation::SudoReturn,
+    export::{EXPORT_REAUTH_QUERY, ExportConfig},
 };
 use oteryn_web::{
     Language,
@@ -246,9 +247,18 @@ struct SudoQuery {
 async fn show_sudo(
     Extension(lang): Extension<Language>,
     Extension(session): Extension<BrowserSession>,
-    Query(query): Query<SudoQuery>,
+    OriginalUri(uri): OriginalUri,
 ) -> Result<Response, StatusCode> {
-    page(lang, session, false, query.return_to).await
+    page(lang, session, false, sudo_target(&uri)?.0).await
+}
+
+fn sudo_target(uri: &axum::http::Uri) -> Result<(SudoReturn, &'static str), StatusCode> {
+    if ExportConfig::configured().enabled && uri.query() == Some(EXPORT_REAUTH_QUERY) {
+        return Ok((SudoReturn::Export, "?continue=account-export"));
+    }
+    let Query(query) =
+        Query::<SudoQuery>::try_from_uri(uri).map_err(|_| StatusCode::BAD_REQUEST)?;
+    Ok((query.return_to, query.return_to.query()))
 }
 fn session_hash(headers: &HeaderMap) -> Option<Vec<u8>> {
     let mut values = headers
@@ -351,8 +361,7 @@ async fn sudo(
     parts: axum::http::request::Parts,
     Form(input): Form<Input>,
 ) -> Result<Response, StatusCode> {
-    let Query(query) =
-        Query::<SudoQuery>::try_from_uri(&parts.uri).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let (return_to, query) = sudo_target(&parts.uri)?;
     if let Err(response) = check(
         &limiter,
         &session,
@@ -383,12 +392,7 @@ async fn sudo(
         tx.rollback()
             .await
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        return refuse(
-            lang,
-            &session,
-            &format!("account/sudo{}", query.return_to.query()),
-        )
-        .await;
+        return refuse(lang, &session, &format!("account/sudo{query}")).await;
     }
     let until = credentials::record_sudo_confirmation(&mut tx, id)
         .await
@@ -400,7 +404,7 @@ async fn sudo(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     session::apply_rotation(&session, rotation).await;
-    Ok(redirect(&query.return_to.path(lang.code())))
+    Ok(redirect(&return_to.path(lang.code())))
 }
 
 #[cfg(test)]

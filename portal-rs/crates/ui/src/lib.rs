@@ -135,6 +135,10 @@ impl Registry {
             .entries
             .iter()
             .filter(|entry| {
+                !matches!(account, Account::Anonymous)
+                    || !matches!(entry.section, "pass" | "places")
+            })
+            .filter(|entry| {
                 entry.section != "account-passkeys"
                     || !matches!(
                         account,
@@ -577,7 +581,16 @@ mod tests {
                 assert!(html.contains("src=\"/static/thais/home.js\""));
                 assert!(html.contains("src=\"/static/status/status.js\""));
             }
-            let chrome = registry().chrome(
+            let mut registry = registry();
+            registry.section(
+                true,
+                "account-overview",
+                "shell-account-overview",
+                "/account",
+                Group::Account,
+                false,
+            );
+            let chrome = registry.chrome(
                 lang,
                 "/",
                 Account::SignedIn {

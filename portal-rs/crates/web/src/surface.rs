@@ -41,6 +41,7 @@ pub(super) fn module_routes() -> Router<AppState> {
         .route("/pl/", get(localized_home))
         .route("/en/", get(localized_home))
         .route("/language/{lang}", get(switch_language))
+        .merge(crate::entry_points::routes())
 }
 
 /// Build the public surface with explicit transport options.
@@ -134,7 +135,7 @@ fn message(lang: Language, id: &str) -> String {
     oteryn_ui::text(lang.code(), id)
 }
 
-fn request_chrome(request: &Request, lang: Language) -> oteryn_ui::Chrome {
+pub(super) fn request_chrome(request: &Request, lang: Language) -> oteryn_ui::Chrome {
     request
         .extensions()
         .get::<oteryn_ui::Chrome>()
@@ -457,6 +458,31 @@ mod tests {
         assert_eq!(body.matches("<script").count(), 1);
         assert!(body.contains("src=\"/static/thais/home.js\""));
         assert!(!body.contains("style="));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn legacy_start_resolves_to_a_localized_guide() -> TestResult {
+        let app = app()?;
+        let response = app
+            .clone()
+            .oneshot(HttpRequest::get("/getting-started").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::MOVED_PERMANENTLY);
+        assert_eq!(response.headers()[header::LOCATION], "/pl/start");
+        for lang in ["pl", "en"] {
+            let response = app
+                .clone()
+                .oneshot(HttpRequest::get(format!("/{lang}/start")).body(Body::empty())?)
+                .await?;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            assert!(html(response).await?.contains("id=\"jak-zaczac\""));
+        }
+        let response = app
+            .oneshot(HttpRequest::get("/de/start").body(Body::empty())?)
+            .await?;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
         Ok(())
     }
 

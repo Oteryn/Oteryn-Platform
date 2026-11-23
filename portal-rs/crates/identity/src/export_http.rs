@@ -1,13 +1,13 @@
 //! Browser adapter for personal-data exports.
 use crate::export::navigation::{self, SudoReturn};
 use crate::export::{
-    ExportConfig, PRODUCER_DEADLINE, confirmation_access, export_account, stream_download_until,
+    EXPORT_REAUTH_QUERY, ExportConfig, PRODUCER_DEADLINE, confirmation_access, export_account, stream_download_until,
 };
 use askama::Template;
 use axum::{
     Extension, Router,
     extract::{ConnectInfo, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, Method, StatusCode, header},
     middleware,
     response::{IntoResponse, Redirect, Response},
     routing::get,
@@ -77,6 +77,7 @@ async fn confirmation(
     Extension(language): Extension<Language>,
     Extension(browser): Extension<BrowserSession>,
     query: Result<Query<ConfirmationQuery>, axum::extract::rejection::QueryRejection>,
+    method: Method,
     headers: HeaderMap,
 ) -> Response {
     let Ok(Query(query)) = query else {
@@ -94,6 +95,18 @@ async fn confirmation(
         },
         Ok(false) if query.start && navigation::sudo_enabled() => {
             Redirect::to(&SudoReturn::Export.sudo_path(language.code())).into_response()
+        }
+        Ok(false)
+            if method == Method::GET
+                && navigation::sudo_enabled()
+                && headers.get("sec-fetch-site").is_some_and(|site| site == "same-origin")
+                && headers.get(header::ACCEPT)
+                    .and_then(|accept| accept.to_str().ok())
+                    .is_some_and(|accept| accept.contains("text/html"))
+                && browser.account_id().await.is_some() =>
+        {
+            Redirect::to(&format!("/{}/account/sudo?{EXPORT_REAUTH_QUERY}", language.code()))
+                .into_response()
         }
         Ok(false) if navigation::sudo_enabled() => (
             StatusCode::FORBIDDEN,

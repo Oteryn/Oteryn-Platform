@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+{% block title %}{{ chrome.text("shell-downloads") }}{% endblock %}
+{% block content %}
+<h1>{{ chrome.text("shell-downloads") }}</h1>
+{% if detail %}
+  <p><a href="/{{ chrome.lang }}/download">{{ chrome.text("download-all-channels") }}</a></p>
+{% endif %}
+{% if releases.is_empty() %}
+  <p>{{ chrome.text("thais-home-client-unavailable") }}</p>
+{% endif %}
+{% for release in releases %}
+<section class="op-card op-stack">
+  <h2>{{ chrome.text(release.label) }} · {{ release.version }}</h2>
+  {% if detail %}
+  <ul class="op-stack">
+    {% for package in release.packages %}
+    <li><a href="{{ package.url }}">{{ package.platform }} ({{ package.architecture }})</a></li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p><a href="/{{ chrome.lang }}/download/{{ release.channel }}">{{ chrome.text(release.label) }}</a></p>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

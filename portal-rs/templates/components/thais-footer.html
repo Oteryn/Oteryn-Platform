@@ -20,9 +20,13 @@
       <div class="foot-group">
         <h2>{{ chrome.text("thais-nav-world") }}</h2>
         <ul>
-          <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#jak-zaczac">{{ chrome.text("thais-nav-start") }}</a></li>
+          {% if let Some(link) = chrome.link("start") %}
+          <li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>
+          {% else %}
+          <li><a href="{{ chrome.home_url() }}#jak-zaczac">{{ chrome.text("thais-nav-start") }}</a></li>
+          {% endif %}
           <li><a href="{% if interior %}{{ chrome.home_url() }}{% endif %}#profesje">{{ chrome.text("thais-nav-professions") }}</a></li>
-          {% for key in ["wiki", "worlds"] %}
+          {% for key in ["wiki", "worlds", "downloads"] %}
           {% if let Some(link) = chrome.link(key) %}<li><a href="{{ link.url }}"{% if link.current %} aria-current="page"{% endif %}>{{ link.label }}</a></li>{% endif %}
           {% endfor %}
         </ul>

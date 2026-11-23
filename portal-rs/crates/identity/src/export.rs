@@ -8,6 +8,8 @@ use sha2::{Digest, Sha256};
 use sqlx::{PgExecutor, PgPool};
 use uuid::Uuid;
 
+pub const EXPORT_REAUTH_QUERY: &str = "continue=account-export";
+
 pub const PRODUCER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, Default)]
@@ -209,9 +211,17 @@ pub async fn confirmation_access(
     config: &ExportConfig,
     session: &str,
 ) -> Result<bool, StatusCode> {
+    Ok(export_confirmation(pool, config, session).await?.is_some())
+}
+
+pub async fn export_confirmation(
+    pool: &PgPool,
+    config: &ExportConfig,
+    session: &str,
+) -> Result<Option<Uuid>, StatusCode> {
     validate_request(config, session)?;
-    let (_, sudo) = session_access(pool, session).await?;
-    Ok(sudo)
+    let (id, confirmed) = session_access(pool, session).await?;
+    Ok(confirmed.then_some(id))
 }
 
 /// Resolve the same sudo-authorized account used by the streaming snapshot.

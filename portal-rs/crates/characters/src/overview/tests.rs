@@ -87,7 +87,10 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
     let body = axum::body::to_bytes(response.into_body(), 65536).await?;
     let html = String::from_utf8(body.to_vec())?;
     assert!(html.contains("Account overview"));
-    assert!(html.contains("href=\"/en/shop/history\""));
+    assert_eq!(
+        html.contains("href=\"/en/shop/history\""),
+        std::env::var("OTERYN_SHOP_ENABLED").as_deref() == Ok("true")
+    );
     assert!(!html.contains("/panel/balance"));
     assert!(html.contains("Unavailable"));
     assert!(!html.contains("test-hash"));
@@ -131,7 +134,11 @@ async fn postgres_overview_success_and_denial() -> Result<(), Box<dyn std::error
             .await?
             .to_vec(),
     )?;
-    assert!(html.contains("/characters/Aldric"));
+    assert!(html.contains("Aldric"));
+    assert_eq!(
+        html.contains("/en/characters/Aldric"),
+        std::env::var("PORTAL_PUBLIC_PROFILES_ENABLED").as_deref() == Ok("true")
+    );
     assert!(html.contains("Current game connection"));
     sqlx::query("UPDATE account_character_feed SET complete_through=0 WHERE id=1")
         .execute(&pool)

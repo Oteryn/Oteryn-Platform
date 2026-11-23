@@ -29,3 +29,7 @@ main-character = Main character
 profile-preferences = Profile preferences
 termination-none = No closure scheduled
 termination-pending = Pending closure
+character-services = Character services
+character-items = Character inventory
+market-history = Market history
+trade-history = Trade history

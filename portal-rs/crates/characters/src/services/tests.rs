@@ -1611,7 +1611,10 @@ async fn r7_committed_transfer_denies_seller() {
     let a = id("from_account_id");
     let c = id("character_id");
     seed(&s, a, c, 100).await;
+    assert!(s.has_owner_view(a, c).await);
+    assert!(!s.has_owner_view(Uuid::now_v7(), c).await);
     sqlx::query("INSERT INTO character_commands(id,issuer_decision_id,request_key,command,account_id,target_account_id,binding_json,intent_json,receipt_json,state) VALUES($1,$2,'transfer','TransferCharacterOwnership',$3,$4,'{}',$5,$6,'TERMINAL')").bind(id("operation_id")).bind(Uuid::now_v7()).bind(a).bind(id("to_account_id")).bind(include_str!("../commands/fixtures/transfer-intent.json")).bind(raw).execute(&db.pool).await.unwrap();
+    assert!(!s.has_owner_view(a, c).await);
     assert!(
         matches!(
             s.request(a, rename(c)).await,

@@ -373,3 +373,10 @@ onboarding-recovery-help = Jeśli nie pamiętasz hasła lub nie masz dostępu do
 onboarding-support = Odzyskiwanie konta i pomoc
 
 service-status = Status usług
+shell-downloads = Pobierz klienta
+download-stable = Kanał stabilny
+download-beta = Kanał beta
+download-all-channels = Wszystkie kanały wydań
+shell-account-email = Zmień adres e-mail
+shell-account-consents = Zgody opcjonalne
+shell-account-badges = Odznaki profilu
