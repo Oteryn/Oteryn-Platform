@@ -70,9 +70,9 @@ test('ticket creation, private and public replies, acknowledgment, close and reo
       await expect(staff).toHaveURL(new RegExp(`${staffTickets}/${id}$`));
       await labels(staff, [a.title, a.public, a.waiting_staff, a.body, a.reply, a.internal, a.ticket_status]);
       const reply = staffForm(staff, 'reply');
-      await submitForm(reply, { body: 'Staff-only ticket note', internal: true }, { bad: { body: ' ' } });
+      await submitForm(reply, { body: 'Staff-only ticket note', internal: true, reason: 'Internal ticket review' }, { bad: { body: ' ' } });
       await expect(staff.locator('article').filter({ hasText: 'Staff-only ticket note' })).toContainText(a.internal);
-      await submitForm(reply, { body: 'Visible staff answer', internal: false });
+      await submitForm(reply, { body: 'Visible staff answer', internal: false, reason: 'Reply to player question' });
       await labels(staff, [a.waiting_user, 'Visible staff answer']);
       const notifications = await query(
         "SELECT body FROM notifications WHERE account_id=$1 AND category='support'",
@@ -105,10 +105,10 @@ test('ticket creation, private and public replies, acknowledgment, close and reo
         await expect(status.locator(`option[value=${state}]`)).toHaveText(a[state]);
       }
       for (const state of ['open', 'waiting_staff', 'waiting_user', 'resolved', 'closed']) {
-        await submitForm(status, { status: state }, { bad: { status: 'invalid' } });
+        await submitForm(status, { status: state, reason: 'Resolve player ticket workflow' }, { bad: { status: 'invalid' } });
         await expect(staff.locator('main > p').first()).toHaveText(a[state]);
       }
-      await submitForm(status, { status: 'closed' }, { bad: { lock_version: '1', expected: 409 } });
+      await submitForm(status, { status: 'closed', reason: 'Verify the closed ticket version' }, { bad: { lock_version: '1', expected: 409 } });
       const statusNotices = await query(
         "SELECT body FROM notifications WHERE account_id=$1 AND category='support' AND body LIKE $2",
         [account.id, `%${t['notification-status']} ${path}%`],
@@ -234,7 +234,7 @@ test('moderator creates sanctions, revokes them, and adjudicates requested appea
   const a = copy('moderation', lang);
   await actor(browser, info, null, async (player, account) => {
     await actor(browser, info, 'moderator', async staff => {
-      await open(staff, staffReports, 403);
+      await open(staff, staffReports);
       await open(staff, staffTickets, 403);
       const now = Math.floor(Date.now() / 1000);
       const values = {

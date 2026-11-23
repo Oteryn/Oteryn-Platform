@@ -266,14 +266,20 @@ impl Locale {
             .unwrap_or_default()
     }
 }
-async fn account(shop: &Shop, session: &BrowserSession, locale: Locale) -> Result<Uuid, Response> {
+async fn account(
+    shop: &Shop,
+    session: &BrowserSession,
+    locale: Locale,
+) -> Result<Uuid, Box<Response>> {
     let Some(account) = session.account_id().await else {
-        return Err(Redirect::to(&format!("/{}/login", locale.0)).into_response());
+        return Err(Box::new(
+            Redirect::to(&format!("/{}/login", locale.0)).into_response(),
+        ));
     };
     match shop.backend.active(account).await {
         Ok(true) => Ok(account),
-        Ok(false) => Err(failure(locale, Error::Denied)),
-        Err(e) => Err(failure(locale, e)),
+        Ok(false) => Err(Box::new(failure(locale, Error::Denied))),
+        Err(e) => Err(Box::new(failure(locale, e))),
     }
 }
 fn failure(locale: Locale, error: Error) -> Response {
@@ -461,20 +467,20 @@ async fn page(
     session: &BrowserSession,
     lang: &str,
     section: &'static str,
-) -> Result<(Uuid, Locale, Page), Response> {
-    let locale = Locale::parse(lang).map_err(IntoResponse::into_response)?;
+) -> Result<(Uuid, Locale, Page), Box<Response>> {
+    let locale = Locale::parse(lang).map_err(|error| Box::new(error.into_response()))?;
     let account = account(shop, session, locale).await?;
     let mut page = Page::new(locale, section);
     page.balance = Some(
         shop.backend
             .balance(account)
             .await
-            .map_err(|e| failure(locale, e))?,
+            .map_err(|error| Box::new(failure(locale, error)))?,
     );
     page.csrf = session
         .csrf_token()
         .await
-        .map_err(|_| failure(locale, Error::Unavailable))?;
+        .map_err(|_| Box::new(failure(locale, Error::Unavailable)))?;
     Ok((account, locale, page))
 }
 async fn offers(
@@ -484,7 +490,7 @@ async fn offers(
 ) -> Response {
     let (_, l, mut p) = match page(&s, &session, &lang, "shop").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     match s.backend.catalog().await {
         Ok(Some(c)) => {
@@ -515,7 +521,7 @@ async fn coins(
 ) -> Response {
     let (account, locale, mut p) = match page(&s, &session, &lang, "coins").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     if s.backend.test_checkout() {
         let status = match serde_urlencoded::from_str::<CheckoutStatus>(
@@ -560,7 +566,7 @@ async fn transfer_page(
 ) -> Response {
     let (account, _, mut p) = match page(&s, &session, &lang, "transfer").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     p.own_transfer_id = account.to_string();
     p.enabled = s.flags.transfers;
@@ -574,7 +580,7 @@ async fn history(
 ) -> Response {
     let (a, l, mut p) = match page(&s, &session, &lang, "history").await {
         Ok(p) => p,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let invalid_cursor = || {
         let mut response = failure(l, Error::Invalid);
@@ -601,17 +607,17 @@ async fn mutation(
     session: &BrowserSession,
     lang: &str,
     enabled: bool,
-) -> Result<(Uuid, Locale), Response> {
-    let l = Locale::parse(lang).map_err(IntoResponse::into_response)?;
+) -> Result<(Uuid, Locale), Box<Response>> {
+    let l = Locale::parse(lang).map_err(|error| Box::new(error.into_response()))?;
     if !enabled {
-        return Err(failure(l, Error::Unavailable));
+        return Err(Box::new(failure(l, Error::Unavailable)));
     }
     let a = account(s, session, l).await?;
     // Shared PostgreSQL limiter, keyed by the authenticated account, independent of rollback.
     let attempts: i32 = sqlx::query_scalar("INSERT INTO store_wire_limits(scope,subject,attempts) VALUES('purchase',$1,1) ON CONFLICT(scope,subject) DO UPDATE SET window_start=CASE WHEN store_wire_limits.window_start<=clock_timestamp()-interval '60 seconds' THEN clock_timestamp() ELSE store_wire_limits.window_start END, attempts=CASE WHEN store_wire_limits.window_start<=clock_timestamp()-interval '60 seconds' THEN 1 ELSE LEAST(store_wire_limits.attempts+1,11) END, updated_at=clock_timestamp() RETURNING attempts")
-        .bind(format!("web:{a}")).fetch_one(&s.pool).await.map_err(|_| failure(l, Error::Unavailable))?;
+        .bind(format!("web:{a}")).fetch_one(&s.pool).await.map_err(|_| Box::new(failure(l, Error::Unavailable)))?;
     if attempts > 10 {
-        return Err(failure(l, Error::Limited(60)));
+        return Err(Box::new(failure(l, Error::Limited(60))));
     }
     Ok((a, l))
 }
@@ -637,7 +643,7 @@ async fn transfer(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.transfers).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: TransferForm = match parse(request).await {
         Ok(v) => v,
@@ -667,7 +673,7 @@ async fn top_up(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.top_ups).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: TopUpForm = match parse(request).await {
         Ok(v) => v,
@@ -696,7 +702,7 @@ async fn buy(
 ) -> Response {
     let (a, l) = match mutation(&s, &session, &lang, s.flags.purchases).await {
         Ok(v) => v,
-        Err(r) => return r,
+        Err(r) => return *r,
     };
     let form: PurchaseForm = match parse(request).await {
         Ok(v) => v,

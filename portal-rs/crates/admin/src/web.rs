@@ -1101,9 +1101,13 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
     if let Err(error) = staff_actions::verify_session(context, csrf) {
         return error.response(chrome);
     }
-    let reason = match staff_actions::validated_code(&form.reason, &[staff_actions::ROLE_REASON]) {
-        Ok(reason) => reason,
-        Err(error) => return error.response(chrome),
+    let reason = if form.reason.is_empty() {
+        ""
+    } else {
+        match staff_actions::validated_code(&form.reason, &[staff_actions::ROLE_REASON]) {
+            Ok(reason) => reason,
+            Err(error) => return error.response(chrome),
+        }
     };
     let guard = staff_actions::Guard {
         actor: context,
@@ -1166,13 +1170,15 @@ async fn change<I: StaffSession, A: AccountStateReader + 'static>(
                 return staff_action_response(&s.pool, context.account, result, chrome).await;
             }
             s.auth
-                .change_from_panel(
+                .change_from_panel_with_reason(
                     context,
                     Uuid::now_v7(),
                     Change::CreateRole {
                         key: &form.key,
                         permissions: &permissions,
                     },
+                    reason,
+                    false,
                 )
                 .await
                 .map(|_| ())
@@ -1316,7 +1322,7 @@ async fn revoke<I: StaffSession, A: AccountStateReader>(
                 before: json!({"role":role,"assigned":true}),
                 after: json!({"role":role,"assigned":false}),
             },
-            Some(reason),
+            (!reason.is_empty()).then_some(reason),
         )
         .await?;
     }

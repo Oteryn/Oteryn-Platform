@@ -713,6 +713,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn console_fallback_uses_explicit_locale_in_chrome_and_response_headers() -> TestResult {
+        let pool = oteryn_db::lazy_pool("postgres://portal@127.0.0.1:1/unreachable")?;
+        let app = app()?.layer(axum::middleware::from_fn_with_state(
+            crate::chrome::Shell {
+                registry: oteryn_ui::Registry::default(),
+                sessions: crate::session::SessionLayer::new(pool),
+            },
+            crate::chrome::middleware,
+        ));
+        for (path, lang, title) in [
+            ("/console/missing?lang=en", "en", "Page not found"),
+            ("/console/missing?lang=pl", "pl", "Nie znaleziono strony"),
+            (
+                "/console/missing?lang=invalid",
+                "pl",
+                "Nie znaleziono strony",
+            ),
+            ("/other?lang=en", "pl", "Nie znaleziono strony"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    HttpRequest::get(path)
+                        .header(header::ACCEPT, "text/html")
+                        .header(header::COOKIE, "portal_language=pl")
+                        .body(Body::empty())?,
+                )
+                .await?;
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            assert_eq!(response.headers()[header::CONTENT_LANGUAGE], lang);
+            let body = html(response).await?;
+            assert!(body.contains(&format!("<html lang=\"{lang}\"")), "{path}");
+            assert!(body.contains(title), "{path}");
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn native_runtime_refusal_remains_empty_for_html_accept() -> TestResult {
         let pool =
             sqlx::postgres::PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;

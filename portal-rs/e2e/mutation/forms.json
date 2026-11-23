@@ -376,7 +376,7 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:19",
+      "source": "templates/admin/roles.html:20",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -394,7 +394,7 @@
       ]
     },
     {
-      "source": "templates/admin/roles.html:29",
+      "source": "templates/admin/roles.html:30",
       "ordinal": 1,
       "action": "/admin/roles",
       "actionVariants": [],
@@ -2099,7 +2099,7 @@
       ]
     },
     {
-      "source": "crates/store/src/web.rs:337",
+      "source": "crates/store/src/web.rs:343",
       "ordinal": 1,
       "action": "/{{ lang }}/shop/test-checkout/{{ operation }}",
       "actionVariants": [],
@@ -2123,7 +2123,7 @@
       ]
     },
     {
-      "source": "crates/store/src/web.rs:341",
+      "source": "crates/store/src/web.rs:347",
       "ordinal": 1,
       "action": "/{{ lang }}/shop",
       "actionVariants": [],
@@ -2146,7 +2146,7 @@
       ]
     },
     {
-      "source": "crates/store/src/web.rs:344",
+      "source": "crates/store/src/web.rs:350",
       "ordinal": 1,
       "action": "/{{ lang }}/shop/transfer",
       "actionVariants": [],
@@ -2165,7 +2165,7 @@
       ]
     },
     {
-      "source": "crates/store/src/web.rs:346",
+      "source": "crates/store/src/web.rs:352",
       "ordinal": 1,
       "action": "/{{ lang }}/shop/coins",
       "actionVariants": [],

@@ -348,7 +348,7 @@ async fn panel_creates_and_edits_roles_with_csrf_and_privilege_guards() -> TestR
         .await?;
     assert_eq!(
         post(&db, &cookie, &csrf, widen.clone()).await?,
-        StatusCode::UNPROCESSABLE_ENTITY
+        StatusCode::FORBIDDEN
     );
     assert!(matches!(
         auth.check(context, Permission::ManageWikiArticles).await,

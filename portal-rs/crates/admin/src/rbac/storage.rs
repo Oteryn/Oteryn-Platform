@@ -379,7 +379,7 @@ impl<A: AccountStateReader> Authorizer<A> {
                 before,
                 after,
             },
-            Some(reason),
+            (!reason.is_empty()).then_some(reason),
         )
         .await?;
         self.check_in(&mut tx, context, Permission::ManageRoles)
