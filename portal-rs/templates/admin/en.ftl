@@ -68,3 +68,5 @@ mail-error-unavailable = The worker could not look up delivery details.
 mail-error-audit = The worker could not record the delivery result.
 mail-error-lease = Worker lease expired on the final attempt.
 mail-error-recorded = The worker recorded a delivery error.
+
+account-closure-status = Account closure status

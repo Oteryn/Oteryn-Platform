@@ -138,6 +138,7 @@ fn localized_responsive_labelled_template() {
             reports_label: text(lang, "reports"),
             moderate_reports: true,
             mail_link: None,
+            closure_link: Some(text(lang, "account-closure-status")),
             players_label: text(lang, "players"),
             players: true,
             account_label: text(lang, "account"),
@@ -160,6 +161,12 @@ fn localized_responsive_labelled_template() {
             "Report moderation"
         }));
         assert!(html.contains("href=\"/admin/players\""));
+        assert!(html.contains("href=\"/admin/account-closure\""));
+        assert!(html.contains(if lang == "pl" {
+            "Stan zamknięcia konta"
+        } else {
+            "Account closure status"
+        }));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
         assert!(!html.contains("<unsafe>"));
@@ -233,6 +240,7 @@ async fn database_navigation_authorization_csrf_and_owner() {
     )
     .unwrap();
     assert!(!body.contains("href=\"/admin/roles\""));
+    assert!(!body.contains("href=\"/admin/account-closure\""));
     assert_eq!(
         request(
             app(pool.clone(), identity, true),

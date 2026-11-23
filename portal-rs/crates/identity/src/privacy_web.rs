@@ -76,7 +76,7 @@ async fn private_response(request: Request, next: axum::middleware::Next) -> Res
 #[template(
     source = r#"<!doctype html><html lang="{{ lang }}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title><link rel="stylesheet" href="/static/css/app.css"><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head><body class="op-theme"><main class="op-stack"><h1>{{ title }}</h1>{% if invalid %}<p role="alert">{{ error }}</p>{% endif %}<form method="post" class="op-stack"><input type="hidden" name="_csrf" value="{{ csrf }}"><label class="op-row"><input type="checkbox" name="public_account_association" value="1"{% if prefs.public_account_association %} checked{% endif %}>{{ association }}</label><label class="op-row"><input type="checkbox" name="public_status_visible" value="1"{% if prefs.public_status_visible %} checked{% endif %}>{{ status }}</label><label for="locale">{{ language }}</label><select class="op-input" id="locale" name="locale"><option value="pl"{% if prefs.locale == "pl" %} selected{% endif %}>Polski</option><option value="en"{% if prefs.locale == "en" %} selected{% endif %}>English</option></select><button class="op-button" type="submit">{{ save }}</button></form>
 {% if let Some(path) = self.export_action() %}<p><a href="/{{ lang }}/{{ path }}">{{ self.shell_text("shell-account-export") }}</a></p>{% endif %}
-{% if self.closure_available() %}<p><a href="/{{ lang }}/account/privacy/delete">{{ self.closure_label() }}</a></p>{% endif %}
+{% if closure_available %}<p><a href="/{{ lang }}/account/privacy/delete">{{ self.closure_label() }}</a></p>{% endif %}
 {% if self.overview_enabled() %}<p><a href="/account">{{ self.shell_text("shell-account-overview-back") }}</a></p>{% endif %}
 </main></body></html>"#,
     ext = "html"
@@ -93,6 +93,7 @@ struct Page {
     prefs: Preferences,
     csrf: String,
     pending_closure: bool,
+    closure_available: bool,
 }
 impl Page {
     fn shell_text(&self, key: &str) -> String {
@@ -105,10 +106,6 @@ impl Page {
 
     fn export_action(&self) -> Option<&'static str> {
         oteryn_identity::navigation::export_action()
-    }
-
-    fn closure_available(&self) -> bool {
-        self.pending_closure || oteryn_identity::navigation::closure_enabled()
     }
 
     fn closure_label(&self) -> String {
@@ -159,6 +156,18 @@ async fn page(
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
         .ok_or(StatusCode::FORBIDDEN)?;
+    let pending_closure = oteryn_identity::termination::pending_closure(&state.pool, id)
+        .await
+        .unwrap_or(false);
+    let closure_available = oteryn_identity::navigation::closure_enabled()
+        || pending_closure
+        || sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM account_terminations WHERE account_id=$1)",
+        )
+        .bind(id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(false);
     let page = Page {
         lang: lang.to_owned(),
         title,
@@ -169,9 +178,8 @@ async fn page(
         error: text(lang, "invalid")?,
         invalid,
         prefs,
-        pending_closure: oteryn_identity::termination::pending_closure(&state.pool, id)
-            .await
-            .unwrap_or(false),
+        pending_closure,
+        closure_available,
         csrf: session
             .csrf_token()
             .await

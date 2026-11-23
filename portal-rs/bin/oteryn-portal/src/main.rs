@@ -372,6 +372,9 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 db.clone(),
                 closure.terminations.clone(),
             ));
+            let app = app.merge(account_lifecycle_http::configured_operator_router(
+                db.clone(),
+            )?);
             let app = app.merge(shop_web::router(db.clone()));
             let app = app.merge(oteryn_player_api::account_feed::configured_router());
             let app = app.merge(oteryn_support::tickets::configured_staff_router(

@@ -18,8 +18,12 @@ pub fn export_action() -> Option<&'static str> {
         .then_some("account/privacy/export?start=true")
 }
 
-pub fn closure_enabled() -> bool {
+pub fn game_closure_enabled() -> bool {
     enabled("PORTAL_ACCOUNT_CLOSURE_ENABLED")
+}
+
+pub fn closure_enabled() -> bool {
+    game_closure_enabled()
         && crate::termination::Config::from_env().is_ok_and(|config| config.enabled)
 }
 

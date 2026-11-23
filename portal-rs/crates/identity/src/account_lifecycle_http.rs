@@ -2,14 +2,17 @@
 use askama::Template;
 use axum::{
     Extension, Form, Router,
-    extract::{ConnectInfo, State},
+    extract::{ConnectInfo, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
     routing::get,
 };
 use oteryn_identity::{
     sessions::NotificationAccounts as AccountState,
-    termination::{self, ActorProof, BoundaryFuture},
+    termination::{
+        self, ActorProof, BoundaryFuture,
+        status::{ClosureStatus, PlatformState},
+    },
 };
 use oteryn_web::{
     Language,
@@ -26,6 +29,7 @@ struct Services {
     pool: PgPool,
     notifications: Option<Arc<oteryn_notify::Notifications>>,
     termination: termination::Terminations,
+    game_enabled: bool,
 }
 #[derive(Debug)]
 pub(crate) struct TerminationBoundary;
@@ -115,6 +119,14 @@ impl termination::Boundary for TerminationBoundary {
     }
 }
 pub fn configured_router(pool: PgPool, termination: termination::Terminations) -> Router {
+    router(
+        pool,
+        termination,
+        oteryn_identity::navigation::game_closure_enabled(),
+    )
+}
+
+fn router(pool: PgPool, termination: termination::Terminations, game_enabled: bool) -> Router {
     let key = std::env::var("OTERYN_NOTIFY_UNSUBSCRIBE_KEY").unwrap_or_default();
     let notifications = oteryn_notify::Unsubscribe::new(
         key.into_bytes(),
@@ -139,7 +151,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
             "/{lang}/account/privacy/delete/cancel",
             axum::routing::post(cancel),
         );
-    if termination.accepts_requests() {
+    if termination.accepts_requests() && game_enabled {
         routes = routes.route(
             "/{lang}/account/privacy/delete",
             axum::routing::post(delete),
@@ -164,6 +176,7 @@ pub fn configured_router(pool: PgPool, termination: termination::Terminations) -
             pool,
             notifications,
             termination,
+            game_enabled,
         })
         .layer(tower_http::limit::RequestBodyLimitLayer::new(16 * 1024));
     oteryn_web::ratelimit::finish_routes(routes)
@@ -202,7 +215,8 @@ struct Page {
     action: String,
     delete: bool,
     pending: bool,
-    restoration_pending: bool,
+    closure: Option<ClosureStatus>,
+    request_enabled: bool,
     unsubscribe: bool,
     token: String,
     news_email: bool,
@@ -240,7 +254,6 @@ async fn page(
     s: &BrowserSession,
     action: &str,
     delete: bool,
-    pending: bool,
     unsubscribe: bool,
     token: String,
 ) -> Result<Page, StatusCode> {
@@ -249,7 +262,7 @@ async fn page(
         title: text(
             l,
             if delete {
-                "delete"
+                "closure-title"
             } else if unsubscribe {
                 "unsubscribe"
             } else {
@@ -262,8 +275,9 @@ async fn page(
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
         action: action.into(),
         delete,
-        pending,
-        restoration_pending: false,
+        pending: false,
+        closure: None,
+        request_enabled: false,
         unsubscribe,
         token,
         news_email: false,
@@ -286,7 +300,7 @@ async fn preferences(
     Extension(s): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
-    let mut p = page(l, &s, "", false, false, false, String::new()).await?;
+    let mut p = page(l, &s, "", false, false, String::new()).await?;
     (p.news_email, p.news_portal) = st
         .notifications
         .as_ref()
@@ -427,7 +441,7 @@ async fn unsubscribe_page(
     if q.token.len() > 512 {
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    Ok(render(page(l, &s, "", false, false, true, q.token).await?))
+    Ok(render(page(l, &s, "", false, true, q.token).await?))
 }
 async fn unsubscribe(
     State(st): State<Services>,
@@ -481,19 +495,98 @@ async fn deletion(
     Extension(s): Extension<BrowserSession>,
 ) -> Result<Response, StatusCode> {
     let id = s.account_id().await.ok_or(StatusCode::FORBIDDEN)?;
-    let pending = st.termination.has_pending(id).await.map_err(failure)?;
-    if !pending && !st.termination.accepts_requests() {
+    let closure = st.termination.latest_status(id).await.map_err(failure)?;
+    let intake_enabled = st.termination.accepts_requests() && st.game_enabled;
+    if closure.is_none() && !intake_enabled {
         return Err(StatusCode::NOT_FOUND);
     }
-    let action = if pending {
+    let pending = closure.as_ref().is_some_and(|state| {
+        matches!(
+            state.platform,
+            PlatformState::Scheduled | PlatformState::Pending
+        )
+    });
+    let request_enabled = intake_enabled
+        && closure
+            .as_ref()
+            .is_none_or(|state| state.platform == PlatformState::Cancelled);
+    let action = if pending
+        && closure
+            .as_ref()
+            .is_some_and(|state| st.game_enabled || !state.close_issued)
+    {
         format!("/{}/account/privacy/delete/cancel", l.code())
+    } else if request_enabled {
+        format!("/{}/account/privacy/delete", l.code())
     } else {
         String::new()
     };
-    let mut page = page(l, &s, &action, true, pending, false, String::new()).await?;
-    page.restoration_pending=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM plat3_closure_work w WHERE w.account_id=$1 AND w.generation=(SELECT max(latest.generation) FROM plat3_closure_work latest WHERE latest.account_id=w.account_id) AND w.resolution='CANCEL' AND w.close_operation_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM plat3_closure_commands c JOIN plat3_closure_receipts r USING(operation_id) JOIN plat3_closure_snapshots s ON s.account_id=w.account_id WHERE c.termination_id=w.termination_id AND c.command='ResolveAccountClosure' AND NOT s.invalid AND convert_from(r.receipt,'UTF8')::jsonb->'result_data'->>'closure_state'='CANCELLED' AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'operation_id'=c.operation_id::text AND convert_from(s.snapshot,'UTF8')::jsonb->'closures'->0->>'receipt_digest'=encode(r.receipt_sha256,'hex')))").bind(id).fetch_one(&st.pool).await.map_err(|_|StatusCode::SERVICE_UNAVAILABLE)?;
+    let mut page = page(l, &s, &action, true, false, String::new()).await?;
+    page.pending = pending;
+    page.closure = closure;
+    page.request_enabled = request_enabled;
     Ok(render(page))
 }
+
+pub fn configured_operator_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
+    oteryn_admin::web::configured_guard(
+        Router::new()
+            .route("/admin/account-closure", get(operator_status))
+            .with_state(pool.clone()),
+        pool,
+        oteryn_admin::rbac::Permission::ViewAudit,
+    )
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClosureLookup {
+    lang: Option<String>,
+    reference: Option<String>,
+}
+
+#[derive(Template)]
+#[template(
+    path = "account/lifecycle/operator.html",
+    config = "../../templates/account/lifecycle/askama.toml"
+)]
+struct OperatorPage {
+    lang: Language,
+    reference: String,
+    closure: Option<ClosureStatus>,
+}
+
+impl OperatorPage {
+    fn text(&self, key: &str) -> String {
+        text(self.lang, key)
+    }
+}
+
+async fn operator_status(
+    State(pool): State<PgPool>,
+    Extension(lang): Extension<Language>,
+    Query(query): Query<ClosureLookup>,
+) -> Result<Response, StatusCode> {
+    let lang = match query.lang.as_deref() {
+        Some("pl") => Language::Pl,
+        Some("en") => Language::En,
+        None => lang,
+        _ => return Err(StatusCode::UNPROCESSABLE_ENTITY),
+    };
+    let closure = match query.reference.as_deref() {
+        None => None,
+        Some(reference) => termination::status::operator_status(&pool, reference)
+            .await
+            .map_err(failure)?,
+    };
+    let reference = query.reference.unwrap_or_default();
+    Ok(oteryn_web::render(&OperatorPage {
+        lang,
+        reference,
+        closure,
+    }))
+}
+
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DeleteInput {
@@ -589,16 +682,7 @@ async fn cancel(
         .cancel(id, &proof(&headers), &input.current_password)
         .await
         .map_err(failure)?;
-    let destination = if st.termination.accepts_requests() {
-        format!("/{}/account/privacy/delete", l.code())
-    } else if oteryn_identity::navigation::overview_enabled() {
-        "/account".to_owned()
-    } else if std::env::var("OTERYN_ACCOUNT_PRIVACY_ENABLED").as_deref() == Ok("true") {
-        format!("/{}/account/privacy", l.code())
-    } else {
-        format!("/{}/", l.code())
-    };
-    Ok(Redirect::to(&destination).into_response())
+    Ok(Redirect::to(&format!("/{}/account/privacy/delete", l.code())).into_response())
 }
 
 #[derive(Template)]
@@ -715,7 +799,7 @@ mod deletion_tests {
             ("confirmation", "TERMINATE"),
         ])?;
         let peer: SocketAddr = "127.0.0.1:12345".parse()?;
-        let response = configured_router(pool.clone(), test_game_terminations(pool)?)
+        let response = router(pool.clone(), test_game_terminations(pool)?, true)
             .layer(Extension(Language::En))
             .layer(Extension(ConnectInfo(peer)))
             .oneshot(
