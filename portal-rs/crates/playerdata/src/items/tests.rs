@@ -788,7 +788,7 @@ async fn pg_bank_history_pages_follow_committed_entries() {
     let second = Uuid::parse_str(&ident(300)).unwrap();
     let mut evidence = TestEvidence::new();
     evidence.second_bank_account = Some(second);
-    let (p, _) = db.projection_with(evidence);
+    let (p, evidence) = db.projection_with(evidence);
     let mut previous = None;
     for n in 1..=51 {
         let mut r = bank();
@@ -812,12 +812,14 @@ async fn pg_bank_history_pages_follow_committed_entries() {
         .unwrap();
     assert_eq!(page.records.len(), 50);
     let cursor = page.next_cursor.as_deref().unwrap();
-    assert_eq!(cursor, ident(150));
+    assert_eq!(cursor, format!("{}.{NOW}", ident(150)));
+    evidence.now.store(NOW + 1, Ordering::SeqCst);
     let next = p
         .history_page(actor(), world(), None, "BANK", Some(cursor))
         .await
         .unwrap();
     assert_eq!(next.records.len(), 1);
+    assert_eq!(next.through, page.through);
     assert!(next.next_cursor.is_none());
     assert!(matches!(&next.records[0].payload, Payload::Bank(b) if b.balance_after == "51"));
     assert!(matches!(
@@ -834,7 +836,7 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     use axum::{
         Extension, Router,
         body::Body,
-        extract::State,
+        extract::{ConnectInfo, State},
         http::{Request, StatusCode},
         middleware,
         routing::get,
@@ -899,11 +901,17 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
     .execute(&db.pool)
     .await
     .unwrap();
+    sqlx::raw_sql(include_str!(
+        "../../../../migrations/20261105160300_t04a_rate_limits.sql"
+    ))
+    .execute(&db.pool)
+    .await
+    .unwrap();
     for account in [actor(), second] {
         sqlx::query("INSERT INTO accounts(id,email,password_hash,status,email_verified_at,locale) VALUES($1,$1::text||'@example.invalid','test','active',clock_timestamp(),'en')")
             .bind(account).execute(&db.pool).await.unwrap();
     }
-    for r in snapshot(vec![item(11)]) {
+    for r in snapshot((11..62).map(item).collect()) {
         ingest(&p, &r).await.unwrap();
     }
     let mut bank_entry = bank();
@@ -927,9 +935,24 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         ingest(&p, &record).await.unwrap();
     }
     let uri = format!("/en/panel/items/{}/{}", world(), character());
-    let app = web::router(p);
+    let app = web::router(p).layer(Extension(ConnectInfo(
+        "192.0.2.10:40000".parse::<std::net::SocketAddr>().unwrap(),
+    )));
     let owner = cookie(db.pool.clone(), actor()).await;
     let foreign = cookie(db.pool.clone(), second).await;
+    let index = app
+        .clone()
+        .oneshot(
+            Request::get("/en/account/journal/items")
+                .header("cookie", &owner)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(index.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(index.headers()["cache-control"], "private, no-store");
+
     let request = |cookie: &str| {
         Request::get(&uri)
             .header("cookie", cookie)
@@ -969,6 +992,8 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         ("?location=inbox&q=backpack", StatusCode::OK),
         ("?location=house", StatusCode::SERVICE_UNAVAILABLE),
         ("?location=bank", StatusCode::BAD_REQUEST),
+        ("?location=equipment&q=BACKPACK&page=2", StatusCode::OK),
+        ("?page=0", StatusCode::BAD_REQUEST),
     ] {
         let response = app
             .clone()
@@ -985,6 +1010,14 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         let html = std::str::from_utf8(&body).unwrap();
         if suffix.starts_with("?location=inbox") {
             assert!(html.contains("No matching items"));
+        }
+        if suffix == "?location=equipment&q=BACKPACK" {
+            assert!(html.contains("href=\"?q=BACKPACK&amp;location=equipment&amp;page=2\""));
+            assert!(!html.contains("<option value=\"house\""));
+        }
+        if suffix.ends_with("page=2") {
+            assert_eq!(html.matches("oteryn:content.item.backpack").count(), 1);
+            assert!(html.contains("href=\"?q=BACKPACK&amp;location=equipment&amp;page=1\""));
         }
     }
     for lang in ["en", "pl"] {
@@ -1061,10 +1094,21 @@ async fn pg_browser_owner_foreign_and_unknown_evidence() {
         }
     }
     e.deny.store(true, Ordering::SeqCst);
-    let r = app.oneshot(request(&owner)).await.unwrap();
+    let r = app.clone().oneshot(request(&owner)).await.unwrap();
     assert_eq!(r.status(), StatusCode::NOT_FOUND);
     assert_eq!(r.headers()["cache-control"], "private, no-store");
-    db.close().await;
+    let policy = oteryn_web::ratelimit::NamedPolicy::PublicGameData;
+    for _ in 0..=2 * policy.limit() {
+        let r = app.clone().oneshot(request(&owner)).await.unwrap();
+        if r.status() == StatusCode::TOO_MANY_REQUESTS {
+            assert!(r.headers().contains_key("retry-after"));
+            assert_eq!(r.headers()["cache-control"], "private, no-store");
+            db.close().await;
+            return;
+        }
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+    panic!("journal request budget was not enforced");
 }
 
 #[tokio::test]

@@ -73,5 +73,15 @@ assets and erasure that preserves account bank history across character transfer
 PostgreSQL tests use isolated schemas and `PORTAL_TEST_DATABASE_URL`; when absent,
 each prints an explicit skip notice. No sqlx query macros are added.
 
-See the [G-10 qualification record](../../../../../docs/product/G10_JOURNAL_QUALIFICATION.md)
-for operator status and remaining producer and activation gates.
+## Operator status
+
+At startup, the portal emits one `G-10 journal` status line. It reports whether inventory and history reads are enabled, whether ingest was requested, and whether the source setting is present. `readiness=awaiting_qualified_game_evidence` is the activation status. The line contains neither journal contents nor peer identities. An ingest request still goes through the internal listener's environment, identity and family checks.
+
+`PLAYERDATA_G10_ITEMS_ENABLED` and `PLAYERDATA_G10_HISTORY_ENABLED` default off. Keep them off in production until the consumer qualification is complete. `PORTAL_PLAYERDATA_G10_INGEST_ENABLED` also defaults off. The account landing page remains available and displays the unavailable state for disabled views.
+
+## Qualification still required
+
+- Game must supply repeatable durable logout snapshots with complete equipment, depot and inbox coverage, and confirm the supported house custody and placement mapping.
+- Game must supply accepted typed item definitions and the source evidence required to resolve valuation inputs to the same definition revision. Missing estimates can remain unavailable independently of inventory coverage.
+- Game must qualify committed BANK chains, MARKET updates and both private trade leaves, including retained coverage, replay, transfer and recovery fencing. BANK baseline and replacement evidence must follow the accepted generation rules and the jointly agreed completeness protocol.
+- Against an authorized producer, qualify the production T72-to-T76 read adapter on the accepted baseline and catalogue mapping. Exercise a retained bank entry, a complete and an empty logout, and a transfer that hides earlier character history while preserving the original account's bank history. Confirm lost or ambiguous evidence returns unavailable. Obtain the activation decision before changing production flags.

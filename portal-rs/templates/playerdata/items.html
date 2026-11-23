@@ -28,7 +28,7 @@
     <dt>{{ locale.text("items-depots") }}</dt><dd>{% for town in depots %}{% if !loop.first %}, {% endif %}{{ town }}{% endfor %}</dd>
     {% endif %}
   </dl>
-  <form method="get" class="op-stack" id="items-search">
+  <form method="get" class="op-stack">
     <label for="q">{{ locale.text("items-search") }}</label>
     <input class="op-input" id="q" name="q" maxlength="128" value="{{ query }}">
     <label for="location">{{ locale.text("items-location") }}</label>
@@ -58,10 +58,10 @@
     {% endfor %}
   </ul>
   {% if let Some(page) = previous %}
-  <button class="op-button" type="submit" form="items-search" name="page" value="{{ page }}">{{ locale.text("items-previous") }}</button>
+  <a class="op-button" href="?q={{ query|urlencode_strict }}&amp;location={{ location }}&amp;page={{ page }}">{{ locale.text("items-previous") }}</a>
   {% endif %}
   {% if let Some(page) = next %}
-  <button class="op-button" type="submit" form="items-search" name="page" value="{{ page }}">{{ locale.text("items-next") }}</button>
+  <a class="op-button" href="?q={{ query|urlencode_strict }}&amp;location={{ location }}&amp;page={{ page }}">{{ locale.text("items-next") }}</a>
   {% endif %}
 </main>
 </body>

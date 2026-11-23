@@ -2,17 +2,24 @@ use super::{model::*, store::*};
 use askama::Template;
 use axum::{
     Extension, Router,
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
 };
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
-use oteryn_web::session::{BrowserSession, SessionLayer};
+use oteryn_web::{
+    Language,
+    ratelimit::{Denial, Keys, NamedPolicy, RateLimiter},
+    session::{BrowserSession, SessionLayer},
+};
 use serde::Deserialize;
 use sqlx::PgPool;
-use std::sync::{Arc, OnceLock};
+use std::{
+    net::SocketAddr,
+    sync::{Arc, OnceLock},
+};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +74,7 @@ struct ItemsPage {
     total: String,
     unpriced: usize,
     query: String,
+    location: &'static str,
     depots: Vec<u16>,
     locations: Vec<LocationOption>,
     world: Uuid,
@@ -117,11 +125,48 @@ pub fn router(projection: Projection) -> Router {
     }
     router
         .route_layer(middleware::from_fn_with_state(
+            RateLimiter::new(projection.pool.clone()),
+            journal_quota,
+        ))
+        .route_layer(middleware::from_fn_with_state(
             SessionLayer::new(projection.pool.clone()),
             oteryn_web::session::middleware,
         ))
         .layer(middleware::from_fn(private))
         .with_state(projection)
+}
+
+async fn journal_quota(
+    State(limiter): State<RateLimiter>,
+    Extension(session): Extension<BrowserSession>,
+    request: axum::extract::Request,
+    next: Next,
+) -> Response {
+    if session.account_id().await.is_none() {
+        return next.run(request).await;
+    }
+    let lang = if request.uri().path().starts_with("/en/") {
+        Language::En
+    } else {
+        Language::Pl
+    };
+    let source = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .ok_or(Denial::Unavailable)
+        .and_then(|peer| limiter.trusted_proxies.client_ip(peer.0, request.headers()));
+    let result = match source {
+        Ok(ip) => {
+            limiter
+                .check(NamedPolicy::PublicGameData, &[Keys::source(ip)])
+                .await
+        }
+        Err(error) => Err(error),
+    };
+    match result {
+        Ok(()) => next.run(request).await,
+        Err(error) => error.response(lang, false),
+    }
 }
 
 pub fn configured_router(pool: PgPool) -> Router {
@@ -208,10 +253,13 @@ async fn index(
         Vec::new()
     };
     let worlds = if p.flags.history {
-        sqlx::query_as("SELECT id,name FROM world_status ORDER BY name,id LIMIT 256")
+        match sqlx::query_as("SELECT id,name FROM world_status ORDER BY name,id LIMIT 256")
             .fetch_all(&p.pool)
             .await
-            .unwrap_or_default()
+        {
+            Ok(worlds) => worlds,
+            Err(error) => return read_error(locale, locale.text("items-journal"), error.into()),
+        }
     } else {
         Vec::new()
     };
@@ -285,7 +333,6 @@ async fn items(
         (Location::Equipment, "equipment", "items-equipment"),
         (Location::Depot, "depot", "items-depot"),
         (Location::Inbox, "inbox", "items-inbox"),
-        (Location::House, "house", "items-house-location"),
     ]
     .into_iter()
     .map(|(location, value, label)| LocationOption {
@@ -293,7 +340,7 @@ async fn items(
         label,
         selected: search.location == location,
     })
-    .collect();
+    .collect::<Vec<_>>();
     let title = locale.text("items-title");
     let mut inventory = match p
         .inventory_at(actor, world, character, &search.q, search.location)
@@ -313,6 +360,10 @@ async fn items(
         .take(ITEMS_PER_PAGE)
         .collect();
     let mut view = items_page(locale, inventory, search.q, world, character);
+    view.location = locations
+        .iter()
+        .find(|option| option.selected)
+        .map_or("all", |option| option.value);
     view.locations = locations;
     view.history_enabled = p.flags.history;
     view.previous = (page > 1).then_some(page - 1);
@@ -372,6 +423,7 @@ fn items_page(
         total: v.estimated_total.map(|n| n.to_string()).unwrap_or(unknown),
         unpriced: v.unpriced,
         query,
+        location: "all",
         depots: v.depots,
         empty: v.snapshot_empty,
         no_results: !v.snapshot_empty && count == 0,

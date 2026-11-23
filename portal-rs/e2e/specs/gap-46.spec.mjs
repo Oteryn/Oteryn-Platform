@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { test, expect } from '../fixtures.mjs';
 import { login, pool, register } from '../helpers.mjs';
 
@@ -24,9 +25,10 @@ test('account navigation reaches the inventory journal and bank availability', a
     const account = await register(page, lang);
     await login(page, lang, account);
     await page.goto(`/${lang}`);
-    const menu = page.locator('#portal-header details.om-fallback-menu');
-    if (await menu.locator(':scope > summary').isVisible()) {
-      await menu.locator(':scope > summary').click();
+    if (info.project.use.viewport.width === 390) {
+      const menu = page.locator('#portal-menu-toggle');
+      await menu.click();
+      await expect(menu).toHaveAttribute('aria-expanded', 'true');
     }
     await page.locator('#portal-header [data-account-link]').click();
     await page.locator('#podglad-konta').getByRole('link', { name: words.journal, exact: true }).click();
@@ -44,6 +46,8 @@ test('account navigation reaches the inventory journal and bank availability', a
     expect(unavailable.headers()['cache-control']).toContain('no-store');
     await expect(page.getByRole('heading', { name: words.bank, exact: true })).toBeVisible();
     await expect(page.getByRole('status')).toHaveText(words.unavailable);
+    await expect(page.locator('#portal-header')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
     expect((await page.request.get(`${bank}?cursor=invalid`)).status()).toBe(400);
     expect((await page.request.get(`/${lang}/panel/items/${world}/${world}?location=bank`)).status()).toBe(400);
     await page.getByRole('main').getByRole('link', { name: words.journal, exact: true }).click();
@@ -55,4 +59,17 @@ test('account navigation reaches the inventory journal and bank availability', a
       await db.end();
     }
   }
+});
+
+test('i18n-parity for the inventory journal', () => {
+  const messages = lang => {
+    const url = new URL(`../../crates/playerdata/src/items/${lang}.ftl`, import.meta.url);
+    return [...readFileSync(url, 'utf8').matchAll(/^(items-[\w-]+) *= *\S/gm)]
+      .map(([, key]) => key)
+      .sort();
+  };
+  const english = messages('en');
+  expect(english).toContain('items-journal');
+  expect(new Set(english).size).toBe(english.length);
+  expect(messages('pl')).toEqual(english);
 });

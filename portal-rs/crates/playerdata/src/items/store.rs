@@ -545,7 +545,12 @@ impl Projection {
         {
             return Err(Error::Invalid);
         }
-        let cursor = cursor.map(uuid).transpose()?;
+        let cursor = cursor
+            .map(|value| {
+                let (id, through) = value.split_once('.').ok_or(Error::Invalid)?;
+                Ok::<_, Error>((uuid(id)?, counter(through, false)?))
+            })
+            .transpose()?;
         let mut tx = self.pool.begin().await?;
         let scope = self
             .evidence
@@ -566,45 +571,43 @@ impl Projection {
             return Err(Error::Unavailable);
         }
         let retention = proof.now.saturating_sub(RETENTION);
-        let through = proof.coverage_through.min(proof.now);
-        if through < proof.coverage_start || through <= retention {
+        let latest = proof.coverage_through.min(proof.now);
+        let start = proof.coverage_start.max(retention.saturating_add(1));
+        if latest < start {
             return Err(Error::Unavailable);
         }
-        let retention = integer(retention)?;
-        let start = integer(proof.coverage_start)?;
-        let end = integer(through)?;
-        let after = if let Some(cursor) = cursor {
-            sqlx::query_scalar::<_, String>(
-                "SELECT source_revision::text FROM pd_t76_records
-                 WHERE stream_key=$1 AND record_id=$2 AND
-                       occurred_at>$3 AND occurred_at BETWEEN $4 AND $5
-                       AND canonical_bytes IS NOT NULL",
-            )
-            .bind(&stream)
-            .bind(cursor)
-            .bind(retention)
-            .bind(start)
-            .bind(end)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or(Error::Invalid)?
-        } else {
-            String::from("0")
-        };
-        let rows: Vec<Vec<u8>> = sqlx::query_scalar(
-            "SELECT canonical_bytes FROM pd_t76_records
-             WHERE stream_key=$1 AND occurred_at>$2 AND occurred_at BETWEEN $3 AND $4
-                   AND source_revision>$5::text::numeric AND canonical_bytes IS NOT NULL
-             ORDER BY source_revision LIMIT $6",
+        let through = cursor.map_or(latest, |(_, through)| through);
+        if !(start..=latest).contains(&through) {
+            return Err(Error::Invalid);
+        }
+        let (valid_cursor, rows): (bool, Vec<Vec<u8>>) = sqlx::query_as(
+            "WITH anchor AS (
+                 SELECT CASE WHEN $4::uuid IS NULL THEN 0 ELSE (
+                     SELECT source_revision FROM pd_t76_records
+                     WHERE source_authority=$5 AND generation=$6::text::numeric AND record_id=$4
+                           AND stream_key=$1 AND occurred_at BETWEEN $2 AND $3
+                           AND canonical_bytes IS NOT NULL
+                 ) END AS revision
+             )
+             SELECT revision IS NOT NULL, ARRAY(
+                 SELECT canonical_bytes FROM pd_t76_records
+                 WHERE stream_key=$1 AND occurred_at BETWEEN $2 AND $3
+                       AND source_revision > anchor.revision AND canonical_bytes IS NOT NULL
+                 ORDER BY source_revision LIMIT $7
+             ) FROM anchor",
         )
         .bind(&stream)
-        .bind(retention)
-        .bind(start)
-        .bind(end)
-        .bind(after)
+        .bind(integer(start)?)
+        .bind(integer(through)?)
+        .bind(cursor.map(|(id, _)| id))
+        .bind(&scope.source_authority)
+        .bind(&scope.recovery_generation)
         .bind(i64::from(limit) + 1)
-        .fetch_all(&mut *tx)
+        .fetch_one(&mut *tx)
         .await?;
+        if !valid_cursor {
+            return Err(Error::Invalid);
+        }
         let limit = limit as usize;
         let records = rows
             .iter()
@@ -612,16 +615,14 @@ impl Projection {
             .map(|b| Record::parse(b))
             .collect::<Result<Vec<_>>>()?;
         let next_cursor = if rows.len() > limit {
-            records.last().map(|r| r.record_id.clone())
+            records.last().map(|r| format!("{}.{through}", r.record_id))
         } else {
             None
         };
         // Empty history requires separately verified baseline in Evidence.
         tx.commit().await?;
         Ok(History {
-            coverage_start: proof
-                .coverage_start
-                .max(proof.now.saturating_sub(RETENTION)),
+            coverage_start: start,
             through,
             records,
             next_cursor,
