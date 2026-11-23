@@ -613,7 +613,9 @@ async fn postgres_browser_flow_localization_csrf_bad_input_and_replay() -> TestR
         let html = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
         assert!(html.contains(title));
         assert!(html.contains(r##"class="op-skip" href="#main""##));
-        assert!(html.contains(&format!(r#"class="site-header op-row" aria-label="{title}""#)));
+        assert!(html.contains(&format!(
+            r#"class="site-header op-row" aria-label="{title}""#
+        )));
         assert!(!html.contains("<header"));
         assert!(html.contains("<label for=\"choice-"));
         assert!(!html.contains("synthetic-creature"));
