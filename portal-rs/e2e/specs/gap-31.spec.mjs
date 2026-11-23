@@ -12,6 +12,10 @@ test('staff sees saved editorial previews in both languages', async ({ page, pla
   const title = { en: `English ${slug}`, pl: `Polski ${slug}` };
   const body = { en: 'English editorial body', pl: 'Polska treść redakcyjna' };
   const unsafe = '<span onclick="alert(1)">Editorial markup</span>';
+  const notices = {
+    en: 'Staff preview of the saved revision.',
+    pl: 'Podgląd zapisanej wersji dla redakcji.',
+  };
   const start = new Date(Date.now() - 60_000).toISOString();
   const end = new Date(Date.now() + 3_600_000).toISOString();
   const anonymous = await playwright.request.newContext({
@@ -40,15 +44,22 @@ test('staff sees saved editorial previews in both languages', async ({ page, pla
     expect(result.status()).toBe(200);
     expect(result.headers()['cache-control']).toContain('no-store');
     expect(result.headers()['content-language']).toBe(locale);
+    expect(result.headers()['x-robots-tag']).toBe('noindex, nofollow');
     await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.locator('a.skip[href="#main"]')).toHaveCount(1);
+    await expect(page.locator('footer')).toBeVisible();
+    await expect(page.locator('main [role="note"]')).toHaveText(notices[locale]);
     await expect(page.locator('main').getByRole('heading', { name: expectedTitle, exact: true }).first()).toBeVisible();
     await expect(page.locator(selector)).toContainText(body[locale]);
     await expect(page.locator('main [onclick]')).toHaveCount(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(info.project.use.viewport.width);
-    expect((await anonymous.get(path, { maxRedirects: 0 })).status()).toBe(303);
+    const refused = await anonymous.get(path, { maxRedirects: 0 });
+    expect(refused.status()).toBe(303);
+    expect(refused.headers().location).toBe('/login');
     const [, base, revision] = path.match(/^(.*\/preview\/)\w+\/(\d+)$/);
     expect((await page.request.get(`${base}xx/${revision}`)).status()).toBe(404);
     expect((await page.request.get(`${base}${locale}/99999999999999`)).status()).toBe(404);
+    expect((await page.request.get(`${base}${locale}/invalid`)).status()).toBe(400);
     previewPaths.push(path);
   }
 
@@ -81,6 +92,12 @@ test('staff sees saved editorial previews in both languages', async ({ page, pla
       expect((await anonymous.get(`/${locale}/pages/${slug}`)).status()).toBe(404);
     }
 
+    await page.goto(`/admin/pages/${slug}/pl`);
+    for (const locale of ['en', 'pl']) {
+      await expect(page.locator(`main a[hreflang="${locale}"][href*="/preview/"]`))
+        .toHaveAttribute('href', previewPaths[locale === 'en' ? 2 : 3]);
+    }
+
     await openEditor('events');
     await submit(page, 'main form', {
       starts_at: start.slice(0, 16), ends_at: end.slice(0, 16), reason: 'Review draft appearance',
@@ -92,6 +109,7 @@ test('staff sees saved editorial previews in both languages', async ({ page, pla
     for (const locale of ['en', 'pl']) {
       await page.goto(eventEdit);
       await preview(locale, 'main article');
+      await expect(page.locator(`main a[href="/${locale}/events/${slug}"]`)).toHaveCount(0);
       expect((await anonymous.get(`/${locale}/events/${slug}`)).status()).toBe(404);
     }
 
@@ -100,19 +118,45 @@ test('staff sees saved editorial previews in both languages', async ({ page, pla
     await submit(page, 'main form', {
       starts_at: start, ends_at: end, title: title.en, body: `${body.en} ${unsafe}`,
       title_pl: title.pl, body_pl: `${body.pl} ${unsafe}`, action_url: '/worlds',
-      action_label: 'Worlds', action_label_pl: 'Światy',
+      action_label: 'Worlds',
     });
     await expect(page).toHaveURL(/\/admin\/announcements\/[\da-f-]+\/edit$/);
     const announcementEdit = new URL(page.url()).pathname;
+    const draftEnglish = page.locator('main a[hreflang="en"][href*="/preview/"]');
+    await expect(draftEnglish).toBeVisible();
+    await expect(page.locator('main a[hreflang="pl"][href*="/preview/"]')).toHaveCount(0);
+    const draftPath = await draftEnglish.getAttribute('href');
+    const draftPolish = draftPath.replace('/preview/en/', '/preview/pl/');
+    expect((await page.request.get(draftPolish)).status()).toBe(404);
+    await submit(page, 'main form[method=post]', { action_label_pl: 'Światy' });
+    await expect(page).toHaveURL(announcementEdit);
+    expect((await page.request.get(draftPath)).status()).toBe(404);
+
     for (const locale of ['en', 'pl']) {
       await page.goto(announcementEdit);
       await preview(locale, 'main aside article', `${locale === 'pl' ? 'Ostrzeżenie' : 'Warning'}: ${title[locale]}`);
       await expect(page.locator('main aside article a')).toHaveAttribute('href', '/worlds');
-      expect(await (await anonymous.get(`/${locale}/announcements/ticker`)).text()).not.toContain(slug);
+      const ticker = await anonymous.get(`/${locale}/announcements/ticker`);
+      expect(ticker.status()).toBe(200);
+      expect(await ticker.text()).not.toContain(slug);
     }
 
+    const currentNews = await page.goto(newsEdit);
+    expect(currentNews.status()).toBe(200);
+    const updatedLink = page.locator('main a[hreflang="en"][href*="/preview/"]');
+    const updatedPath = await updatedLink.getAttribute('href');
+    const currentPaths = [updatedPath, ...previewPaths.slice(2)];
+    await query("DELETE FROM account_roles WHERE account_id=$1", [actor]);
+    await query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='security_admin'", [actor]);
+    expect((await page.goto('/admin')).status()).toBe(200);
+    for (const kind of ['news', 'pages', 'events', 'announcements']) {
+      await expect(page.locator(`main a[href="/admin/${kind}"]`)).toHaveCount(0);
+    }
+    for (const path of currentPaths) {
+      expect((await page.request.get(path, { maxRedirects: 0 })).status()).toBe(403);
+    }
     await query("UPDATE web_sessions SET idle_expires_at=now()-interval '1 second' WHERE account_id=$1", [actor]);
-    for (const path of previewPaths.slice(1)) await expectLoginRedirect(page, path);
+    for (const path of currentPaths) await expectLoginRedirect(page, path);
   } finally {
     await anonymous.dispose();
   }

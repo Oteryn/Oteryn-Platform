@@ -348,6 +348,8 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
     let html = String::from_utf8(to_bytes(r.into_body(), 100_000).await.unwrap().to_vec()).unwrap();
     assert!(html.contains("lang=\"en\""));
     assert!(html.contains(&crate::preview::notice("en")));
+    assert!(!html.contains("href=\"/en/events/event\""));
+    assert!(html.contains("&#60;script&#62;"));
     assert!(!html.contains("<script>"));
     for suffix in ["xx/1", "pl/1", "en/999"] {
         let r = request(
@@ -378,6 +380,25 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
         )
         .await
         .unwrap();
+    let app = staff(db.pool.clone(), identity.clone());
+    let stale = request(app.clone(), &format!("/admin/events/{id}/preview/en/1")).await;
+    assert_eq!(stale.status(), StatusCode::NOT_FOUND);
+
+    let (saved, english, polish) = events.load(id).await.unwrap();
+    assert_eq!(saved.lock_version, 2);
+    assert_eq!(english.slug, "event");
+    assert!(polish.is_none());
+    let editor = request(app, &format!("/admin/events/{id}/edit")).await;
+    assert_eq!(editor.status(), StatusCode::OK);
+    let editor = String::from_utf8(
+        to_bytes(editor.into_body(), 100_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(editor.contains(&format!("href=\"/admin/events/{id}/preview/en/2\"")));
+
     let r = request(web::public_router(db.pool.clone()), "/en/events/event").await;
     assert_eq!(r.status(), StatusCode::OK);
     assert_eq!(r.headers()["cache-control"], "no-store");

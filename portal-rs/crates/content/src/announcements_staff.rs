@@ -169,16 +169,21 @@ async fn edit(
         .collect();
     let version: i64 = row.get("lock_version");
     let base = format!("/admin/announcements/{id}");
-    let links = [("en", "title", "body"), ("pl", "title_pl", "body_pl")]
-        .into_iter()
-        .filter(|(_, title, body)| {
-            preview::complete(
-                data[title].as_str().unwrap_or_default(),
-                data[body].as_str().unwrap_or_default(),
-            )
-        })
-        .map(|(locale, _, _)| preview::link(&base, locale, version))
-        .collect();
+    let links = [
+        ("en", "title", "body", "action_label"),
+        ("pl", "title_pl", "body_pl", "action_label_pl"),
+    ]
+    .into_iter()
+    .filter(|(_, title, body, label)| {
+        preview_complete(
+            data[title].as_str().unwrap_or_default(),
+            data[body].as_str().unwrap_or_default(),
+            data["action_url"].as_str(),
+            data[label].as_str(),
+        )
+    })
+    .map(|(locale, _, _, _)| preview::link(&base, locale, version))
+    .collect();
     Ok(oteryn_web::render(&Page {
         next: 0,
         more: false,
@@ -210,12 +215,24 @@ async fn preview(
     .fetch_optional(&pool)
     .await
     .map_err(unavailable)?
-    .filter(|row: &Announcement| preview::complete(&row.title, &row.body))
+    .filter(|row: &Announcement| {
+        preview_complete(
+            &row.title,
+            &row.body,
+            row.action_url.as_deref(),
+            row.action_label.as_deref(),
+        )
+    })
     .ok_or(StatusCode::NOT_FOUND)?;
     Ok(preview::response(
         crate::today::preview_announcement(lang, row),
         lang,
     ))
+}
+
+fn preview_complete(title: &str, body: &str, url: Option<&str>, label: Option<&str>) -> bool {
+    preview::complete(title, body)
+        && (url.is_none() || label.is_some_and(|label| !label.trim().is_empty()))
 }
 
 #[derive(Deserialize)]

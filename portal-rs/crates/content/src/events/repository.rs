@@ -5,7 +5,7 @@ use oteryn_admin::{
 };
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
-use sqlx::{PgConnection, PgPool};
+use sqlx::{FromRow, PgConnection, PgPool};
 
 async fn translation_snapshot(
     db: &mut PgConnection,
@@ -95,31 +95,31 @@ impl Events {
         Ok(sqlx::query_as("SELECT id,status,starts_at,ends_at,featured,lock_version,published_by FROM events ORDER BY updated_at DESC,id DESC LIMIT 200 OFFSET $1").bind(offset).fetch_all(&self.pool).await?)
     }
     pub async fn load(&self, id: Uuid) -> Result<(Event, Translation, Option<Translation>), Error> {
-        let event = sqlx::query_as(
-            "SELECT id,status,starts_at,ends_at,featured,lock_version,published_by FROM events WHERE id=$1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or(Error::NotFound)?;
-        let rows: Vec<(String, String, String, String, String)> = sqlx::query_as(
-            "SELECT locale,title,slug,summary,body FROM event_translations WHERE event_id=$1",
+        #[derive(FromRow)]
+        struct EditorRow {
+            #[sqlx(flatten)]
+            event: Event,
+            translation: Option<sqlx::types::Json<Translation>>,
+            locale: Option<String>,
+        }
+
+        let rows: Vec<EditorRow> = sqlx::query_as(
+            "SELECT e.id,e.status,e.starts_at,e.ends_at,e.featured,e.lock_version,e.published_by,
+                    t.locale,
+                    CASE WHEN t.locale IS NOT NULL THEN jsonb_build_object('title',t.title,'slug',t.slug,'summary',t.summary,'body',t.body) END AS translation
+             FROM events e LEFT JOIN event_translations t ON t.event_id=e.id
+             WHERE e.id=$1",
         )
         .bind(id)
         .fetch_all(&self.pool)
         .await?;
+        let event = rows.first().ok_or(Error::NotFound)?.event.clone();
         let mut en = None;
         let mut pl = None;
-        for (locale, title, slug, summary, body) in rows {
-            let t = Translation {
-                title,
-                slug,
-                summary,
-                body,
-            };
-            match locale.as_str() {
-                "en" => en = Some(t),
-                "pl" => pl = Some(t),
+        for row in rows {
+            match (row.locale.as_deref(), row.translation) {
+                (Some("en"), Some(t)) => en = Some(t.0),
+                (Some("pl"), Some(t)) => pl = Some(t.0),
                 _ => return Err(Error::Conflict),
             }
         }

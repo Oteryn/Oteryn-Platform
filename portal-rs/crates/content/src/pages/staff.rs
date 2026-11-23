@@ -225,11 +225,10 @@ async fn edit(
         },
         None => PageForm::default(),
     };
-    form.reviewed_source_revision = match sqlx::query_scalar::<_, i64>("SELECT e.revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale='en'")
-        .bind(&slug).fetch_optional(&pool).await {
-            Ok(revision) => revision.unwrap_or(0),
-            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
-        };
+    form.reviewed_source_revision = rows
+        .iter()
+        .find(|row| row.get::<&str, _>("locale") == "en")
+        .map_or(0, |row| row.get("revision"));
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
