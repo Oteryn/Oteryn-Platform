@@ -290,8 +290,10 @@ for (const actor of actors) {
               // Browser exceptions can include full URLs. Preserve the category and route without query data.
               const requestedPath = new URL(target, origin).pathname;
               const reason = error.message.match(/net::[A-Z_0-9]+/)?.[0] ?? error.name;
-              evidence.push({ pattern: entry.pattern, requestedPath, outcome: 'audit error', error: reason });
-              expect.soft(reason, `${requestedPath}: audit completed`).toBe('');
+              const location = error.stack?.match(/(?:quality\.spec|keyboard|performance)\.mjs:\d+:\d+/)?.[0];
+              evidence.push({ pattern: entry.pattern, requestedPath, outcome: 'audit error', error: reason, location });
+              const label = [requestedPath, 'audit completed', location].filter(Boolean).join(' ');
+              expect.soft(reason, label).toBe('');
             }
             fs.writeFileSync(report, JSON.stringify({ actor, locale, evidence }), { mode: 0o600 });
           }

@@ -140,7 +140,15 @@ try {
     },
     stdio: 'inherit',
   });
-  const [code] = await once(tests, 'exit');
+  const testsExit = once(tests, 'exit');
+  const [code] = await Promise.race([
+    testsExit,
+    launcherExit.then(async () => {
+      tests.kill('SIGINT');
+      await testsExit;
+      throw new Error('Harness exited while browser audits were running');
+    }),
+  ]);
   process.exitCode = code ?? 1;
 } catch (error) {
   console.error(`${error.message}. Local harness evidence: ${scratch}`);
