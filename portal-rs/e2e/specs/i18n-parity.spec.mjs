@@ -1209,6 +1209,8 @@ for (const { actor, group } of crawls) {
     const checked = new Set();
     const uncovered = new Set();
     const missingProfiles = [missingProfile, `/${locale}${missingProfile}`];
+    const ownedProfile = `/account/characters/${encodeURIComponent(ownedCharacterName)}/profile`;
+    const localizedOwnedProfile = `/${locale}${ownedProfile}`;
     const missingProfilesChecked = [];
     let ownedProfileChecked = false;
     for (const [target, status] of targets) {
@@ -1223,22 +1225,20 @@ for (const { actor, group } of crawls) {
         }
         await waitForWikiBudget(target, 2);
         const accountOverview = group === 'account' && url.pathname === '/account';
-        if (accountOverview) await ensureFreshOwnership();
         const missingOwnedProfile = actor === 'player' && missingProfiles.includes(url.pathname);
-        if (missingOwnedProfile) {
-          if (!ownedProfileChecked) {
-            const ownedProfile = `/${locale}/account/characters/${encodeURIComponent(ownedCharacterName)}/profile`;
-            await ensureFreshOwnership();
-            await assertRouteResponse(await page.goto(ownedProfile), ownedProfile);
-            await expect(page.locator('main')).toContainText(ownedCharacterName);
-            await expect(page.locator('main textarea[name=comment]')).toBeVisible();
-            await assertDocument(page, locale, ownedProfile, actor);
-            await assertProfileControls(page, locale);
-            documents.add(ownedProfile);
-            ownedProfileChecked = true;
-          }
+        if (missingOwnedProfile && !ownedProfileChecked) {
           await ensureFreshOwnership();
+          await assertRouteResponse(await page.goto(localizedOwnedProfile), localizedOwnedProfile);
+          await expect(page.locator('main')).toContainText(ownedCharacterName);
+          await expect(page.locator('main textarea[name=comment]')).toBeVisible();
+          await assertDocument(page, locale, localizedOwnedProfile, actor);
+          await assertProfileControls(page, locale);
+          documents.add(localizedOwnedProfile);
+          ownedProfileChecked = true;
         }
+        const needsOwnership = accountOverview || missingOwnedProfile
+          || (actor === 'player' && [ownedProfile, localizedOwnedProfile].includes(url.pathname));
+        if (needsOwnership) await ensureFreshOwnership();
         const probe = await page.request.get(url.href, { headers: { accept: 'text/html', 'accept-language': locale } });
         if (missingOwnedProfile) {
           expect(probe.status(), target).toBe(404);
@@ -1287,6 +1287,7 @@ for (const { actor, group } of crawls) {
         const final = new URL(probe.url());
         if (!required && documents.has(final.pathname + final.search)) return;
         documents.add(final.pathname + final.search);
+        if (needsOwnership) await ensureFreshOwnership();
         const navigation = await page.goto(url.href);
         expect.soft(navigation.status(), target).toBe(probe.status());
         await assertRouteResponse(navigation, url.pathname, contract);
