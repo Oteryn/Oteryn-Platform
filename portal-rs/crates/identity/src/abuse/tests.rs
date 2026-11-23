@@ -226,6 +226,13 @@ async fn browser_form(
         .to_string();
     let html = String::from_utf8(to_bytes(response.into_body(), 1024 * 1024).await?.to_vec())?;
     assert!(html.contains("/register/abuse.js"));
+    let head = html
+        .split_once("</head>")
+        .ok_or("missing registration head")?
+        .0;
+    assert!(head.contains(
+        r#"<link rel="preload" as="font" type="font/woff2" crossorigin href="/static/thais/alegreya-56505fe0.woff2">"#
+    ));
     let csrf = html
         .split("name=\"_csrf\" value=\"")
         .nth(1)

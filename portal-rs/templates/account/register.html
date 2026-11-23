@@ -1,4 +1,7 @@
 {% extends "account/register_base.html" %}
+{% block preloads %}
+<link rel="preload" as="font" type="font/woff2" crossorigin href="/static/thais/alegreya-56505fe0.woff2">
+{% endblock %}
 {% block content %}
 <h1>{{ self.text("register-title") }}</h1>
 {% if !errors.is_empty() %}<p class="op-error" role="alert">{{ self.text("register-errors") }}</p>{% endif %}
