@@ -1,4 +1,5 @@
 //! News storage and public and staff routes.
+use crate::revisions::{self, Edit, Target};
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
@@ -138,6 +139,8 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news", get(admin_index).post(create))
         .route("/admin/news/create", get(new))
         .route("/admin/news/{id}/edit", get(edit))
+        .route("/admin/news/{id}/revisions", get(history))
+        .route("/admin/news/{id}/revisions/{source}/restore", post(restore))
         .route("/admin/news/{id}", post(update).put(update).delete(delete))
         .route("/admin/news/{id}/delete", post(delete))
         .with_state(pool)
@@ -309,6 +312,7 @@ async fn new(
 ) -> Result<Html<String>, StatusCode> {
     Ok(form(
         q.lang(),
+        q.lang(),
         None,
         Input::default(),
         session.csrf_token().await.map_err(unavailable)?,
@@ -320,10 +324,18 @@ async fn edit(
     Extension(session): Extension<BrowserSession>,
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Html<String>, StatusCode> {
     let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    let history_lang = revisions::language(chrome.as_deref());
+    let lang = q
+        .lang
+        .as_deref()
+        .filter(|lang| matches!(*lang, "en" | "pl"))
+        .unwrap_or(history_lang);
     Ok(form(
-        q.lang(),
+        lang,
+        history_lang,
         Some(id),
         Input {
             expected_revision: row.get("expected_revision"),
@@ -338,15 +350,28 @@ async fn edit(
         session.csrf_token().await.map_err(unavailable)?,
     ))
 }
-fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String> {
+fn form(
+    lang: &str,
+    history_lang: &str,
+    id: Option<Uuid>,
+    input: Input,
+    csrf: String,
+) -> Html<String> {
     let action = id.map_or_else(
         || "/admin/news".to_owned(),
         |id| format!("/admin/news/{id}"),
     );
-    let mut html = format!(
+    let mut html = id.map_or_else(String::new, |id| {
+        format!(
+            "<a href=\"{}\">{}</a>",
+            Target::News(id).history_path(),
+            escape(&revisions::history_label(history_lang)),
+        )
+    });
+    html.push_str(&format!(
         "<form class=\"op-stack\" method=\"post\" action=\"{action}?lang={lang}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\">",
         escape(&csrf)
-    );
+    ));
     html.push_str(&format!(
         "<input type=\"hidden\" name=\"expected_revision\" value=\"{}\">",
         escape(&input.expected_revision)
@@ -396,6 +421,40 @@ fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String
     }
     page(lang, &label(lang, "news"), html)
 }
+async fn history(
+    State(pool): State<PgPool>,
+    Extension(session): Extension<BrowserSession>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<revisions::Query>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+) -> Result<Response, StatusCode> {
+    revisions::history(
+        &pool,
+        Target::News(id),
+        revisions::language(chrome.as_deref()),
+        query,
+        &session,
+    )
+    .await
+}
+
+async fn restore(
+    State(pool): State<PgPool>,
+    Extension(context): Extension<CheckContext>,
+    Extension(auth): Extension<MutationAuthorization>,
+    Path((id, source)): Path<(Uuid, i64)>,
+    Form(form): Form<revisions::Restore<String>>,
+) -> Result<Response, StatusCode> {
+    save_change(
+        &pool,
+        &auth,
+        context,
+        Some(id),
+        Edit::Restore { source, form },
+    )
+    .await
+}
+
 async fn create(
     State(pool): State<PgPool>,
     Extension(context): Extension<CheckContext>,
@@ -431,9 +490,16 @@ async fn save(
     id: Option<Uuid>,
     input: Input,
 ) -> Result<Response, StatusCode> {
-    if !input.valid() {
-        return Err(StatusCode::UNPROCESSABLE_ENTITY);
-    }
+    save_change(pool, auth, context, id, Edit::Save(input)).await
+}
+
+async fn save_change(
+    pool: &PgPool,
+    auth: &MutationAuthorization,
+    context: CheckContext,
+    id: Option<Uuid>,
+    change: Edit<Input, String>,
+) -> Result<Response, StatusCode> {
     let mut tx = pool.begin().await.map_err(unavailable)?;
     oteryn_admin::rbac::authorize_mutation_with_resources(
         &mut tx,
@@ -475,19 +541,66 @@ async fn save(
                 unavailable(e)
             }
         })?;
-    if let Some(id) = id {
-        verify_revision(&mut tx, id, &input.expected_revision).await?;
+    let (input, restored_from) = match change {
+        Edit::Save(input) => {
+            if let Some(id) = id {
+                verify_revision(&mut tx, id, &input.expected_revision).await?;
+            }
+            (input, None)
+        }
+        Edit::Restore { source, form } => {
+            if form.expected_revision.is_empty() {
+                return Err(StatusCode::BAD_REQUEST);
+            }
+            let id = id.ok_or(StatusCode::BAD_REQUEST)?;
+            verify_revision(&mut tx, id, &form.expected_revision).await?;
+            let snapshot = Target::News(id)
+                .snapshot(&mut tx, source)
+                .await
+                .map_err(revisions::Error::status)?;
+            let value = |field| revisions::value(&snapshot, field);
+            (
+                Input {
+                    slug: value("slug"),
+                    title: value("title"),
+                    body: value("body"),
+                    title_pl: value("title_pl"),
+                    body_pl: value("body_pl"),
+                    ..Input::default()
+                },
+                Some(source),
+            )
+        }
+    };
+    if !input.valid() {
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
-    let action = if id.is_some() {
+    let action = if restored_from.is_some() {
+        "cms.news_restored"
+    } else if id.is_some() {
         "cms.news_updated"
     } else {
         "cms.news_created"
     };
     let id = if let Some(id) = id {
-        sqlx::query_scalar::<_,Uuid>("WITH revision AS MATERIALIZED (SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp FROM news WHERE id=$1) UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision) WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision) WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision) ELSE NULL END,updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(storage)?.ok_or(StatusCode::NOT_FOUND)?
+        sqlx::query_scalar::<_,Uuid>("WITH revision AS MATERIALIZED (SELECT greatest(clock_timestamp(),updated_at+interval '1 microsecond') AS stamp FROM news WHERE id=$1) UPDATE news SET slug=$2,title=$3,body=$4,published_at=NULLIF($5,'')::timestamptz,title_pl=NULLIF($6,''),body_pl=NULLIF($7,''),translation_published_at=NULLIF($8,'')::timestamptz,translation_source_updated_at=CASE WHEN translation_published_at IS DISTINCT FROM NULLIF($8,'')::timestamptz AND NULLIF($8,'')::timestamptz IS NOT NULL THEN (SELECT stamp FROM revision) WHEN (title,body) IS DISTINCT FROM ($3,$4) AND (title_pl,body_pl) IS NOT DISTINCT FROM (NULLIF($6,''),NULLIF($7,'')) THEN NULL WHEN (title_pl,body_pl,translation_published_at) IS DISTINCT FROM (NULLIF($6,''),NULLIF($7,''),NULLIF($8,'')::timestamptz) THEN (SELECT stamp FROM revision) WHEN translation_source_updated_at>=updated_at THEN (SELECT stamp FROM revision) ELSE NULL END,updated_at=(SELECT stamp FROM revision) WHERE id=$1 RETURNING id").bind(id).bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_optional(&mut *tx).await.map_err(|error| {
+            if restored_from.is_some() && error.as_database_error().is_some_and(|db| db.is_unique_violation()) {
+                StatusCode::CONFLICT
+            } else {
+                storage(error)
+            }
+        })?.ok_or(StatusCode::NOT_FOUND)?
     } else {
         sqlx::query_scalar("INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,translation_published_at,translation_source_updated_at) VALUES($1,$2,$3,NULLIF($4,'')::timestamptz,NULLIF($5,''),NULLIF($6,''),NULLIF($7,'')::timestamptz,now()) RETURNING id").bind(&input.slug).bind(&input.title).bind(&input.body).bind(&input.published_at).bind(&input.title_pl).bind(&input.body_pl).bind(&input.translation_published_at).fetch_one(&mut *tx).await.map_err(storage)?
     };
+    Target::News(id)
+        .append(&mut tx, context.account, restored_from)
+        .await
+        .map_err(unavailable)?;
+    let mut after = json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at});
+    if let Some(source) = restored_from {
+        after["restored_from"] = json!(source);
+    }
     audit::append(
         &mut tx,
         Entry {
@@ -498,7 +611,7 @@ async fn save(
             action,
             target: &id.to_string(),
             before,
-            after: json!({"slug":input.slug,"title":input.title,"body":input.body,"published_at":input.published_at,"title_pl":input.title_pl,"body_pl":input.body_pl,"translation_published_at":input.translation_published_at}),
+            after,
         },
     )
     .await

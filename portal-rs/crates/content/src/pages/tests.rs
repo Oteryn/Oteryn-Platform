@@ -371,6 +371,22 @@ Updated English source",
         StatusCode::NOT_FOUND
     );
     persist_current(&pool, &auth, ctx, &slug, "pl", &form).await?;
+    let source: i64 = sqlx::query_scalar(
+        "SELECT min(id) FROM editorial_revisions WHERE kind='page' AND object_key=$1 AND locale='en'",
+    )
+    .bind(&slug)
+    .fetch_one(&pool)
+    .await?;
+    let mut connection = pool.acquire().await?;
+    let target = crate::revisions::Target::Page {
+        slug: &slug,
+        locale: "pl",
+    };
+    assert!(matches!(
+        target.snapshot(&mut connection, source).await,
+        Err(crate::revisions::Error::Missing)
+    ));
+    drop(connection);
     assert_eq!(
         app.clone()
             .oneshot(Request::get(format!("/pl/pages/{slug}")).body(Body::empty())?)

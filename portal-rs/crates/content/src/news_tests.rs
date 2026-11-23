@@ -203,6 +203,136 @@ async fn postgres_news_lifecycle() {
         article(&pool, "en", &slug).await.unwrap_err(),
         StatusCode::NOT_FOUND
     );
+    let (source, original): (i64, String) = sqlx::query_as(
+        "SELECT id,snapshot->>'body' FROM editorial_revisions
+         WHERE kind='news' AND object_key=$1 ORDER BY id LIMIT 1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let taken_slug = format!("taken-{id}");
+    let mut renamed = make();
+    renamed.slug = taken_slug.clone();
+    save_current(&pool, &auth, context, Some(id), renamed)
+        .await
+        .unwrap();
+    save_current(&pool, &auth, context, None, make())
+        .await
+        .unwrap();
+    let current: String = sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let attempted = Edit::Restore {
+        source,
+        form: revisions::Restore {
+            expected_revision: current,
+            reviewed_source_revision: 0,
+        },
+    };
+    assert_eq!(
+        save_change(&pool, &auth, context, Some(id), attempted)
+            .await
+            .unwrap_err(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT slug FROM news WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        taken_slug
+    );
+    sqlx::query("DELETE FROM news WHERE slug=$1")
+        .bind(&slug)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let expected_revision: String =
+        sqlx::query_scalar("SELECT updated_at::text FROM news WHERE id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let restore = |source| Edit::Restore {
+        source,
+        form: revisions::Restore {
+            expected_revision: expected_revision.clone(),
+            reviewed_source_revision: 0,
+        },
+    };
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM editorial_revisions")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        save_change(&pool, &auth, context, Some(id), restore(-1))
+            .await
+            .unwrap_err(),
+        StatusCode::BAD_REQUEST
+    );
+
+    let role: Uuid =
+        sqlx::query_scalar("DELETE FROM account_roles WHERE account_id=$1 RETURNING role_id")
+            .bind(context.account)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='support'",
+    )
+    .bind(context.account)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        save_change(&pool, &auth, context, Some(id), restore(source))
+            .await
+            .unwrap_err(),
+        StatusCode::FORBIDDEN
+    );
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) VALUES ($1,$2)")
+        .bind(context.account)
+        .bind(role)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        save_change(&pool, &auth, context, Some(id), restore(source))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FOUND
+    );
+    let (editor, restored_from, body, draft): (Uuid, i64, String, bool) = sqlx::query_as(
+        "SELECT actor,restored_from,snapshot->>'body',snapshot->>'published_at' IS NULL
+         FROM editorial_revisions WHERE kind='news' AND object_key=$1 ORDER BY id DESC LIMIT 1",
+    )
+    .bind(id.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (editor, restored_from, body, draft),
+        (context.account, source, original, true)
+    );
+    assert_eq!(
+        save_change(&pool, &auth, context, Some(id), restore(source))
+            .await
+            .unwrap_err(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM editorial_revisions")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        before + 1
+    );
     let guarded = oteryn_admin::web::guarded(
         admin_router(pool.clone()),
         pool.clone(),

@@ -2,10 +2,10 @@
 use super::*;
 use axum::{
     Extension, Form, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
 };
 use oteryn_admin::web::{PanelConfig, PortalIdentity, StaffSession};
 use oteryn_web::session::BrowserSession;
@@ -44,6 +44,11 @@ fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) ->
             "/admin/announcements/{id}/edit",
             get(edit).post(update::<A>),
         )
+        .route("/admin/announcements/{id}/revisions", get(history))
+        .route(
+            "/admin/announcements/{id}/revisions/{source}/restore",
+            post(restore::<A>),
+        )
         .with_state(pool)
         .layer(Extension(accounts))
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
@@ -58,6 +63,8 @@ struct Page {
     version: i64,
     fields: Vec<(String, String, String)>,
     rows: Vec<(Uuid, String, String)>,
+    history: String,
+    history_label: String,
 }
 async fn index(
     State(pool): State<PgPool>,
@@ -72,6 +79,8 @@ async fn index(
         version: 0,
         fields: vec![],
         rows,
+        history: String::new(),
+        history_label: String::new(),
     }))
 }
 const FIELDS: [&str; 12] = [
@@ -134,12 +143,15 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
         version: 0,
         fields,
         rows: vec![],
+        history: String::new(),
+        history_label: String::new(),
     }))
 }
 async fn edit(
     State(pool): State<PgPool>,
     Path(id): Path<Uuid>,
     Extension(session): Extension<BrowserSession>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
 ) -> Result<Response, StatusCode> {
     let row =
         sqlx::query("SELECT to_jsonb(a) AS data,lock_version FROM announcements a WHERE id=$1")
@@ -167,8 +179,43 @@ async fn edit(
         version: row.get("lock_version"),
         fields,
         rows: vec![],
+        history: Target::Announcement(id).history_path(),
+        history_label: revisions::history_label(revisions::language(chrome.as_deref())),
     }))
 }
+
+async fn history(
+    State(pool): State<PgPool>,
+    Extension(session): Extension<BrowserSession>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<revisions::Query>,
+    chrome: Option<Extension<oteryn_ui::Chrome>>,
+) -> Result<Response, StatusCode> {
+    revisions::history(
+        &pool,
+        Target::Announcement(id),
+        revisions::language(chrome.as_deref()),
+        query,
+        &session,
+    )
+    .await
+}
+
+async fn restore<A: AccountStateReader + Clone + 'static>(
+    State(pool): State<PgPool>,
+    Extension(accounts): Extension<A>,
+    Extension(context): Extension<CheckContext>,
+    Path((id, source)): Path<(Uuid, i64)>,
+    Form(form): Form<revisions::Restore<i64>>,
+) -> Result<Redirect, StatusCode> {
+    let auth = Authorizer::new(pool.clone(), accounts);
+    Announcements::new(pool)
+        .save_change(&auth, context, Some(id), Edit::Restore { source, form })
+        .await
+        .map_err(status)?;
+    Ok(editor_redirect(id))
+}
+
 #[derive(Deserialize)]
 struct Submission {
     lock_version: i64,
@@ -184,10 +231,7 @@ impl Submission {
         };
         let stamp = |name: &str| -> Result<Option<OffsetDateTime>, StatusCode> {
             optional(name)
-                .map(|value| {
-                    OffsetDateTime::parse(&value, &time::format_description::well_known::Rfc3339)
-                        .map_err(|_| StatusCode::UNPROCESSABLE_ENTITY)
-                })
+                .map(|value| parse_stamp(&value).map_err(status))
                 .transpose()
         };
         Ok(Input {
@@ -235,11 +279,20 @@ async fn persist<A: AccountStateReader>(
     let id = Announcements::new(pool)
         .save(&auth, context, id.map(|id| (id, form.lock_version)), input)
         .await
-        .map_err(|e| match e {
-            Error::Conflict => StatusCode::CONFLICT,
-            Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
-            Error::Authorization(oteryn_admin::rbac::Error::Denied) => StatusCode::FORBIDDEN,
-            _ => StatusCode::SERVICE_UNAVAILABLE,
-        })?;
-    Ok(Redirect::to(&format!("/admin/announcements/{id}/edit")).into_response())
+        .map_err(status)?;
+    Ok(editor_redirect(id).into_response())
+}
+
+fn editor_redirect(id: Uuid) -> Redirect {
+    Redirect::to(&format!("/admin/announcements/{id}/edit"))
+}
+
+fn status(error: Error) -> StatusCode {
+    match error {
+        Error::Conflict => StatusCode::CONFLICT,
+        Error::Invalid => StatusCode::UNPROCESSABLE_ENTITY,
+        Error::Revision(error) => error.status(),
+        Error::Authorization(oteryn_admin::rbac::Error::Denied) => StatusCode::FORBIDDEN,
+        _ => StatusCode::SERVICE_UNAVAILABLE,
+    }
 }

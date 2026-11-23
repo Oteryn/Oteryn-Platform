@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ self.t("history") }}</title>
+  <link rel="stylesheet" href="/static/css/tokens.css">
+  <link rel="stylesheet" href="/static/css/components.css">
+</head>
+<body class="op-theme">
+<main class="op-panel op-stack">
+  <h1>{{ self.t("history") }}</h1>
+  <a href="{{ back_path }}">{{ self.t(back_label) }}</a>
+  {% if !locale.is_empty() %}<p>{{ self.t("locale") }} <code>{{ locale }}</code></p>{% endif %}
+  {% if to > 0 %}
+  <form method="get" action="{{ history_path }}" class="op-stack">
+    {% if let Some(cursor) = cursor %}<input type="hidden" name="before" value="{{ cursor }}">{% endif %}
+    <label for="from">{{ self.t("from") }}</label>
+    <input class="op-input" id="from" type="number" min="1" name="from" value="{{ from }}" required>
+    <label for="to">{{ self.t("to") }}</label>
+    <input class="op-input" id="to" type="number" min="1" name="to" value="{{ to }}" required>
+    <button class="op-button" type="submit">{{ self.t("compare") }}</button>
+  </form>
+  {% endif %}
+  {% if compare %}
+  <section class="op-stack">
+    <h2>{{ self.t("comparison") }} #{{ from }} → #{{ to }}</h2>
+    {% for entry in diff %}
+    <article class="op-card op-stack">
+      <h3>{{ entry.label }}</h3>
+      <div class="op-stack">
+        <div>
+          <h4 id="before-{{ loop.index }}">{{ self.t("before") }}</h4>
+          {% if entry.before.is_empty() %}<p>{{ self.t("empty") }}</p>{% else %}
+          <del><textarea class="op-input" aria-labelledby="before-{{ loop.index }}" rows="4" readonly>
+{{ entry.before }}</textarea></del>
+          {% endif %}
+        </div>
+        <div>
+          <h4 id="after-{{ loop.index }}">{{ self.t("after") }}</h4>
+          {% if entry.after.is_empty() %}<p>{{ self.t("empty") }}</p>{% else %}
+          <ins><textarea class="op-input" aria-labelledby="after-{{ loop.index }}" rows="4" readonly>
+{{ entry.after }}</textarea></ins>
+          {% endif %}
+        </div>
+      </div>
+    </article>
+    {% else %}<p>{{ self.t("no-changes") }}</p>{% endfor %}
+  </section>
+  {% endif %}
+  <h2>{{ self.t("saved") }}</h2>
+  {% if restore.is_some() && !rows.is_empty() %}<p>{{ self.t("restore-note") }}</p>{% endif %}
+  {% if missing_source %}<p>{{ self.t("missing-source") }}</p>{% endif %}
+  <ol class="op-stack">
+    {% for row in rows %}
+    <li class="op-card op-stack">
+      <h3>#{{ row.id }} · {{ row.title }}</h3>
+      <p><time datetime="{{ row.timestamp }}">{{ row.saved_at }}</time><br>
+        {{ self.t("author") }} {% if let Some(actor) = row.actor %}<code>{{ actor }}</code>{% else %}{{ self.t("unknown") }}{% endif %}
+      </p>
+      {% if row.baseline %}<p>{{ self.t("baseline") }}</p>{% endif %}
+      {% if let Some(source) = row.restored_from %}<p>{{ self.t("restored") }} #{{ source }}</p>{% endif %}
+      {% if let Some(current) = restore %}
+      <form method="post" action="{{ history_path }}/{{ row.id }}/restore">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <input type="hidden" name="expected_revision" value="{{ current.token }}">
+        <input type="hidden" name="reviewed_source_revision" value="{{ current.source_revision }}">
+        <button class="op-button op-button--secondary" type="submit">{{ self.t("restore") }}</button>
+      </form>
+      {% endif %}
+    </li>
+    {% else %}<li>{{ self.t("no-revisions") }}</li>{% endfor %}
+  </ol>
+  {% if cursor.is_some() %}<a href="{{ history_path }}">{{ self.t("latest") }}</a>{% endif %}
+  {% if let Some(older) = older %}<a rel="next" href="{{ history_path }}?before={{ older }}">{{ self.t("older") }}</a>{% endif %}
+</main>
+</body>
+</html>
