@@ -656,7 +656,7 @@ struct Page {
     title: String,
     roles_label: String,
     reports_label: String,
-    world_catalog_link: Option<String>,
+    world_catalog_link: Option<(String, String)>,
     moderate_reports: bool,
     mail_link: Option<String>,
     players_label: String,
@@ -671,7 +671,6 @@ struct Page {
     forum_label: Option<String>,
     editorial_links: Vec<(&'static str, String)>,
     downloads_link: Option<String>,
-    world_link: Option<String>,
     audit_evidence_link: Option<String>,
     account_label: String,
     role_label: String,
@@ -832,7 +831,8 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             }
         }
     }
-    let world_catalog_link = can_view_world.then(|| text(lang, "world-catalog"));
+    let world_catalog_link =
+        can_view_world.then(|| (text(lang, "downloads-catalog"), text(lang, "world-catalog")));
     let auth = &s.auth;
     let link = |permission, label| async move {
         match auth.check(context, permission).await {
@@ -843,20 +843,6 @@ async fn page<I: StaffSession, A: AccountStateReader>(
     };
     let Ok(downloads_link) = link(Permission::ManageDownloads, "downloads-title").await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    };
-    let world_link = if std::env::var("OTERYN_WORLD_ADMIN").as_deref() == Ok("true") {
-        match link(Permission::GameCatalogAccess, "downloads-catalog").await {
-            Ok(Some(_)) => {
-                match link(Permission::ViewGameCatalogSnapshots, "downloads-catalog").await {
-                    Ok(label) => label,
-                    Err(status) => return status.into_response(),
-                }
-            }
-            Ok(None) => None,
-            Err(status) => return status.into_response(),
-        }
-    } else {
-        None
     };
     let audit_evidence_link = match s.auth.check(context, Permission::ViewAudit).await {
         Ok(()) => Some(text(lang, "audit-evidence-title")),
@@ -907,7 +893,6 @@ async fn page<I: StaffSession, A: AccountStateReader>(
             .ok()
             .map(|()| text(lang, "forum")),
         downloads_link,
-        world_link,
         audit_evidence_link,
         account_label: text(lang, "account"),
         role_label: text(lang, "role"),

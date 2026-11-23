@@ -14,9 +14,8 @@
 {% if let Some(label) = newsletter_label %}<a href="/admin/newsletter">{{ label }}</a>{% endif %}
 {% if let Some(label) = forum_label %}<a href="/admin/forum?lang={{ lang }}">{{ label }}</a>{% endif %}
 {% for (href, label) in editorial_links %}<a href="{{ href }}">{{ label }}</a>{% endfor %}
-{% if let Some(label) = world_catalog_link %}<a href="/admin/world">{{ label }}</a>{% endif %}
+{% if let Some((label, title)) = world_catalog_link %}<a href="/admin/world" title="{{ title }}">{{ label }}</a>{% endif %}
 {% if let Some(label) = downloads_link %}<a href="/admin/downloads">{{ label }}</a>{% endif %}
-{% if let Some(label) = world_link %}<a href="/admin/world">{{ label }}</a>{% endif %}
 {% if let Some(label) = audit_evidence_link %}<a href="/admin/audit-evidence">{{ label }}</a>{% endif %}
 </nav>
 {% if manage %}<section class="op-stack"><h2>{{ roles_label }}</h2><ul>{% for (_, key) in roles %}<li>{{ key }}</li>{% endfor %}</ul>

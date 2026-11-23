@@ -136,7 +136,7 @@ fn localized_responsive_labelled_template() {
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
             reports_label: text(lang, "reports"),
-            world_catalog_link: Some(text(lang, "world-catalog")),
+            world_catalog_link: Some((text(lang, "downloads-catalog"), text(lang, "world-catalog"))),
             moderate_reports: true,
             mail_link: None,
             players_label: text(lang, "players"),
@@ -151,7 +151,6 @@ fn localized_responsive_labelled_template() {
             forum_label: Some(text(lang, "forum")),
             editorial_links: vec![("/admin/news", text(lang, "cms-news"))],
             downloads_link: None,
-            world_link: None,
             audit_evidence_link: Some(text(lang, "audit-evidence-title")),
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
@@ -176,6 +175,8 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("href=\"/admin/players\""));
         assert!(html.contains(&format!(r#"href="/admin/status?lang={lang}""#)));
         assert!(html.contains("href=\"/admin/world\""));
+        assert_eq!(html.matches("href=\"/admin/world\"").count(), 1);
+        assert!(html.contains(&text(lang, "downloads-catalog")));
         assert!(html.contains(if lang == "pl" {
             "Katalog świata"
         } else {
