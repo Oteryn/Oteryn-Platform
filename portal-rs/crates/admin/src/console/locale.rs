@@ -4,7 +4,7 @@ use axum::{
     extract::Request,
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::Next,
-    response::Response,
+    response::{Html, IntoResponse, Response},
 };
 use fluent_bundle::{FluentArgs, FluentResource, concurrent::FluentBundle};
 use oteryn_web::Language;
@@ -104,6 +104,21 @@ struct ErrorPage {
     message: String,
 }
 
+pub(super) fn error_page(lang: &'static str, status: StatusCode, message: String) -> Response {
+    match (ErrorPage { lang, message }).render() {
+        Ok(html) => (
+            status,
+            [
+                (header::CONTENT_LANGUAGE, lang),
+                (header::CACHE_CONTROL, "no-store"),
+            ],
+            Html(html),
+        )
+            .into_response(),
+        Err(_) => status.into_response(),
+    }
+}
+
 pub(super) async fn response_language(request: Request, next: Next) -> Response {
     let headers = request.headers();
     let query = request
@@ -144,7 +159,7 @@ pub(super) async fn response_language(request: Request, next: Next) -> Response 
         );
     }
     let headers = response.headers_mut();
-    if key.is_empty() || !has_html {
+    if (key.is_empty() || !has_html) && !headers.contains_key(header::CONTENT_LANGUAGE) {
         headers.insert(header::CONTENT_LANGUAGE, HeaderValue::from_static(lang));
     }
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
