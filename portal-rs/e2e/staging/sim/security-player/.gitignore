@@ -1,0 +1,17 @@
+test-results/
+playwright-report/
+playwright/.cache/
+artifacts/
+*.har
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.webm
+*.eml
+*.mail
+*.trace
+trace*
+*mail-body*
+*reset-link*
+*token*
