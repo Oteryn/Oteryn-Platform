@@ -166,6 +166,90 @@ async fn postgres_publication_translation_and_full_text() -> TestResult {
     );
     db.close().await
 }
+
+#[tokio::test]
+async fn postgres_editorial_search_respects_publication_windows() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    sqlx::raw_sql(
+        "INSERT INTO news(slug,title,body,published_at,title_pl,body_pl,
+                          translation_published_at,translation_source_updated_at,expires_at)
+         SELECT slug,'Atlas news','English edition',now()+starts_in,
+                'Atlas aktualności','Polska wersja',now()+starts_in,now(),now()+ends_in
+         FROM (VALUES
+             ('live-news',interval '-1 hour',interval '1 hour'),
+             ('evergreen-news',interval '-1 hour',NULL),
+             ('expired-news',interval '-2 hours',interval '-1 hour'),
+             ('future-news',interval '1 hour',interval '2 hours')
+         ) AS windows(slug,starts_in,ends_in);
+
+         INSERT INTO pages(id,slug)
+         SELECT uuidv7(),slug FROM (VALUES
+             ('live-page'),('evergreen-page'),('expired-page'),
+             ('future-page'),('source-expired-page'),('translation-expired-page')
+         ) AS fixtures(slug);
+
+         INSERT INTO editorial_pages(page_id,locale,title,body,published_at,expires_at)
+         SELECT p.id,locale,'Atlas page','Editorial edition',
+                now()+starts_in,now()+ends_in
+         FROM (VALUES
+             ('live-page','en',interval '-1 hour',interval '1 hour'),
+             ('live-page','pl',interval '-1 hour',interval '1 hour'),
+             ('evergreen-page','en',interval '-1 hour',NULL),
+             ('evergreen-page','pl',interval '-1 hour',NULL),
+             ('expired-page','en',interval '-2 hours',interval '-1 hour'),
+             ('expired-page','pl',interval '-2 hours',interval '-1 hour'),
+             ('future-page','en',interval '1 hour',interval '2 hours'),
+             ('future-page','pl',interval '-1 hour',interval '2 hours'),
+             ('source-expired-page','en',interval '-2 hours',interval '-1 hour'),
+             ('source-expired-page','pl',interval '-2 hours',interval '1 hour'),
+             ('translation-expired-page','en',interval '-2 hours',interval '1 hour'),
+             ('translation-expired-page','pl',interval '-2 hours',interval '-1 hour')
+         ) AS windows(slug,locale,starts_in,ends_in)
+         JOIN pages p USING (slug);
+
+         UPDATE editorial_pages target SET source_revision=source.revision
+         FROM editorial_pages source
+         WHERE target.page_id=source.page_id AND target.locale='pl' AND source.locale='en'",
+    )
+    .execute(&db.pool)
+    .await?;
+    let app = routes(SearchState {
+        pool: db.pool.clone(),
+        world: None,
+        characters: None,
+    });
+    let (en_status, en) = get(app.clone(), "/en/search?q=atlas").await?;
+    let (pl_status, pl) = get(app, "/pl/search?q=atlas").await?;
+    db.close().await?;
+
+    assert_eq!(en_status, StatusCode::OK);
+    assert_eq!(pl_status, StatusCode::OK);
+    for (locale, html) in [("en", &en), ("pl", &pl)] {
+        for path in [
+            "news/live-news",
+            "news/evergreen-news",
+            "pages/live-page",
+            "pages/evergreen-page",
+        ] {
+            assert!(html.contains(&format!("/{locale}/{path}\"")), "{path}");
+        }
+        for path in [
+            "news/expired-news",
+            "news/future-news",
+            "pages/expired-page",
+            "pages/future-page",
+            "pages/source-expired-page",
+        ] {
+            assert!(!html.contains(&format!("/{locale}/{path}\"")), "{path}");
+        }
+    }
+    assert!(en.contains("/en/pages/translation-expired-page\""));
+    assert!(!pl.contains("/pl/pages/translation-expired-page\""));
+    Ok(())
+}
+
 #[tokio::test]
 async fn postgres_http_success_refusal_bad_input_and_escaping() -> TestResult {
     let Some(db) = Database::new().await? else {
