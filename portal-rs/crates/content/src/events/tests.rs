@@ -338,6 +338,35 @@ async fn postgres_http_public_visibility_staff_form_and_csrf() {
             .status(),
         StatusCode::NOT_FOUND
     );
+    let r = request(
+        staff(db.pool.clone(), identity.clone()),
+        &format!("/admin/events/{id}/preview/en/1"),
+    )
+    .await;
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(r.headers()["cache-control"], "no-store");
+    let html = String::from_utf8(to_bytes(r.into_body(), 100_000).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("lang=\"en\""));
+    assert!(html.contains(&crate::preview::notice("en")));
+    assert!(!html.contains("<script>"));
+    for suffix in ["xx/1", "pl/1", "en/999"] {
+        let r = request(
+            staff(db.pool.clone(), identity.clone()),
+            &format!("/admin/events/{id}/preview/{suffix}"),
+        )
+        .await;
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+    let denied = Identity {
+        mfa: false,
+        ..identity.clone()
+    };
+    let r = request(
+        staff(db.pool.clone(), denied),
+        &format!("/admin/events/{id}/preview/en/1"),
+    )
+    .await;
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
     events
         .transition(
             &auth,

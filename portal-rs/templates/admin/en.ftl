@@ -5,3 +5,7 @@ role = Role
 grant = Assign role
 revoke = Revoke role
 mfa = Multi-factor authentication required
+cms-news = News
+cms-pages = Pages
+cms-events = Events
+cms-announcements = Announcements

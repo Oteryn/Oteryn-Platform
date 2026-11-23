@@ -1,5 +1,6 @@
 //! SSR event routes and staff adapters; request fields never supply staff identity.
 use super::*;
+use crate::preview;
 use askama::Template;
 use axum::{
     Extension, Form, Router,
@@ -115,6 +116,7 @@ struct PublicPage<'a> {
     empty: String,
     events: Vec<PublicEvent>,
     detail: bool,
+    preview_notice: String,
     next: u64,
     next_label: String,
 }
@@ -151,6 +153,7 @@ async fn index(
                 next_label,
                 events: rows,
                 detail: false,
+                preview_notice: String::new(),
             })
         }
         Err(e) => response(e),
@@ -164,18 +167,22 @@ async fn show(
         return StatusCode::NOT_FOUND.into_response();
     }
     match events.public(&lang, Some(&slug)).await {
-        Ok(rows) if rows.len() == 1 => oteryn_web::render(&PublicPage {
-            lang: &lang,
-            title: rows[0].title.clone(),
-            empty: String::new(),
-            events: rows,
-            detail: true,
-            next_label: String::new(),
-            next: 0,
-        }),
+        Ok(mut rows) if rows.len() == 1 => detail(&lang, rows.remove(0), String::new()),
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => response(e),
     }
+}
+fn detail(lang: &str, event: PublicEvent, preview_notice: String) -> Response {
+    oteryn_web::render(&PublicPage {
+        lang,
+        title: event.title.clone(),
+        empty: String::new(),
+        events: vec![event],
+        detail: true,
+        preview_notice,
+        next_label: String::new(),
+        next: 0,
+    })
 }
 struct Staff<A> {
     auth: Authorizer<A>,
@@ -206,6 +213,10 @@ fn staff_routes<A: AccountStateReader + 'static>(pool: PgPool, accounts: A) -> R
         .route("/admin/events", get(admin_index::<A>).post(save_new::<A>))
         .route("/admin/events/create", get(create::<A>))
         .route("/admin/events/{id}/edit", get(edit::<A>))
+        .route(
+            "/admin/events/{id}/preview/{locale}/{revision}",
+            get(preview::<A>),
+        )
         .route(
             "/admin/events/{id}",
             axum::routing::put(save_existing::<A>).post(save_existing::<A>),
@@ -342,6 +353,7 @@ struct AdminForm {
     can_publish: bool,
     status: String,
     labels: Vec<String>,
+    links: Vec<(String, String, String)>,
 }
 async fn form<A: AccountStateReader>(
     s: &Staff<A>,
@@ -396,7 +408,22 @@ async fn form<A: AccountStateReader>(
         Err(oteryn_admin::rbac::Error::Denied) => false,
         Err(e) => return response(e.into()),
     };
+    let links = match (id, form.lock_version) {
+        (Some(id), Some(revision)) => {
+            let base = format!("/admin/events/{id}");
+            [
+                ("en", &form.en_title, &form.en_body),
+                ("pl", &form.pl_title, &form.pl_body),
+            ]
+            .into_iter()
+            .filter(|(_, title, body)| preview::complete(title, body))
+            .map(|(locale, _, _)| preview::link(&base, locale, revision))
+            .collect()
+        }
+        _ => vec![],
+    };
     oteryn_web::render(&AdminForm {
+        links,
         lang,
         title: text(lang, "events"),
         csrf,
@@ -447,6 +474,18 @@ async fn edit<A: AccountStateReader>(
 ) -> Response {
     form(&s, c, session, h, Some(id)).await
 }
+async fn preview<A: AccountStateReader>(
+    State(s): State<Arc<Staff<A>>>,
+    Extension(_): Extension<CheckContext>,
+    Path((id, lang, revision)): Path<(Uuid, String, i64)>,
+) -> Result<Response, StatusCode> {
+    let lang = preview::locale(&lang)?;
+    Ok(match s.events.preview(id, lang, revision).await {
+        Ok(event) => preview::response(detail(lang, event, preview::notice(lang)), lang),
+        Err(error) => response(error),
+    })
+}
+
 async fn save<A: AccountStateReader>(
     s: &Staff<A>,
     c: CheckContext,

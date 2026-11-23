@@ -135,6 +135,7 @@ fn localized_responsive_labelled_template() {
             lang,
             title: text(lang, "title"),
             roles_label: text(lang, "roles"),
+            editorial_links: vec![("/admin/news", text(lang, "cms-news"))],
             account_label: text(lang, "account"),
             role_label: text(lang, "role"),
             grant: text(lang, "grant"),
@@ -150,6 +151,10 @@ fn localized_responsive_labelled_template() {
         assert!(html.contains("op-input"));
         assert!(html.contains("for=\"account\""));
         assert!(html.contains("for=\"role\""));
+        assert!(html.contains(&format!(
+            "href=\"/admin/news\">{}</a>",
+            text(lang, "cms-news")
+        )));
         assert!(!html.contains("<unsafe>"));
         std::fs::write(format!("/tmp/t10b-{lang}.html"), &html).unwrap();
         assert!(!text(lang, "mfa").is_empty());

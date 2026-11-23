@@ -3,6 +3,7 @@
 pub mod events;
 pub mod news;
 pub mod pages;
+mod preview;
 
 pub mod announcements;
 pub mod media;

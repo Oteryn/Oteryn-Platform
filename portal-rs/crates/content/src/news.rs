@@ -1,4 +1,6 @@
 //! News storage and public and staff routes.
+use crate::preview;
+use askama::Template;
 use axum::{
     Extension, Form, Router,
     extract::{Path, Query, State},
@@ -50,17 +52,27 @@ fn label(lang: &str, key: &str) -> String {
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html class=\"op-theme\" lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title></head><body class=\"op-theme\"><main class=\"op-stack\"><h1>{{ title }}</h1>{{ body|safe }}</main></body></html>",
-    ext = "html"
+    source = "<!doctype html><html class=\"op-theme\" lang=\"{{ lang }}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"><title>{{ title }}</title></head><body class=\"op-theme\"><main class=\"op-stack\">{% include \"content/preview_notice.html\" %}<h1>{{ title }}</h1>{{ body|safe }}</main></body></html>",
+    ext = "html",
+    config = "src/pages/askama.toml"
 )]
 struct NewsPage<'a> {
     lang: &'a str,
     title: &'a str,
     body: String,
+    preview_notice: String,
 }
 fn page(lang: &str, title: &str, body: String) -> Html<String> {
-    use askama::Template;
-    Html(NewsPage { lang, title, body }.render().unwrap_or_default())
+    Html(
+        NewsPage {
+            lang,
+            title,
+            body,
+            preview_notice: String::new(),
+        }
+        .render()
+        .unwrap_or_default(),
+    )
 }
 const MAX_PAGE: i64 = 100000;
 
@@ -138,6 +150,7 @@ pub fn admin_router(pool: PgPool) -> Router {
         .route("/admin/news", get(admin_index).post(create))
         .route("/admin/news/create", get(new))
         .route("/admin/news/{id}/edit", get(edit))
+        .route("/admin/news/{id}/preview/{lang}/{revision}", get(preview))
         .route("/admin/news/{id}", post(update).put(update).delete(delete))
         .route("/admin/news/{id}/delete", post(delete))
         .with_state(pool)
@@ -259,14 +272,50 @@ async fn article(pool: &PgPool, lang: &str, slug: &str) -> Result<Html<String>, 
         return Err(StatusCode::NOT_FOUND);
     }
     let row=sqlx::query("SELECT CASE WHEN $1='pl' THEN title_pl ELSE title END AS title,CASE WHEN $1='pl' THEN body_pl ELSE body END AS body FROM news WHERE published_at <= now() AND ($1='en' OR (translation_published_at <= now() AND translation_source_updated_at >= updated_at AND length(trim(title_pl))>0 AND length(trim(body_pl))>0)) AND slug=$2").bind(lang).bind(slug).fetch_optional(pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
-    Ok(page(
-        lang,
-        row.get("title"),
-        format!(
-            "<article><p>{}</p></article>",
-            escape(row.get("body")).replace('\n', "<br>")
-        ),
+    Ok(Html(
+        article_page(lang, row.get("title"), row.get("body"), String::new())
+            .render()
+            .unwrap_or_default(),
     ))
+}
+fn article_page<'a>(
+    lang: &'a str,
+    title: &'a str,
+    body: &str,
+    preview_notice: String,
+) -> NewsPage<'a> {
+    NewsPage {
+        lang,
+        title,
+        body: format!(
+            "<article><p>{}</p></article>",
+            escape(body).replace('\n', "<br>")
+        ),
+        preview_notice,
+    }
+}
+async fn preview(
+    State(pool): State<PgPool>,
+    Extension(_): Extension<CheckContext>,
+    Path((id, lang, revision)): Path<(Uuid, String, i64)>,
+) -> Result<Response, StatusCode> {
+    let lang = preview::locale(&lang)?;
+    let (title, body): (String, String) = sqlx::query_as(
+        "SELECT CASE WHEN $2='pl' THEN title_pl ELSE title END,
+                CASE WHEN $2='pl' THEN body_pl ELSE body END
+         FROM news WHERE id=$1 AND (extract(epoch FROM updated_at)*1000000)::bigint=$3
+         AND ($2='en' OR (title_pl IS NOT NULL AND body_pl IS NOT NULL))",
+    )
+    .bind(id)
+    .bind(lang)
+    .bind(revision)
+    .fetch_optional(&pool)
+    .await
+    .map_err(unavailable)?
+    .filter(|(title, body): &(String, String)| preview::complete(title, body))
+    .ok_or(StatusCode::NOT_FOUND)?;
+    let page = article_page(lang, &title, &body, preview::notice(lang));
+    Ok(preview::response(oteryn_web::render(&page), lang))
 }
 async fn admin_index(
     State(pool): State<PgPool>,
@@ -311,6 +360,7 @@ async fn new(
         q.lang(),
         None,
         Input::default(),
+        None,
         session.csrf_token().await.map_err(unavailable)?,
     ))
 }
@@ -321,7 +371,7 @@ async fn edit(
     Path(id): Path<Uuid>,
     Query(q): Query<Options>,
 ) -> Result<Html<String>, StatusCode> {
-    let row=sqlx::query("SELECT updated_at::text AS expected_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
+    let row=sqlx::query("SELECT updated_at::text AS expected_revision,(extract(epoch FROM updated_at)*1000000)::bigint AS preview_revision,slug,title,body,coalesce(published_at::text,'') AS published_at,coalesce(title_pl,'') AS title_pl,coalesce(body_pl,'') AS body_pl,coalesce(translation_published_at::text,'') AS translation_published_at FROM news WHERE id=$1").bind(id).fetch_optional(&pool).await.map_err(unavailable)?.ok_or(StatusCode::NOT_FOUND)?;
     Ok(form(
         q.lang(),
         Some(id),
@@ -335,18 +385,37 @@ async fn edit(
             body_pl: row.get("body_pl"),
             translation_published_at: row.get("translation_published_at"),
         },
+        Some(row.get("preview_revision")),
         session.csrf_token().await.map_err(unavailable)?,
     ))
 }
-fn form(lang: &str, id: Option<Uuid>, input: Input, csrf: String) -> Html<String> {
+fn form(
+    lang: &str,
+    id: Option<Uuid>,
+    input: Input,
+    revision: Option<i64>,
+    csrf: String,
+) -> Html<String> {
     let action = id.map_or_else(
         || "/admin/news".to_owned(),
         |id| format!("/admin/news/{id}"),
     );
-    let mut html = format!(
+    let mut html = String::new();
+    if let Some(revision) = revision {
+        let links = [
+            ("en", &input.title, &input.body),
+            ("pl", &input.title_pl, &input.body_pl),
+        ]
+        .into_iter()
+        .filter(|(_, title, body)| preview::complete(title, body))
+        .map(|(locale, _, _)| preview::link(&action, locale, revision))
+        .collect();
+        html.push_str(&preview::Links { links }.render().unwrap_or_default());
+    }
+    html.push_str(&format!(
         "<form class=\"op-stack\" method=\"post\" action=\"{action}?lang={lang}\"><input type=\"hidden\" name=\"_csrf\" value=\"{}\">",
         escape(&csrf)
-    );
+    ));
     html.push_str(&format!(
         "<input type=\"hidden\" name=\"expected_revision\" value=\"{}\">",
         escape(&input.expected_revision)

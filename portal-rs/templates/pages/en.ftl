@@ -18,3 +18,5 @@ support = Player support
 report-a-bug = Report a bug
 help-tickets = Submit a support ticket
 help-password = Recover access to your account
+preview-link = Preview in English
+preview-notice = Staff preview of the saved revision.

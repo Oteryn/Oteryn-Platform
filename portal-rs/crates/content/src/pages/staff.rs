@@ -1,4 +1,5 @@
 use super::*;
+use crate::preview;
 use axum::{Extension, Form, response::Redirect};
 use oteryn_admin::{
     audit::{self, AuditContext, Entry},
@@ -42,6 +43,10 @@ fn admin_routes(pool: PgPool) -> Router {
     Router::new()
         .route("/admin/pages", get(index))
         .route("/admin/pages/{slug}/{locale}", get(edit).post(save))
+        .route(
+            "/admin/pages/{slug}/preview/{locale}/{revision}",
+            get(preview),
+        )
         .with_state(pool)
 }
 #[derive(Template)]
@@ -55,6 +60,7 @@ struct Editor {
     form: PageForm,
     labels: Vec<String>,
     legal: bool,
+    links: Vec<(String, String, String)>,
 }
 #[derive(Debug, Clone, Deserialize, Default)]
 pub(super) struct PageForm {
@@ -179,9 +185,23 @@ async fn edit(
     if !valid_slug(&slug) || !matches!(locale.as_str(), "pl" | "en") {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let row=sqlx::query("SELECT e.*,e.updated_at::text AS expected_revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale=$2").bind(&slug).bind(&locale).fetch_optional(&pool).await;
-    let mut form = match row {
-        Ok(Some(row)) => PageForm {
+    let rows = sqlx::query(
+        "SELECT e.*,e.updated_at::text AS expected_revision,
+                (extract(epoch FROM e.updated_at)*1000000)::bigint AS preview_revision
+         FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+         WHERE p.slug=$1 AND e.locale IN ('en','pl') ORDER BY e.locale",
+    )
+    .bind(&slug)
+    .fetch_all(&pool)
+    .await;
+    let Ok(rows) = rows else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let mut form = match rows
+        .iter()
+        .find(|row| row.get::<&str, _>("locale") == locale)
+    {
+        Some(row) => PageForm {
             expected_revision: row.get("expected_revision"),
             reviewed_source_revision: 0,
             title: row.get("title"),
@@ -203,8 +223,7 @@ async fn edit(
             final_approved: String::new(),
             action: String::new(),
         },
-        Ok(None) => PageForm::default(),
-        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        None => PageForm::default(),
     };
     form.reviewed_source_revision = match sqlx::query_scalar::<_, i64>("SELECT e.revision FROM pages p JOIN editorial_pages e ON e.page_id=p.id WHERE p.slug=$1 AND e.locale='en'")
         .bind(&slug).fetch_optional(&pool).await {
@@ -214,7 +233,13 @@ async fn edit(
     let Ok(csrf) = session.csrf_token().await else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
+    let base = format!("/admin/pages/{slug}");
+    let links = rows
+        .iter()
+        .map(|row| preview::link(&base, row.get("locale"), row.get("preview_revision")))
+        .collect();
     oteryn_web::render(&Editor {
+        links,
         title: text(&locale, "pages"),
         labels: [
             "title",
@@ -236,6 +261,43 @@ async fn edit(
         form,
     })
 }
+async fn preview(
+    State(pool): State<PgPool>,
+    Extension(_): Extension<CheckContext>,
+    Path((slug, lang, revision)): Path<(String, String, i64)>,
+) -> Result<Response, StatusCode> {
+    preview::locale(&lang)?;
+    if !valid_slug(&slug) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let (title, markdown, version, effective): (String, String, String, String) =
+        sqlx::query_as(
+            "SELECT e.title,e.body,COALESCE(e.legal_version,''),COALESCE(e.legal_effective_date::text,'')
+             FROM pages p JOIN editorial_pages e ON e.page_id=p.id
+             WHERE p.slug=$1 AND e.locale=$2 AND (extract(epoch FROM e.updated_at)*1000000)::bigint=$3",
+        )
+        .bind(&slug)
+        .bind(&lang)
+        .bind(revision)
+        .fetch_optional(&pool)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?
+        .ok_or(StatusCode::NOT_FOUND)?;
+    let draft_notice = legal_notice(&lang, &slug, &version, &title, &markdown);
+    let page = Page {
+        title,
+        body: render_markdown(&markdown),
+        version: edition_line(&version, &effective),
+        draft_notice,
+        preview_notice: preview::notice(&lang),
+        lang,
+        help_links: false,
+        tickets_label: String::new(),
+        password_label: String::new(),
+    };
+    Ok(preview::response(oteryn_web::render(&page), &page.lang))
+}
+
 async fn save(
     State(pool): State<PgPool>,
     Path((slug, locale)): Path<(String, String)>,

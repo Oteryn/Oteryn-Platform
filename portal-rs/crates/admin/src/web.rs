@@ -466,6 +466,7 @@ struct Page {
     lang: &'static str,
     title: String,
     roles_label: String,
+    editorial_links: Vec<(&'static str, String)>,
     account_label: String,
     role_label: String,
     grant: String,
@@ -535,8 +536,26 @@ async fn page<I: StaffSession, A: AccountStateReader>(
         String::new()
     };
     let lang = language(&headers);
+    let mut editorial_links = Vec::new();
+    for (permission, href, label) in [
+        (Permission::ManageNews, "/admin/news", "cms-news"),
+        (Permission::ManagePages, "/admin/pages", "cms-pages"),
+        (Permission::ManageEvents, "/admin/events", "cms-events"),
+        (
+            Permission::ManagePortalAnnouncements,
+            "/admin/announcements",
+            "cms-announcements",
+        ),
+    ] {
+        match s.auth.check(context, permission).await {
+            Ok(()) => editorial_links.push((href, text(lang, label))),
+            Err(Error::Denied) => continue,
+            Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    }
     oteryn_web::render(&Page {
         lang,
+        editorial_links,
         title: text(lang, "title"),
         roles_label: text(lang, "roles"),
         account_label: text(lang, "account"),

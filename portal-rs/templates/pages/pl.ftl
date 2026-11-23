@@ -18,3 +18,5 @@ support = Pomoc dla graczy
 report-a-bug = Zgłoś błąd
 help-tickets = Wyślij zgłoszenie do pomocy
 help-password = Odzyskaj dostęp do konta
+preview-link = Podgląd po polsku
+preview-notice = Podgląd zapisanej wersji dla redakcji.

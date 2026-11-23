@@ -192,25 +192,45 @@ pub async fn render_ticker(pool: &PgPool, lang: &str, at: OffsetDateTime) -> Str
     if card.state == SourceState::Empty {
         return String::new();
     }
-    format!(
-        "<aside aria-label=\"{}\" class=\"op-stack\">{}</aside>",
-        text(lang, "announcements"),
+    ticker_markup(
+        lang,
         if card.state == SourceState::Unavailable {
             format!("<p>{}</p>", text(lang, "unavailable"))
         } else {
             render_items(&card.items)
-        }
+        },
     )
+}
+
+fn ticker_markup(lang: &str, body: String) -> String {
+    format!(
+        "<aside aria-label=\"{}\" class=\"op-stack\">{body}</aside>",
+        text(lang, "announcements"),
+    )
+}
+
+pub(crate) fn preview_announcement(
+    lang: &str,
+    announcement: Announcement,
+) -> axum::response::Response {
+    oteryn_web::render(&Page {
+        lang,
+        title: text(lang, "announcements"),
+        body: ticker_markup(lang, render_items(&[item(announcement, lang)])),
+        preview_notice: crate::preview::notice(lang),
+    })
 }
 #[derive(askama::Template)]
 #[template(
-    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"></head><body><main class=\"op-stack\"><h1>{{ title }}</h1>{{ body|safe }}</main></body></html>",
-    ext = "html"
+    source = "<!doctype html><html lang=\"{{ lang }}\" class=\"op-theme\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{{ title }}</title><link rel=\"stylesheet\" href=\"/static/css/tokens.css\"><link rel=\"stylesheet\" href=\"/static/css/components.css\"><link rel=\"stylesheet\" href=\"/static/css/app.css\"></head><body><main class=\"op-stack\">{% include \"content/preview_notice.html\" %}<h1>{{ title }}</h1>{{ body|safe }}</main></body></html>",
+    ext = "html",
+    config = "src/pages/askama.toml"
 )]
 struct Page<'a> {
     lang: &'a str,
     title: String,
     body: String,
+    preview_notice: String,
 }
 #[derive(Default, serde::Deserialize)]
 struct Options {
@@ -299,6 +319,7 @@ async fn digest(pool: &PgPool, lang: &str) -> Result<Response, StatusCode> {
         lang,
         title: text(lang, "today"),
         body,
+        preview_notice: String::new(),
     }
     .render()
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;

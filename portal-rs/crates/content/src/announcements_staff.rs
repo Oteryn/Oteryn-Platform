@@ -1,5 +1,6 @@
 //! Staff announcement editing through the shared panel guard and announcement service.
 use super::*;
+use crate::preview;
 use axum::{
     Extension, Form, Router,
     extract::{Path, State},
@@ -44,6 +45,10 @@ fn routes<A: AccountStateReader + Clone + 'static>(pool: PgPool, accounts: A) ->
             "/admin/announcements/{id}/edit",
             get(edit).post(update::<A>),
         )
+        .route(
+            "/admin/announcements/{id}/preview/{locale}/{revision}",
+            get(preview),
+        )
         .with_state(pool)
         .layer(Extension(accounts))
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
@@ -55,6 +60,7 @@ struct Page {
     more: bool,
     csrf: String,
     action: String,
+    links: Vec<(String, String, String)>,
     version: i64,
     fields: Vec<(String, String, String)>,
     rows: Vec<(Uuid, String, String)>,
@@ -71,6 +77,7 @@ async fn index(
         action: String::new(),
         version: 0,
         fields: vec![],
+        links: vec![],
         rows,
     }))
 }
@@ -133,6 +140,7 @@ async fn new(Extension(session): Extension<BrowserSession>) -> Result<Response, 
         action: "/admin/announcements".into(),
         version: 0,
         fields,
+        links: vec![],
         rows: vec![],
     }))
 }
@@ -159,16 +167,57 @@ async fn edit(
             )
         })
         .collect();
+    let version: i64 = row.get("lock_version");
+    let base = format!("/admin/announcements/{id}");
+    let links = [("en", "title", "body"), ("pl", "title_pl", "body_pl")]
+        .into_iter()
+        .filter(|(_, title, body)| {
+            preview::complete(
+                data[title].as_str().unwrap_or_default(),
+                data[body].as_str().unwrap_or_default(),
+            )
+        })
+        .map(|(locale, _, _)| preview::link(&base, locale, version))
+        .collect();
     Ok(oteryn_web::render(&Page {
         next: 0,
         more: false,
         csrf: session.csrf_token().await.map_err(unavailable)?,
         action: format!("/admin/announcements/{id}/edit"),
-        version: row.get("lock_version"),
+        version,
+        links,
         fields,
         rows: vec![],
     }))
 }
+async fn preview(
+    State(pool): State<PgPool>,
+    Extension(_): Extension<CheckContext>,
+    Path((id, lang, revision)): Path<(Uuid, String, i64)>,
+) -> Result<Response, StatusCode> {
+    let lang = preview::locale(&lang)?;
+    let row: Announcement = sqlx::query_as(
+        "SELECT id,CASE WHEN $2='pl' THEN title_pl ELSE title END AS title,
+                CASE WHEN $2='pl' THEN body_pl ELSE body END AS body,severity,
+                CASE WHEN $2='pl' THEN action_label_pl ELSE action_label END AS action_label,
+                action_url
+         FROM announcements WHERE id=$1 AND lock_version=$3
+         AND ($2='en' OR (title_pl IS NOT NULL AND body_pl IS NOT NULL))",
+    )
+    .bind(id)
+    .bind(lang)
+    .bind(revision)
+    .fetch_optional(&pool)
+    .await
+    .map_err(unavailable)?
+    .filter(|row: &Announcement| preview::complete(&row.title, &row.body))
+    .ok_or(StatusCode::NOT_FOUND)?;
+    Ok(preview::response(
+        crate::today::preview_announcement(lang, row),
+        lang,
+    ))
+}
+
 #[derive(Deserialize)]
 struct Submission {
     lock_version: i64,

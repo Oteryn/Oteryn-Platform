@@ -62,6 +62,24 @@ impl Events {
         Ok(sqlx::query_as("SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at FROM events e JOIN event_translations t ON t.event_id=e.id WHERE e.status='published' AND e.published_by IS NOT NULL AND t.locale=$1 AND ($2::text IS NULL OR t.slug=$2) ORDER BY (e.ends_at>clock_timestamp()) DESC,e.featured DESC,e.starts_at,e.id LIMIT $4 OFFSET $3")
             .bind(locale).bind(slug).bind(offset).bind(limit).fetch_all(&self.pool).await?)
     }
+    pub(crate) async fn preview(
+        &self,
+        id: Uuid,
+        locale: &str,
+        revision: i64,
+    ) -> Result<PublicEvent, Error> {
+        sqlx::query_as(
+            "SELECT e.id,t.title,t.slug,t.summary,t.body,e.starts_at,e.ends_at
+             FROM events e JOIN event_translations t ON t.event_id=e.id
+             WHERE e.id=$1 AND t.locale=$2 AND e.lock_version=$3",
+        )
+        .bind(id)
+        .bind(locale)
+        .bind(revision)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(Error::NotFound)
+    }
     pub(crate) async fn digest(
         &self,
         locale: &str,

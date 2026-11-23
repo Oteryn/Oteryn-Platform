@@ -5,3 +5,7 @@ role = Rola
 grant = Przypisz rolę
 revoke = Odbierz rolę
 mfa = Wymagane uwierzytelnianie wieloskładnikowe
+cms-news = Aktualności
+cms-pages = Strony
+cms-events = Wydarzenia
+cms-announcements = Ogłoszenia
