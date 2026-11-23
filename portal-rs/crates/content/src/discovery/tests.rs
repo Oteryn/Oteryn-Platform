@@ -175,7 +175,7 @@ async fn editorial_discovery_lifecycle() -> crate::last_wait_tests::TestResult {
             .fetch_all(&db.pool)
             .await?;
     assert_eq!(paths, ["/en/news/calendar"]);
-    sqlx::query("UPDATE news SET published_at=now()-interval '2 days', expires_at=now()-interval '1 day' WHERE id=$1")
+    sqlx::query("UPDATE news SET published_at=now()-interval '2 days', translation_published_at=now()-interval '2 days', expires_at=now()-interval '1 day' WHERE id=$1")
         .bind(published)
         .execute(&db.pool)
         .await?;
@@ -216,10 +216,16 @@ async fn sitemap_splits_large_catalogues() -> crate::last_wait_tests::TestResult
     }
     let _database_guard = oteryn_db::test_support::global_lock_guard().await?;
     let db = crate::last_wait_tests::TestDb::open().await?;
+    let seeded: i64 =
+        sqlx::query_scalar("SELECT count(DISTINCT (kind,document_id)) FROM editorial_publication")
+            .fetch_one(&db.pool)
+            .await?;
+    assert!(seeded < 1_000);
     sqlx::query(
         "INSERT INTO news(slug,title,body,published_at)
-         SELECT 'discovery-' || n, 'News', 'Body', now() FROM generate_series(1,1001) n",
+         SELECT 'discovery-' || n, 'News', 'Body', now() FROM generate_series(1,$1) n",
     )
+    .bind(1_001 - seeded)
     .execute(&db.pool)
     .await?;
     assert!(matches!(

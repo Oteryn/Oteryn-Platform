@@ -772,6 +772,18 @@ async fn postgres_pagination_language_and_caps() {
         .connect(&url)
         .await
         .unwrap();
+    oteryn_db::MIGRATOR
+        .run_to(20261122200000, &pool)
+        .await
+        .unwrap();
+    // The archive migration restricts new dates and keeps existing rows readable.
+    sqlx::query(
+        "INSERT INTO news(slug,title,body,published_at)
+         VALUES('long-horizon','Long horizon','English body','12000-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     oteryn_db::migrate(&pool).await.unwrap();
 
     sqlx::query("INSERT INTO news(slug,title,body,published_at) SELECT 'pagination-'||n,'English news','English body',now() FROM generate_series(1,26) n").execute(&pool).await.unwrap();
@@ -850,13 +862,6 @@ async fn postgres_pagination_language_and_caps() {
             .unwrap()
             > 0
     );
-    sqlx::query(
-        "INSERT INTO news(slug,title,body,published_at)
-         VALUES('long-horizon','Long horizon','English body','12000-01-01T00:00:00Z')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
     let response = admin_listing(
         &pool,
         Options {
@@ -880,20 +885,11 @@ async fn postgres_pagination_language_and_caps() {
             page: Some(number),
             ..Options::default()
         };
-        assert!(
-            !public::listing(&pool, "en", &q)
-                .await
-                .unwrap()
-                .0
-                .contains(r#"rel="next""#)
-        );
-        assert!(
-            !public::listing(&pool, "en", &q)
-                .await
-                .unwrap()
-                .0
-                .contains("?page=")
-        );
+        let listing = public::listing(&pool, "en", &q).await.unwrap().0;
+        assert!(!listing.contains(r#"rel="next""#));
+        let previous = format!(r#"href="?page={}&amp;lang=en" rel="prev""#, number - 1);
+        assert!(listing.replace("&#38;", "&amp;").contains(&previous));
+        assert_eq!(listing.matches("?page=").count(), 1);
         let response = admin_listing(&pool, q, "en", false).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         let html = to_bytes(response.into_body(), 100000).await.unwrap();
