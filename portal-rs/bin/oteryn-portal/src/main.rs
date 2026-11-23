@@ -345,6 +345,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
                 Some(runtime) => runtime.browser_router(),
                 None => oteryn_bazaar::characters::http::configured_router(),
             });
+            let app = app.merge(oteryn_bazaar::history::router(db.clone(), &origin));
             let app = app.merge(reset_http::configured_router(db.clone()));
             let app = app.merge(passkeys_http::configured_router(db.clone())?);
             let app = oteryn_wiki::entities::mount(
