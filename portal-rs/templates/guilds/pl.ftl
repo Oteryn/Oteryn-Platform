@@ -12,3 +12,6 @@ next = Następna strona
 forming = W trakcie tworzenia
 active = Aktywna
 disbanding = W trakcie rozwiązywania
+world = Świat
+all-worlds = Wszystkie światy
+back = Wróć do listy gildii

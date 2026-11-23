@@ -1,5 +1,5 @@
 //! G-4 house catalogue. Ingest evidence never grants public owner visibility.
-use crate::v2_watermark::Part;
+use crate::{v2_watermark::Part, world_directories::WorldPicker};
 use askama::Template;
 use axum::{
     Router,
@@ -150,11 +150,12 @@ fn configured<S: Clone + Send + Sync + 'static>(db: PgPool, part: Part) -> Route
                 source_authority: std::env::var("PORTAL_PUBLIC_PROJECTIONS_AUTHORITY")
                     .unwrap_or_default(),
             },
-            serving_enabled: prerequisite
-                && std::env::var("PORTAL_HOUSES_SERVING_ENABLED").as_deref() == Ok("true"),
+            serving_enabled: crate::world_directories::houses_enabled(|key| {
+                std::env::var(key).ok()
+            }),
         },
         part,
-        false, // G-4 house rev 1 is CANDIDATE, without a Game producer.
+        crate::world_directories::CONTRACT_ACCEPTED,
     )
 }
 #[derive(serde::Deserialize, Default)]
@@ -165,6 +166,7 @@ struct Query {
 struct House {
     name: String,
     world: String,
+    world_name: String,
     key: String,
     kind: String,
     town: String,
@@ -181,6 +183,10 @@ struct Page {
     labels: Vec<String>,
     houses: Vec<House>,
     unavailable: bool,
+    detail: bool,
+    base: String,
+    back: String,
+    picker: WorldPicker,
 }
 fn label(en: bool, key: &str) -> String {
     let mut bundle = fluent_bundle::FluentBundle::new(vec![if en {
@@ -210,11 +216,12 @@ fn timestamp(value: &str) -> Option<String> {
 }
 async fn load(
     state: &Houses,
-    world: Option<&str>,
+    picker: &WorldPicker,
     key: Option<&str>,
     en: bool,
 ) -> Result<Vec<House>, StatusCode> {
     let unavailable = StatusCode::SERVICE_UNAVAILABLE;
+    let world = picker.selected();
     if !state.contract_accepted {
         return Err(unavailable);
     }
@@ -301,6 +308,7 @@ async fn load(
         houses.push(House {
             name: value("name")?,
             world: w.into(),
+            world_name: picker.name(w).unwrap_or_default().into(),
             key: k.into(),
             kind: label(en, &value("kind")?),
             town: value("town")?,
@@ -361,24 +369,34 @@ async fn page(
         return StatusCode::BAD_REQUEST.into_response();
     };
     let key = uri.path().split_once("/houses/").map(|(_, s)| s);
-    if query
-        .world
-        .as_deref()
-        .is_some_and(|s| !houses_schema::world(s))
+    let world = query.world.filter(|value| !value.is_empty());
+    if world.as_deref().is_some_and(|s| !houses_schema::world(s))
         || key.is_some_and(|s| !houses_schema::house_key(s))
-        || (key.is_some() && query.world.is_none())
+        || (key.is_some() && world.is_none())
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let en = uri.path().starts_with("/en/");
-    let result = load(&state, query.world.as_deref(), key, en).await;
+    let (picker, result) = match WorldPicker::load(&state.db, world.as_deref()).await {
+        Ok(picker) => {
+            let result = load(&state, &picker, key, en).await;
+            (picker, result)
+        }
+        Err(StatusCode::NOT_FOUND) => return StatusCode::NOT_FOUND.into_response(),
+        Err(status) => (WorldPicker::default(), Err(status)),
+    };
+    let lang = if en { "en" } else { "pl" };
+    let base = format!("/{lang}/houses");
+    let back = picker
+        .selected()
+        .map_or_else(|| base.clone(), |id| format!("{base}?world={id}"));
     let unavailable = result.is_err();
     let houses = result.unwrap_or_default();
     if !unavailable && key.is_some() && houses.is_empty() {
         return StatusCode::NOT_FOUND.into_response();
     }
     let page = Page {
-        lang: if en { "en" } else { "pl" },
+        lang,
         labels: [
             "title",
             "unavailable",
@@ -390,12 +408,20 @@ async fn page(
             "rent",
             "status",
             "details",
+            "world",
+            "all-worlds",
+            "apply",
+            "back",
         ]
         .iter()
         .map(|k| label(en, k))
         .collect(),
         houses,
         unavailable,
+        detail: key.is_some(),
+        base,
+        back,
+        picker,
     };
     match page.render() {
         Ok(html) => (

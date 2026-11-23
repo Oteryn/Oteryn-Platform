@@ -1,4 +1,5 @@
 use super::*;
+use crate::world_directories::WorldPicker;
 use askama::Template;
 use axum::{
     extract::{OriginalUri, RawQuery},
@@ -95,6 +96,7 @@ async fn headers(request: axum::extract::Request, next: axum::middleware::Next) 
 #[derive(Deserialize, Default)]
 #[serde(deny_unknown_fields)]
 struct Query {
+    world: Option<String>,
     q: Option<String>,
     page: Option<usize>,
 }
@@ -105,6 +107,7 @@ struct Member {
 }
 struct Guild {
     name: String,
+    world: String,
     href: String,
     state: String,
     founded: String,
@@ -121,6 +124,9 @@ struct Page {
     guilds: Vec<Guild>,
     previous: String,
     next: String,
+    base: String,
+    back: String,
+    picker: WorldPicker,
 }
 fn labels(en: bool) -> Vec<String> {
     let source = if en {
@@ -151,6 +157,9 @@ fn labels(en: bool) -> Vec<String> {
         "forming",
         "active",
         "disbanding",
+        "world",
+        "all-worlds",
+        "back",
     ]
     .iter()
     .map(|key| {
@@ -174,7 +183,8 @@ async fn load(
     state: &Guilds,
     lang: &str,
     labels: &[String],
-    selected: Option<&str>,
+    name: Option<&str>,
+    picker: &WorldPicker,
 ) -> Result<Vec<Guild>, Unavailable> {
     if !state.contract_accepted {
         return Err(Unavailable::Evidence);
@@ -205,17 +215,27 @@ async fn load(
     {
         return Err(Unavailable::Evidence);
     }
-    let subjects:Vec<String>=sqlx::query_scalar("SELECT subject FROM public_snapshots WHERE family='guild' AND NOT public_projection_conflicted('guild') AND NOT is_watermark AND epoch=(SELECT highest_epoch FROM public_projection_state WHERE id=1) AND ($1::text IS NULL OR payload->'guild'->0->>'name'=$1) ORDER BY subject LIMIT 257").bind(selected).fetch_all(&state.db).await.map_err(|_|Unavailable::Database)?;
-    if subjects.len() > 256 {
+    let rows: Vec<(String, serde_json::Value)> = sqlx::query_as(
+        "SELECT subject, payload FROM public_snapshots
+         WHERE family='guild' AND NOT is_watermark AND epoch=$1::numeric
+           AND NOT public_projection_conflicted('guild')
+           AND ($2::text IS NULL OR payload->'guild'->0->>'name'=$2)
+           AND ($3::text IS NULL OR payload->'guild'->0->>'world_id'=$3)
+         ORDER BY subject LIMIT 257",
+    )
+    .bind(&epoch)
+    .bind(name)
+    .bind(picker.selected())
+    .fetch_all(&state.db)
+    .await
+    .map_err(|_| Unavailable::Database)?;
+    if rows.len() > 256 {
         return Err(Unavailable::Evidence);
     }
     let mut identities = vec![];
     let mut result = vec![];
-    for subject in subjects {
-        let payload = crate::ingest::latest(&state.db, "guild", &subject)
-            .await
-            .map_err(|_| Unavailable::Database)?
-            .ok_or(Unavailable::Evidence)?;
+    let mut names = std::collections::HashSet::new();
+    for (subject, payload) in rows {
         identities.push(("guild", subject.clone(), payload.clone()));
         if payload["contract_version"] != 2
             || payload["source_authority"].as_str() != Some(state.config.source_authority.as_str())
@@ -229,6 +249,10 @@ async fn load(
         }
         for g in guilds {
             wire::validate(&g, current).map_err(|_| Unavailable::Evidence)?;
+            let uniqueness_scope = if name.is_some() { "" } else { &g.world_id };
+            if !names.insert((uniqueness_scope.to_owned(), g.name.to_lowercase())) {
+                return Err(Unavailable::Evidence);
+            }
             let mut eligible = Vec::new();
             for member in &g.members {
                 let profile =
@@ -300,7 +324,14 @@ async fn load(
                 _ => return Err(Unavailable::Evidence),
             };
             result.push(Guild {
-                href: format!("/{lang}/guilds/{}", encoded(&g.name)),
+                href: format!(
+                    "/{lang}/guilds/{}{}",
+                    encoded(&g.name),
+                    picker
+                        .name(&g.world_id)
+                        .map_or_else(String::new, |_| format!("?world={}", g.world_id)),
+                ),
+                world: picker.name(&g.world_id).unwrap_or_default().to_owned(),
                 name: g.name,
                 state: labels[state_label].clone(),
                 founded: date(&g.founded_at)?,
@@ -354,11 +385,7 @@ async fn load(
     {
         return Err(Unavailable::Evidence);
     }
-    result.sort_by(|a, b| a.name.cmp(&b.name));
-    let mut names = std::collections::HashSet::new();
-    if result.iter().any(|g| !names.insert(g.name.to_lowercase())) {
-        return Err(Unavailable::Evidence);
-    }
+    result.sort_by(|a, b| a.name.cmp(&b.name).then_with(|| a.world.cmp(&b.world)));
     Ok(result)
 }
 async fn page(
@@ -375,10 +402,14 @@ async fn page(
     let Ok(query) = serde_urlencoded::from_str::<Query>(raw.as_deref().unwrap_or("")) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
+    let world = query.world.filter(|value| !value.is_empty());
     let search = query.q.unwrap_or_default().trim().to_owned();
     let index = query.page.unwrap_or(1);
     if search.chars().count() > 80
         || search.chars().any(char::is_control)
+        || world
+            .as_deref()
+            .is_some_and(|id| !crate::world_directories::world_id(id))
         || index == 0
         || index > 1000000
     {
@@ -406,10 +437,13 @@ async fn page(
     } else {
         None
     };
-    let result = if state.config.enabled {
-        load(&state, lang, &labels, name.as_deref()).await
-    } else {
-        Err(Unavailable::Evidence)
+    let (picker, result) = match WorldPicker::load(&state.db, world.as_deref()).await {
+        Ok(picker) => {
+            let result = load(&state, lang, &labels, name.as_deref(), &picker).await;
+            (picker, result)
+        }
+        Err(StatusCode::NOT_FOUND) => return StatusCode::NOT_FOUND.into_response(),
+        Err(_) => (WorldPicker::default(), Err(Unavailable::Database)),
     };
     let unavailable = result.is_err();
     let status = if unavailable {
@@ -443,7 +477,20 @@ async fn page(
     } else {
         guilds = guilds.into_iter().skip(start).take(50).collect();
     }
-    let link = |p| format!("{}?q={}&page={p}", uri.path(), encoded(&search));
+    let world_query = picker
+        .selected()
+        .map_or_else(String::new, |id| format!("&world={id}"));
+    let link = |p| {
+        format!(
+            "{}?q={}&page={p}{world_query}",
+            uri.path(),
+            encoded(&search)
+        )
+    };
+    let base = format!("/{lang}/guilds");
+    let back = picker
+        .selected()
+        .map_or_else(|| base.clone(), |id| format!("{base}?world={id}"));
     let previous = if index > 1 {
         link(index - 1)
     } else {
@@ -463,6 +510,9 @@ async fn page(
         guilds,
         previous,
         next,
+        base,
+        back,
+        picker,
     };
     match page.render() {
         Ok(html) => (status, Html(html)).into_response(),

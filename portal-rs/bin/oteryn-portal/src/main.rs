@@ -256,6 +256,7 @@ async fn run(role: Role) -> Result<(), Box<dyn std::error::Error>> {
             let app = app.merge(oteryn_community::deaths::configured_router(db.clone()));
             let app = app.merge(oteryn_community::guilds::configured_router(db.clone()));
             let app = app.merge(oteryn_community::houses::configured_router(db.clone()));
+            let app = app.merge(oteryn_community::directory_status(db.clone())?);
             // G-4 skills (public) and owner-only character pages; ingest is internal only.
             let app = app.merge(oteryn_community::families::configured_router(db.clone()));
             let app = app.merge(oteryn_community::v2_watermark::configured_router(

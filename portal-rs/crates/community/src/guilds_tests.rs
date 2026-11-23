@@ -177,6 +177,37 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
             },
         )
     };
+    sqlx::raw_sql(
+        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
+         INSERT INTO world_status VALUES
+          ('01934f10-7c02-7001-805b-3b1122334401','First World'),
+          ('01934f10-7c02-7001-805b-3b1122334402','Second World');",
+    )
+    .execute(&db)
+    .await?;
+    let world = "01934f10-7c02-7001-805b-3b1122334401";
+    let foreign = "01934f10-7c02-7001-805b-3b1122334402";
+    let (status, scoped) = page_body(pages(), &format!("/en/guilds?world={world}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(scoped.contains("First World"));
+    assert!(scoped.contains(&format!("/en/guilds/Red%20Rose?world={world}")));
+    let (status, roster) =
+        page_body(pages(), &format!("/en/guilds/Red%20Rose?world={world}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(roster.contains("Aldric"));
+    assert!(!roster.contains("Hidden Member"));
+    for name in ["Red%20Rose", "Missing"] {
+        assert_eq!(
+            page_body(pages(), &format!("/en/guilds/{name}?world={foreign}"))
+                .await
+                .0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        page_body(pages(), "/en/guilds?world=invalid").await.0,
+        StatusCode::BAD_REQUEST
+    );
     let (status, body) = page_body(pages(), "/en/guilds").await;
     assert_eq!(status, StatusCode::OK);
     assert!(body.contains("Visible members: 1"));
@@ -201,7 +232,9 @@ async fn postgres_guild_ingest_privacy_replay_and_fence() -> TestResult {
         std::fs::write(std::path::Path::new(&dir).join("guilds.html"), &body)?;
     }
     assert!(!body.contains("Hidden Member"));
-    assert!(!body.contains("01934f10"));
+    assert!(!body.contains("01934f10-7c06-7001-805b-3b1122334401"));
+    assert!(!body.contains("01934f10-7c04-7001-805b-3b1122334401"));
+    assert!(!body.contains("01934f10-7c04-7001-805b-3b1122334402"));
     assert!(
         page_body(pages(), "/pl/guilds")
             .await
@@ -675,6 +708,13 @@ async fn guild_migration_preserves_history_and_serves_both_versions() -> TestRes
     let saved_legacy = crate::ingest::latest(&db, "guild_v1", &displaced.subject).await?;
     let restored = crate::ingest::latest(&db, "guild", &displaced.subject).await?;
     let saved_current = crate::ingest::latest(&db, "guild", current_id).await?;
+    sqlx::raw_sql(
+        "CREATE TABLE world_status(id uuid PRIMARY KEY, name text NOT NULL);
+         INSERT INTO world_status VALUES
+          ('01934f10-7c02-7001-805b-3b1122334401','First World');",
+    )
+    .execute(&db)
+    .await?;
     let pages = router(
         db.clone(),
         Arc::new(Visible),
