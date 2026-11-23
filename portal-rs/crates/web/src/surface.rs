@@ -2,7 +2,6 @@
 
 use axum::{
     Router,
-    body::Body,
     extract::{Path, Request, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
@@ -230,7 +229,6 @@ async fn policy(mut request: Request, next: Next) -> Response {
     let lang = request_language(&request);
     let chrome = request_chrome(&request, lang);
     let json = wants_json(request.headers());
-    let is_head = request.method() == axum::http::Method::HEAD;
     let path = request.uri().path().to_owned();
     let mut random = [0_u8; 32];
     let nonce = if getrandom::fill(&mut random).is_ok() {
@@ -345,9 +343,6 @@ async fn policy(mut request: Request, next: Next) -> Response {
         headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     } else {
         crate::chrome::ensure_no_store(headers);
-    }
-    if is_head {
-        *response.body_mut() = Body::empty();
     }
     response
 }
