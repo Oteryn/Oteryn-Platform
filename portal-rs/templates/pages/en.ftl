@@ -12,6 +12,8 @@ locale = Language
 create = Create or edit
 
 not-published = This page has not been published yet.
+operator-draft = Draft — operator data will be replaced.
+final-approval = Approve this new legal edition as final
 support = Player support
 report-a-bug = Report a bug
 help-tickets = Submit a support ticket

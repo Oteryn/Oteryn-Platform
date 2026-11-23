@@ -2,6 +2,17 @@
 
 Node 22+, Python 3 (pinned negative fixture generation), OpenSSL, the repository Rust toolchain, PostgreSQL 18.6, and an installed Chromium are required. No browser download is performed. The suite has four projects: Polish and English, each at 1440 × 900 and 390 × 900. Retries are disabled. Traces and screenshots remain local and can contain throwaway authentication material; do not publish them.
 
+The launchers install the default legal pages after migrations in `local` and
+`testing`. With `OTERYN_ENV=preprod`, the cross-repository harness instead
+seeds approved signup fixtures in its fresh local database and checks both
+locales before starting. The fixture versions use `OTERYN_TERMS_VERSION` and
+`OTERYN_PRIVACY_VERSION`, each defaulting to `e2e-approved-v1`. Pass `--outbox`
+to the harness to enable the local HTTPS origin and SMTP sink for signup.
+When using an already running isolated testing portal, run
+`OTERYN_ENV=testing oteryn-portal install-legal-pages`
+against its database before running `specs/legal-pages.spec.mjs` or exercising
+browser signup.
+
 From the repository root, with a native Node 22+ on `PATH` and a throwaway local
 PostgreSQL 18.6 already running (nothing outside the repository is sourced):
 

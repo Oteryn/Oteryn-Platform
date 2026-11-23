@@ -3,8 +3,8 @@ name: Portal RS E2E
 # Browser qualification of the whole portal (portal-rs/e2e, Playwright) on hosted runners.
 # One job builds the portal binary once; one job per Playwright project then starts the
 # disposable local stack (portal-rs/e2e/local.mjs) against its own PostgreSQL 18.6 and runs
-# the full spec corpus. Kept separate from portal-rs-ci.yml because its trigger (nightly and
-# on demand), runtime and failure evidence have their own lifecycle.
+# the full spec corpus. Ready PRs opt in with heavy-tests; every main push runs the
+# full suite alongside the reusable Rust PostgreSQL and browser jobs.
 # Review/retirement: review when portal-rs-ci.yml gains an equivalent full-corpus browser job
 # or the e2e corpus moves; retire with portal-rs/e2e.
 
@@ -12,9 +12,10 @@ on:
   pull_request:
     branches:
       - main
-    paths:
-      - 'portal-rs/e2e/**'
-      - '.github/workflows/portal-rs-e2e.yml'
+    types: [opened, reopened, synchronize, ready_for_review, labeled]
+  push:
+    branches:
+      - main
   schedule:
     - cron: '23 2 * * *'
   workflow_dispatch:
@@ -36,11 +37,37 @@ env:
   CARGO_INCREMENTAL: '0'
 
 concurrency:
-  group: portal-rs-e2e-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # An unrelated label notification must never cancel a real PR run.
+  group: platform-heavy-${{ github.event_name }}-${{ github.event.pull_request.number || (github.event_name == 'push' && github.sha) || github.ref }}${{ (github.event.action == 'labeled' && github.event.label.name != 'heavy-tests') && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
 jobs:
+  scope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    outputs:
+      run: ${{ steps.scope.outputs.run }}
+    steps:
+      - id: scope
+        env:
+          RUN_HEAVY: >-
+            ${{ github.event_name != 'pull_request' ||
+                (!github.event.pull_request.draft &&
+                 contains(github.event.pull_request.labels.*.name, 'heavy-tests') &&
+                 (github.event.action != 'labeled' || github.event.label.name == 'heavy-tests')) }}
+        run: printf 'run=%s\n' "$RUN_HEAVY" >> "$GITHUB_OUTPUT"
+
+  rust_heavy:
+    if: ${{ needs.scope.outputs.run == 'true' && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    needs: scope
+    uses: ./.github/workflows/portal-rs-ci.yml
+    permissions:
+      contents: read
+
   build:
+    if: ${{ needs.scope.outputs.run == 'true' }}
+    needs: scope
     # Pinned image: the pinned Playwright release has no Chromium build for ubuntu-latest
     # (26.04), and the binary built here must run on the same glibc as the e2e jobs.
     runs-on: ubuntu-24.04
@@ -50,6 +77,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -123,6 +152,8 @@ jobs:
 
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -235,3 +266,57 @@ jobs:
           path: portal-rs/e2e/test-results
           retention-days: 7
           if-no-files-found: ignore
+
+  heavy_gate:
+    # Unrelated label events still run this job, under a different check name so
+    # they cannot supersede the required result (successful, failed, or pending).
+    name: >-
+      ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') &&
+          'Portal Playwright (standalone)' ||
+          (github.event.action == 'labeled' && github.event.label.name != 'heavy-tests') &&
+          'platform-heavy-gate (unrelated label)' || 'platform-heavy-gate' }}
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    needs: [scope, rust_heavy, build, e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Qualify the selected heavy jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          OTHER_LABEL: ${{ github.event.action == 'labeled' && github.event.label.name != 'heavy-tests' }}
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          RUN_HEAVY: ${{ needs.scope.outputs.run }}
+          RUST_RESULT: ${{ needs.rust_heavy.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          set -euo pipefail
+          test "$SCOPE_RESULT" = success
+          if [[ "$OTHER_LABEL" == true ]]; then
+            echo 'Unrelated label event; the qualifying event publishes platform-heavy-gate.'
+            exit 0
+          fi
+          if [[ -n "$PR_NUMBER" && "$RUN_HEAVY" == false ]]; then
+            live_heavy="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER" | jq -r '
+              if (.draft | type) != "boolean" or (.labels | type) != "array" then
+                error("Invalid pull request response")
+              else
+                (.draft == false and any(.labels[]; .name == "heavy-tests"))
+              end
+            ')"
+            if [[ "$live_heavy" == true ]]; then
+              echo 'The PR is now eligible for heavy tests; the heavy-tests run publishes platform-heavy-gate.'
+              exit 1
+            fi
+            test "$live_heavy" = false
+            echo 'Not a heavy-tests PR; platform-gate governs qualification.'
+            exit 0
+          fi
+          test "$RUN_HEAVY" = true
+          echo "Heavy results: rust=$RUST_RESULT build=$BUILD_RESULT e2e=$E2E_RESULT"
+          test "$RUST_RESULT" = success
+          test "$BUILD_RESULT" = success
+          test "$E2E_RESULT" = success

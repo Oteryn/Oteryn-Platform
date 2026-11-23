@@ -123,6 +123,7 @@ if(!binary){
 binary=path.resolve(root,binary);
 env.PORTAL_E2E_BINARY=binary;
 command(binary,['migrate']);
+command(binary,['install-legal-pages']);
 // Platform-owned registry/allocation fixtures. The production runtime never mints
 // an escrow account or Game asset and never reads this test producer's journal.
 const bazaarSeed=new pg.Client({connectionString:databaseURL(dbName)});await bazaarSeed.connect();

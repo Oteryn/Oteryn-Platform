@@ -1,4 +1,5 @@
 import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import importlib.util
 import inspect
@@ -10,6 +11,7 @@ import subprocess
 import os
 import stat
 import tarfile
+from threading import Thread
 import zipfile
 from unittest.mock import patch
 
@@ -109,6 +111,22 @@ class AuthorityBoundary(unittest.TestCase):
                                    ('platform', 'deploy ../../main'), ('game', 'deploy ' + 'A' * 40)]:
             with self.subTest(component=component, command=command), self.assertRaises(ValueError):
                 deploy.parse(component, command)
+
+    def test_platform_deploy_accepts_the_current_workflow_command(self):
+        sha = 'a' * 40
+        workflow = Path(__file__).resolve().parents[2] / '.github/workflows/oracle-operations.yml'
+        self.assertIn('command="deploy-signup-legal-v1 $SOURCE_SHA $GITHUB_RUN_ID $GITHUB_RUN_ATTEMPT"', workflow.read_text())
+        for verb in ('deploy-signup-legal-v1', 'deploy'):
+            command = f'{verb} {sha} 100 1'
+            self.assertEqual(deploy.parse('platform', command), ('deploy', sha, 100, 1, None))
+            with self.assertRaises(ValueError):
+                deploy.parse('game', command)
+        self.assertEqual(deploy.parse('platform', 'status'), ('status', None, None, None, None))
+        for command in (f'deploy-signup-legal-v2 {sha} 100 1',
+                        f'deploy-signup-legal-v1 {sha} 0 1',
+                        f'deploy-signup-legal-v1 {sha} 100 1 extra'):
+            with self.assertRaises(ValueError):
+                deploy.parse('platform', command)
 
     def test_exact_current_main_and_aggregate_success_are_independent(self):
         sha = 'a' * 40
@@ -220,7 +238,7 @@ class LivePortalDeployment(unittest.TestCase):
         compose = ['docker', 'compose', '-p', 'oteryn-portal', '-f', str(portal / 'compose.yml')]
         def command(args, **kwargs):
             calls.append((args, kwargs))
-            if fail and args == compose + fail:
+            if fail and args[-len(fail):] == fail:
                 raise subprocess.CalledProcessError(1, args)
         image = {'Architecture': 'arm64', 'Id': 'new-id',
                  'Config': {'Labels': {'org.opencontainers.image.revision': self.sha}}}
@@ -248,9 +266,17 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual(build, ['docker', 'build', '--label', 'org.opencontainers.image.revision=' + self.sha,
                                      '-f', 'deploy/oracle/portal.Dockerfile', '-t', 'oteryn-portal:fedcba98-arm64', 'portal-rs'])
             self.assertEqual(build_kwargs, {'cwd': Path('/archive'), 'timeout': 7200})
-            self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none', 'oteryn-portal:fedcba98-arm64', 'check-image'])
+            self.assertEqual(argv[1], ['docker', 'run', '--rm', '--network', 'none',
+                                      'oteryn-portal:fedcba98-arm64', 'check-image'])
             migrate = argv.index(compose + ['run', '--rm', '-T', 'portal', 'migrate'])
             up = argv.index(compose + ['up', '-d', 'portal', 'portal-worker', 'portal-gateway'])
+            check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
+            checks = [index for index, args in enumerate(argv) if args[-len(check):] == check]
+            self.assertEqual(len(checks), 2)
+            self.assertEqual(argv[checks[0]][:len(compose) + 1], compose + ['-f'])
+            self.assertLess(checks[0], argv.index(['backup']))
+            self.assertLess(migrate, checks[1])
+            self.assertLess(checks[1], up)
             self.assertLess(argv.index(['probe']), argv.index(['backup']))
             self.assertLess(argv.index(['backup']), migrate)
             self.assertLess(migrate, up)
@@ -271,6 +297,32 @@ class LivePortalDeployment(unittest.TestCase):
             self.assertEqual(images, {'oteryn-portal-portal-1': 'new-id', 'oteryn-portal-portal-worker-1': 'new-id',
                                       'oteryn-portal-portal-gateway-1': 'new-id'})
             self.assertEqual(sorted(p.name for p in portal.iterdir()), ['compose.yml', 'gateway.env'])
+
+    def test_candidate_with_unstaged_legal_editions_cannot_replace_the_running_release(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            check = ['run', '--rm', '-T', '--no-deps', 'portal', 'check-signup-legal']
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                self.deploy(portal, state, fail=check)
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertEqual(argv[-1][-len(check):], check)
+            self.assertFalse(any('backup' in args or 'migrate' in args or 'up' in args for args in argv))
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+            self.assertEqual(list(state.iterdir()), [])
+
+    def test_failed_image_check_stops_before_any_deployment_effects(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            portal, state = self.host(temporary)
+            check = ['check-image']
+            with self.assertRaises(subprocess.CalledProcessError) as raised:
+                self.deploy(portal, state, fail=check)
+            argv = [args for args, _ in raised.exception.calls]
+            self.assertEqual(len(argv), 2)
+            self.assertEqual(argv[-1][-len(check):], check)
+            self.assertEqual((portal / 'compose.yml').read_text(), LIVE_COMPOSE)
+            self.assertEqual((portal / 'gateway.env').read_text(), LIVE_GATEWAY)
+            self.assertEqual(list(state.iterdir()), [])
 
     def test_failed_migration_restores_the_previous_release_and_requires_reconciliation(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -378,11 +430,13 @@ class LivePortalDeployment(unittest.TestCase):
         opened = []
         class Response:
             status = 200
+            def __init__(self, url): self.url = url
+            def geturl(self): return self.url
             def __enter__(self): return self
             def __exit__(self, *args): return False
         def urlopen(url, timeout):
             opened.append(url)
-            return Response()
+            return Response(url)
         labels = {'Config': {'Labels': {'org.opencontainers.image.revision': revision or self.sha}}}
         with patch.object(deploy, 'STATE', state), patch.object(deploy, 'inspect', side_effect=self.containers(**containers)), \
              patch.object(deploy, 'inspect_image', return_value=labels), patch.object(deploy, 'run') as command, \
@@ -397,7 +451,11 @@ class LivePortalDeployment(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'no runner-deployed'):
                 self.status(state)
             (state / 'platform-current.json').write_text(json.dumps({'sha': self.sha, 'phase': 'ready'}))
-            self.assertEqual(self.status(state), ['http://172.18.0.42:8080/readyz'])
+            self.assertEqual(self.status(state), [
+                'http://172.18.0.42:8080/readyz',
+                'http://172.18.0.42:8080/en/register',
+                'http://172.18.0.42:8080/pl/register',
+            ])
             for kwargs, message in [({'revision': 'b' * 40}, 'recorded release'),
                                     ({'worker_image': 'other-id'}, 'different images'),
                                     ({'worker_state': {'Running': False}}, 'worker'),
@@ -410,6 +468,36 @@ class LivePortalDeployment(unittest.TestCase):
                 self.status(state)
             # During a release, readiness is measured against the pending revision.
             self.status(state, revision='c' * 40, allow_pending=True)
+
+    def test_live_http_readiness_refuses_either_unavailable_signup_locale(self):
+        statuses = {}
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(statuses.get(self.path, 200))
+                self.end_headers()
+
+            def log_message(self, *args):
+                pass
+
+        with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
+            thread = Thread(target=server.serve_forever)
+            thread.start()
+            networks = {'NetworkSettings': {'Networks': {
+                deploy.PORTAL_NETWORK: {'IPAddress': '127.0.0.1'},
+            }}}
+            try:
+                with patch.object(deploy, 'inspect', return_value=networks), \
+                     patch.object(deploy, 'PORTAL_HTTP_PORT', server.server_port):
+                    deploy.portal_ready(signup=True)
+                    for path in ['/en/register', '/pl/register']:
+                        statuses[path] = 503
+                        deploy.portal_ready()
+                        with self.assertRaisesRegex(ValueError, path):
+                            deploy.portal_ready(signup=True)
+                        statuses.clear()
+            finally:
+                server.shutdown()
+                thread.join()
 
     def test_unreachable_portal_is_not_ready(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -506,6 +594,7 @@ class LivePortalDeployment(unittest.TestCase):
         for expected in ('FROM ubuntu:26.04', 'useradd -r -u 10001 portal', 'WORKDIR /app',
                          'COPY --from=build /out/oteryn-portal /app/oteryn-portal', 'static /app/static',
                          'migrations /app/migrations', 'USER portal', 'EXPOSE 8080 8091',
+                         'ENV OTERYN_ORACLE_DEPLOY_IMAGE=1',
                          'ENTRYPOINT ["/app/oteryn-portal"]'):
             self.assertIn(expected, recipe)
         builder = (checkout / 'portal-rs/Dockerfile').read_text().split(' AS build', 1)[0].rsplit('FROM ', 1)[1]
@@ -648,7 +737,7 @@ class GameBranchUnchanged(unittest.TestCase):
     # serves the Game forced command, so a Platform change must not move these.
     # Updated deliberately for the Game image artifact path (deploy-image).
     REVIEWED = {
-        'parse': '5c4f83672f01a4e1a3fe88fb0357de1187ca23db13168a7399aa53768dd26f70',
+        'parse': 'bd8fee9ea9ad05d5b40aba43492e6f60c501af325a1495575e5944598fb9837d',
         'run': 'b4446e5599544fc74c497bdd5c224355cf8285cbf143452bc5bebbf5a69bc37b',
         'api': '46fe84673422b96e3ec33ca9372e34ec8f9383c6c082a420dd9cd12524994353',
         'qualify': 'c47dcd195b0d58caa797657877a43abd7c96786fceba2749a4b82b2ee68f4c88',
