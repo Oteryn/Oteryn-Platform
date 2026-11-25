@@ -1,6 +1,6 @@
 ---
 name: oteryn-platform-waves
-description: Planning and running several portal-rs plan tasks as a wave in Oteryn-Platform - choosing tasks from the plan's dependency table, checking that parallel units share no files, migration versions or database, pre-assigning migration timestamps, writing delegation packets for Codex or subagents, landing the PRs through the Merge Queue, and closing a wave with a retro. Load when planning more than one change, delegating, or landing several PRs.
+description: Planning and running several portal-rs plan tasks as a wave in Oteryn-Platform - choosing tasks from the plan's dependency table, checking that parallel units share no files, migration versions or database, pre-assigning migration timestamps, writing delegation packets for Codex or subagents, landing the PRs one at a time, and closing a wave with a retro. Load when planning more than one change, delegating, or landing several PRs.
 ---
 
 # Planning and landing waves
@@ -11,6 +11,10 @@ no Merge Queue, so two units that collide are found only on `main` (`oteryn-plat
 *Blind spot*).
 
 ## 1. Choose and slice
+
+- WIP limit per wave: the units of one wave run in parallel (§2); the next
+  wave starts only when every unit of the current one is merged, rejected
+  or explicitly parked.
 
 - Take the work from plan §10 (`docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`):
   only tasks whose *Zależy od* (depends on) tasks are merged, and whose
@@ -59,11 +63,11 @@ as you can review and land the same day.
 
 1. Review each returned unit (`oteryn-platform-review`) and push it to its
    own branch; open the PR from the template.
-2. Before queueing the next unit, merge it locally onto the current
+2. Before landing the next unit (squash auto-merge), merge it locally onto the current
    `origin/main` and run the portal-rs checks on that tree when it shares any
    hot file, `Cargo.lock` or the migrations directory with a unit already
    landed.
-3. Queue one PR at a time; after each merge, watch the `Portal RS CI` push
+3. Land one PR at a time; after each merge, watch the `Portal RS CI` push
    run on `main`, then check the remaining PRs for conflicts
    (`git merge-tree --write-tree origin/main <head>`).
 4. A unit that goes red after `main` moved: merge `origin/main`, fix the

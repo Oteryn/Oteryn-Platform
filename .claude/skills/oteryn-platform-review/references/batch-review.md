@@ -14,81 +14,86 @@ The rules below remove those causes. They do not change when a review is
 required or who starts it (SKILL.md §5). Three limits hold:
 - At most 2 review rounds per PR.
 - The review never edits code.
-- The batch fix runs at reasoning effort `medium`.
+- The batch fix runs at reasoning effort `high` for any fix in a risk class
+  (`oteryn-platform-coding`, *Before code*) and `medium` otherwise.
 
-Adapted from the Oteryn-Game `oteryn-review` skill
-(`references/batch-review.md`, Game `main` 203f9222, Oteryn/Oteryn-Game#3130;
-the gate, verdicts, fix packet and redesign rule at Game commit
-`f64e785ee1e3c81361bbe4b958e5b2ee8ba13c2a`).
+Aligned with the Oteryn-Game `oteryn-review` skill
+(`references/batch-review.md` §1-§2 at Game commit
+`9db4ccb5c42f6d2f0701a6c485c6b2291d712a8b`, owner decisions 2026-11-25).
 
 Before a round starts, the head passes the gate of SKILL.md §0; a head that
-fails it is not reviewed. The lens list of a PR is frozen when its first
-round starts; the second round runs only the lenses that had confirmed
-findings.
+fails it is not reviewed.
 
-## 1. One round = several lens runs over the same head
+## 1. One round = one holistic run over the same head
 
-A round is one pass over one exact head SHA. Inside that round, run
-independent read-only runs, one lens each. Each run starts with a clean
-context and does not see the other runs' output.
+A round is one pass over one exact head SHA. By default the round is ONE
+read-only Codex Cloud run over the whole diff (owner decision 2026-11-25).
+The run reads the whole diff as one unit, opens the callers and consumers of
+every changed symbol outside the diff, and checks SKILL.md §3, including:
 
-| Lens | Looks for in portal-rs |
-|---|---|
-| `auth` | identity, sessions, MFA, recovery, `native_security_generation` / `game_auth_generation` fencing, admin RBAC permission and audit row in the same transaction, CSRF on browser mutations, refusal when state is ambiguous, secrets in logs or `Debug` |
-| `money` | wallet, store, bazaar, premium/loyalty, payments: one transaction, rows locked in a stable order, idempotency key and replay, overflow and `i64::MAX`, a refusal that rolls back, checks done by the server and not the client |
-| `game-boundary` | the `/internal/v1` and `/internal/v2` wire on the mTLS listener: byte-exact against `docs/contracts/fixtures/`, status bodies and codes, SAN identity and the shared overlap check, default-off flags and `OTERYN_ENV` gates, idempotent operation ids, outbox and reconciliation, timeout treated as unknown, the contract status allowing the code |
-| `migrations` | new file with a unique version, additive, no edit to a merged migration, triggers and lock order (row, then counter), indexes for new foreign keys and paged reads, sqlx queries parameterized, unbounded reads, `_ =>` mapping an outcome to success |
-| `tests` | tests that pass without testing (a PostgreSQL test that prints `SKIPPED`, no assertion on the outcome, a sleep instead of a wait), a missing refusal or bad-input case, a missing red case for a fix, an edited fixture or assertion |
+- how the parts interact: shared state, duplicate or conflicting
+  registrations, ordering of handlers and migrations, a migration against
+  another part's code, contracts and fixtures against the code, generated
+  files against their sources;
+- each changed user, staff or money flow end to end (request, handler,
+  service, PostgreSQL and back, plus the `/internal/v1` boundary where it is
+  touched), with two requests at once, a retry or replayed request, a crash
+  during a write and values at their limits;
+- the risk areas: identity, sessions and MFA fencing; admin RBAC with the
+  audit row in the same transaction; wallet, store, bazaar and payments
+  (one transaction, stable lock order, idempotency, overflow); the Game wire
+  byte-exact against `docs/contracts/fixtures/`; migrations (unique version,
+  additive, no edit to a merged one); tests that pass without testing.
 
-Choose lenses by diff size and by what the diff touches:
+There are no per-lens runs. Split only when the diff is above about 1500
+changed lines: chunks of about 400-500 lines by file group (one crate or
+module per chunk), each chunk run with the whole diff as read-only context,
+plus the one holistic whole-diff run in the same round. Chunk runs alone are
+not a covered review. The second review (delta) is one holistic run over the
+fix commits and the code they touch.
 
-- **Up to about 400 changed lines:** 2 lenses, the two that fit the diff best.
-- **Larger diffs, or any diff that touches identity, money, the Game wire or
-  a migration:** every lens that applies, `tests` always included.
-- **Diffs above about 1500 changed lines:** also split into chunks of about
-  400–500 lines by file group (one crate or module per chunk). Each chunk
-  gets the lenses that fit it. Every chunk still gets the whole diff as
-  read-only context, so cross-file defects are not lost.
-- **Holistic runs (owner 2026-11-18):** every PR that lands several changes
-  together, and every diff split into chunks, also gets two runs over the
-  whole diff as one unit in the same round, reporting findings anywhere in
-  it:
-  - `whole-integration`: how the parts interact on the integrated head:
-    shared state, duplicate or conflicting registrations, ordering of
-    handlers and migrations, a migration against another part's code,
-    contracts and fixtures against the code, generated files against their
-    sources.
-  - `whole-flows`: each user or money flow the diff changes, end to end
-    (request, handler, service, PostgreSQL and back, plus the Game boundary
-    where it is touched), with the abuse cases: two requests at once, a
-    retry or replayed request, a crash during a write, values at their
-    limits.
-  Chunk runs alone are not a covered review of such a PR. The delta review
-  reruns `whole-integration` over the fix commits together with the code
-  they touch.
+**Model and effort.** Every review run is a Codex Cloud task, read-only,
+model `gpt-6.2-sol` at reasoning effort `high`. A PR with code or a contract/fixture change in a risk
+class (identity, sessions or MFA; game tickets or admission grants; the
+`/internal/v1` wire with Oteryn-Game; wallet, store, bazaar or payments;
+migrations; authorization) also gets one `gpt-6.2-astra` run at effort
+`high` on the same head, with the same prompt; the two runs together are the
+one covered review of that head. An astra P0/P1 counts only after the review
+owner traced it (input, caller, wrong result) to a REAL verdict (§3); one
+disproved is recorded FALSE and closed, one that cannot be traced either way
+goes to the P2 backlog. Never review at effort `medium`. Name the task
+`review-<tag>` (`review-<tag>-astra` for the second run).
 
-Where the runs come from:
-
-- Codex: `codex exec` in a read-only sandbox, or a Codex Cloud packet.
-- A read-only subagent (`oteryn-platform-ref-reader` or `Explore`).
-- On the PC, the shared review script with `--lens <name>` where it serves
-  this repository.
-
-Run the lenses in parallel, within the lane limits in the operator manual.
+**Launch route (owner rule 2026-11-25).** Every session launches, polls and
+reads its Codex Cloud tasks from its own chat, with its own `codex login`
+and the Platform Codex Cloud launcher (`submit`, `status`, `poll`, `send`,
+`list`). The owner's PC is never a relay: no PC wrapper, `codex exec` on the
+PC or review script on the PC starts a task for a cloud session. Every
+`submit` and `send` sets the model and effort explicitly (the launcher reads
+`OTERYN_CODEX_MODEL` and `OTERYN_CODEX_EFFORT`); never rely on a default. A
+session whose login fails (HTTP 401) reports it to the coordinator and does
+not reroute.
 
 ## 2. The prompt: all findings, no cap
 
-Every lens prompt contains:
+Every review prompt contains:
 
-- The diff against the exact base (`git diff <base>...<head>`), the lens,
-  and SKILL.md §3 as the checklist.
-- "Report EVERY real defect you find in your lens, P0 to P3. There is no
+- The diff against the exact base (`git diff <base>...<head>`) and SKILL.md
+  §3 as the checklist; the instruction to open callers outside the diff.
+- "Report EVERY real defect you find in the diff, P0 to P3. There is no
   limit on lines or on the number of findings. Do not stop after the first
   strong ones."
 - "For each finding, also list every other place in the diff with the same
   defect class (the pattern sweep)."
 - Format: `P0|P1|P2|P3 path:line - problem - concrete failure path`.
-- "Mark uncertain findings with `(uncertain)` instead of dropping them."
+- "A P0 or P1 states its evidence: `path:line` of the input or state, of the
+  caller that reaches the changed code, and of the line that gives the wrong
+  result. Without a caller you opened and quoted, it is at most P2."
+- "Before the output, try to refute each of your P0/P1: look for the guard,
+  check, lock or caller that prevents the failure. Drop one you refuted;
+  report one you cannot settle as `P2 (uncertain)`."
+- "Mark other uncertain findings with `(uncertain)` instead of dropping
+  them."
 - "End with `VERDICT: CLEAN` or `VERDICT: N findings`."
 - "Do not edit code."
 - When the PR fixes a CI failure: the failing log lines (the test name, the
@@ -97,12 +102,13 @@ Every lens prompt contains:
 
 ## 3. Merge, verify, sweep
 
-1. Merge the lens outputs. Remove duplicates by `path:line` and defect class.
+1. Merge the run outputs (the sol run, the chunk runs for a diff above about
+   1500 lines, and the astra run for a risk class). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
-   - For a finding that is hard to call, run a second check with the
-     opposite brief: a fresh run told "try to refute this finding; default
-     to refuted when unsure".
+   - For a finding that is hard to call, the coordinator traces it to the
+     owning code; still unsettled, it becomes P2 (uncertain). No extra
+     refute run.
    - Keep the finding when the refute attempt fails.
 3. Pattern sweep. For every confirmed finding, grep the diff, the files it
    touches and the rest of `portal-rs/` for the same class: the same call,
@@ -119,7 +125,8 @@ Every lens prompt contains:
 
 1. Write all confirmed P0/P1 findings, sweep instances included, to one file,
    numbered, one per line as `N. P0|P1 path:line - problem - failure path`.
-   Hand that file to one code-writing run at reasoning effort `medium`. Never
+   Hand that file to one code-writing run at reasoning effort `high` for a
+   fix in a risk class, `medium` otherwise. Never
    use one fix run per finding. The packet (SKILL.md §7) states:
    - **Statuses.** The report gives every number one status: `FIXED <test>`,
      `NOT REPRODUCED` or `BLOCKED <why>`. Runs handed a list tend to stop
@@ -138,25 +145,27 @@ Every lens prompt contains:
    - **Smallest fix.** The test reruns green; no existing assertion,
      timeout, budget or fixture changes, and nothing outside the listed
      findings.
-   - **Class guard.** For a P0/P1 class that recurred across PRs, when it is
-     smaller than the next round: one choke-point function and a
-     source-scan or invariant test.
+   - **Class guard.** Mandatory for a P0/P1 class that recurred across PRs:
+     one choke-point function and a source-scan or invariant test.
    - **Forbidden paths.** A fix diff outside the owned paths is rejected
      whole; `.github/workflows/**`, `scripts/ci/**` and `tests/ci/**` change
      only in a task that owns them.
 2. Review the fix diff yourself (SKILL.md §2–§3) and run the local checks
    (`oteryn-platform-dev`, step 5).
 3. Push once. One CI cycle covers the whole batch.
-4. The second review round covers only the fix diff (the delta). It uses the
-   lenses of the confirmed findings, under the same rules.
+4. The second review round covers only the fix diff (the delta): one
+   holistic sol run at high over the fix commits and the code they touch,
+   plus the astra run on the new head whenever the PR is in a risk class
+   (§1 needs both models on the same head).
 
 Code written by Codex or a subagent is reviewed by a new run with a clean
 context, never as a continuation of the run that wrote it.
 
 ## 5. When to stop
 
-The diff is done when two independent lens runs over the current head find
-no P0/P1. Two lenses in the same round count.
+The diff is done when the covered review of the current head (the sol run,
+its chunk runs when the diff needed them, plus the astra run for a risk
+class) finds no P0/P1 that verified REAL.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.
@@ -174,7 +183,7 @@ trigger it):
 Then report to the owner with a proposed redesign: a rule the code can
 check, such as a transition table with one test per state and event, one
 transaction for a durable value, or one shared source for a policy plus a
-parity test. It is implemented after the owner agrees, as its own PR with
+parity test, always with a guard test for the class. It is implemented after the owner agrees, as its own PR with
 its own review, never as a further push to a PR whose rounds are used up.
 
 Example of a proposal (a shape, not a claim about today's code): when bid,
@@ -192,11 +201,12 @@ state machine for `crates/bazaar`:
 
 A packet that delegates a review or a fix points to this file and states:
 
-- the base and head SHA, the lenses to run and, for big diffs, the chunks;
+- the base and head SHA, the model and effort of each run (sol high; astra
+  high for a risk class) and, for diffs above about 1500 lines, the chunks;
 - "report every finding, no cap; sweep each class across the diff";
 - the failing CI log lines, when there are any;
 - "do not edit code in the review run; fixes go through one batch fix run
   after verification".
 
 The report back is the merged, verified list with the sweep instances, not
-the raw lens output. A packet's report line limit does not apply to it.
+the raw run output. A packet's report line limit does not apply to it.
