@@ -170,12 +170,17 @@ async fn submit(
     if session.account_id().await.is_some() {
         return Ok(redirect(&format!("/{}/", language.code())));
     }
+    let email = input.email.clone();
     let account = login::authenticate_authorized(&pool, input)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Some(proof) = account {
         establish(&pool, language, &session, proof).await
     } else {
+        // OTERYN_NATIVE_LOGIN_CHALLENGE_V1 identity counter; a no-op while off.
+        oteryn_gameauth::oauth::challenge::record_sign_in_failure(&pool, &email, source)
+            .await
+            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         refuse(language, &session).await
     }
 }

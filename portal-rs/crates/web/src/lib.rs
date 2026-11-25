@@ -202,7 +202,10 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         |State(pool): State<PgPool>,
          request: axum::extract::Request,
          next: axum::middleware::Next| async move {
-            if matches!(request.uri().path(), "/oauth/authorize" | "/oauth/token") {
+            if matches!(
+                request.uri().path(),
+                "/oauth/authorize" | "/oauth/token" | "/oauth/challenge"
+            ) {
                 if !oteryn_gameauth::oauth::Config::from_env().enabled {
                     return StatusCode::NOT_FOUND.into_response();
                 }

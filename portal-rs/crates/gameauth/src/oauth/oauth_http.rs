@@ -1,3 +1,4 @@
+use super::challenge::{self, Attempt, ChallengeConfig, Completion, Outcome};
 use super::*;
 use askama::Template;
 use axum::{
@@ -8,7 +9,7 @@ use axum::{
     routing::{get, post},
 };
 use fluent_bundle::{FluentBundle, FluentResource};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, net::SocketAddr};
 
 /// Supplied exclusively by the web session adapter after CSRF verification.
 #[derive(Clone)]
@@ -34,18 +35,42 @@ pub struct BrowserProof {
 struct HttpState {
     pool: PgPool,
     config: Config,
+    challenge: ChallengeConfig,
 }
 pub fn browser_routes(pool: PgPool, config: Config) -> Router {
-    Router::new()
-        .route("/oauth/authorize", get(show).post(consent))
+    browser_routes_with(pool, config, ChallengeConfig::from_env())
+}
+/// [`browser_routes`] with an explicit native login challenge policy.
+pub fn browser_routes_with(pool: PgPool, config: Config, challenge: ChallengeConfig) -> Router {
+    let mut router = Router::new().route("/oauth/authorize", get(show).post(consent));
+    // Flag off: the path stays unrouted, exactly as before the challenge existed.
+    if challenge.enabled {
+        router = router.route(
+            "/oauth/challenge",
+            get(show_challenge).post(complete_challenge),
+        );
+    }
+    router
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
-        .with_state(HttpState { pool, config })
+        .with_state(HttpState {
+            pool,
+            config,
+            challenge,
+        })
 }
 pub fn token_routes(pool: PgPool, config: Config) -> Router {
+    token_routes_with(pool, config, ChallengeConfig::from_env())
+}
+/// [`token_routes`] with an explicit native login challenge policy.
+pub fn token_routes_with(pool: PgPool, config: Config, challenge: ChallengeConfig) -> Router {
     Router::new()
         .route("/oauth/token", post(token))
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
-        .with_state(HttpState { pool, config })
+        .with_state(HttpState {
+            pool,
+            config,
+            challenge,
+        })
 }
 fn response(error: Error) -> Response {
     let (status, code, description) = match error {
@@ -295,6 +320,8 @@ async fn consent(
 }
 async fn token(
     State(state): State<HttpState>,
+    peer: Option<Extension<axum::extract::ConnectInfo<SocketAddr>>>,
+    headers: axum::http::HeaderMap,
     form: Result<Form<TokenRequest>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if !state.config.enabled {
@@ -303,9 +330,267 @@ async fn token(
     let Ok(Form(input)) = form else {
         return refused(&state, None, Error::InvalidRequest).await;
     };
-    match exchange(&state.pool, &state.config, &input).await {
-        Ok(tokens) => no_store(Json(tokens).into_response()),
+    if !state.challenge.enabled || input.grant_type != "authorization_code" {
+        // Flag off: the retry fields are refused exactly as unknown fields were.
+        if !state.challenge.enabled && input.has_challenge_fields() {
+            return refused(&state, None, Error::InvalidRequest).await;
+        }
+        return match exchange(&state.pool, &state.config, &input).await {
+            Ok(tokens) => no_store(Json(tokens).into_response()),
+            Err(e) => refused(&state, None, e).await,
+        };
+    }
+    let source = peer.and_then(|Extension(axum::extract::ConnectInfo(peer))| {
+        oteryn_internal_api::proxy::TrustedProxies::configured()
+            .ok()?
+            .client_ip(peer, &headers)
+            .ok()
+    });
+    let (Some(source), true) = (source, state.challenge.usable()) else {
+        return refused(&state, None, Error::Unavailable).await;
+    };
+    match challenge::exchange(&state.pool, &state.config, &state.challenge, &input, source).await {
+        Ok(Outcome::Tokens(tokens)) => no_store(Json(tokens).into_response()),
+        Ok(Outcome::Challenge { id, expires_in }) => challenge_required(id, expires_in),
         Err(e) => refused(&state, None, e).await,
+    }
+}
+/// OTERYN_NATIVE_LOGIN_CHALLENGE_V1: exactly these members, in this order.
+#[derive(serde::Serialize)]
+struct ChallengeRequired {
+    error: &'static str,
+    challenge_id: String,
+    expires_in: i32,
+}
+fn challenge_required(id: Uuid, expires_in: i32) -> Response {
+    no_store(
+        (
+            StatusCode::FORBIDDEN,
+            Json(ChallengeRequired {
+                error: "oteryn_challenge_required",
+                challenge_id: id.hyphenated().to_string(),
+                expires_in,
+            }),
+        )
+            .into_response(),
+    )
+}
+
+#[derive(Template)]
+#[template(
+    path = "oauth/challenge.html",
+    config = "../../templates/oauth/askama.toml"
+)]
+struct ChallengePage {
+    lang: String,
+    title: String,
+    intro: String,
+    code_label: String,
+    code: String,
+    alternative_label: String,
+    alternative: String,
+    answer_label: String,
+    submit: String,
+    skip: String,
+    error: Option<String>,
+    csrf: String,
+    attempt: Attempt,
+}
+fn messages<const N: usize>(language: &str, keys: [&str; N]) -> Result<[String; N], Error> {
+    let source = if language == "en" {
+        include_str!("../../../../templates/oauth/en.ftl")
+    } else {
+        include_str!("../../../../templates/oauth/pl.ftl")
+    };
+    let locale = language
+        .parse::<unic_langid::LanguageIdentifier>()
+        .map_err(|_| Error::Unavailable)?;
+    let mut bundle = FluentBundle::new(vec![locale]);
+    let resource = FluentResource::try_new(source.to_owned()).map_err(|_| Error::Unavailable)?;
+    bundle
+        .add_resource(resource)
+        .map_err(|_| Error::Unavailable)?;
+    let mut output = Vec::new();
+    for key in keys {
+        let pattern = bundle
+            .get_message(key)
+            .and_then(|m| m.value())
+            .ok_or(Error::Unavailable)?;
+        let mut errors = Vec::new();
+        output.push(
+            bundle
+                .format_pattern(pattern, None, &mut errors)
+                .into_owned(),
+        );
+        if !errors.is_empty() {
+            return Err(Error::Unavailable);
+        }
+    }
+    output.try_into().map_err(|_| Error::Unavailable)
+}
+/// The digits spelled out: the text alternative for the displayed code.
+fn spelled(language: &str, code: &str) -> String {
+    const EN: [&str; 10] = [
+        "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+    ];
+    const PL: [&str; 10] = [
+        "zero",
+        "jeden",
+        "dwa",
+        "trzy",
+        "cztery",
+        "pięć",
+        "sześć",
+        "siedem",
+        "osiem",
+        "dziewięć",
+    ];
+    let words = if language == "en" { EN } else { PL };
+    code.bytes()
+        .filter_map(|b| words.get(usize::from(b.wrapping_sub(b'0'))).copied())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+fn challenge_page(
+    browser: &Browser,
+    attempt: Attempt,
+    code: &str,
+    failed: bool,
+) -> Result<Response, Error> {
+    let [
+        title,
+        intro,
+        code_label,
+        alternative_label,
+        answer_label,
+        submit,
+        skip,
+        error,
+    ] = messages(
+        &browser.language,
+        [
+            "challenge-title",
+            "challenge-intro",
+            "challenge-code-label",
+            "challenge-alternative-label",
+            "challenge-answer-label",
+            "challenge-submit",
+            "oauth-skip",
+            "challenge-error",
+        ],
+    )?;
+    let origin = url::Url::parse(&attempt.redirect_uri)
+        .map_err(|_| Error::InvalidRequest)?
+        .origin()
+        .ascii_serialization();
+    let page = ChallengePage {
+        lang: browser.language.clone(),
+        title,
+        intro,
+        code_label,
+        code: code.chars().map(String::from).collect::<Vec<_>>().join(" "),
+        alternative_label,
+        alternative: spelled(&browser.language, code),
+        answer_label,
+        submit,
+        skip,
+        error: failed.then_some(error),
+        csrf: browser.csrf.clone(),
+        attempt,
+    };
+    let mut response = Html(page.render().map_err(|_| Error::Unavailable)?).into_response();
+    // The form's redirect target is the loopback return URI.
+    response.extensions_mut().insert(ConsentOrigin(origin));
+    Ok(no_store(response))
+}
+fn challenge_off(state: &HttpState) -> bool {
+    !state.config.enabled || !state.challenge.enabled
+}
+async fn show_challenge(
+    State(state): State<HttpState>,
+    Extension(browser): Extension<Browser>,
+    query: Result<Query<Attempt>, axum::extract::rejection::QueryRejection>,
+) -> Response {
+    if challenge_off(&state) {
+        return response(Error::Disabled);
+    }
+    if !state.challenge.usable() {
+        return refused(&state, browser.account, Error::Unavailable).await;
+    }
+    let Ok(Query(attempt)) = query else {
+        return refused(&state, browser.account, Error::InvalidRequest).await;
+    };
+    let Some(id) = attempt.valid(&state.config) else {
+        return refused(&state, browser.account, Error::InvalidRequest).await;
+    };
+    let Some(account) = browser.account else {
+        return sign_in(&browser.language);
+    };
+    match challenge::show(&state.pool, &state.challenge, account, id, &attempt).await {
+        Ok(prompt) => match challenge_page(&browser, attempt, &prompt.code, false) {
+            Ok(page) => page,
+            Err(e) => refused(&state, Some(account), e).await,
+        },
+        Err(e) => refused(&state, Some(account), e).await,
+    }
+}
+async fn complete_challenge(
+    State(state): State<HttpState>,
+    Extension(browser): Extension<Browser>,
+    form: Result<Form<Vec<(String, String)>>, axum::extract::rejection::FormRejection>,
+) -> Response {
+    if challenge_off(&state) {
+        return response(Error::Disabled);
+    }
+    if !state.challenge.usable() {
+        return refused(&state, browser.account, Error::Unavailable).await;
+    }
+    let Some(account) = browser.account else {
+        return refused(&state, None, Error::InvalidGrant).await;
+    };
+    let Ok(Form(pairs)) = form else {
+        return refused(&state, Some(account), Error::InvalidRequest).await;
+    };
+    let mut fields = BTreeMap::new();
+    for (key, value) in pairs {
+        if fields.insert(key, value).is_some() {
+            return refused(&state, Some(account), Error::InvalidRequest).await;
+        }
+    }
+    let csrf = fields.remove("_csrf").unwrap_or_default();
+    if !same(csrf.as_bytes(), browser.csrf.as_bytes()) || csrf.len() != 64 {
+        return refused(&state, Some(account), Error::InvalidRequest).await;
+    }
+    let answer = fields.remove("answer").unwrap_or_default();
+    let Ok(attempt) = serde_json::from_value::<Attempt>(serde_json::json!(fields)) else {
+        return refused(&state, Some(account), Error::InvalidRequest).await;
+    };
+    let Some(id) = attempt.valid(&state.config) else {
+        return refused(&state, Some(account), Error::InvalidRequest).await;
+    };
+    let answer: String = answer.chars().filter(|c| !c.is_whitespace()).collect();
+    match challenge::complete(
+        &state.pool,
+        &state.challenge,
+        account,
+        id,
+        &attempt,
+        &answer,
+    )
+    .await
+    {
+        Ok(Completion::Redirect(target)) => {
+            let mut r = Redirect::to(&target).into_response();
+            *r.status_mut() = StatusCode::FOUND;
+            no_store(r)
+        }
+        Ok(Completion::Retry(prompt)) => {
+            match challenge_page(&browser, attempt, &prompt.code, true) {
+                Ok(page) => page,
+                Err(e) => refused(&state, Some(account), e).await,
+            }
+        }
+        Err(e) => refused(&state, Some(account), e).await,
     }
 }
 
