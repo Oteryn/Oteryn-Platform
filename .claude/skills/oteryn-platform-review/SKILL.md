@@ -25,7 +25,9 @@ head, that head has:
   worker job, or the `crates/internal-api` contract test against
   `docs/contracts/fixtures/`. Where the session has no PostgreSQL, the
   coordinator runs them on a scratch PostgreSQL 18.6 or adds the
-  `heavy-tests` label; the fast CI has no PostgreSQL, so it never counts;
+  `heavy-tests` label, whose PostgreSQL test shards count with the test
+  names taken from the job log; the fast PR lane ("Unit tests without
+  PostgreSQL") never counts;
 - one frozen head: only the final head SHA is reviewed; a later push makes
   it a new head;
 - the touched module's PostgreSQL tests run with their names listed and no
@@ -39,6 +41,12 @@ head, that head has:
 
 Effort: self-review and Codex review run at high; P0/P1 fixes in the risk
 classes (`oteryn-platform-coding`, *Before code*) run at high.
+
+A governance-only head (docs, rules, skills, agent definitions, no
+`portal-rs/**` change) records the Rust, real-caller and PostgreSQL rows as
+`NOT_APPLICABLE: governance-only` (root `AGENTS.md`); the frozen head, the
+sweep and the self-review still apply. A workflow change keeps the rows its
+own checks need.
 
 A head that fails the gate goes back to its author, not to review.
 
@@ -101,7 +109,7 @@ what you could not verify and why. Then the findings:
   | --- | --- | --- |
   | P0 | Security, money or data damage, broken `main` | auth, MFA or permission bypass; wallet, store or payment value lost or duplicated; data loss; a red `main` build or gate |
   | P1 | A real caller reaches a wrong result: a user, staff, the game boundary, or a tool, workflow, gate or agent definition the repository runs | a flow that cannot finish or gets stuck; a wrong `/internal/v1` response; a migration or guard that rejects valid use; a gate that passes a PR it must hold; an agent or workflow file that does not parse |
-  | P2 | A contained defect or copy/text; behaviour still works | wrong text or label; stale docs or counts; a test that reads a retired file |
+  | P2 | A contained defect or copy/text; behaviour still works | wrong text or label; stale docs or counts; a test that reads a retired file, while no gate or `main` job turns red |
   | P3 | Style and hygiene | naming, duplicated check, readability |
 
   P0 and P1 block landing and name the concrete path: the input or state,
@@ -129,9 +137,9 @@ with the diff and step 3 as the checklist.
 
 - **Batch review.** One review is ONE holistic read-only Codex Cloud run
   over the whole diff and the callers outside it, model `gpt-6.2-sol` at
-  effort `high`; a PR in a risk class, or one changing docs, rules,
-  skills, workflows or agent definitions, also gets one `gpt-6.2-astra` run
-  at `high` on the same head, whose P0/P1 count only after a traced REAL
+  effort `high`; a PR in a risk class, one changing docs, rules,
+  skills, workflows or agent definitions, or a code diff above about 1500
+  lines also gets one `gpt-6.2-astra` run at `high` on the same head, whose P0/P1 count only after a traced REAL
   verdict (run table: `references/batch-review.md` §1). Never at `medium`; no lens runs; chunks only above about 1500
   lines. Each P0/P1 cites `path:line` for input, caller and wrong result and
   is self-refuted before output; an unsettled one is `P2 (uncertain)`.

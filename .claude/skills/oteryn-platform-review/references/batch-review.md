@@ -61,14 +61,14 @@ of one round on one head are the one covered review of that head.
 "Lines" are hand-written changed lines (generated data, pins and lockfiles
 excluded). Risk classes: identity, sessions or MFA; game tickets or
 admission grants; the `/internal/v1` wire with Oteryn-Game; wallet, store,
-bazaar or payments; migrations; authorization; a symbol with several
-consumers.
+bazaar or payments; migrations; authorization (the same list as `oteryn-platform-coding`,
+*Before code*).
 
 | Situation | Runs of the round |
 | --- | --- |
 | Code PR up to about 1500 lines, no risk class | `gpt-6.2-sol` high, one holistic run |
 | Code, contract or fixture change in a risk class | sol high + `gpt-6.2-astra` high on the same head, same prompt |
-| Code diff above about 1500 lines | sol high per chunk plus the holistic sol run + one astra high whole-diff integration run |
+| Code diff above about 1500 lines (code lines only; a docs-only diff of any size uses the docs row) | sol high per chunk plus the holistic sol run + one astra high whole-diff integration run |
 | Docs, rules, skills, workflows or agent definitions | sol high + astra high (calibration: astra found real P1s on a rules PR that sol missed) |
 | Delta review (second round) | sol high over the fix commits and the code they touch; + astra high on the new head whenever the PR is in a risk class (§4) |
 | CI-failure fix | sol high with the failing log lines in the prompt |
@@ -94,8 +94,9 @@ not reroute.
 
 Every review prompt contains:
 
-- The diff against the exact base (`git diff <base>...<head>`) and SKILL.md
-  §3 as the checklist; the instruction to open callers outside the diff.
+- The diff against the exact base (`git diff <base>...<head>`), SKILL.md
+  §3 as the checklist and the SKILL.md §4 severity rubric for the grades;
+  the instruction to open callers outside the diff.
 - "Report EVERY real defect you find in the diff, P0 to P3. There is no
   limit on lines or on the number of findings. Do not stop after the first
   strong ones."
@@ -156,7 +157,9 @@ Every review prompt contains:
      first: the handler through the `crates/web` router, the repository or
      transaction on real PostgreSQL (no `SKIPPED` line), the worker job, or
      the `crates/internal-api` contract test on `docs/contracts/fixtures/`;
-     not only a unit test of the patched helper. A test that cannot fail is
+     not only a unit test of the patched helper. For a tool, workflow, gate
+     or agent-definition defect the reproducer is the parser, script or job
+     that loads it, on the packet's owned paths. A test that cannot fail is
      reported `NOT REPRODUCED` with no code change.
    - **Smallest fix.** The test reruns green; no existing assertion,
      timeout, budget or fixture changes, and nothing outside the listed
@@ -169,10 +172,11 @@ Every review prompt contains:
 2. Review the fix diff yourself (SKILL.md §2–§3) and run the local checks
    (`oteryn-platform-dev`, step 5).
 3. Push once. One CI cycle covers the whole batch.
-4. The second review round covers only the fix diff (the delta): one
-   holistic sol run at high over the fix commits and the code they touch,
-   plus the astra run on the new head whenever the PR is in a risk class
-   (§1 needs both models on the same head).
+4. The second review round covers only the fix diff (the delta): the §1
+   table applied to the new head, i.e. one holistic sol run at high over the
+   fix commits and the code they touch, plus the astra run on the new head
+   whenever the PR's rows need astra (a risk class, or docs, rules, skills,
+   workflows or agent definitions); §1 needs both models on the same head.
 
 Code written by Codex or a subagent is reviewed by a new run with a clean
 context, never as a continuation of the run that wrote it.
@@ -181,7 +185,10 @@ context, never as a continuation of the run that wrote it.
 
 The diff is done when the covered review of the current head (the sol run,
 its chunk runs when the diff needed them, plus the astra runs the §1 table needs)
-finds no P0/P1 that verified REAL.
+finds no P0/P1 that verified REAL, and no finding that breaks a repository
+rule (SKILL.md §4: weakened test, hand-edited fixture, edited merged
+migration) or a P0/P1 marked `OUT OF SCOPE` is still open; those block
+landing at any grade and go into the fix list.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.

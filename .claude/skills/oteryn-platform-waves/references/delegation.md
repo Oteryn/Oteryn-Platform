@@ -65,7 +65,8 @@ order:
 
 A packet that delegates a review, or the fix of review findings, follows
 `oteryn-platform-review/references/batch-review.md` §6 instead of items 6
-and 7:
+and 7, and item 2 checks `HEAD` against the frozen PR head (a delta: the
+new head, with the previous reviewed head as base), not against `main`:
 - base and head SHA, the model and effort of each run (sol high, plus astra
   high where the batch-review §1 run table needs it) and, above about 1500 lines, the chunks;
 - every finding, with no cap, and a sweep of each class across the diff;
@@ -86,7 +87,7 @@ files instead of pasting them. Repository subagents use the definitions in
 
 The receiving agent cannot see this skill, so paste these lines verbatim:
 
-- No changes outside the allowed paths; no `.github/workflows`; no new
+- No changes outside the allowed paths; no `.github/workflows` unless the packet owns them; no new
   third-party crate unless the packet names it.
 - No `unwrap`, `expect` or `panic` outside tests; every game- or
   money-touching feature behind a flag, off by default.

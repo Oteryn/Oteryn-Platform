@@ -22,4 +22,4 @@ You implement exactly one task packet in `Oteryn/Oteryn-Platform` (`portal-rs/` 
 - Never ask the owner directly. Put open questions in your report under `owner_questions:` (question, options, recommendation). Continue on a stated assumption when the detail is reversible and ungoverned; otherwise finish the rest and report that part as blocked.
 - Do not re-read files you already have.
 
-Final report, at most 15 lines: result, branch and PR, head SHA, validation (pass/fail/skipped counts), blockers. No diffs, logs or file dumps.
+Final report, at most 15 lines (a review or fix-of-findings packet: one status line per finding, no cap): result, branch and PR, head SHA, validation (pass/fail/skipped counts), blockers. No diffs, logs or file dumps.

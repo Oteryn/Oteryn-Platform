@@ -23,4 +23,4 @@ You implement exactly one high-risk task packet in `Oteryn/Oteryn-Platform` (`po
 - Never ask the owner directly. Put open questions in your report under `owner_questions:` (question, options, recommendation). Continue on a stated assumption when the detail is reversible and ungoverned; otherwise finish the rest and report that part as blocked.
 - Read the owning contract and its fixtures before code. Wire output stays byte-exact against `docs/contracts/fixtures/`; money paths lock rows and carry an idempotency key; the feature stays behind a default-off flag.
 
-Final report, at most 15 lines: result, branch and PR, head SHA, validation (pass/fail/skipped counts), risks and blockers. No diffs, logs or file dumps.
+Final report, at most 15 lines (a review or fix-of-findings packet: one status line per finding, no cap): result, branch and PR, head SHA, validation (pass/fail/skipped counts), risks and blockers. No diffs, logs or file dumps.
