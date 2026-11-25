@@ -482,23 +482,38 @@ async fn account_mfa_enrols_once_and_the_secret_logs_in() -> TestResult {
 
 #[tokio::test]
 async fn every_seed_action_refuses_outside_testing() -> TestResult {
-    let args = [
-        "account-mfa".to_owned(),
-        r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
-    ];
-    for environment in [
-        None,
-        Some("production"),
-        Some("preproduction"),
-        Some("preprod"),
-        Some("Testing"),
+    for args in [
+        [
+            "account-mfa".to_owned(),
+            r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","password":"x"}"#.to_owned(),
+        ],
+        [
+            "store-catalog".to_owned(),
+            r#"{"file":"/nonexistent/catalogue.json"}"#.to_owned(),
+        ],
+        [
+            "coin-credit".to_owned(),
+            r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","amount":25,"operationId":"019a0000-0000-7000-8000-0000000c0001"}"#.to_owned(),
+        ],
+        [
+            "loyalty".to_owned(),
+            r#"{"accountId":"019a0000-0000-7000-8000-00000000a001","premiumDays":7}"#.to_owned(),
+        ],
     ] {
-        assert_eq!(
-            run_in(environment, &args).await,
-            Err(SeedError::Unavailable(
-                "seed runs only with OTERYN_ENV=testing"
-            ))
-        );
+        for environment in [
+            None,
+            Some("production"),
+            Some("preproduction"),
+            Some("preprod"),
+            Some("Testing"),
+        ] {
+            assert_eq!(
+                run_in(environment, &args).await,
+                Err(SeedError::Unavailable(
+                    "seed runs only with OTERYN_ENV=testing"
+                ))
+            );
+        }
     }
     Ok(())
 }
@@ -952,3 +967,6 @@ async fn custody_activation_stages_share_one_deadline() {
         Err(SeedError::Unavailable("expired stage timeout"))
     );
 }
+
+#[path = "seed_commerce_tests.rs"]
+mod commerce;

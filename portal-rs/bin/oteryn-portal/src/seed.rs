@@ -17,6 +17,7 @@
 //! | `channel` | `game_channels` (no route, login disabled) | the channel's current record |
 //! | `route` | `game_channels` route record (gateway contract §7.3, mode 34a) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision`, `nativeLoginEnabled` |
 //! | `signing-custody` | encrypted key custody files + `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, the file paths and the issuer's `env` |
+//! | `store-catalog`, `coin-credit`, `loyalty` | store catalogue, wallet ledger, Premium ledger (see `seed_commerce.rs`) | the stored record |
 //!
 //! `account-mfa` needs the portal's `OTERYN_MFA_KEY`. The secret exists only at
 //! enrolment, so a second run for an enrolled account is a conflict.
@@ -182,6 +183,9 @@ pub async fn execute(
         "account-mfa" => account_mfa(settings, &args).await,
         "channel" => channel(pool, &args).await,
         "route" => route(pool, &args).await,
+        "store-catalog" => commerce::store_catalog(pool, &args).await,
+        "coin-credit" => commerce::coin_credit(pool, &args).await,
+        "loyalty" => commerce::loyalty(pool, &args).await,
         "native-evidence" => Err(SeedError::NotApplicable(
             "evidence is observed live; the first observation bootstraps the retained witness",
         )),
@@ -1056,6 +1060,9 @@ async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedE
         "intentSha256": issued.intent_sha256,
     }))
 }
+
+#[path = "seed_commerce.rs"]
+mod commerce;
 
 #[cfg(test)]
 #[path = "seed_tests.rs"]

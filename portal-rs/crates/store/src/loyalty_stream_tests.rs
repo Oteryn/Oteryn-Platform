@@ -1193,3 +1193,105 @@ async fn postgres_stream_held_head_lock_sheds_within_mutation_budget() {
         "budget exceeded: {elapsed:?}"
     );
 }
+
+#[tokio::test]
+async fn testing_consumed_premium_days_publish_at_once_and_keep_premium_usable() {
+    use crate::premium::{Change, Mutation, Operator, repository};
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::create().await else {
+        return;
+    };
+    let premium = repository::Ledger::new(db.pool.clone(), Arc::new(TestAccounts), true);
+    let actor = Uuid::now_v7();
+    let account = Uuid::now_v7();
+    const REASON: &str = "testing seed: consumed premium days";
+    let first = premium
+        .grant_consumed_for_testing(actor, account, 7, REASON)
+        .await
+        .unwrap();
+    assert_eq!((first.revision, first.until - first.from), (1, 7 * 86400));
+    assert_eq!(
+        premium
+            .grant_consumed_for_testing(actor, account, 7, REASON)
+            .await,
+        Ok(first.clone())
+    );
+    for (actor, days, reason) in [
+        (actor, 8, REASON),
+        (Uuid::now_v7(), 7, REASON),
+        (actor, 7, "another seed reason"),
+    ] {
+        assert_eq!(
+            premium
+                .grant_consumed_for_testing(actor, account, days, reason)
+                .await,
+            Err(Error::Conflict)
+        );
+    }
+    for (days, reason) in [(0, REASON), (367, REASON), (7, "short")] {
+        assert_eq!(
+            premium
+                .grant_consumed_for_testing(actor, Uuid::now_v7(), days, reason)
+                .await,
+            Err(Error::Invalid)
+        );
+    }
+    let unknown = Uuid::parse_str("01890f4e-7c00-7000-8000-000000000000").unwrap();
+    assert_eq!(
+        premium
+            .grant_consumed_for_testing(actor, unknown, 7, REASON)
+            .await,
+        Err(Error::UnknownAccount)
+    );
+    assert_eq!(
+        repository::Ledger::new(db.pool.clone(), Arc::new(TestAccounts), false)
+            .grant_consumed_for_testing(actor, Uuid::now_v7(), 7, REASON)
+            .await,
+        Err(Error::Disabled)
+    );
+    let page = db.stream().read(None, 500).await.unwrap();
+    assert_eq!(
+        page.items,
+        vec![Item {
+            account_id: account,
+            spent_premium_days: 7,
+            loyalty_points: 7,
+            platform_revision: 1,
+        }]
+    );
+    let audit: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM premium_audit WHERE account_id=$1 AND actor_id=$2",
+    )
+    .bind(account)
+    .bind(actor)
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert_eq!(audit, 1);
+    // The expired seed interval keeps the Premium authority consistent.
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&premium.snapshot(account, NONCE, BUILD).await.unwrap()).unwrap();
+    assert_eq!(snapshot["entitlement_state"], "EXPIRED");
+    let operator = Operator {
+        actor: Uuid::now_v7(),
+        confirmed_mfa: true,
+        permission: "products.premium.manage".into(),
+    };
+    let regrant = premium
+        .mutate(
+            &operator,
+            &Mutation {
+                account,
+                request: Uuid::now_v7(),
+                change: Change::Grant(2),
+                reason: "Test operator reason".into(),
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!((regrant.id, regrant.revision), (first.id, 2));
+    let snapshot: serde_json::Value =
+        serde_json::from_slice(&premium.snapshot(account, NONCE, BUILD).await.unwrap()).unwrap();
+    assert_eq!(snapshot["entitlement_state"], "ACTIVE");
+    db.close().await;
+}

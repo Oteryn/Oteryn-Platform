@@ -216,6 +216,20 @@ an existing key is a `conflict`. A seed plan is `{"steps":[{"name","entity","arg
 | `route` | `worldId`, `channelId`, `host` (IP literal or DNS name), `port` (1..=65535), `tlsServerName` (DNS name), `version` (positive), optional `nativeLoginEnabled` (default `true`) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision` (computed, gateway contract §7.3), `nativeLoginEnabled`; a higher `version` rotates the record, the same version with other values or a lower one is a `conflict` |
 | `native-evidence` | - | `not_applicable`: evidence is observed live; the first observation bootstraps the retained witness |
 | `signing-custody` | `directory` (absolute; created mode 0700 when absent, its parent must exist; an existing one must be owner-only), optional `purpose` (default and required match: `GAME_AUTH_NATIVE_EVIDENCE_FRESH_KEY_PURPOSE`), optional `keyId` (`[A-Za-z0-9._-]{1,64}`, generated `fresh-<hex>` otherwise) | `issuer`, `profile`, `purpose`, `keyId`, `publicKey` (base64url), `state` (`active`), `custodyFile`, `wrappingKeyFile`, `witnessDirectory` and `env` (the four issuer variables below); also runs with `OTERYN_ENV=preprod` |
+| `store-catalog` | `file` (a Game store price list, `store-price-list-v1`: the exact bytes Game quotes, compact canonical JSON without a trailing newline, at most 16 MiB; the revision is SHA-256 of those bytes) | `catalogRevision`, `offers` (count), `active` (`true`); imports and activates the revision through the store catalogue, audited as `store.catalog.imported` / `store.catalog.activated` |
+| `coin-credit` | exactly one of `accountId` / `email` (a seeded account), `amount` (integer 1..=1000000000), `operationId` (UUIDv7, the ledger operation key) | `accountId`, `operationId`, `amount`; one `staff_grant` wallet operation audited as `seed.wallet.credited`; the same `operationId` with other input is a `conflict` |
+| `loyalty` | exactly one of `accountId` / `email` (a seeded account), `premiumDays` (1..=366) | `accountId`, `premiumDays`, `entitlementId`, `effectiveFrom`, `effectiveUntil`; one Premium GRANT that ended now, so the next loyalty stream poll publishes `premiumDays` consumed days; an account with other Premium history is a `conflict` |
+
+The three commerce entities write their audit rows under the fixed seed actor
+`019a0000-0000-7000-8000-000000005eed`, which is not an account and holds no
+role. Game's node-boot commerce rows (Store purchase, coin transfer quote,
+loyalty) also need the Game-facing routes on: start the harness with
+`--game-commerce`, which adds `PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED`,
+`PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS` (`["ITEM","PREMIUM_TIME"]`),
+`OTERYN_PREMIUM_ENABLED`, `PORTAL_COIN_TRANSFERS_ENABLED` and
+`PORTAL_COIN_MARKET_ENABLED` (all `true` except the unit kinds) to the
+`test.env` set. Seed the catalogue with the same price list Game quotes, so the
+active revision matches Game's.
 
 `signing-trust` writes the retained witness in
 `GAME_AUTH_NATIVE_EVIDENCE_HIGH_WATER_DIRECTORY`, so run it with the harness
