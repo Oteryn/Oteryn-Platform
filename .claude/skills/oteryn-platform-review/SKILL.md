@@ -136,9 +136,10 @@ stay `PROPOSED` until an exact-head independent review). The coordinator
 starts it, once per frozen head, after the local checks pass, read-only,
 with the diff and step 3 as the checklist.
 
-- **Batch review.** One review is ONE holistic read-only Codex Cloud run
-  over the whole diff and the callers outside it, model `gpt-6.2-sol` at
-  effort `high`; a PR in a risk class, one changing docs, rules,
+- **Batch review.** One review is the runs `references/batch-review.md` §1
+  chooses for one head: ONE holistic read-only Codex Cloud run over the
+  whole diff and the callers outside it, model `gpt-6.2-sol` at effort
+  `high` (above about 1500 code lines, sol area runs replace it); a PR in a risk class, one changing docs, rules,
   skills, workflows or agent definitions, or a code diff above about 1500
   lines also gets one `gpt-6.2-astra` run at `high` on the same head, whose P0/P1 count only after a traced REAL
   verdict (run table: `references/batch-review.md` §1). Never at `medium`; no lens runs; runs split by area only above about 1500

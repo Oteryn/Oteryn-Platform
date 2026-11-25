@@ -24,10 +24,12 @@ Aligned with the Oteryn-Game `oteryn-review` skill
 Before a round starts, the head passes the gate of SKILL.md §0; a head that
 fails it is not reviewed.
 
-## 1. One round = one holistic run over the same head
+## 1. One round = the runs of the §1 table over the same head
 
-A round is one pass over one exact head SHA. By default the round is ONE
-read-only Codex Cloud run over the whole diff (owner decision 2026-11-25).
+A round is one pass over one exact head SHA. Up to about 1500 hand-written
+code lines its sol part is ONE holistic read-only Codex Cloud run over the
+whole diff; above that, the sol area runs replace the holistic run (owner
+decision 2026-11-25).
 The run reads the whole diff as one unit, opens the callers and consumers of
 every changed symbol outside the diff, and checks SKILL.md §3, including:
 
@@ -82,7 +84,11 @@ bazaar or payments; migrations; authorization (the same list as `oteryn-platform
 | Delta review (second round) | sol high over the fix commits and the code they touch; + astra high on the new head whenever the PR is in a risk class (§4) |
 | CI-failure fix | sol high with the failing log lines in the prompt |
 
-When rows overlap, run the union of their runs. Never astra alone and never
+When rows overlap, run the union of their runs. For a code diff above about
+1500 lines the large-diff row replaces the holistic sol run of the other
+rows, and its astra whole-diff integration run is also the astra run a risk
+class needs (it gets the risk-class checklist as well as the seams).
+Related areas are grouped so the round stays within one burst of 10 tasks. Never astra alone and never
 effort `medium`. An astra P0/P1 counts only after the review
 owner traced it (input, caller, wrong result) to a REAL verdict (§3); one
 disproved is recorded FALSE and closed, one that cannot be traced either way
@@ -128,8 +134,9 @@ Every review prompt contains:
 
 ## 3. Merge, verify, sweep
 
-1. Merge the run outputs (the sol run or, above about 1500 lines, the sol
-   area runs, and the astra runs the §1 table needs). Remove duplicates by `path:line` and defect class.
+1. Merge the run outputs: every run the §1 table chose for this head (the
+   holistic sol run, or the sol area runs for a code diff above about 1500
+   lines, and the astra runs). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
    - For a finding that is hard to call, the coordinator traces it to the
@@ -186,8 +193,9 @@ Every review prompt contains:
    (`oteryn-platform-dev`, step 5).
 3. Push once. One CI cycle covers the whole batch.
 4. The second review round covers only the fix diff (the delta): the §1
-   table applied to the new head, i.e. one holistic sol run at high over the
-   fix commits and the code they touch, plus the astra run on the new head
+   table applied to the fix diff and the new head, i.e. one holistic sol run
+   at high over the fix commits and the code they touch (sol area runs if
+   the fix diff itself exceeds about 1500 code lines), plus the astra run on the new head
    whenever the PR's rows need astra (a risk class, or docs, rules, skills,
    workflows or agent definitions); §1 needs both models on the same head.
 
