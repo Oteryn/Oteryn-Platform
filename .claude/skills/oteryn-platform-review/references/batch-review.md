@@ -52,13 +52,29 @@ plus the one holistic whole-diff run in the same round. Chunk runs alone are
 not a covered review. The second review (delta) is one holistic run over the
 fix commits and the code they touch.
 
-**Model and effort.** Every review run is a Codex Cloud task, read-only,
-model `gpt-6.2-sol` at reasoning effort `high`. A PR with code or a contract/fixture change in a risk
-class (identity, sessions or MFA; game tickets or admission grants; the
-`/internal/v1` wire with Oteryn-Game; wallet, store, bazaar or payments;
-migrations; authorization) also gets one `gpt-6.2-astra` run at effort
-`high` on the same head, with the same prompt; the two runs together are the
-one covered review of that head. An astra P0/P1 counts only after the review
+**Model and effort.** Every review run is a Codex Cloud task, read-only, at
+reasoning effort `high`, with the runs chosen from the table below; the runs
+of one round on one head are the one covered review of that head.
+
+### Choosing the runs (owner decision 2026-11-25, aligned with Oteryn-Game)
+
+"Lines" are hand-written changed lines (generated data, pins and lockfiles
+excluded). Risk classes: identity, sessions or MFA; game tickets or
+admission grants; the `/internal/v1` wire with Oteryn-Game; wallet, store,
+bazaar or payments; migrations; authorization (the same list as `oteryn-platform-coding`,
+*Before code*).
+
+| Situation | Runs of the round |
+| --- | --- |
+| Code PR up to about 1500 lines, no risk class | `gpt-6.2-sol` high, one holistic run |
+| Code, contract or fixture change in a risk class | sol high + `gpt-6.2-astra` high on the same head, same prompt |
+| Code diff above about 1500 lines (code lines only; a docs-only diff of any size uses the docs row) | sol high per chunk plus the holistic sol run + one astra high whole-diff integration run |
+| Docs, rules, skills, workflows or agent definitions | sol high + astra high (calibration: astra found real P1s on a rules PR that sol missed) |
+| Delta review (second round) | sol high over the fix commits and the code they touch; + astra high on the new head whenever the PR is in a risk class (§4) |
+| CI-failure fix | sol high with the failing log lines in the prompt |
+
+When rows overlap, run the union of their runs. Never astra alone and never
+effort `medium`. An astra P0/P1 counts only after the review
 owner traced it (input, caller, wrong result) to a REAL verdict (§3); one
 disproved is recorded FALSE and closed, one that cannot be traced either way
 goes to the P2 backlog. Never review at effort `medium`. Name the task
@@ -78,8 +94,9 @@ not reroute.
 
 Every review prompt contains:
 
-- The diff against the exact base (`git diff <base>...<head>`) and SKILL.md
-  §3 as the checklist; the instruction to open callers outside the diff.
+- The diff against the exact base (`git diff <base>...<head>`), SKILL.md
+  §3 as the checklist and the SKILL.md §4 severity rubric for the grades;
+  the instruction to open callers outside the diff.
 - "Report EVERY real defect you find in the diff, P0 to P3. There is no
   limit on lines or on the number of findings. Do not stop after the first
   strong ones."
@@ -103,7 +120,7 @@ Every review prompt contains:
 ## 3. Merge, verify, sweep
 
 1. Merge the run outputs (the sol run, the chunk runs for a diff above about
-   1500 lines, and the astra run for a risk class). Remove duplicates by `path:line` and defect class.
+   1500 lines, and the astra runs the §1 table needs). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
    - For a finding that is hard to call, the coordinator traces it to the
@@ -118,13 +135,17 @@ Every review prompt contains:
    packet's owned paths join the confirmed list; the others are
    `OUT OF SCOPE` with their severity and go to the lead. A class fixed at
    one site and left at another is the main cause of the next round.
-4. P2/P3 findings do not start a fix now. They are fixed in the same push
+4. P2/P3 findings do not start a fix now, except a repository-rule break
+   (SKILL.md §4: weakened test, hand-edited fixture, edited merged
+   migration), which goes into the §4 fix list whatever its grade. They are fixed in the same push
    when cheap, otherwise noted for the module's next task (SKILL.md §4).
 
 ## 4. One batch fix, one delta review, one CI cycle
 
-1. Write all confirmed P0/P1 findings, sweep instances included, to one file,
-   numbered, one per line as `N. P0|P1 path:line - problem - failure path`.
+1. Write all confirmed in-scope P0/P1 findings and repository-rule breaks,
+   sweep instances included, to one file, numbered, one per line as
+   `N. P0|P1|P2|P3 path:line - problem - failure path`. `OUT OF SCOPE`
+   findings never enter it; they go to the owning task or lead.
    Hand that file to one code-writing run at reasoning effort `high` for a
    fix in a risk class, `medium` otherwise. Never
    use one fix run per finding. The packet (SKILL.md §7) states:
@@ -140,7 +161,9 @@ Every review prompt contains:
      first: the handler through the `crates/web` router, the repository or
      transaction on real PostgreSQL (no `SKIPPED` line), the worker job, or
      the `crates/internal-api` contract test on `docs/contracts/fixtures/`;
-     not only a unit test of the patched helper. A test that cannot fail is
+     not only a unit test of the patched helper. For a tool, workflow, gate
+     or agent-definition defect the reproducer is the parser, script or job
+     that loads it, on the packet's owned paths. A test that cannot fail is
      reported `NOT REPRODUCED` with no code change.
    - **Smallest fix.** The test reruns green; no existing assertion,
      timeout, budget or fixture changes, and nothing outside the listed
@@ -153,10 +176,11 @@ Every review prompt contains:
 2. Review the fix diff yourself (SKILL.md §2–§3) and run the local checks
    (`oteryn-platform-dev`, step 5).
 3. Push once. One CI cycle covers the whole batch.
-4. The second review round covers only the fix diff (the delta): one
-   holistic sol run at high over the fix commits and the code they touch,
-   plus the astra run on the new head whenever the PR is in a risk class
-   (§1 needs both models on the same head).
+4. The second review round covers only the fix diff (the delta): the §1
+   table applied to the new head, i.e. one holistic sol run at high over the
+   fix commits and the code they touch, plus the astra run on the new head
+   whenever the PR's rows need astra (a risk class, or docs, rules, skills,
+   workflows or agent definitions); §1 needs both models on the same head.
 
 Code written by Codex or a subagent is reviewed by a new run with a clean
 context, never as a continuation of the run that wrote it.
@@ -164,8 +188,11 @@ context, never as a continuation of the run that wrote it.
 ## 5. When to stop
 
 The diff is done when the covered review of the current head (the sol run,
-its chunk runs when the diff needed them, plus the astra run for a risk
-class) finds no P0/P1 that verified REAL.
+its chunk runs when the diff needed them, plus the astra runs the §1 table needs)
+finds no P0/P1 that verified REAL, and no finding that breaks a repository
+rule (SKILL.md §4: weakened test, hand-edited fixture, edited merged
+migration) is still open. A P0/P1 marked `OUT OF SCOPE` is not fixed here:
+it goes to the owning task or lead, and this PR waits until that fix lands.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.
@@ -202,7 +229,7 @@ state machine for `crates/bazaar`:
 A packet that delegates a review or a fix points to this file and states:
 
 - the base and head SHA, the model and effort of each run (sol high; astra
-  high for a risk class) and, for diffs above about 1500 lines, the chunks;
+  high where the §1 run table needs it) and, for diffs above about 1500 lines, the chunks;
 - "report every finding, no cap; sweep each class across the diff";
 - the failing CI log lines, when there are any;
 - "do not edit code in the review run; fixes go through one batch fix run
