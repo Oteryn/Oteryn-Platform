@@ -93,10 +93,22 @@ the diff, no test covers it, the surrounding code agrees.
 First note which files you read, each item of step 3 with clean or not, and
 what you could not verify and why. Then the findings:
 
-- `P0` (security, data or money loss, broken `main`) and `P1` (wrong
-  behaviour a real caller reaches) block landing and name the concrete
-  path: the input or state, the caller that reaches it, the wrong result.
-  Without a reachable caller it is at most `P2`.
+- Severity rubric (owner decision 2026-11-25, shared with Oteryn-Game);
+  every reviewer (Codex sol and astra, Claude review, a person) grades by
+  the effect on a real caller, not the size of the code:
+
+  | Grade | What it is | Examples |
+  | --- | --- | --- |
+  | P0 | Security, money or data damage, broken `main` | auth, MFA or permission bypass; wallet, store or payment value lost or duplicated; data loss; a red `main` build or gate |
+  | P1 | A real caller reaches a wrong result: a user, staff, the game boundary, or a tool, workflow, gate or agent definition the repository runs | a flow that cannot finish or gets stuck; a wrong `/internal/v1` response; a migration or guard that rejects valid use; a gate that passes a PR it must hold; an agent or workflow file that does not parse |
+  | P2 | A contained defect or copy/text; behaviour still works | wrong text or label; stale docs or counts; a test that reads a retired file |
+  | P3 | Style and hygiene | naming, duplicated check, readability |
+
+  P0 and P1 block landing and name the concrete path: the input or state,
+  the caller that reaches it (`path:line`), the wrong result. Hard rule: a
+  finding without the `path:line` of a real caller (a user, staff path, the
+  game boundary, a tool, workflow, gate or agent the repository runs, or CI
+  for a broken `main`) is at most `P2`.
 - A skipped, ignored, loosened or deleted test, a hand-edited fixture or an
   edited merged migration breaks a repository rule and blocks landing
   whatever its label.
@@ -117,9 +129,10 @@ with the diff and step 3 as the checklist.
 
 - **Batch review.** One review is ONE holistic read-only Codex Cloud run
   over the whole diff and the callers outside it, model `gpt-6.2-sol` at
-  effort `high`; a PR in a risk class also gets one `gpt-6.2-astra` run at
-  `high` on the same head, whose P0/P1 count only after a traced REAL
-  verdict. Never at `medium`; no lens runs; chunks only above about 1500
+  effort `high`; a PR in a risk class, or one changing docs, rules,
+  skills, workflows or agent definitions, also gets one `gpt-6.2-astra` run
+  at `high` on the same head, whose P0/P1 count only after a traced REAL
+  verdict (run table: `references/batch-review.md` §1). Never at `medium`; no lens runs; chunks only above about 1500
   lines. Each P0/P1 cites `path:line` for input, caller and wrong result and
   is self-refuted before output; an unsettled one is `P2 (uncertain)`.
   Launched, polled and read from the session's own chat, with model and

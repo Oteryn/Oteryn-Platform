@@ -26,7 +26,7 @@ so rounds are comparable:
   workers and its `/internal/v1` routes.
 - **Stop bar and models:** the bar of section 5 and the model and effort
   of every run (`batch-review.md` §1: `gpt-6.2-sol` at `high`, plus
-  `gpt-6.2-astra` at `high` for a risk class). Neither changes during the
+  `gpt-6.2-astra` at `high` where the §1 run table needs it). Neither changes during the
   loop.
 - **Rules (invariants):** the behaviour the code must have, taken from
   written sources only: root `AGENTS.md` (*Security and data invariants*),

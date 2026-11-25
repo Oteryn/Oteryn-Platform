@@ -52,13 +52,29 @@ plus the one holistic whole-diff run in the same round. Chunk runs alone are
 not a covered review. The second review (delta) is one holistic run over the
 fix commits and the code they touch.
 
-**Model and effort.** Every review run is a Codex Cloud task, read-only,
-model `gpt-6.2-sol` at reasoning effort `high`. A PR with code or a contract/fixture change in a risk
-class (identity, sessions or MFA; game tickets or admission grants; the
-`/internal/v1` wire with Oteryn-Game; wallet, store, bazaar or payments;
-migrations; authorization) also gets one `gpt-6.2-astra` run at effort
-`high` on the same head, with the same prompt; the two runs together are the
-one covered review of that head. An astra P0/P1 counts only after the review
+**Model and effort.** Every review run is a Codex Cloud task, read-only, at
+reasoning effort `high`, with the runs chosen from the table below; the runs
+of one round on one head are the one covered review of that head.
+
+### Choosing the runs (owner decision 2026-11-25, aligned with Oteryn-Game)
+
+"Lines" are hand-written changed lines (generated data, pins and lockfiles
+excluded). Risk classes: identity, sessions or MFA; game tickets or
+admission grants; the `/internal/v1` wire with Oteryn-Game; wallet, store,
+bazaar or payments; migrations; authorization; a symbol with several
+consumers.
+
+| Situation | Runs of the round |
+| --- | --- |
+| Code PR up to about 1500 lines, no risk class | `gpt-6.2-sol` high, one holistic run |
+| Code, contract or fixture change in a risk class | sol high + `gpt-6.2-astra` high on the same head, same prompt |
+| Code diff above about 1500 lines | sol high per chunk plus the holistic sol run + one astra high whole-diff integration run |
+| Docs, rules, skills, workflows or agent definitions | sol high + astra high (calibration: astra found real P1s on a rules PR that sol missed) |
+| Delta review (second round) | sol high over the fix commits and the code they touch; + astra high on the new head whenever the PR is in a risk class (§4) |
+| CI-failure fix | sol high with the failing log lines in the prompt |
+
+When rows overlap, run the union of their runs. Never astra alone and never
+effort `medium`. An astra P0/P1 counts only after the review
 owner traced it (input, caller, wrong result) to a REAL verdict (§3); one
 disproved is recorded FALSE and closed, one that cannot be traced either way
 goes to the P2 backlog. Never review at effort `medium`. Name the task
@@ -103,7 +119,7 @@ Every review prompt contains:
 ## 3. Merge, verify, sweep
 
 1. Merge the run outputs (the sol run, the chunk runs for a diff above about
-   1500 lines, and the astra run for a risk class). Remove duplicates by `path:line` and defect class.
+   1500 lines, and the astra runs the §1 table needs). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
    - For a finding that is hard to call, the coordinator traces it to the
@@ -164,8 +180,8 @@ context, never as a continuation of the run that wrote it.
 ## 5. When to stop
 
 The diff is done when the covered review of the current head (the sol run,
-its chunk runs when the diff needed them, plus the astra run for a risk
-class) finds no P0/P1 that verified REAL.
+its chunk runs when the diff needed them, plus the astra runs the §1 table needs)
+finds no P0/P1 that verified REAL.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.
@@ -202,7 +218,7 @@ state machine for `crates/bazaar`:
 A packet that delegates a review or a fix points to this file and states:
 
 - the base and head SHA, the model and effort of each run (sol high; astra
-  high for a risk class) and, for diffs above about 1500 lines, the chunks;
+  high where the §1 run table needs it) and, for diffs above about 1500 lines, the chunks;
 - "report every finding, no cap; sweep each class across the diff";
 - the failing CI log lines, when there are any;
 - "do not edit code in the review run; fixes go through one batch fix run

@@ -67,7 +67,7 @@ A packet that delegates a review, or the fix of review findings, follows
 `oteryn-platform-review/references/batch-review.md` §6 instead of items 6
 and 7:
 - base and head SHA, the model and effort of each run (sol high, plus astra
-  high for a risk class) and, above about 1500 lines, the chunks;
+  high where the batch-review §1 run table needs it) and, above about 1500 lines, the chunks;
 - every finding, with no cap, and a sweep of each class across the diff;
 - the failing CI log lines;
 - no code edits in the review run.
