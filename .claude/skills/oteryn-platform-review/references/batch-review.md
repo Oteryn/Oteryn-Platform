@@ -135,13 +135,17 @@ Every review prompt contains:
    packet's owned paths join the confirmed list; the others are
    `OUT OF SCOPE` with their severity and go to the lead. A class fixed at
    one site and left at another is the main cause of the next round.
-4. P2/P3 findings do not start a fix now. They are fixed in the same push
+4. P2/P3 findings do not start a fix now, except a repository-rule break
+   (SKILL.md §4: weakened test, hand-edited fixture, edited merged
+   migration), which goes into the §4 fix list whatever its grade. They are fixed in the same push
    when cheap, otherwise noted for the module's next task (SKILL.md §4).
 
 ## 4. One batch fix, one delta review, one CI cycle
 
-1. Write all confirmed P0/P1 findings, sweep instances included, to one file,
-   numbered, one per line as `N. P0|P1 path:line - problem - failure path`.
+1. Write all confirmed in-scope P0/P1 findings and repository-rule breaks,
+   sweep instances included, to one file, numbered, one per line as
+   `N. P0|P1|P2|P3 path:line - problem - failure path`. `OUT OF SCOPE`
+   findings never enter it; they go to the owning task or lead.
    Hand that file to one code-writing run at reasoning effort `high` for a
    fix in a risk class, `medium` otherwise. Never
    use one fix run per finding. The packet (SKILL.md §7) states:
@@ -187,8 +191,8 @@ The diff is done when the covered review of the current head (the sol run,
 its chunk runs when the diff needed them, plus the astra runs the §1 table needs)
 finds no P0/P1 that verified REAL, and no finding that breaks a repository
 rule (SKILL.md §4: weakened test, hand-edited fixture, edited merged
-migration) or a P0/P1 marked `OUT OF SCOPE` is still open; those block
-landing at any grade and go into the fix list.
+migration) is still open. A P0/P1 marked `OUT OF SCOPE` is not fixed here:
+it goes to the owning task or lead, and this PR waits until that fix lands.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.

@@ -24,9 +24,10 @@ head, that head has:
   through the `crates/web` router, the repository on real PostgreSQL, the
   worker job, or the `crates/internal-api` contract test against
   `docs/contracts/fixtures/`. Where the session has no PostgreSQL, the
-  coordinator runs them on a scratch PostgreSQL 18.6 or adds the
-  `heavy-tests` label, whose PostgreSQL test shards count with the test
-  names taken from the job log; the fast PR lane ("Unit tests without
+  coordinator runs them on a scratch PostgreSQL 18.6, or, only on a
+  ready (non-draft) PR whose head is current with `main` (the PR run tests
+  the merge commit), adds the `heavy-tests` label, whose PostgreSQL test
+  shards count with the test names taken from the job log; the fast PR lane ("Unit tests without
   PostgreSQL") never counts;
 - one frozen head: only the final head SHA is reviewed; a later push makes
   it a new head;
