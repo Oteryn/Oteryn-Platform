@@ -68,12 +68,14 @@ A packet that delegates a review, or the fix of review findings, follows
 and 7, and item 2 checks `HEAD` against the frozen PR head (a delta: the
 new head, with the previous reviewed head as base), not against `main`:
 - base and head SHA, the model and effort of each run (sol high, plus astra
-  high where the batch-review §1 run table needs it) and, above about 1500 lines, the area runs;
+  high where the batch-review §1 run table needs it) and, for a code diff above about 1500 lines, the area runs;
 - every finding, with no cap, and a sweep of each class across the diff;
 - the failing CI log lines;
 - no code edits in the review run.
 
-The report is the merged, verified finding list, whatever its length.
+A review packet returns the merged, verified finding list, whatever its
+length; a fix packet returns one numbered status per finding (`FIXED
+<test>`, `NOT REPRODUCED`, `BLOCKED <why>`, batch-review §4).
 
 Keep the packet short and decided: name the files, types, functions,
 values from the contract and the test for each step, and leave open only
