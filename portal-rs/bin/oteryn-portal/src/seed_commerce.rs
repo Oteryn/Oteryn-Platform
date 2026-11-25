@@ -1,23 +1,25 @@
 //! Test-only commerce seeds for Game's node-boot E2E (Store, coin transfer
 //! quote, loyalty). Each goes through the owning crate's domain API under the
 //! fixed [`SEED_ACTOR`], which is recorded in the audit rows those APIs write;
-//! the actor is not an account and holds no RBAC role. The `seed` role refuses
-//! all of them unless `OTERYN_ENV=testing`.
+//! the actor is not an account and holds no RBAC role: the `account` seed
+//! refuses its id, and every commerce seed refuses while an account holds it.
+//! The `seed` role refuses all of them unless `OTERYN_ENV=testing`, and each
+//! one also requires the store's [`TestingSeed`] read from that variable.
 //!
 //! | entity | domain call | output |
 //! |---|---|---|
 //! | `store-catalog` | `CatalogStore::import` + `activate` (audited) | `catalogRevision`, `offers`, `active` |
 //! | `coin-credit` | `wallet::Ledger::grant` (`staff_grant`, keyed by `operationId`) | `accountId`, `operationId`, `amount` |
 //! | `loyalty` | `premium::repository::Ledger::grant_consumed_for_testing` | `accountId`, `premiumDays`, `entitlementId`, `effectiveFrom`, `effectiveUntil` |
-use super::{Args, SeedError, bad};
+use super::{Args, SeedError, Settings, bad, bounded};
 use oteryn_store::catalog::{
     self, AccountState, Action, CatalogAccess, CatalogFlags, CatalogStore,
 };
-use oteryn_store::premium;
+use oteryn_store::premium::{self, repository::TestingSeed};
 use oteryn_wallet as wallet;
 use serde_json::{Value, json};
 use sqlx::{PgConnection, PgPool};
-use std::{io::Read, sync::Arc};
+use std::{io::Read, path::PathBuf, sync::Arc};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use uuid::Uuid;
 
@@ -55,10 +57,39 @@ impl CatalogAccess for SeedCatalogAccess {
     }
 }
 
-pub(super) async fn store_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+/// The testing authority every commerce seed requires (fails closed).
+fn testing(settings: &Settings) -> Result<TestingSeed, SeedError> {
+    settings.testing_seed.ok_or(SeedError::Unavailable(
+        "seed runs only with OTERYN_ENV=testing",
+    ))
+}
+
+/// Audit rows under [`SEED_ACTOR`] must never be attributable to an account.
+async fn actor_is_not_an_account(pool: &PgPool) -> Result<(), SeedError> {
+    let taken: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=$1)")
+        .bind(SEED_ACTOR)
+        .fetch_one(pool)
+        .await?;
+    if taken {
+        return Err(SeedError::Conflict(
+            "an account holds the commerce seed actor id".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) async fn store_catalog(
+    pool: &PgPool,
+    settings: &Settings,
+    args: &Args<'_>,
+) -> Result<Value, SeedError> {
+    testing(settings)?;
     args.only(&["file"])?;
-    let path = args.required("file")?;
-    let raw = read_catalog(path)?;
+    let path = PathBuf::from(args.required("file")?);
+    let raw = tokio::task::spawn_blocking(move || read_catalog(&path))
+        .await
+        .map_err(|_| SeedError::Unavailable("catalogue file read"))??;
+    actor_is_not_an_account(pool).await?;
     let store = CatalogStore::new(pool.clone(), CatalogFlags { enabled: true }).with_audit_log();
     let revision = store
         .import(&raw, SEED_ACTOR, &SeedCatalogAccess)
@@ -80,9 +111,17 @@ pub(super) async fn store_catalog(pool: &PgPool, args: &Args<'_>) -> Result<Valu
     }))
 }
 
-fn read_catalog(path: &str) -> Result<Vec<u8>, SeedError> {
+/// Reads a regular file only: a FIFO or device is refused before `open`, which
+/// would block on it, and the opened handle is checked again.
+fn read_catalog(path: &std::path::Path) -> Result<Vec<u8>, SeedError> {
     let unreadable = || bad("file is not a readable catalogue file");
+    if !std::fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
+        return Err(unreadable());
+    }
     let file = std::fs::File::open(path).map_err(|_| unreadable())?;
+    if !file.metadata().is_ok_and(|meta| meta.is_file()) {
+        return Err(unreadable());
+    }
     let mut raw = Vec::new();
     file.take(MAX_CATALOG_BYTES + 1)
         .read_to_end(&mut raw)
@@ -116,7 +155,9 @@ impl wallet::AccountStateReader for SeedWallet {
     async fn state(&self, connection: &mut PgConnection, account: Uuid) -> wallet::AccountState {
         match wallet::value_eligible_in(connection, account).await {
             Ok(true) => wallet::AccountState::Active,
-            _ => wallet::AccountState::Unknown,
+            Ok(false) => wallet::AccountState::Unknown,
+            // A failed read is not an ineligible account.
+            Err(_) => wallet::AccountState::Unavailable,
         }
     }
 }
@@ -152,13 +193,19 @@ fn credit_reason(operation: Uuid) -> String {
     format!("testing-seed:{operation}")
 }
 
-pub(super) async fn coin_credit(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+pub(super) async fn coin_credit(
+    pool: &PgPool,
+    settings: &Settings,
+    args: &Args<'_>,
+) -> Result<Value, SeedError> {
+    testing(settings)?;
     args.only(&["accountId", "email", "amount", "operationId"])?;
     let operation = args
         .uuid("operationId", true)?
         .ok_or_else(|| bad("operationId is required"))?;
     let amount = integer(args, "amount", 1, MAX_CREDIT)?;
     let account = account_ref(pool, args).await?;
+    actor_is_not_an_account(pool).await?;
     let ledger = wallet::Ledger::new(
         pool.clone(),
         wallet::WalletFlags { enabled: true },
@@ -180,9 +227,12 @@ pub(super) async fn coin_credit(pool: &PgPool, args: &Args<'_>) -> Result<Value,
             wallet::Error::Refused(wallet::Refusal::IdempotencyConflict) => {
                 SeedError::Conflict("operationId was used with other input".into())
             }
-            wallet::Error::Refused(
-                wallet::Refusal::AccountDenied | wallet::Refusal::TransferStateUnknown,
-            ) => bad("account is not eligible for value"),
+            wallet::Error::Refused(wallet::Refusal::AccountDenied) => {
+                bad("account is not eligible for value")
+            }
+            wallet::Error::Refused(wallet::Refusal::TransferStateUnknown) => {
+                SeedError::Unavailable("account eligibility")
+            }
             wallet::Error::Refused(wallet::Refusal::Overflow) => {
                 bad("amount exceeds the balance ceiling")
             }
@@ -197,18 +247,24 @@ pub(super) async fn coin_credit(pool: &PgPool, args: &Args<'_>) -> Result<Value,
     }))
 }
 
-pub(super) async fn loyalty(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
+pub(super) async fn loyalty(
+    pool: &PgPool,
+    settings: &Settings,
+    args: &Args<'_>,
+) -> Result<Value, SeedError> {
+    let testing = testing(settings)?;
     args.only(&["accountId", "email", "premiumDays"])?;
     let days = integer(args, "premiumDays", 1, 366)?;
     let days = u16::try_from(days).map_err(|_| bad("premiumDays must be 1..=366"))?;
     let account = account_ref(pool, args).await?;
+    actor_is_not_an_account(pool).await?;
     let ledger = premium::repository::Ledger::new(
         pool.clone(),
         Arc::new(oteryn_store::loyalty::stream::http::DatabaseAccounts),
         true,
     );
     let entitlement = ledger
-        .grant_consumed_for_testing(SEED_ACTOR, account, days, LOYALTY_REASON)
+        .grant_consumed_for_testing(testing, SEED_ACTOR, account, days, LOYALTY_REASON)
         .await
         .map_err(|error| match error {
             premium::Error::Conflict => SeedError::Conflict(
@@ -254,6 +310,7 @@ async fn account_ref(pool: &PgPool, args: &Args<'_>) -> Result<Uuid, SeedError> 
                 .await?
         }
         (None, Some(email)) => {
+            bounded("email", email, 254)?;
             sqlx::query_scalar("SELECT id FROM accounts WHERE lower(email)=$1")
                 .bind(email.to_ascii_lowercase())
                 .fetch_optional(pool)

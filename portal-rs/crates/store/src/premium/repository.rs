@@ -13,6 +13,28 @@ pub struct DigestMutation {
     pub change: Change,
     pub reason_sha256: [u8; 32],
 }
+/// Proof that this process runs with `OTERYN_ENV=testing`, which the testing-only
+/// Premium seed requires: only [`TestingSeed::from_env`] makes one in a deployed
+/// build, so the seed fails closed in every other environment.
+#[cfg(any(test, feature = "testing-seed"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TestingSeed(());
+#[cfg(any(test, feature = "testing-seed"))]
+impl TestingSeed {
+    /// `Some` only when the process environment has `OTERYN_ENV=testing`.
+    pub fn from_env() -> Option<Self> {
+        Self::from_environment(std::env::var("OTERYN_ENV").ok().as_deref())
+    }
+    pub(crate) fn from_environment(environment: Option<&str>) -> Option<Self> {
+        (environment == Some("testing")).then_some(Self(()))
+    }
+    /// Test builds only: tests cannot set `OTERYN_ENV` in their own process.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn assume_testing() -> Self {
+        Self(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Ledger {
     pool: PgPool,
@@ -226,14 +248,16 @@ impl Ledger {
         .await
     }
 
-    /// Testing-only seed (`oteryn-portal seed loyalty`, which refuses unless
-    /// `OTERYN_ENV=testing`): record `days` of Premium time already consumed,
+    /// Testing-only seed (`oteryn-portal seed loyalty`); `_testing` proves
+    /// `OTERYN_ENV=testing` ([`TestingSeed`]). Record `days` of Premium time already consumed,
     /// as one expired GRANT ending now, so the loyalty stream counts them at
     /// once. Only an account without Premium history takes it; a rerun with the
     /// same actor, days and reason returns the recorded entitlement, anything
     /// else is a conflict. A later real grant restarts the same entitlement.
+    #[cfg(any(test, feature = "testing-seed"))]
     pub async fn grant_consumed_for_testing(
         &self,
+        _testing: TestingSeed,
         actor: Uuid,
         account: Uuid,
         days: u16,

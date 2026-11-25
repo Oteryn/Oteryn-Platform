@@ -1194,6 +1194,21 @@ async fn postgres_stream_held_head_lock_sheds_within_mutation_budget() {
     );
 }
 
+#[test]
+fn testing_seed_authority_exists_only_under_oteryn_env_testing() {
+    use crate::premium::repository::TestingSeed;
+    for environment in [
+        None,
+        Some("production"),
+        Some("preprod"),
+        Some("Testing"),
+        Some(""),
+    ] {
+        assert_eq!(TestingSeed::from_environment(environment), None);
+    }
+    assert!(TestingSeed::from_environment(Some("testing")).is_some());
+}
+
 #[tokio::test]
 async fn testing_consumed_premium_days_publish_at_once_and_keep_premium_usable() {
     use crate::premium::{Change, Mutation, Operator, repository};
@@ -1201,18 +1216,19 @@ async fn testing_consumed_premium_days_publish_at_once_and_keep_premium_usable()
     let Some(db) = Database::create().await else {
         return;
     };
+    let testing = repository::TestingSeed::from_environment(Some("testing")).unwrap();
     let premium = repository::Ledger::new(db.pool.clone(), Arc::new(TestAccounts), true);
     let actor = Uuid::now_v7();
     let account = Uuid::now_v7();
     const REASON: &str = "testing seed: consumed premium days";
     let first = premium
-        .grant_consumed_for_testing(actor, account, 7, REASON)
+        .grant_consumed_for_testing(testing, actor, account, 7, REASON)
         .await
         .unwrap();
     assert_eq!((first.revision, first.until - first.from), (1, 7 * 86400));
     assert_eq!(
         premium
-            .grant_consumed_for_testing(actor, account, 7, REASON)
+            .grant_consumed_for_testing(testing, actor, account, 7, REASON)
             .await,
         Ok(first.clone())
     );
@@ -1223,7 +1239,7 @@ async fn testing_consumed_premium_days_publish_at_once_and_keep_premium_usable()
     ] {
         assert_eq!(
             premium
-                .grant_consumed_for_testing(actor, account, days, reason)
+                .grant_consumed_for_testing(testing, actor, account, days, reason)
                 .await,
             Err(Error::Conflict)
         );
@@ -1231,7 +1247,7 @@ async fn testing_consumed_premium_days_publish_at_once_and_keep_premium_usable()
     for (days, reason) in [(0, REASON), (367, REASON), (7, "short")] {
         assert_eq!(
             premium
-                .grant_consumed_for_testing(actor, Uuid::now_v7(), days, reason)
+                .grant_consumed_for_testing(testing, actor, Uuid::now_v7(), days, reason)
                 .await,
             Err(Error::Invalid)
         );
@@ -1239,13 +1255,13 @@ async fn testing_consumed_premium_days_publish_at_once_and_keep_premium_usable()
     let unknown = Uuid::parse_str("01890f4e-7c00-7000-8000-000000000000").unwrap();
     assert_eq!(
         premium
-            .grant_consumed_for_testing(actor, unknown, 7, REASON)
+            .grant_consumed_for_testing(testing, actor, unknown, 7, REASON)
             .await,
         Err(Error::UnknownAccount)
     );
     assert_eq!(
         repository::Ledger::new(db.pool.clone(), Arc::new(TestAccounts), false)
-            .grant_consumed_for_testing(actor, Uuid::now_v7(), 7, REASON)
+            .grant_consumed_for_testing(testing, actor, Uuid::now_v7(), 7, REASON)
             .await,
         Err(Error::Disabled)
     );

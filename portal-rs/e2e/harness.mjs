@@ -88,8 +88,13 @@ if (outbox) {
 }
 // Game node-boot commerce rows (Store purchase, coin transfer quote, loyalty):
 // the Game-facing purchase and coin routes, testing only. Data comes from the
-// `store-catalog`, `coin-credit` and `loyalty` seed entities.
+// `store-catalog`, `coin-credit` and `loyalty` seed entities. The profile
+// refuses before any database is created unless the run is `testing`.
 if (gameCommerce) {
+  if (testEnv.OTERYN_ENV !== 'testing') {
+    log('--game-commerce runs only with OTERYN_ENV=testing');
+    process.exit(2);
+  }
   Object.assign(testEnv, {
     PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED: 'true',
     PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS: '["ITEM","PREMIUM_TIME"]',

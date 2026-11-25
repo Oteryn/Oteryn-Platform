@@ -2,9 +2,18 @@ use super::*;
 use crate::seed::commerce::SEED_ACTOR;
 use std::{path::PathBuf, sync::Arc};
 
+/// Revision of `crates/store/tests/fixtures/game-runtime-catalogue.json`, the
+/// same golden the store's purchase tests quote (`purchase_tests.rs`).
+const GAME_RUNTIME_REVISION: &str =
+    "451c944aa7b6ab9d27cfce868fcf4949c8996a7b6857cc2641e2c296fd415c8c";
+
 const PLAYER: &str = "019a0000-0000-7000-8000-00000000a001";
 const OPERATION: &str = "019a0000-0000-7000-8000-0000000c0001";
 
+fn game_runtime_catalogue() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../crates/store/tests/fixtures/game-runtime-catalogue.json")
+}
 fn price_lists() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../docs/contracts/fixtures/store-price-list-v1")
@@ -20,13 +29,16 @@ async fn player(db: &Database) -> TestResult {
 
 #[tokio::test]
 async fn store_catalog_imports_and_activates_once_under_the_seed_actor() -> TestResult {
+    // The catalogue RBAC and audit fences are database-wide advisory locks.
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
     let file = price_lists().join("price-list.valid.json");
     let input = json!({"file": file.to_string_lossy()});
     let out = db.twice("store-catalog", input).await?;
-    let revision = out["catalogRevision"].as_str().unwrap().to_owned();
+    // The S-5 revision is SHA-256 of the file's canonical bytes, computed here.
+    let revision = format!("{:x}", Sha256::digest(std::fs::read(&file)?));
     assert_eq!(
         out,
         json!({"entity": "store-catalog", "catalogRevision": revision, "offers": 1, "active": true})
@@ -55,11 +67,25 @@ async fn store_catalog_imports_and_activates_once_under_the_seed_actor() -> Test
     // The seed actor is not an account and gains no RBAC role.
     assert_eq!(db.count("SELECT count(*) FROM accounts").await?, 0);
     assert_eq!(db.count("SELECT count(*) FROM account_roles").await?, 0);
+    // A Game runtime catalogue activates under the revision Game quotes.
+    let runtime = json!({"file": game_runtime_catalogue().to_string_lossy()});
+    let out = db.twice("store-catalog", runtime).await?;
+    assert_eq!(
+        out,
+        json!({"entity": "store-catalog", "catalogRevision": GAME_RUNTIME_REVISION,
+               "offers": 24, "active": true})
+    );
+    let active: Option<String> =
+        sqlx::query_scalar("SELECT catalog_revision FROM store_active_catalog WHERE id=1")
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(active.as_deref(), Some(GAME_RUNTIME_REVISION));
     db.close().await
 }
 
 #[tokio::test]
 async fn store_catalog_refuses_bad_input_and_changes_nothing() -> TestResult {
+    let _guard = oteryn_db::test_support::global_lock_guard().await?;
     let Some(db) = Database::new().await? else {
         return Ok(());
     };
@@ -131,10 +157,28 @@ async fn coin_credit_is_one_audited_ledger_operation() -> TestResult {
             .iter()
             .all(|(_, kind, _, actor)| kind == "staff_grant" && *actor == Some(SEED_ACTOR))
     );
+    let audit: Vec<(String, Uuid, String, Value, Value, Uuid)> = sqlx::query_as(
+        "SELECT action, actor, target, before, after, request_id FROM audit_log ORDER BY request_id",
+    )
+    .fetch_all(&db.pool)
+    .await?;
+    let second = Uuid::parse_str("019a0000-0000-7000-8000-0000000c0002")?;
+    let credited = |before: i64, amount: i64, request: Uuid| {
+        (
+            "seed.wallet.credited".to_owned(),
+            SEED_ACTOR,
+            PLAYER.to_owned(),
+            json!({"available": before, "reserved": 0}),
+            json!({"available": before + amount, "reserved": 0, "amount": amount}),
+            request,
+        )
+    };
     assert_eq!(
-        db.count("SELECT count(*) FROM audit_log WHERE action='seed.wallet.credited' AND actor='019a0000-0000-7000-8000-000000005eed'")
-            .await?,
-        2
+        audit,
+        vec![
+            credited(0, 25, Uuid::parse_str(OPERATION)?),
+            credited(25, 5, second)
+        ]
     );
     assert!(is_conflict(
         db.seed(
@@ -143,6 +187,10 @@ async fn coin_credit_is_one_audited_ledger_operation() -> TestResult {
         )
         .await
     ));
+    // The conflict changed nothing.
+    assert_eq!(wire.balance(account).await?.available, 30);
+    assert_eq!(db.count("SELECT count(*) FROM wallet_operations").await?, 2);
+    assert_eq!(db.count("SELECT count(*) FROM audit_log").await?, 2);
     db.close().await
 }
 
@@ -167,6 +215,9 @@ async fn coin_credit_refuses_bad_input_and_changes_nothing() -> TestResult {
         json!({"accountId": "019a0000-0000-7000-8000-00000000a0ff", "amount": 25,
                "operationId": OPERATION}),
         json!({"email": "nobody@example.invalid", "amount": 25, "operationId": OPERATION}),
+        json!({"email": format!("{}@example.invalid", "a".repeat(250)), "amount": 25,
+               "operationId": OPERATION}),
+        json!({"email": " player1@example.invalid", "amount": 25, "operationId": OPERATION}),
         json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION, "kind": "x"}),
     ] {
         assert!(is_bad(db.seed("coin-credit", input).await));
@@ -242,5 +293,140 @@ async fn loyalty_refuses_bad_input_and_changes_nothing() -> TestResult {
         assert!(is_bad(db.seed("loyalty", input).await));
     }
     assert_eq!(db.count("SELECT count(*) FROM premium_ledger").await?, 0);
+    db.close().await
+}
+
+/// Settings that carry the testing authority the commerce seeds require.
+fn testing_settings() -> Settings {
+    Settings {
+        testing_seed: Some(oteryn_store::premium::repository::TestingSeed::assume_testing()),
+        ..Settings::default()
+    }
+}
+
+#[tokio::test]
+async fn commerce_seeds_refuse_without_testing_authority() -> TestResult {
+    // Every refusal happens before the database is touched.
+    let pool = PgPoolOptions::new().connect_lazy("postgresql://localhost/unused")?;
+    for (entity, input) in [
+        (
+            "store-catalog",
+            json!({"file": "/nonexistent/catalogue.json"}),
+        ),
+        (
+            "coin-credit",
+            json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION}),
+        ),
+        ("loyalty", json!({"accountId": PLAYER, "premiumDays": 7})),
+    ] {
+        assert_eq!(
+            execute(&pool, &Settings::default(), entity, &input).await,
+            Err(SeedError::Unavailable(
+                "seed runs only with OTERYN_ENV=testing"
+            )),
+            "{entity} ran without testing authority"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn store_catalog_refuses_a_fifo_without_blocking() -> TestResult {
+    let scratch = tempfile::tempdir()?;
+    let fifo = scratch.path().join("catalogue.fifo");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()?
+            .success()
+    );
+    let input = json!({"file": fifo.to_string_lossy()});
+    let (send, receive) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let result = runtime.block_on(async {
+            let pool = PgPoolOptions::new()
+                .connect_lazy("postgresql://localhost/unused")
+                .unwrap();
+            execute(&pool, &testing_settings(), "store-catalog", &input).await
+        });
+        let _ = send.send(result);
+    });
+    let result = receive
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("store-catalog still blocked on a FIFO after 10 s");
+    assert!(is_bad(result));
+    Ok(())
+}
+
+#[tokio::test]
+async fn coin_credit_reports_an_eligibility_read_failure_as_unavailable() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    player(&db).await?;
+    // The eligibility read fails as a database error, not as an ineligible account.
+    sqlx::query(
+        "ALTER FUNCTION account_value_eligible(uuid) RENAME TO account_value_eligible_missing",
+    )
+    .execute(&db.pool)
+    .await?;
+    let result = db
+        .seed(
+            "coin-credit",
+            json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION}),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(SeedError::Unavailable(_))),
+        "{result:?}"
+    );
+    assert_eq!(db.count("SELECT count(*) FROM wallet_operations").await?, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn the_seed_actor_is_never_an_account() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    let actor = SEED_ACTOR.to_string();
+    assert!(is_bad(
+        db.seed(
+            "account",
+            json!({"email": "actor@example.invalid", "password": PASSWORD, "accountId": actor}),
+        )
+        .await
+    ));
+    assert_eq!(db.count("SELECT count(*) FROM accounts").await?, 0);
+    // An account row that already holds the actor id stops every commerce seed.
+    player(&db).await?;
+    sqlx::query("INSERT INTO accounts (id, email, email_verified_at, password_hash, status, locale, native_security_generation) VALUES ($1, 'actor@example.invalid', now(), 'x', 'active', 'en', 1)")
+        .bind(SEED_ACTOR)
+        .execute(&db.pool)
+        .await?;
+    let file = price_lists().join("price-list.valid.json");
+    for (entity, input) in [
+        ("store-catalog", json!({"file": file.to_string_lossy()})),
+        (
+            "coin-credit",
+            json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION}),
+        ),
+        ("loyalty", json!({"accountId": PLAYER, "premiumDays": 7})),
+    ] {
+        let result = db.seed(entity, input).await;
+        assert!(is_conflict(result.clone()), "{entity}: {result:?}");
+    }
+    assert_eq!(
+        db.count("SELECT count(*) FROM store_price_list_imports")
+            .await?,
+        0
+    );
+    assert_eq!(db.count("SELECT count(*) FROM wallet_operations").await?, 0);
+    assert_eq!(db.count("SELECT count(*) FROM premium_ledger").await?, 0);
+    assert_eq!(db.count("SELECT count(*) FROM audit_log").await?, 0);
     db.close().await
 }

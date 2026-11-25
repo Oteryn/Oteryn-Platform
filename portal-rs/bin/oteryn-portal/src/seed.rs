@@ -106,6 +106,8 @@ pub struct Settings {
     pub key_purpose: Option<String>,
     /// The portal's MFA cipher (`OTERYN_MFA_KEY`); its Debug output is redacted.
     pub mfa: Option<Mfa>,
+    /// `OTERYN_ENV=testing`, read by the store; the commerce seeds refuse without it.
+    pub testing_seed: Option<oteryn_store::premium::repository::TestingSeed>,
 }
 
 /// Entry point for `oteryn-portal seed`; prints exactly one JSON object.
@@ -159,6 +161,7 @@ async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, See
         witness_directory: std::env::var_os(WITNESS_DIRECTORY).map(PathBuf::from),
         key_purpose: std::env::var(admission::KEY_PURPOSE).ok(),
         mfa: Mfa::configured(pool.clone()).ok(),
+        testing_seed: oteryn_store::premium::repository::TestingSeed::from_env(),
     };
     let result = execute(&pool, &settings, entity, &input).await;
     pool.close().await;
@@ -183,9 +186,9 @@ pub async fn execute(
         "account-mfa" => account_mfa(settings, &args).await,
         "channel" => channel(pool, &args).await,
         "route" => route(pool, &args).await,
-        "store-catalog" => commerce::store_catalog(pool, &args).await,
-        "coin-credit" => commerce::coin_credit(pool, &args).await,
-        "loyalty" => commerce::loyalty(pool, &args).await,
+        "store-catalog" => commerce::store_catalog(pool, settings, &args).await,
+        "coin-credit" => commerce::coin_credit(pool, settings, &args).await,
+        "loyalty" => commerce::loyalty(pool, settings, &args).await,
         "native-evidence" => Err(SeedError::NotApplicable(
             "evidence is observed live; the first observation bootstraps the retained witness",
         )),
@@ -269,6 +272,9 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         return Err(bad("locale must be en or pl"));
     }
     let requested = args.uuid("accountId", true)?;
+    if requested == Some(commerce::SEED_ACTOR) {
+        return Err(bad("accountId is reserved for the commerce seed actor"));
+    }
     let mut tx = pool.begin().await?;
     let existing =
         sqlx::query("SELECT id, password_hash FROM accounts WHERE lower(email)=$1 FOR UPDATE")

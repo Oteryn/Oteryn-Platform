@@ -55,6 +55,7 @@ impl Database {
             witness_directory: Some(self.witness.path().to_path_buf()),
             key_purpose: None,
             mfa: Some(Mfa::new(self.pool.clone(), [7; 32])),
+            testing_seed: Some(oteryn_store::premium::repository::TestingSeed::assume_testing()),
         }
     }
     async fn seed(&self, entity: &str, input: Value) -> Result<Value, SeedError> {
@@ -767,6 +768,7 @@ async fn signing_custody_refuses_bad_directories_and_input() -> TestResult {
         witness_directory: Some(scratch.path().join("witness")),
         key_purpose: Some(CUSTODY_PURPOSE.into()),
         mfa: None,
+        testing_seed: None,
     };
     let open = scratch.path().join("open");
     std::fs::create_dir(&open)?;
