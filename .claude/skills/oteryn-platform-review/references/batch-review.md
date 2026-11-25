@@ -14,8 +14,8 @@ The rules below remove those causes. They do not change when a review is
 required or who starts it (SKILL.md §5). Three limits hold:
 - At most 2 review rounds per PR.
 - The review never edits code.
-- The batch fix runs at reasoning effort `high` for a P0/P1 in a risk class
-  (`oteryn-platform-coding`, *Before code*) and `medium` for any other fix.
+- The batch fix runs at reasoning effort `high` for any fix in a risk class
+  (`oteryn-platform-coding`, *Before code*) and `medium` otherwise.
 
 Aligned with the Oteryn-Game `oteryn-review` skill
 (`references/batch-review.md` §1-§2 at Game commit
@@ -53,7 +53,7 @@ not a covered review. The second review (delta) is one holistic run over the
 fix commits and the code they touch.
 
 **Model and effort.** Every review run is a Codex Cloud task, read-only,
-model `gpt-6.2-sol` at reasoning effort `high`. A PR with code in a risk
+model `gpt-6.2-sol` at reasoning effort `high`. A PR with code or a contract/fixture change in a risk
 class (identity, sessions or MFA; game tickets or admission grants; the
 `/internal/v1` wire with Oteryn-Game; wallet, store, bazaar or payments;
 migrations; authorization) also gets one `gpt-6.2-astra` run at effort
@@ -102,12 +102,13 @@ Every review prompt contains:
 
 ## 3. Merge, verify, sweep
 
-1. Merge the run outputs (the sol run, and the astra run for a risk class). Remove duplicates by `path:line` and defect class.
+1. Merge the run outputs (the sol run, the chunk runs for a diff above about
+   1500 lines, and the astra run for a risk class). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
-   - For a finding that is hard to call, run a second check with the
-     opposite brief: a fresh run told "try to refute this finding; default
-     to refuted when unsure".
+   - For a finding that is hard to call, the coordinator traces it to the
+     owning code; still unsettled, it becomes P2 (uncertain). No extra
+     refute run.
    - Keep the finding when the refute attempt fails.
 3. Pattern sweep. For every confirmed finding, grep the diff, the files it
    touches and the rest of `portal-rs/` for the same class: the same call,
@@ -125,7 +126,7 @@ Every review prompt contains:
 1. Write all confirmed P0/P1 findings, sweep instances included, to one file,
    numbered, one per line as `N. P0|P1 path:line - problem - failure path`.
    Hand that file to one code-writing run at reasoning effort `high` for a
-   P0/P1 in a risk class, `medium` otherwise. Never
+   fix in a risk class, `medium` otherwise. Never
    use one fix run per finding. The packet (SKILL.md §7) states:
    - **Statuses.** The report gives every number one status: `FIXED <test>`,
      `NOT REPRODUCED` or `BLOCKED <why>`. Runs handed a list tend to stop
@@ -144,9 +145,8 @@ Every review prompt contains:
    - **Smallest fix.** The test reruns green; no existing assertion,
      timeout, budget or fixture changes, and nothing outside the listed
      findings.
-   - **Class guard.** For a P0/P1 class that recurred across PRs, when it is
-     smaller than the next round: one choke-point function and a
-     source-scan or invariant test.
+   - **Class guard.** Mandatory for a P0/P1 class that recurred across PRs:
+     one choke-point function and a source-scan or invariant test.
    - **Forbidden paths.** A fix diff outside the owned paths is rejected
      whole; `.github/workflows/**`, `scripts/ci/**` and `tests/ci/**` change
      only in a task that owns them.
@@ -155,7 +155,8 @@ Every review prompt contains:
 3. Push once. One CI cycle covers the whole batch.
 4. The second review round covers only the fix diff (the delta): one
    holistic sol run at high over the fix commits and the code they touch,
-   plus the astra run when the repair is in a risk class.
+   plus the astra run on the new head whenever the PR is in a risk class
+   (§1 needs both models on the same head).
 
 Code written by Codex or a subagent is reviewed by a new run with a clean
 context, never as a continuation of the run that wrote it.
@@ -163,7 +164,8 @@ context, never as a continuation of the run that wrote it.
 ## 5. When to stop
 
 The diff is done when the covered review of the current head (the sol run,
-plus the astra run for a risk class) finds no P0/P1 that verified REAL.
+its chunk runs when the diff needed them, plus the astra run for a risk
+class) finds no P0/P1 that verified REAL.
 
 If the second round still finds a P0/P1, the design of the change is wrong:
 stop and report to the owner. Never start a third round.
@@ -181,7 +183,7 @@ trigger it):
 Then report to the owner with a proposed redesign: a rule the code can
 check, such as a transition table with one test per state and event, one
 transaction for a durable value, or one shared source for a policy plus a
-parity test. It is implemented after the owner agrees, as its own PR with
+parity test, always with a guard test for the class. It is implemented after the owner agrees, as its own PR with
 its own review, never as a further push to a PR whose rounds are used up.
 
 Example of a proposal (a shape, not a claim about today's code): when bid,

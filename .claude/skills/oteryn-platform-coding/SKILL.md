@@ -126,13 +126,17 @@ The workspace lints (`portal-rs/Cargo.toml`) forbid `unsafe` and deny
   deadline; drive timers with `tokio::time::pause` / `start_paused`.
 - Fixtures under `docs/contracts/fixtures/` are read, never rewritten to
   match the code. Assertions stay as strict as before.
-- Expected values come from the data, a golden file or the constant under
-  test, not a hard-coded count or version, so a data change cannot leave a
+- Expected values come from the seeded data, a golden file or an
+  independent contractual value, never the production constant under test
+  and not a hard-coded count or version, so a data change cannot leave a
   stale test behind.
 - Before push: run the touched module's own PostgreSQL tests and confirm
   they reached their assertions (named, no `SKIPPED`); `rg` each changed
   literal, version and count across tests, fixtures, contracts and docs
-  and update them all in the same commit; after any merge of `main`,
+  and update in the same commit every reference that carries the changed
+  value (unrelated matches stay; a fixture or golden change is a contract
+  change and needs the packet to allow it; out-of-scope sites are reported
+  as `OUT OF SCOPE file:line`); after any merge of `main`,
   rebuild and run the full tests of every changed crate.
 
 ## Sources

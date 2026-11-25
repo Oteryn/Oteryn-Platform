@@ -6,7 +6,8 @@ and from returned diffs pushed without review.
 
 ## How much to delegate at once
 
-WIP limit: finish and merge what is open before starting new work. Send no
+WIP limit: finish the current wave (its parallel units) before starting
+the next. Send no
 more tasks than results you can review and land the same day.
 Parked work stays on its branch with a line in the governing Issue, not as
 an open PR.
@@ -21,7 +22,11 @@ order:
    `file:line`, the invariants it touches, the scenario variants (success,
    refusal, flag off, empty, replay, concurrent), and the tests that assert
    each changed value. Build it with `rg` on the base SHA. Writes stay
-   inside the allowed paths; targeted reads outside them are allowed.
+   inside the allowed paths; targeted reads outside them are allowed. The
+   coordinator builds the map before dispatch and resolves every hit
+   outside the allowed paths (widen the paths, or pair the task with the
+   owning one); a site the worker still finds out of scope is reported as
+   `OUT OF SCOPE file:line`, never edited.
    Most P0/P1 findings in earlier lanes were a caller, invariant or
    scenario the packet did not name.
 1. **Task:** plan id and name, governing Issue, one-sentence goal, plan
@@ -34,22 +39,28 @@ order:
 4. **Allowed paths:** from the plan row; shared files only by adding a
    line. Everything else is read-only.
 5. **Contract:** the contract file and fixture directory, the contract's
-   status, and the flag the feature sits behind (default off).
+   status, and the flag the feature sits behind (default off). For a Game
+   wire change: the Game S2 owner's verdict on the consumer map, or "hold"
+   (no code until it arrives).
 5a. **Design note** (risk classes only: identity, sessions or MFA; game tickets or admission grants; the `/internal/v1` wire with Oteryn-Game; wallet, store, bazaar or payments; migrations; authorization): a
    half-page plan (data flow, invariants, failure and replay handling, the
    tests that prove each) written and reviewed by the coordinator before
    any code. The worker implements the reviewed note; a needed deviation
    stops the work and is reported.
-5b. **Effort:** high for the risk classes above and for any P0/P1 fix in
-   them; medium otherwise. Self-review and Codex review always run at high.
+5b. **Effort:** high for the risk classes above and for any fix in them;
+   medium otherwise. Self-review and Codex review always run at high.
 6. **Success check:** the test that is red on the base and must be green,
    named exactly, plus from `portal-rs/`:
    `cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`,
    `cargo test --locked`. Tests cover success, refusal and bad input. A
    PostgreSQL check only when the packet gives a database route; otherwise
-   the coordinator runs it.
+   the worker reports `PG: NOT_RUN (no route)` and the coordinator runs the
+   module's PostgreSQL tests on a scratch PostgreSQL 18.6 before review.
+   `PG: NOT_APPLICABLE` only when the change touches no SQL, repository or
+   migration code, with that reason.
 7. **Report:** at most 15 lines: result, head SHA, commands with pass/fail
-   counts and any `SKIPPED` tests, open questions with options and a
+   counts and any `SKIPPED` tests, the consumer map and the literal sweep
+   (extra lines allowed for these two), open questions with options and a
    recommendation, what is not done.
 
 A packet that delegates a review, or the fix of review findings, follows
@@ -102,9 +113,11 @@ The receiving agent cannot see this skill, so paste these lines verbatim:
 
 Before a returned diff goes onto a branch:
 
-0. Check the report carries the consumer map, the PostgreSQL test names
-   that reached assertions and the literal sweep; a report without them
-   goes back to the worker.
+0. Check the report carries the consumer map, the literal sweep and either
+   the PostgreSQL test names that reached assertions or `PG: NOT_RUN (no
+   route)` / `PG: NOT_APPLICABLE` with a reason; a report without them goes
+   back to the worker. On `NOT_RUN (no route)` the coordinator runs the PG
+   tests itself; it never bounces that back.
 1. Check it applies on the packet's base, then against current `main` with
    `git merge-tree --write-tree origin/main HEAD`; merge only on a conflict.
 2. Read the full diff. Reject or trim: files outside the allowed paths,

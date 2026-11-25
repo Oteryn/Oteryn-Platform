@@ -23,8 +23,9 @@ head, that head has:
 - the real caller run red before the fix and green after: the handler
   through the `crates/web` router, the repository on real PostgreSQL, the
   worker job, or the `crates/internal-api` contract test against
-  `docs/contracts/fixtures/`. Where the session has no PostgreSQL, say so
-  and leave it to CI as not run;
+  `docs/contracts/fixtures/`. Where the session has no PostgreSQL, the
+  coordinator runs them on a scratch PostgreSQL 18.6 or adds the
+  `heavy-tests` label; the fast CI has no PostgreSQL, so it never counts;
 - one frozen head: only the final head SHA is reviewed; a later push makes
   it a new head;
 - the touched module's PostgreSQL tests run with their names listed and no
