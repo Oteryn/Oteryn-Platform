@@ -46,9 +46,18 @@ every changed symbol outside the diff, and checks SKILL.md §3, including:
   additive, no edit to a merged one); tests that pass without testing.
 
 There are no per-lens runs. Split only when the diff is above about 1500
-changed lines: chunks of about 400-500 lines by file group (one crate or
-module per chunk), each chunk run with the whole diff as read-only context,
-plus the one holistic whole-diff run in the same round. Chunk runs alone are
+hand-written changed lines (generated data, pins and lockfiles do not
+count). Split by area (one crate or module group per run, e.g. identity and
+sessions, wallet/store/bazaar, the `/internal/v1` wire and gateway,
+migrations, templates and shared files), not by a fixed line count. Each
+chunk prompt names its own files as the focus, carries the whole diff as
+read-only context, tells the run to open callers outside the chunk and
+includes the SKILL.md §4 rubric. The same round also has one astra high
+whole-diff integration run that checks the seams (callers against changed
+signatures, migration order against the code that reads the columns,
+router registrations, files shared by the units). Every run of the round
+starts on ONE frozen head in one burst of at most 10 tasks; a writer loop
+on the branch pauses until the merged packet is ready. Chunk runs alone are
 not a covered review. The second review (delta) is one holistic run over the
 fix commits and the code they touch.
 
@@ -68,7 +77,7 @@ bazaar or payments; migrations; authorization (the same list as `oteryn-platform
 | --- | --- |
 | Code PR up to about 1500 lines, no risk class | `gpt-6.2-sol` high, one holistic run |
 | Code, contract or fixture change in a risk class | sol high + `gpt-6.2-astra` high on the same head, same prompt |
-| Code diff above about 1500 lines (code lines only; a docs-only diff of any size uses the docs row) | sol high per chunk plus the holistic sol run + one astra high whole-diff integration run |
+| Code diff above about 1500 lines (code lines only; a docs-only diff of any size uses the docs row) | sol high per area + one astra high whole-diff integration run (seams) |
 | Docs, rules, skills, workflows or agent definitions | sol high + astra high (calibration: astra found real P1s on a rules PR that sol missed) |
 | Delta review (second round) | sol high over the fix commits and the code they touch; + astra high on the new head whenever the PR is in a risk class (§4) |
 | CI-failure fix | sol high with the failing log lines in the prompt |
@@ -119,8 +128,8 @@ Every review prompt contains:
 
 ## 3. Merge, verify, sweep
 
-1. Merge the run outputs (the sol run, the chunk runs for a diff above about
-   1500 lines, and the astra runs the §1 table needs). Remove duplicates by `path:line` and defect class.
+1. Merge the run outputs (the sol run or, above about 1500 lines, the sol
+   area runs, and the astra runs the §1 table needs). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
    - For a finding that is hard to call, the coordinator traces it to the
@@ -187,8 +196,8 @@ context, never as a continuation of the run that wrote it.
 
 ## 5. When to stop
 
-The diff is done when the covered review of the current head (the sol run,
-its chunk runs when the diff needed them, plus the astra runs the §1 table needs)
+The diff is done when the covered review of the current head (the sol run
+or its area runs, plus the astra runs the §1 table needs)
 finds no P0/P1 that verified REAL, and no finding that breaks a repository
 rule (SKILL.md §4: weakened test, hand-edited fixture, edited merged
 migration) is still open. A P0/P1 marked `OUT OF SCOPE` is not fixed here:
@@ -229,7 +238,7 @@ state machine for `crates/bazaar`:
 A packet that delegates a review or a fix points to this file and states:
 
 - the base and head SHA, the model and effort of each run (sol high; astra
-  high where the §1 run table needs it) and, for diffs above about 1500 lines, the chunks;
+  high where the §1 run table needs it) and, for diffs above about 1500 lines, the area runs;
 - "report every finding, no cap; sweep each class across the diff";
 - the failing CI log lines, when there are any;
 - "do not edit code in the review run; fixes go through one batch fix run

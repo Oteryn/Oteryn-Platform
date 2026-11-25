@@ -141,7 +141,7 @@ with the diff and step 3 as the checklist.
   effort `high`; a PR in a risk class, one changing docs, rules,
   skills, workflows or agent definitions, or a code diff above about 1500
   lines also gets one `gpt-6.2-astra` run at `high` on the same head, whose P0/P1 count only after a traced REAL
-  verdict (run table: `references/batch-review.md` §1). Never at `medium`; no lens runs; chunks only above about 1500
+  verdict (run table: `references/batch-review.md` §1). Never at `medium`; no lens runs; runs split by area only above about 1500
   lines. Each P0/P1 cites `path:line` for input, caller and wrong result and
   is self-refuted before output; an unsettled one is `P2 (uncertain)`.
   Launched, polled and read from the session's own chat, with model and

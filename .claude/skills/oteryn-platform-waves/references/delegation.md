@@ -68,7 +68,7 @@ A packet that delegates a review, or the fix of review findings, follows
 and 7, and item 2 checks `HEAD` against the frozen PR head (a delta: the
 new head, with the previous reviewed head as base), not against `main`:
 - base and head SHA, the model and effort of each run (sol high, plus astra
-  high where the batch-review §1 run table needs it) and, above about 1500 lines, the chunks;
+  high where the batch-review §1 run table needs it) and, above about 1500 lines, the area runs;
 - every finding, with no cap, and a sweep of each class across the diff;
 - the failing CI log lines;
 - no code edits in the review run.
