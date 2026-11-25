@@ -24,10 +24,12 @@ Aligned with the Oteryn-Game `oteryn-review` skill
 Before a round starts, the head passes the gate of SKILL.md §0; a head that
 fails it is not reviewed.
 
-## 1. One round = one holistic run over the same head
+## 1. One round = the runs of the §1 table over the same head
 
-A round is one pass over one exact head SHA. By default the round is ONE
-read-only Codex Cloud run over the whole diff (owner decision 2026-11-25).
+A round is one pass over one exact head SHA. Up to about 1500 hand-written
+code lines its sol part is ONE holistic read-only Codex Cloud run over the
+whole diff; above that, the sol area runs replace the holistic run (owner
+decision 2026-11-25).
 The run reads the whole diff as one unit, opens the callers and consumers of
 every changed symbol outside the diff, and checks SKILL.md §3, including:
 
@@ -46,11 +48,21 @@ every changed symbol outside the diff, and checks SKILL.md §3, including:
   additive, no edit to a merged one); tests that pass without testing.
 
 There are no per-lens runs. Split only when the diff is above about 1500
-changed lines: chunks of about 400-500 lines by file group (one crate or
-module per chunk), each chunk run with the whole diff as read-only context,
-plus the one holistic whole-diff run in the same round. Chunk runs alone are
-not a covered review. The second review (delta) is one holistic run over the
-fix commits and the code they touch.
+hand-written changed lines (generated data, pins and lockfiles do not
+count). Split by area (one crate or module group per run, e.g. identity and
+sessions, wallet/store/bazaar, the `/internal/v1` wire and gateway,
+migrations, templates and shared files), not by a fixed line count. Each
+chunk prompt names its own files as the focus, carries the whole diff as
+read-only context, tells the run to open callers outside the chunk and
+includes the SKILL.md §4 rubric. The same round also has one astra high
+whole-diff integration run that checks the seams (callers against changed
+signatures, migration order against the code that reads the columns,
+router registrations, files shared by the units). Every run of the round
+starts on ONE frozen head in one burst of at most 10 tasks; a writer loop
+on the branch pauses until the merged packet is ready. Chunk runs alone are
+not a covered review. The second review (delta) is one holistic sol run over
+the fix commits and the code they touch, or sol area runs when the fix diff
+itself exceeds about 1500 code lines (§4).
 
 **Model and effort.** Every review run is a Codex Cloud task, read-only, at
 reasoning effort `high`, with the runs chosen from the table below; the runs
@@ -68,12 +80,17 @@ bazaar or payments; migrations; authorization (the same list as `oteryn-platform
 | --- | --- |
 | Code PR up to about 1500 lines, no risk class | `gpt-6.2-sol` high, one holistic run |
 | Code, contract or fixture change in a risk class | sol high + `gpt-6.2-astra` high on the same head, same prompt |
-| Code diff above about 1500 lines (code lines only; a docs-only diff of any size uses the docs row) | sol high per chunk plus the holistic sol run + one astra high whole-diff integration run |
+| Code diff above about 1500 lines (code lines only; a docs-only diff of any size uses the docs row) | sol high per area + one astra high whole-diff integration run (seams) |
 | Docs, rules, skills, workflows or agent definitions | sol high + astra high (calibration: astra found real P1s on a rules PR that sol missed) |
-| Delta review (second round) | sol high over the fix commits and the code they touch; + astra high on the new head whenever the PR is in a risk class (§4) |
+| Delta review (second round) | sol high over the fix commits and the code they touch (area runs if the fix diff exceeds about 1500 code lines); + astra high on the new head whenever the PR's rows need astra (§4) |
 | CI-failure fix | sol high with the failing log lines in the prompt |
 
-When rows overlap, run the union of their runs. Never astra alone and never
+When rows overlap, run the union of their runs. For a code diff above about
+1500 lines the large-diff row replaces the holistic sol run of the other
+rows, and its astra whole-diff integration run is also the astra run a risk
+class or a docs, rules, skills, workflows or agent-definition change needs
+(it gets that checklist, and those changed files, as well as the seams).
+Related areas are grouped so the round stays within one burst of 10 tasks. Never astra alone and never
 effort `medium`. An astra P0/P1 counts only after the review
 owner traced it (input, caller, wrong result) to a REAL verdict (§3); one
 disproved is recorded FALSE and closed, one that cannot be traced either way
@@ -119,8 +136,9 @@ Every review prompt contains:
 
 ## 3. Merge, verify, sweep
 
-1. Merge the run outputs (the sol run, the chunk runs for a diff above about
-   1500 lines, and the astra runs the §1 table needs). Remove duplicates by `path:line` and defect class.
+1. Merge the run outputs: every run the §1 table chose for this head (the
+   holistic sol run, or the sol area runs for a code diff above about 1500
+   lines, and the astra runs). Remove duplicates by `path:line` and defect class.
 2. Give every finding a verdict (SKILL.md §6). Verify each P0/P1 against the code (SKILL.md §6): trace a real caller or
    input to the failure.
    - For a finding that is hard to call, the coordinator traces it to the
@@ -144,7 +162,9 @@ Every review prompt contains:
 
 1. Write all confirmed in-scope P0/P1 findings and repository-rule breaks,
    sweep instances included, to one file, numbered, one per line as
-   `N. P0|P1|P2|P3 path:line - problem - failure path`. `OUT OF SCOPE`
+   `N. P0|P1|P2|P3 path:line - problem - failure path`, plus confirmed P2/P3
+   findings cheap enough to fix in the same push (AGENTS.md *Review
+   guidelines*). `OUT OF SCOPE`
    findings never enter it; they go to the owning task or lead.
    Hand that file to one code-writing run at reasoning effort `high` for a
    fix in a risk class, `medium` otherwise. Never
@@ -177,25 +197,30 @@ Every review prompt contains:
    (`oteryn-platform-dev`, step 5).
 3. Push once. One CI cycle covers the whole batch.
 4. The second review round covers only the fix diff (the delta): the §1
-   table applied to the new head, i.e. one holistic sol run at high over the
-   fix commits and the code they touch, plus the astra run on the new head
-   whenever the PR's rows need astra (a risk class, or docs, rules, skills,
-   workflows or agent definitions); §1 needs both models on the same head.
+   table applied to the fix diff and the new head, i.e. one holistic sol run
+   at high over the fix commits and the code they touch (sol area runs if
+   the fix diff itself exceeds about 1500 code lines), plus the astra run on the new head
+   whenever the PR's rows need astra (a risk class; docs, rules, skills,
+   workflows or agent definitions; or a fix diff above about 1500 code
+   lines); §1 needs both models on the same head. The delta prompt also asks
+   for any P0 or repository-rule break seen in the code the fix touches,
+   even if it was there in round one.
 
 Code written by Codex or a subagent is reviewed by a new run with a clean
 context, never as a continuation of the run that wrote it.
 
 ## 5. When to stop
 
-The diff is done when the covered review of the current head (the sol run,
-its chunk runs when the diff needed them, plus the astra runs the §1 table needs)
+The diff is done when the covered review of the current head (the sol run
+or its area runs, plus the astra runs the §1 table needs)
 finds no P0/P1 that verified REAL, and no finding that breaks a repository
 rule (SKILL.md §4: weakened test, hand-edited fixture, edited merged
 migration) is still open. A P0/P1 marked `OUT OF SCOPE` is not fixed here:
 it goes to the owning task or lead, and this PR waits until that fix lands.
 
-If the second round still finds a P0/P1, the design of the change is wrong:
-stop and report to the owner. Never start a third round.
+If the second round still finds a P0/P1, or a repository-rule break at any
+grade, the design of the change is wrong: stop and report to the owner.
+Never start a third round.
 
 ### Redesign instead of another patch
 
@@ -229,11 +254,13 @@ state machine for `crates/bazaar`:
 A packet that delegates a review or a fix points to this file and states:
 
 - the base and head SHA, the model and effort of each run (sol high; astra
-  high where the §1 run table needs it) and, for diffs above about 1500 lines, the chunks;
+  high where the §1 run table needs it) and, for a code diff above about 1500
+  code lines, the area runs;
 - "report every finding, no cap; sweep each class across the diff";
 - the failing CI log lines, when there are any;
 - "do not edit code in the review run; fixes go through one batch fix run
   after verification".
 
-The report back is the merged, verified list with the sweep instances, not
-the raw run output. A packet's report line limit does not apply to it.
+A review packet reports back the merged, verified list with the sweep
+instances, not the raw run output; a fix packet reports one numbered status
+per finding (§4 step 1). A packet's report line limit does not apply to it.

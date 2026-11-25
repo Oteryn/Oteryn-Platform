@@ -58,8 +58,8 @@ SKILL.md §3 as the checklist).
 | Boundary | contract (browser and server, Platform and Game) | the Platform code, the contract in `docs/contracts/` and its fixtures; Game code is not read | each field and outcome where the code and the contract disagree |
 
 A writer, step or field missing from a returned table means "not reviewed",
-not clean. Chunk runs (`batch-review.md` §1, about 400-500 lines of one
-crate) cover only the files no cut reached, and the files a cut flagged.
+not clean. Chunk runs (about 400-500 lines of one crate, sized for this loop; not
+the PR area split of `batch-review.md` §1) cover only the files no cut reached, and the files a cut flagged.
 
 ## 3. Findings ledger and synthesis
 

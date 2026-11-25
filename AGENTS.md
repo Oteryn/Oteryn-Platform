@@ -75,6 +75,18 @@ Before readiness, inspect the complete changed-file list and diff, then run the 
 
 Use Conventional Commit style: `<type>(optional-scope): <summary>`.
 
+## Review guidelines
+
+These rules bind automated pull-request reviewers (Codex, Claude review, including a native `@codex review`) and the authors who answer them. Severity: the rubric in `.claude/skills/oteryn-platform-review/SKILL.md` §4. Which runs a round has: `.claude/skills/oteryn-platform-review/references/batch-review.md` §1.
+
+- **One complete pass.** Report every finding on the reviewed head in one review; hold nothing back for a later round.
+- **Re-review covers the delta.** A review of a head that only answers earlier findings reviews the commits since the last reviewed head and raises no new finding on unchanged code unless it is a P0 or a repository-rule break.
+- **P0 and P1 need a concrete path.** Name the input or state, the caller that reaches it and the wrong result, each with its `path:line`, and try to refute the finding before reporting it; one that cannot be settled is P2 `(uncertain)`. Without the `path:line` of a real caller it is at most P2.
+- **P2 and lower never block.** They are fixed in the same push when cheap, otherwise they go to the backlog; a P2 never starts a push or a review round on its own. A repository-rule break (weakened test, hand-edited fixture, edited merged migration) blocks at any grade.
+- **No repeat findings.** A finding answered on its thread (fixed, or declined with the traced reason) is not raised again unless the code it names changed.
+- **Whole class in round one.** A finding names its defect class and lists every instance in the diff; a later round does not report a sibling the first round could have seen, except a P0 or a repository-rule break.
+- **At most two reviews per PR.** Reviews run at effort high (never medium, never astra alone), launched by the coordinator from its own chat (a native `@codex review` grades by these rules but is not one of the counted runs); a P0/P1 still found in the second round goes to the owner, never to a third round.
+
 ## Jira programme coordination
 
 Oteryn programme coordination is mirrored in Jira project `KAN` at `https://oteryn.atlassian.net`; `KAN-23` is the programme overview. Owner decision 2026-09-29 (`Oteryn/Oteryn-Game` `docs/agents/JIRA_PROGRAMME_COORDINATION.md`): only the programme coordinator writes to Jira, in one daily batch. Workers do not load the Jira connector; they record material state transitions in their task record and the governing Issue, and the coordinator's sync mirrors them. The rules below bind the coordinator's Jira use.
