@@ -12,6 +12,10 @@ no Merge Queue, so two units that collide are found only on `main` (`oteryn-plat
 
 ## 1. Choose and slice
 
+- WIP limit: finish and merge open work before starting a new task or
+  wave. A new unit starts only when the previous one is merged, rejected or
+  explicitly parked.
+
 - Take the work from plan §10 (`docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`):
   only tasks whose *Zależy od* (depends on) tasks are merged, and whose
   Game-side prerequisites in plan §6 are in place or not needed.

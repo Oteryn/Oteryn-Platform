@@ -26,7 +26,18 @@ head, that head has:
   `docs/contracts/fixtures/`. Where the session has no PostgreSQL, say so
   and leave it to CI as not run;
 - one frozen head: only the final head SHA is reviewed; a later push makes
-  it a new head.
+  it a new head;
+- the touched module's PostgreSQL tests run with their names listed and no
+  `SKIPPED`, proving they reached their assertions;
+- a sweep (`rg`) of every changed literal, version and count across tests,
+  fixtures, contracts and docs, all updated in the same commit;
+- after any merge of `main`: a rebuild and the full tests of each changed
+  crate on the merged head;
+- the author's self-review against §3, at high effort, and for risk
+  classes the reviewed design note and consumer map.
+
+Effort: self-review and Codex review run at high; P0/P1 fixes in the risk
+classes (`oteryn-platform-coding`, *Before code*) run at high.
 
 A head that fails the gate goes back to its author, not to review.
 
@@ -154,7 +165,9 @@ One packet for all confirmed findings of a round, never one per finding
 When a round finds more P0/P1 than the one before, the same P0/P1 class
 comes back in the same module or flow, or a P0/P1 is a regression or a
 second site of an earlier fix: stop patching and propose a redesign to the
-owner, a rule the code can check. It lands as its own PR with its own
+owner, a rule the code can check. Every recurring P0/P1 class becomes a CI
+guard test (a test that fails on any new instance of the class), landed
+with or before the fix. It lands as its own PR with its own
 review. Details and the example are in `references/batch-review.md` §5.
 
 ## 9. Per-PR review and the owner's review loop

@@ -24,6 +24,21 @@ the code itself. The Laravel app was removed; nothing is ported from it
   and the contract, state it in one line in the PR or report, and carry on.
   Stop only for a choice that cannot be undone.
 
+## Before code: consumer map, and a design for risk classes
+
+- Map the consumers first: for each changed symbol, value, route or column,
+  its callers with `file:line` (`rg` on the base), the invariants it
+  touches, the scenario variants (success, refusal, flag off, empty,
+  replay, concurrent) and the tests asserting each changed value. Reads
+  outside the allowed paths are fine; writes are not.
+- Risk classes (identity, sessions or MFA; game tickets or admission grants; the `/internal/v1` wire with Oteryn-Game; wallet, store, bazaar or payments; migrations; authorization): write a half-page design (data
+  flow, invariants, failure and replay handling, the proving tests) and get
+  it reviewed before code. Work in these classes runs at high effort;
+  other work at medium.
+- Changes to the Game wire: Platform is subsystem S9. The consumer map of
+  a `/internal/v1` or contract change goes to the Game S2 owner (the Server
+  session) through the coordinator for review before code.
+
 ## Every task has a check that goes red, then green
 
 Before production code, write or name the check that proves the task:
@@ -111,6 +126,14 @@ The workspace lints (`portal-rs/Cargo.toml`) forbid `unsafe` and deny
   deadline; drive timers with `tokio::time::pause` / `start_paused`.
 - Fixtures under `docs/contracts/fixtures/` are read, never rewritten to
   match the code. Assertions stay as strict as before.
+- Expected values come from the data, a golden file or the constant under
+  test, not a hard-coded count or version, so a data change cannot leave a
+  stale test behind.
+- Before push: run the touched module's own PostgreSQL tests and confirm
+  they reached their assertions (named, no `SKIPPED`); `rg` each changed
+  literal, version and count across tests, fixtures, contracts and docs
+  and update them all in the same commit; after any merge of `main`,
+  rebuild and run the full tests of every changed crate.
 
 ## Sources
 
