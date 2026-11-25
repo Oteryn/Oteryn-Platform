@@ -114,12 +114,16 @@ stay `PROPOSED` until an exact-head independent review). The coordinator
 starts it, once per frozen head, after the local checks pass, read-only,
 with the diff and step 3 as the checklist.
 
-- **Batch review.** One review is one round of parallel lens runs over the
-  same head. Each run is told to report every finding, with no cap on lines
-  or count, and every other instance of the same class in the diff. A PR
-  that lands several changes together, or a chunked diff, also gets the two
-  holistic whole-diff runs (`whole-integration`, `whole-flows`).
-- **Read `references/batch-review.md` first.** It covers the lenses, holistic runs, chunking
+- **Batch review.** One review is ONE holistic read-only Codex Cloud run
+  over the whole diff and the callers outside it, model `gpt-6.2-sol` at
+  effort `high`; a PR in a risk class also gets one `gpt-6.2-astra` run at
+  `high` on the same head, whose P0/P1 count only after a traced REAL
+  verdict. Never at `medium`; no lens runs; chunks only above about 1500
+  lines. Each P0/P1 cites `path:line` for input, caller and wrong result and
+  is self-refuted before output; an unsettled one is `P2 (uncertain)`.
+  Launched, polled and read from the session's own chat, with model and
+  effort set explicitly; never through the PC.
+- **Read `references/batch-review.md` first.** It covers the holistic run, chunking
   of big diffs, the prompt, the merge, verify and sweep steps, the single
   batch fix and the stop rule. Read it before you start a review or delegate
   one.
