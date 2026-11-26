@@ -83,7 +83,7 @@ version = "5.7"
 
 
 [dependencies.base64]
-version = "0.22"
+version = "0.23"
 [dependencies.time]
 version = "0.3"
 features = ["formatting"]

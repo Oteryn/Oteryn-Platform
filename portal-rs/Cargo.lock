@@ -2647,7 +2647,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "fluent-bundle",
  "jsonschema",
@@ -2712,7 +2712,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "fluent-bundle",
  "hyper",
@@ -2887,7 +2887,7 @@ dependencies = [
  "aes-gcm",
  "askama",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "fluent-bundle",
  "getrandom 0.4.3",
@@ -2969,7 +2969,7 @@ dependencies = [
  "argon2",
  "askama",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chacha20poly1305",
  "ed25519-dalek",
  "email_address",
@@ -3033,7 +3033,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "fluent-bundle",
  "getrandom 0.4.3",
@@ -3165,7 +3165,7 @@ version = "0.1.0"
 dependencies = [
  "askama",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "ed25519-dalek",
  "fluent-bundle",
  "futures-util",
