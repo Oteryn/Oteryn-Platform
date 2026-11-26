@@ -32,7 +32,7 @@ oteryn-downloads = { path = "../../crates/downloads" }
 oteryn-admin = { path = "../../crates/admin" }
 oteryn-payments = { path = "../../crates/payments" }
 oteryn-wallet.workspace = true
-oteryn-store = { path = "../../crates/store" }
+oteryn-store = { path = "../../crates/store", features = ["testing-seed"] }
 serde_urlencoded = "0.7"
 oteryn-hirelings.workspace = true
 oteryn-minigames.workspace = true
@@ -69,12 +69,15 @@ path = "../../crates/bazaar"
 workspace = true
 [dev-dependencies]
 oteryn-db = { version = "0.1.0", path = "../../crates/db", features = ["test-support"] }
+oteryn-store = { path = "../../crates/store", features = ["test-support"] }
 futures-util = "0.3"
 prost = "0.14"
 tower = { version = "0.5.3", features = ["util"] }
 rcgen = { version = "0.13", default-features = false, features = ["ring", "pem"] }
 tempfile = "3"
 ed25519-dalek = "2.2.0"
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1.1", features = ["fs"] }
 [dependencies.totp-rs]
 version = "5.7"
 

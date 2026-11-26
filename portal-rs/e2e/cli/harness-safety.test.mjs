@@ -60,6 +60,34 @@ test('the harness drops its database when the migration executable cannot start'
   }
 });
 
+test('--game-commerce refuses to start outside OTERYN_ENV=testing', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-game-commerce-'));
+  const harness = fileURLToPath(new URL('../harness.mjs', import.meta.url));
+  try {
+    for (const environment of ['preprod', 'local', 'production']) {
+      const result = spawnSync(process.execPath, [harness, '--game-commerce'], {
+        env: {
+          ...process.env,
+          OTERYN_ENV: environment,
+          PORTAL_E2E_ADMIN_DATABASE_URL: 'postgresql://fixture@127.0.0.1:9/oteryn_test',
+          PORTAL_E2E_BINARY: path.join(directory, 'missing-binary'),
+          PORTAL_E2E_OUT: path.join(directory, 'run'),
+          PORTAL_E2E_KEEP_DATABASE: '0',
+        },
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      assert.ok(!result.error, 'Harness terminates within the process deadline');
+      assert.equal(result.status, 2, `${environment}: ${result.stderr}`);
+      assert.equal(result.stdout, '');
+      assert.match(result.stderr, /--game-commerce runs only with OTERYN_ENV=testing/);
+      assert.doesNotMatch(result.stderr, /^\[harness\] database /m);
+    }
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('SIGTERM cancels a stopped migration and drops the disposable database', { timeout: 900_000 }, async t => {
   const adminURL = localPostgresUrl(process.env.PORTAL_E2E_ADMIN_DATABASE_URL);
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'portal-cli-cancel-'));

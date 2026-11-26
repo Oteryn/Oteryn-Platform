@@ -9,6 +9,13 @@ rust-version.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Testing-only Premium seed (`premium::repository::TestingSeed`); enabled only by
+# the `oteryn-portal` binary, whose `seed` role runs it under `OTERYN_ENV=testing`.
+testing-seed = []
+# Tests may assume testing authority without reading `OTERYN_ENV`.
+test-support = ["testing-seed"]
+
 [dependencies]
 oteryn-ui.workspace = true
 oteryn-internal-api.workspace = true

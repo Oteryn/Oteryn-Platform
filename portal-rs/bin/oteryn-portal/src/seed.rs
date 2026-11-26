@@ -17,6 +17,7 @@
 //! | `channel` | `game_channels` (no route, login disabled) | the channel's current record |
 //! | `route` | `game_channels` route record (gateway contract §7.3, mode 34a) | `worldId`, `channelId`, `host`, `port`, `tlsServerName`, `version`, `routeRevision`, `nativeLoginEnabled` |
 //! | `signing-custody` | encrypted key custody files + `native_game_signing_trust_*` + retained witness | `issuer`, `profile`, `purpose`, `keyId`, `publicKey`, the file paths and the issuer's `env` |
+//! | `store-catalog`, `coin-credit`, `loyalty` | store catalogue, wallet ledger, Premium ledger (see `seed_commerce.rs`) | the stored record |
 //!
 //! `account-mfa` needs the portal's `OTERYN_MFA_KEY`. The secret exists only at
 //! enrolment, so a second run for an enrolled account is a conflict.
@@ -105,6 +106,8 @@ pub struct Settings {
     pub key_purpose: Option<String>,
     /// The portal's MFA cipher (`OTERYN_MFA_KEY`); its Debug output is redacted.
     pub mfa: Option<Mfa>,
+    /// `OTERYN_ENV=testing`, read by the store; the commerce seeds refuse without it.
+    pub testing_seed: Option<oteryn_store::premium::repository::TestingSeed>,
 }
 
 /// Entry point for `oteryn-portal seed`; prints exactly one JSON object.
@@ -158,6 +161,7 @@ async fn run_in(environment: Option<&str>, args: &[String]) -> Result<Value, See
         witness_directory: std::env::var_os(WITNESS_DIRECTORY).map(PathBuf::from),
         key_purpose: std::env::var(admission::KEY_PURPOSE).ok(),
         mfa: Mfa::configured(pool.clone()).ok(),
+        testing_seed: oteryn_store::premium::repository::TestingSeed::from_env(),
     };
     let result = execute(&pool, &settings, entity, &input).await;
     pool.close().await;
@@ -182,6 +186,9 @@ pub async fn execute(
         "account-mfa" => account_mfa(settings, &args).await,
         "channel" => channel(pool, &args).await,
         "route" => route(pool, &args).await,
+        "store-catalog" => commerce::store_catalog(pool, settings, &args).await,
+        "coin-credit" => commerce::coin_credit(pool, settings, &args).await,
+        "loyalty" => commerce::loyalty(pool, settings, &args).await,
         "native-evidence" => Err(SeedError::NotApplicable(
             "evidence is observed live; the first observation bootstraps the retained witness",
         )),
@@ -265,6 +272,9 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
         return Err(bad("locale must be en or pl"));
     }
     let requested = args.uuid("accountId", true)?;
+    if requested == Some(commerce::SEED_ACTOR) {
+        return Err(bad("accountId is reserved for the commerce seed actor"));
+    }
     let mut tx = pool.begin().await?;
     let existing =
         sqlx::query("SELECT id, password_hash FROM accounts WHERE lower(email)=$1 FOR UPDATE")
@@ -273,6 +283,11 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
             .await?;
     let id: Uuid = if let Some(row) = existing {
         let id: Uuid = row.try_get("id")?;
+        if id == commerce::SEED_ACTOR {
+            return Err(SeedError::Conflict(
+                "email belongs to the commerce seed actor id".into(),
+            ));
+        }
         if requested.is_some_and(|wanted| wanted != id) {
             return Err(SeedError::Conflict(
                 "email belongs to another accountId".into(),
@@ -1056,6 +1071,9 @@ async fn bootstrap_intent(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedE
         "intentSha256": issued.intent_sha256,
     }))
 }
+
+#[path = "seed_commerce.rs"]
+mod commerce;
 
 #[cfg(test)]
 #[path = "seed_tests.rs"]
