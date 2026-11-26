@@ -336,8 +336,8 @@ async fn token(
         })
     };
     let Ok(Form(input)) = form else {
-        // A malformed request still counts for its source.
-        if let (true, Some(source)) = (state.challenge.usable(), source())
+        // A malformed request still counts for its source, usable or not.
+        if let (true, Some(source)) = (state.challenge.enabled, source())
             && challenge::charge_source(&state.pool, &state.challenge, source)
                 .await
                 .is_err()
@@ -356,9 +356,16 @@ async fn token(
             Err(e) => refused(&state, None, e).await,
         };
     }
-    let (Some(source), true) = (source(), state.challenge.usable()) else {
+    let Some(source) = source() else {
         return refused(&state, None, Error::Unavailable).await;
     };
+    if !state.challenge.usable() {
+        // Enabled but unusable: the attempt still counts for its source, so
+        // a replica with a broken policy keeps the evidence the others act on;
+        // the answer is 503 whether or not the charge lands.
+        let _ = challenge::charge_source(&state.pool, &state.challenge, source).await;
+        return refused(&state, None, Error::Unavailable).await;
+    }
     match challenge::exchange(&state.pool, &state.config, &state.challenge, &input, source).await {
         Ok(Outcome::Tokens(tokens)) => no_store(Json(tokens).into_response()),
         Ok(Outcome::Challenge { id, expires_in }) => challenge_required(id, expires_in),

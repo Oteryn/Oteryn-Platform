@@ -1672,3 +1672,35 @@ impl TokenRequest {
         }
     }
 }
+
+/// An enabled replica whose policy is unusable still charges every token
+/// request to its source before it refuses; a disabled policy is never usable.
+#[tokio::test]
+async fn postgres_unusable_policy_still_charges_the_source() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let disabled = ChallengeConfig {
+        enabled: false,
+        ..policy()
+    };
+    assert!(!disabled.usable());
+    let keyless = ChallengeConfig {
+        enabled: true,
+        ..ChallengeConfig::default()
+    };
+    assert!(keyless.enabled && !keyless.usable());
+    let (account, _) = db.account().await?;
+    let tokens = token_app(&db, keyless, source(9));
+    let (status, _, _) = post_token(&tokens, "grant_type=authorization_code&x=1".into()).await?;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _, _) = post_token(&tokens, form(&code(&db, account).await?)).await?;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    let counts: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT kind, sum(hits)::bigint FROM native_login_challenge_counters GROUP BY kind ORDER BY kind",
+    )
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(counts, vec![("source_attempt".to_owned(), 2)]);
+    db.close().await
+}

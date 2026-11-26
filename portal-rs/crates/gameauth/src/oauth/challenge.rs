@@ -112,10 +112,13 @@ impl ChallengeConfig {
             }
         }
     }
-    /// Enabled with a sane policy and at least one signing key.
+    /// Enabled with a sane policy and at least one signing key; `usable`
+    /// implies `enabled`, never the reverse. An enabled but unusable policy
+    /// still counts (`record_sign_in`, the token route) and refuses.
     pub(crate) fn usable(&self) -> bool {
         let window = 1..=86_400;
-        !self.broken
+        self.enabled
+            && !self.broken
             && !self.keys.is_empty()
             && self.identity_failures >= 1
             && self.source_attempts >= 1
