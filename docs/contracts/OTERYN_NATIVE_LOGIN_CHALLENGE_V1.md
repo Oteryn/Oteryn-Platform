@@ -42,13 +42,17 @@ replicas (PostgreSQL) and must not enable account enumeration.
   every attempt counts for the source, a refused one also for the identity
   (whether or not the email has an account). Second-factor refusals are not
   counted. Every `/oauth/token` request on the challenge path counts for its
-  source before any other check, malformed ones included.
-- Counting: ten sub-buckets per window; every sub-bucket that overlaps the
-  window counts, so a window over-counts by at most one sub-bucket and never
-  drops a hit inside it. Retention runs beside every counter write and in the
-  worker job `cleanup.native-login-challenge`, which stays registered with the
-  flag off; a challenge is never removed while its authorization code is
-  unexpired.
+  source before any other check, malformed ones and ones with a missing or
+  unknown grant type included; refresh requests keep their own path.
+- Counting: buckets of a fixed 10 seconds, whatever the policy, so every
+  replica (one with a changed or out-of-range window included) writes the
+  buckets the others read; every bucket that overlaps the window counts, so a
+  window over-counts by at most one bucket and never drops a hit inside it.
+  Retention runs beside every counter write and in the worker job
+  `cleanup.native-login-challenge`, which stays registered with the flag off
+  and uses the configured windows and retention whenever their numbers are in
+  range, with or without a signing key; a challenge is never removed while its
+  authorization code is unexpired.
 - Outer limit: with the flag on, `/oauth/token` and `/oauth/challenge` share
   the `oauth-challenge-source` budget (40 per minute per source) instead of
   `identity-login-source` (20), so a source-triggered challenge stays
@@ -56,7 +60,10 @@ replicas (PostgreSQL) and must not enable account enumeration.
 - Browser check: the page locks account, browser session, code and challenge
   in the token route's order, revalidates the session and the code (unused,
   unrevoked, unexpired, current credentials, current policy) and shows the
-  same code on every view until a wrong answer replaces it. Return URIs need
+  same code on every view until a wrong answer replaces it. A view writes
+  nothing: the code is set when the challenge is issued, and the first
+  CSRF-checked answer binds the return URI and state. The completing write
+  checks the browser session again. Return URIs need
   an explicit nonzero port. Challenge expiry is a whole second, so the signed
   `exp` is the exact redemption end.
 - Schema: `portal-rs/migrations/20261125230000_native_login_challenge.sql`.

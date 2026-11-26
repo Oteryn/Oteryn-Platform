@@ -257,8 +257,10 @@ const RETURN: &str = "http://127.0.0.1:50123/callback";
 const RETURN_STATE: &str = "Zm9yLXRoZS1uYXRpdmUtbG9naW4tY2hhbGxlbmdlLXRlc3Q";
 
 /// OTERYN_NATIVE_LOGIN_CHALLENGE_V1 through the full `oteryn_web::router`: a
-/// source-triggered challenge stays completable under the shared limiter, and
-/// a failing outer audit does not replace the committed 403.
+/// source-triggered challenge stays completable under the shared limiter, a
+/// failing outer audit does not replace the committed 403, a signed-out
+/// browser returns to the exact challenge after sign-in, and the token and
+/// challenge routes share one 40-a-minute budget.
 #[test]
 fn postgres_web_native_challenge_completes_through_the_router() -> Result {
     if std::env::var_os(CHALLENGE_CHILD).is_some() {
@@ -385,24 +387,51 @@ async fn challenge_flow(db: &Database) -> Result {
     sqlx::query("DROP TRIGGER refuse_http_audit ON oauth_security_events")
         .execute(&db.pool)
         .await?;
-    // The browser check and the retry pass the shared limiter.
+    // The browser check and the retry pass the shared limiter. The browser
+    // starts signed out and is sent to sign in.
     let query = serde_urlencoded::to_string([
         ("client_id", "native-test"),
         ("challenge_id", challenge.as_str()),
         ("redirect_uri", RETURN),
         ("state", RETURN_STATE),
     ])?;
+    let target = format!("/oauth/challenge?{query}");
     let r = app
         .clone()
         .oneshot(
-            Request::get(format!("/oauth/challenge?{query}"))
-                .header(header::COOKIE, &cookie)
+            Request::get(&target)
+                .header(header::ACCEPT_LANGUAGE, "en")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(r.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        r.headers().get(header::LOCATION).ok_or("login")?,
+        "/en/login"
+    );
+    // The anonymous session keeps exactly this path and query for the login
+    // to return to (`login_http_tests`: the login side of the same target).
+    let guest = set_cookie(&r)?;
+    let stored: Option<String> = sqlx::query_scalar(
+        "SELECT data->>'oauth_return' FROM web_sessions WHERE account_id IS NULL",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(stored.as_deref(), Some(target.as_str()));
+    assert!(guest.starts_with("__Host-oteryn_session="));
+    let signed_in = cookie;
+    let r = app
+        .clone()
+        .oneshot(
+            Request::get(&target)
+                .header(header::COOKIE, &signed_in)
                 .header(header::ACCEPT_LANGUAGE, "en")
                 .body(Body::empty())?,
         )
         .await?;
     assert_eq!(r.status(), StatusCode::OK);
     let html = String::from_utf8(to_bytes(r.into_body(), 65536).await?.to_vec())?;
+    let csrf = CSRF;
     let answer: String = html
         .split("aria-describedby=\"challenge-alternative\">")
         .nth(1)
@@ -415,10 +444,10 @@ async fn challenge_flow(db: &Database) -> Result {
         .clone()
         .oneshot(
             Request::post("/oauth/challenge")
-                .header(header::COOKIE, &cookie)
+                .header(header::COOKIE, &signed_in)
                 .header(header::ACCEPT_LANGUAGE, "en")
                 .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .body(Body::from(format!("{query}&_csrf={CSRF}&answer={answer}")))?,
+                .body(Body::from(format!("{query}&_csrf={csrf}&answer={answer}")))?,
         )
         .await?;
     assert_eq!(r.status(), StatusCode::FOUND);
@@ -435,5 +464,54 @@ async fn challenge_flow(db: &Database) -> Result {
     );
     let r = app.clone().oneshot(token_post(retry)?).await?;
     assert_eq!(r.status(), StatusCode::OK);
-    Ok(())
+    // One budget for both routes: from a fresh window, token and challenge
+    // requests alternate, forty pass and the forty-first and -second (one of
+    // each) are refused. The limiter's window is wall-clock; a run that
+    // straddles a rollover is repeated once.
+    for round in 0..2 {
+        sqlx::query("DELETE FROM web_rate_limits WHERE limiter_name='oauth-challenge-source'")
+            .execute(&db.pool)
+            .await?;
+        let mut statuses = Vec::new();
+        for n in 0..42 {
+            let request = if n % 2 == 0 {
+                token_post(exchange.replace("native-test", "unknown"))?
+            } else {
+                Request::get(&target)
+                    .header(header::COOKIE, &signed_in)
+                    .header(header::ACCEPT_LANGUAGE, "en")
+                    .body(Body::empty())?
+            };
+            statuses.push(app.clone().oneshot(request).await?.status());
+        }
+        let windows: i64 = sqlx::query_scalar(
+            "SELECT count(DISTINCT window_start) FROM web_rate_limits WHERE limiter_name='oauth-challenge-source'",
+        )
+        .fetch_one(&db.pool)
+        .await?;
+        if windows == 1 {
+            assert!(
+                statuses[..40]
+                    .iter()
+                    .all(|s| *s != StatusCode::TOO_MANY_REQUESTS),
+                "{statuses:?}"
+            );
+            assert_eq!(statuses[40..], [StatusCode::TOO_MANY_REQUESTS; 2]);
+            return Ok(());
+        }
+        assert_eq!(round, 0, "the limiter window rolled over twice");
+    }
+    Err("the shared budget was never checked".into())
+}
+
+fn set_cookie(response: &axum::response::Response) -> Result<String> {
+    Ok(response
+        .headers()
+        .get(header::SET_COOKIE)
+        .ok_or("missing cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("empty cookie")?
+        .to_owned())
 }

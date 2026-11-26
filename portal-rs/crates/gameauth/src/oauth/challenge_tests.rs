@@ -1007,26 +1007,16 @@ async fn postgres_challenge_page_validates_binding_identity_and_csrf() -> TestRe
         let (status, _) = get_page(&mine, &attempt_query(&id, RETURN, state)).await?;
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }
-    // A POST before the page was shown is refused, and binds nothing.
+    // A view binds nothing: until an answer is posted, another port or
+    // state may still open the page.
     let query = attempt_query(&id, RETURN, STATE);
-    let r = post_page(
-        &mine,
-        format!("{query}&_csrf={}&answer=123456", "a".repeat(64)),
-    )
-    .await?;
-    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
-    // The first view binds return URI and state; another port or state is refused.
     let (status, html) = get_page(&mine, &query).await?;
     assert_eq!(status, StatusCode::OK);
-    for (redirect, state) in [
-        ("http://127.0.0.1:50124/callback", STATE),
-        (RETURN, "another-state-of-enough-length"),
-    ] {
-        let (status, _) = get_page(&mine, &attempt_query(&id, redirect, state)).await?;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-    }
     let answer = shown_code(&html);
-    // CSRF, duplicate and unknown fields are refused without spending attempts.
+    let unbound = "SELECT count(*) FROM native_login_challenges WHERE id=$1 AND return_uri IS NULL AND answer_attempts=0";
+    let challenge = Uuid::parse_str(&id)?;
+    // CSRF, duplicate and unknown fields are refused without binding or
+    // spending attempts.
     for body in [
         format!("{query}&answer={answer}"),
         format!("{query}&_csrf=wrong&answer={answer}"),
@@ -1039,15 +1029,10 @@ async fn postgres_challenge_page_validates_binding_identity_and_csrf() -> TestRe
         let r = post_page(&mine, body).await?;
         assert_eq!(r.status(), StatusCode::BAD_REQUEST);
     }
-    let attempts = db
-        .scalar(
-            "SELECT answer_attempts::bigint FROM native_login_challenges WHERE id=$1",
-            Uuid::parse_str(&id)?,
-        )
-        .await?;
-    assert_eq!(attempts, 0);
+    assert_eq!(db.scalar(unbound, challenge).await?, 1);
     // Attempts are capped: the fifth wrong answer ends the challenge. Each
-    // wrong answer differs from the code shown just before it.
+    // wrong answer differs from the code shown just before it. The first one
+    // binds return URI and state; another port or state is refused after it.
     let mut shown = answer;
     for n in 1..=5 {
         let wrong = wrong_answer(&shown);
@@ -1066,6 +1051,22 @@ async fn postgres_challenge_page_validates_binding_identity_and_csrf() -> TestRe
             shown = shown_code(&String::from_utf8(
                 to_bytes(r.into_body(), 65536).await?.to_vec(),
             )?);
+        }
+        if n == 1 {
+            for (redirect, state) in [
+                ("http://127.0.0.1:50124/callback", STATE),
+                (RETURN, "another-state-of-enough-length"),
+            ] {
+                let other = attempt_query(&id, redirect, state);
+                let (status, _) = get_page(&mine, &other).await?;
+                assert_eq!(status, StatusCode::BAD_REQUEST);
+                let r = post_page(
+                    &mine,
+                    format!("{other}&_csrf={}&answer={shown}", "a".repeat(64)),
+                )
+                .await?;
+                assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+            }
         }
     }
     let (status, _) = get_page(&mine, &query).await?;
@@ -1182,7 +1183,9 @@ async fn postgres_cleanup_keeps_the_binding_while_the_code_lives() -> TestResult
     };
     assert!(config.usable());
     let (account, email) = db.account().await?;
-    let (input, id) = challenged(&db, &config, account, &email).await?;
+    // Issued under the default windows, so no hit ages out before it is
+    // counted; the short policy only drives the sweep.
+    let (input, id) = challenged(&db, &policy(), account, &email).await?;
     // The challenge is long expired, the code is not, the counters cooled.
     sqlx::query("UPDATE native_login_challenges SET expires_at=clock_timestamp()-interval '1 minute' WHERE id=$1")
         .bind(id).execute(&db.pool).await?;
@@ -1216,7 +1219,7 @@ async fn postgres_cleanup_keeps_the_binding_while_the_code_lives() -> TestResult
 }
 
 /// A failure still inside the 10-minute window is counted even when its
-/// sub-bucket started before the window did.
+/// bucket started before the window did.
 #[tokio::test]
 async fn postgres_identity_window_counts_every_overlapping_bucket() -> TestResult {
     let Some(db) = Database::open().await? else {
@@ -1227,18 +1230,23 @@ async fn postgres_identity_window_counts_every_overlapping_bucket() -> TestResul
     for _ in 0..5 {
         record_failure(&db.pool, &config, &email, source(9)).await?;
     }
-    // The bucket now starts more than 600 s ago but less than 600 s + one
-    // sub-bucket ago: some of its failures are younger than the window.
-    sqlx::query("UPDATE native_login_challenge_counters SET bucket_start=bucket_start-interval '600 seconds' WHERE kind='identity_failure'")
-        .execute(&db.pool).await?;
+    // The failures, in one bucket set from the database clock whatever bucket
+    // they were written in.
+    let age = |seconds: f64| {
+        sqlx::query("WITH gone AS (DELETE FROM native_login_challenge_counters WHERE kind='identity_failure' RETURNING key_hash, hits) INSERT INTO native_login_challenge_counters(kind,key_hash,bucket_start,hits) SELECT 'identity_failure', key_hash, statement_timestamp()-make_interval(secs=>$1), sum(hits)::integer FROM gone GROUP BY key_hash")
+            .bind(seconds)
+            .execute(&db.pool)
+    };
+    // The bucket starts more than 600 s ago but less than 600 s + one bucket
+    // (10 s) ago: some of its failures are younger than the window.
+    age(601.0).await?;
     let input = code(&db, account).await?;
     assert!(matches!(
         super::challenge::exchange(&db.pool, &oauth(), &config, &input, source(1)).await?,
         Outcome::Challenge { .. }
     ));
     // A bucket that ended before the window began is not counted.
-    sqlx::query("UPDATE native_login_challenge_counters SET bucket_start=bucket_start-interval '60 seconds' WHERE kind='identity_failure'")
-        .execute(&db.pool).await?;
+    age(615.0).await?;
     let input = code(&db, account).await?;
     assert!(matches!(
         super::challenge::exchange(&db.pool, &oauth(), &config, &input, source(1)).await?,
@@ -1326,14 +1334,6 @@ async fn postgres_browser_refuses_revoked_code_and_old_policy() -> TestResult {
     let config = policy();
     let (account, email) = db.account().await?;
     let browser = browser_app(&db, Some(account), config.clone()).await?;
-    let (input, id) = challenged(&db, &config, account, &email).await?;
-    sqlx::query("UPDATE oauth_authorization_codes SET revoked_at=now() WHERE code_hash=$1")
-        .bind(hash(&input.code))
-        .execute(&db.pool)
-        .await?;
-    let (status, _) = get_page(&browser, &attempt_query(&id.to_string(), RETURN, STATE)).await?;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (_, id) = challenged(&db, &config, account, &email).await?;
     let newer = browser_app(
         &db,
         Some(account),
@@ -1343,8 +1343,51 @@ async fn postgres_browser_refuses_revoked_code_and_old_policy() -> TestResult {
         },
     )
     .await?;
-    let (status, _) = get_page(&newer, &attempt_query(&id.to_string(), RETURN, STATE)).await?;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for revoke in [true, false] {
+        let (input, id) = challenged(&db, &config, account, &email).await?;
+        // Shown and bound (a wrong answer binds and shows a new code) while
+        // the code and policy were current.
+        let query = attempt_query(&id.to_string(), RETURN, STATE);
+        let (status, html) = get_page(&browser, &query).await?;
+        assert_eq!(status, StatusCode::OK);
+        let r = post_page(
+            &browser,
+            format!(
+                "{query}&_csrf={}&answer={}",
+                "a".repeat(64),
+                wrong_answer(&shown_code(&html))
+            ),
+        )
+        .await?;
+        assert_eq!(r.status(), StatusCode::OK);
+        let answer = shown_code(&String::from_utf8(
+            to_bytes(r.into_body(), 65536).await?.to_vec(),
+        )?);
+        let app = if revoke {
+            sqlx::query("UPDATE oauth_authorization_codes SET revoked_at=now() WHERE code_hash=$1")
+                .bind(hash(&input.code))
+                .execute(&db.pool)
+                .await?;
+            &browser
+        } else {
+            &newer
+        };
+        let (status, _) = get_page(app, &query).await?;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let r = post_page(
+            app,
+            format!("{query}&_csrf={}&answer={answer}", "a".repeat(64)),
+        )
+        .await?;
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST, "revoked {revoke}");
+        let completed: bool = sqlx::query_scalar(
+            "SELECT completed_at IS NOT NULL FROM native_login_challenges WHERE id=$1",
+        )
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+        assert!(!completed);
+    }
     db.close().await
 }
 
@@ -1654,6 +1697,227 @@ async fn postgres_failed_issuance_rolls_back_proof_and_code() -> TestResult {
         super::challenge::exchange(&db.pool, &oauth(), &config, &retry, source(1)).await?,
         Outcome::Tokens(_)
     ));
+    db.close().await
+}
+
+// ---------- review round 2 ----------
+
+/// A parseable request with a missing, empty or unknown grant type counts
+/// for its source before it is refused; a refresh request keeps its path.
+#[tokio::test]
+async fn postgres_unknown_grant_types_count_for_the_source() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let config = policy();
+    let (account, _) = db.account().await?;
+    let tokens = token_app(&db, config.clone(), source(11));
+    let input = code(&db, account).await?;
+    let (status, _, _) = post_token(
+        &tokens,
+        "grant_type=refresh_token&client_id=native-test&refresh_token=unknown".into(),
+    )
+    .await?;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let refused = [
+        form(&input).replace("grant_type=authorization_code&", ""),
+        form(&TokenRequest {
+            grant_type: String::new(),
+            ..input.clone_request()
+        }),
+        form(&TokenRequest {
+            grant_type: "password".into(),
+            ..input.clone_request()
+        }),
+    ];
+    for n in 0..config.source_attempts - 1 {
+        let body = &refused[n as usize % refused.len()];
+        let (status, response, _) = post_token(&tokens, body.clone()).await?;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "{}",
+            String::from_utf8_lossy(&response)
+        );
+    }
+    let counted: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(hits),0)::bigint FROM native_login_challenge_counters WHERE kind='source_attempt'",
+    )
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(counted, i64::from(config.source_attempts - 1));
+    let (status, body, _) = post_token(&tokens, form(&input)).await?;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "{}",
+        String::from_utf8_lossy(&body)
+    );
+    db.close().await
+}
+
+/// The worker keeps the configured windows and retention when only the
+/// signing key is missing.
+#[tokio::test]
+async fn postgres_retention_job_keeps_configured_windows_without_a_key() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let keyless = ChallengeConfig::from_values(
+        Ok(r#"{"enabled":true,"identity_window_seconds":86400,"retention_seconds":604800}"#.into()),
+        Err(std::env::VarError::NotPresent),
+    );
+    assert!(keyless.enabled && !keyless.usable());
+    // One bucket began just before the 24-hour window and still overlaps it;
+    // the other is past the seven-day retention.
+    sqlx::query("INSERT INTO native_login_challenge_counters(kind,key_hash,bucket_start,hits) VALUES('identity_failure',$1,statement_timestamp()-interval '86405 seconds',5),('identity_failure',$1,statement_timestamp()-interval '8 days',5)")
+        .bind(hash("window"))
+        .execute(&db.pool)
+        .await?;
+    Retention {
+        pool: db.pool.clone(),
+    }
+    .prune_with(keyless)
+    .await?;
+    let kept: Vec<bool> = sqlx::query_scalar(
+        "SELECT bucket_start>statement_timestamp()-interval '2 days' FROM native_login_challenge_counters ORDER BY bucket_start",
+    )
+    .fetch_all(&db.pool)
+    .await?;
+    assert_eq!(kept, [true]);
+    db.close().await
+}
+
+/// Every replica writes the same buckets whatever its window: one with an
+/// out-of-range window, or a window changed since the hits were written.
+#[tokio::test]
+async fn postgres_counter_buckets_do_not_depend_on_the_window() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let config = policy();
+    let broken = ChallengeConfig {
+        identity_window_seconds: u32::MAX,
+        source_window_seconds: u32::MAX,
+        ..policy()
+    };
+    assert!(broken.enabled && !broken.usable());
+    let (account, email) = db.account().await?;
+    for _ in 0..config.identity_failures {
+        record_failure(&db.pool, &broken, &email, source(12)).await?;
+    }
+    let input = code(&db, account).await?;
+    assert!(matches!(
+        super::challenge::exchange(&db.pool, &oauth(), &config, &input, source(1)).await?,
+        Outcome::Challenge { .. }
+    ));
+    let (other, other_email) = db.account().await?;
+    for _ in 0..config.identity_failures {
+        record_failure(&db.pool, &config, &other_email, source(13)).await?;
+    }
+    let shorter = ChallengeConfig {
+        identity_window_seconds: 60,
+        ..policy()
+    };
+    let input = code(&db, other).await?;
+    assert!(matches!(
+        super::challenge::exchange(&db.pool, &oauth(), &shorter, &input, source(2)).await?,
+        Outcome::Challenge { .. }
+    ));
+    db.close().await
+}
+
+/// A browser session that ends while the answer is being checked cannot
+/// complete the challenge: the completing write itself needs a live session.
+#[tokio::test]
+async fn postgres_completion_needs_a_live_session_when_written() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let config = policy();
+    let (account, email) = db.account().await?;
+    let (_, id) = challenged(&db, &config, account, &email).await?;
+    let (browser, session_hash) = browser_session(&db, Some(account), config.clone()).await?;
+    let query = attempt_query(&id.to_string(), RETURN, STATE);
+    let (status, html) = get_page(&browser, &query).await?;
+    assert_eq!(status, StatusCode::OK);
+    // Every write to the challenge row outlasts the session's remaining life.
+    let function = format!("slow_challenge_{}", Uuid::now_v7().simple());
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE FUNCTION {function}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN PERFORM pg_sleep(3); RETURN NULL; END $$")))
+        .execute(&db.pool).await?;
+    sqlx::query(sqlx::AssertSqlSafe(format!("CREATE TRIGGER {function} BEFORE UPDATE ON native_login_challenges FOR EACH STATEMENT EXECUTE FUNCTION {function}()")))
+        .execute(&db.pool).await?;
+    sqlx::query("UPDATE web_sessions SET absolute_expires_at=clock_timestamp()+interval '2 seconds' WHERE id_hash=$1")
+        .bind(&session_hash)
+        .execute(&db.pool)
+        .await?;
+    let r = post_page(
+        &browser,
+        format!(
+            "{query}&_csrf={}&answer={}",
+            "a".repeat(64),
+            shown_code(&html)
+        ),
+    )
+    .await?;
+    assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+    let completed: bool = sqlx::query_scalar(
+        "SELECT completed_at IS NOT NULL FROM native_login_challenges WHERE id=$1",
+    )
+    .bind(id)
+    .fetch_one(&db.pool)
+    .await?;
+    assert!(!completed);
+    db.close().await
+}
+
+/// Opening the page writes nothing; the first CSRF-checked answer binds the
+/// browser attempt.
+#[tokio::test]
+async fn postgres_viewing_the_challenge_writes_nothing() -> TestResult {
+    let Some(db) = Database::open().await? else {
+        return Ok(());
+    };
+    let config = policy();
+    let (account, email) = db.account().await?;
+    let (_, id) = challenged(&db, &config, account, &email).await?;
+    let browser = browser_app(&db, Some(account), config.clone()).await?;
+    let snapshot = "SELECT row_to_json(n)::text FROM native_login_challenges n WHERE id=$1";
+    let events = "SELECT count(*) FROM oauth_security_events";
+    let before: String = sqlx::query_scalar(snapshot)
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    let events_before: i64 = sqlx::query_scalar(events).fetch_one(&db.pool).await?;
+    let query = attempt_query(&id.to_string(), RETURN, STATE);
+    let other = attempt_query(&id.to_string(), "http://127.0.0.1:50124/callback", STATE);
+    let (status, html) = get_page(&browser, &query).await?;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = get_page(&browser, &other).await?;
+    assert_eq!(status, StatusCode::OK);
+    let after: String = sqlx::query_scalar(snapshot)
+        .bind(id)
+        .fetch_one(&db.pool)
+        .await?;
+    let events_after: i64 = sqlx::query_scalar(events).fetch_one(&db.pool).await?;
+    assert_eq!(before, after);
+    assert_eq!(events_before, events_after);
+    let r = post_page(
+        &browser,
+        format!(
+            "{query}&_csrf={}&answer={}",
+            "a".repeat(64),
+            shown_code(&html)
+        ),
+    )
+    .await?;
+    assert_eq!(r.status(), StatusCode::FOUND);
+    let bound: Option<String> =
+        sqlx::query_scalar("SELECT return_uri FROM native_login_challenges WHERE id=$1")
+            .bind(id)
+            .fetch_one(&db.pool)
+            .await?;
+    assert_eq!(bound.as_deref(), Some(RETURN));
     db.close().await
 }
 

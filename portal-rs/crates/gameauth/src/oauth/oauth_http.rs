@@ -351,6 +351,18 @@ async fn token(
         if !state.challenge.enabled && input.has_challenge_fields() {
             return refused(&state, None, Error::InvalidRequest).await;
         }
+        // A missing or unknown grant type is refused below, but with the flag
+        // on it counts for its source first, as a malformed form does. The
+        // refresh grant keeps its own path.
+        if state.challenge.enabled
+            && input.grant_type != "refresh_token"
+            && let Some(source) = source()
+            && challenge::charge_source(&state.pool, &state.challenge, source)
+                .await
+                .is_err()
+        {
+            return refused(&state, None, Error::Unavailable).await;
+        }
         return match exchange(&state.pool, &state.config, &input).await {
             Ok(tokens) => no_store(Json(tokens).into_response()),
             Err(e) => refused(&state, None, e).await,

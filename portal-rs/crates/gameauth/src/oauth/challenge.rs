@@ -116,20 +116,26 @@ impl ChallengeConfig {
     /// implies `enabled`, never the reverse. An enabled but unusable policy
     /// still counts (`record_sign_in`, the token route) and refuses.
     pub(crate) fn usable(&self) -> bool {
-        let window = 1..=86_400;
-        self.enabled
-            && !self.broken
-            && !self.keys.is_empty()
-            && self.identity_failures >= 1
+        self.enabled && !self.broken && !self.keys.is_empty() && self.policy_valid()
+    }
+    /// The numbers alone are in range, whatever the flag and the key ring.
+    fn policy_valid(&self) -> bool {
+        self.identity_failures >= 1
             && self.source_attempts >= 1
-            && window.contains(&self.identity_window_seconds)
+            && self.retention_valid()
+            && (1..=300).contains(&self.challenge_ttl_seconds)
+            && (1..=20).contains(&self.max_answer_attempts)
+            && (1..=i32::MAX as u32).contains(&self.policy_version)
+    }
+    /// The windows and the retention, the only numbers the retention job uses,
+    /// are in range.
+    fn retention_valid(&self) -> bool {
+        let window = 1..=86_400;
+        window.contains(&self.identity_window_seconds)
             && window.contains(&self.source_window_seconds)
             && self.retention_seconds
                 >= self.identity_window_seconds.max(self.source_window_seconds)
             && self.retention_seconds <= 30 * 86_400
-            && (1..=300).contains(&self.challenge_ttl_seconds)
-            && (1..=20).contains(&self.max_answer_attempts)
-            && (1..=i32::MAX as u32).contains(&self.policy_version)
     }
 }
 fn valid_kid(kid: &str) -> bool {
@@ -164,24 +170,19 @@ fn identity_key(email: &str) -> Vec<u8> {
 fn source_key(source: IpAddr) -> Vec<u8> {
     hash(&format!("native-login-source\0{source}"))
 }
-/// Windows are summed from ten sub-buckets, so a window slides in tenths.
-fn bucket_seconds(window: u32) -> i64 {
-    i64::from((window / 10).max(1))
-}
-/// How far back a window reaches: every sub-bucket that overlaps it counts,
-/// so a window may over-count by at most one sub-bucket but never forgets a
-/// hit inside it.
+/// Counters are kept in buckets of one fixed width, whatever the policy, so
+/// every replica writes the buckets the others read, even after a window
+/// changes or on a replica whose policy is out of range.
+const BUCKET_SECONDS: i64 = 10;
+/// How far back a window reaches: every bucket that overlaps it counts, so a
+/// window may over-count by at most one bucket but never forgets a hit inside
+/// it.
 fn reach_seconds(window: u32) -> f64 {
-    f64::from(window) + bucket_seconds(window) as f64
+    f64::from(window) + BUCKET_SECONDS as f64
 }
-async fn bump(
-    db: &mut sqlx::PgConnection,
-    kind: &str,
-    key: &[u8],
-    window: u32,
-) -> Result<(), Error> {
+async fn bump(db: &mut sqlx::PgConnection, kind: &str, key: &[u8]) -> Result<(), Error> {
     sqlx::query("INSERT INTO native_login_challenge_counters(kind,key_hash,bucket_start,hits) VALUES($1,$2,to_timestamp((floor(extract(epoch FROM clock_timestamp())/$3::bigint)*$3::bigint)::float8),1) ON CONFLICT(kind,key_hash,bucket_start) DO UPDATE SET hits=LEAST(native_login_challenge_counters.hits,2147483646)+1")
-        .bind(kind).bind(key).bind(bucket_seconds(window)).execute(db).await?;
+        .bind(kind).bind(key).bind(BUCKET_SECONDS).execute(db).await?;
     Ok(())
 }
 async fn count(
@@ -240,10 +241,14 @@ pub struct Retention {
 impl Retention {
     pub const BATCH: i64 = 1000;
     /// Deletes at most [`Self::BATCH`] rows of each table and returns how
-    /// many it removed. An unusable policy prunes on the default retention.
+    /// many it removed. The configured windows and retention apply whenever
+    /// they are in range, with or without a signing key; only out-of-range
+    /// windows or retention prune on the defaults.
     pub async fn prune(&self) -> Result<u64, Error> {
-        let config = ChallengeConfig::from_env();
-        let config = if config.usable() {
+        self.prune_with(ChallengeConfig::from_env()).await
+    }
+    pub(crate) async fn prune_with(&self, config: ChallengeConfig) -> Result<u64, Error> {
+        let config = if config.retention_valid() {
             config
         } else {
             ChallengeConfig::default()
@@ -288,21 +293,9 @@ pub(crate) async fn record(
 ) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
     if failed {
-        bump(
-            &mut tx,
-            IDENTITY,
-            &identity_key(email),
-            config.identity_window_seconds,
-        )
-        .await?;
+        bump(&mut tx, IDENTITY, &identity_key(email)).await?;
     }
-    bump(
-        &mut tx,
-        SOURCE,
-        &source_key(source),
-        config.source_window_seconds,
-    )
-    .await?;
+    bump(&mut tx, SOURCE, &source_key(source)).await?;
     prune(&mut tx, config).await?;
     tx.commit().await?;
     Ok(())
@@ -315,13 +308,7 @@ pub(crate) async fn charge_source(
     source: IpAddr,
 ) -> Result<(), Error> {
     let mut tx = pool.begin().await?;
-    bump(
-        &mut tx,
-        SOURCE,
-        &source_key(source),
-        config.source_window_seconds,
-    )
-    .await?;
+    bump(&mut tx, SOURCE, &source_key(source)).await?;
     prune(&mut tx, config).await?;
     tx.commit().await?;
     Ok(())
@@ -445,12 +432,14 @@ pub(crate) async fn exchange(
             let id = Uuid::now_v7();
             // Never later than the code itself; the code row is not touched.
             // A whole second, so the signed `exp` is the exact redemption end.
-            let remaining: i32 = sqlx::query_scalar("INSERT INTO native_login_challenges(id,code_hash,account_id,client_id,code_challenge,redirect_uri,credential_hash,policy_version,reason,expires_at) SELECT $1,c.code_hash,c.account_id,c.client_id,c.challenge,c.redirect_uri,c.credential_hash,$2,$3,date_trunc('second',LEAST(clock_timestamp()+make_interval(secs=>$4::float8),c.expires_at)) FROM oauth_authorization_codes c WHERE c.code_hash=$5 RETURNING ceil(extract(epoch FROM expires_at-clock_timestamp()))::integer")
+            // The code the page shows is set here, so viewing it writes nothing.
+            let remaining: i32 = sqlx::query_scalar("INSERT INTO native_login_challenges(id,code_hash,account_id,client_id,code_challenge,redirect_uri,credential_hash,policy_version,reason,expires_at,answer) SELECT $1,c.code_hash,c.account_id,c.client_id,c.challenge,c.redirect_uri,c.credential_hash,$2,$3,date_trunc('second',LEAST(clock_timestamp()+make_interval(secs=>$4::float8),c.expires_at)),$6 FROM oauth_authorization_codes c WHERE c.code_hash=$5 RETURNING ceil(extract(epoch FROM expires_at-clock_timestamp()))::integer")
                 .bind(id)
                 .bind(i32::try_from(config.policy_version).map_err(|_| Error::Unavailable)?)
                 .bind(reason)
                 .bind(f64::from(config.challenge_ttl_seconds))
                 .bind(&code_hash)
+                .bind(new_answer()?)
                 .fetch_one(&mut *tx)
                 .await?;
             if !(1..=300).contains(&remaining) {
@@ -689,8 +678,8 @@ async fn live(
         .await?
         .ok_or(Error::InvalidRequest)
 }
-/// The first browser attempt binds the return URI and state; later views
-/// must repeat them.
+/// The first answer posted binds the return URI and state (`Ok(true)`: not
+/// bound yet); every later view and answer must repeat them.
 fn bind_attempt(row: &sqlx::postgres::PgRow, attempt: &Attempt) -> Result<bool, Error> {
     let uri: Option<String> = row.try_get("return_uri")?;
     let state: Option<Vec<u8>> = row.try_get("return_state_hash")?;
@@ -704,8 +693,8 @@ fn bind_attempt(row: &sqlx::postgres::PgRow, attempt: &Attempt) -> Result<bool, 
         _ => Err(Error::InvalidRequest),
     }
 }
-/// The first view binds the attempt and sets the code; later views show the
-/// same code and write nothing, so a reload or second tab keeps it valid.
+/// A view writes nothing: it shows the current code, so a reload or second
+/// tab keeps it valid. Binding waits for the CSRF-checked answer.
 pub(crate) async fn show(
     pool: &PgPool,
     config: &ChallengeConfig,
@@ -716,26 +705,11 @@ pub(crate) async fn show(
 ) -> Result<Prompt, Error> {
     let mut tx = pool.begin().await?;
     let row = live(&mut tx, config, account, proof, id, attempt).await?;
-    let first = bind_attempt(&row, attempt)?;
-    if let Some(code) = row.try_get::<Option<String>, _>("answer")?
-        && !first
-    {
-        tx.commit().await?;
-        return Ok(Prompt { code });
-    }
-    let code = new_answer()?;
-    sqlx::query("UPDATE native_login_challenges SET answer=$2, return_uri=COALESCE(return_uri,$3), return_state_hash=COALESCE(return_state_hash,$4) WHERE id=$1")
-        .bind(id)
-        .bind(&code)
-        .bind(&attempt.redirect_uri)
-        .bind(hash(&attempt.state))
-        .execute(&mut *tx)
-        .await?;
-    if first {
-        event(&mut tx, Some(account), "native_challenge_presented").await?;
-    }
+    bind_attempt(&row, attempt)?;
+    let code: Option<String> = row.try_get("answer")?;
     tx.commit().await?;
-    Ok(Prompt { code })
+    code.map(|code| Prompt { code })
+        .ok_or(Error::InvalidRequest)
 }
 pub(crate) async fn complete(
     pool: &PgPool,
@@ -749,8 +723,16 @@ pub(crate) async fn complete(
     let mut tx = pool.begin().await?;
     let row = live(&mut tx, config, account, proof, id, attempt).await?;
     if bind_attempt(&row, attempt)? {
-        // A POST never binds: the page must have been shown for this attempt.
-        return Err(Error::InvalidRequest);
+        let bound = sqlx::query("UPDATE native_login_challenges SET return_uri=$2, return_state_hash=$3 WHERE id=$1 AND return_uri IS NULL")
+            .bind(id)
+            .bind(&attempt.redirect_uri)
+            .bind(hash(&attempt.state))
+            .execute(&mut *tx)
+            .await?;
+        if bound.rows_affected() != 1 {
+            return Err(Error::InvalidRequest);
+        }
+        event(&mut tx, Some(account), "native_challenge_bound").await?;
     }
     let expected: Option<String> = row.try_get("answer")?;
     let correct = answer.len() == ANSWER_DIGITS
@@ -774,13 +756,20 @@ pub(crate) async fn complete(
         };
     }
     let code_hash: Vec<u8> = row.try_get("code_hash")?;
-    let bound = Bound::read(&row, &code_hash)?;
+    let mut bound = Bound::read(&row, &code_hash)?;
+    // The row was read before this request may have bound it; the attempt is
+    // now the binding either way.
+    bound.return_uri = Some(attempt.redirect_uri.clone());
+    bound.return_state_hash = Some(hash(&attempt.state));
     let nonce = secret()?;
-    let proof = sign_proof(config, &bound, &nonce)?;
-    // Expiry is checked again at the write that completes the challenge.
-    let completed = sqlx::query("UPDATE native_login_challenges SET completed_at=clock_timestamp(), proof_nonce_hash=$2, answer=NULL WHERE id=$1 AND completed_at IS NULL AND expires_at>clock_timestamp()")
+    let signed = sign_proof(config, &bound, &nonce)?;
+    // Challenge expiry and the browser session are checked again at the write
+    // that completes the challenge: time moves on while the locks are held.
+    let completed = sqlx::query("UPDATE native_login_challenges SET completed_at=clock_timestamp(), proof_nonce_hash=$2, answer=NULL WHERE id=$1 AND completed_at IS NULL AND expires_at>clock_timestamp() AND EXISTS (SELECT 1 FROM web_sessions s JOIN accounts a ON a.id=s.account_id WHERE s.id_hash=$3 AND s.account_id=$4 AND (s.authorization_generation IS NULL OR s.authorization_generation=a.native_security_generation) AND s.idle_expires_at>clock_timestamp() AND s.absolute_expires_at>clock_timestamp())")
         .bind(id)
         .bind(hash(&nonce))
+        .bind(&proof.session_hash)
+        .bind(account)
         .execute(&mut *tx)
         .await?;
     if completed.rows_affected() != 1 {
@@ -791,7 +780,7 @@ pub(crate) async fn complete(
     let mut target = url::Url::parse(&attempt.redirect_uri).map_err(|_| Error::InvalidRequest)?;
     target
         .query_pairs_mut()
-        .append_pair("code", &proof)
+        .append_pair("code", &signed)
         .append_pair("state", &attempt.state);
     Ok(Completion::Redirect(target.into()))
 }
