@@ -202,7 +202,10 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
         |State(pool): State<PgPool>,
          request: axum::extract::Request,
          next: axum::middleware::Next| async move {
-            if matches!(request.uri().path(), "/oauth/authorize" | "/oauth/token") {
+            if matches!(
+                request.uri().path(),
+                "/oauth/authorize" | "/oauth/token" | "/oauth/challenge"
+            ) {
                 if !oteryn_gameauth::oauth::Config::from_env().enabled {
                     return StatusCode::NOT_FOUND.into_response();
                 }
@@ -223,11 +226,19 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                     Ok(v) => v,
                     Err(e) => return e.response(Language::Pl, true),
                 };
+                // OTERYN_NATIVE_LOGIN_CHALLENGE_V1 counts token attempts itself
+                // and challenges past 20 a minute; the hard cap on its token
+                // and challenge routes sits above that, so a challenged client
+                // can still complete the check and retry.
+                let policy = if request.uri().path() != "/oauth/authorize"
+                    && oteryn_gameauth::oauth::challenge::ChallengeConfig::from_env().enabled
+                {
+                    ratelimit::NamedPolicy::OAuthChallengeSource
+                } else {
+                    ratelimit::NamedPolicy::IdentityLoginSource
+                };
                 if let Err(e) = limiter
-                    .check(
-                        ratelimit::NamedPolicy::IdentityLoginSource,
-                        &[ratelimit::Keys::source(source)],
-                    )
+                    .check(policy, &[ratelimit::Keys::source(source)])
                     .await
                 {
                     if oteryn_gameauth::oauth::audit(&pool, None, "oauth_rate_refused")
@@ -239,8 +250,15 @@ pub fn router(state: AppState, static_dir: &str) -> Router {
                     return e.response(Language::Pl, true);
                 }
             }
+            // The token route's only 403 is the challenge envelope, audited in
+            // the transaction that issued it; an outer audit failure must not
+            // replace it with a 503.
+            let challenge_required = request.uri().path() == "/oauth/token";
             let response = next.run(request).await;
+            let challenge_required =
+                challenge_required && response.status() == StatusCode::FORBIDDEN;
             if (response.status().is_client_error() || response.status().is_server_error())
+                && !challenge_required
                 && oteryn_gameauth::oauth::audit(&pool, None, "oauth_http_refused")
                     .await
                     .is_err()

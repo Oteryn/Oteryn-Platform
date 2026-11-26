@@ -13,6 +13,7 @@ const recurring = [
   'cleanup.hunting-places',
   'cleanup.journal-payloads',
   'cleanup.mfa',
+  'cleanup.native-login-challenge',
   'cleanup.passkeys',
   'cleanup.rate-limits',
   'cleanup.sessions',

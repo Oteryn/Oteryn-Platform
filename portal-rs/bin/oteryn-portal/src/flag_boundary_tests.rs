@@ -194,6 +194,16 @@ mod flag_boundary {
             &[],
         ),
         (
+            "cleanup.native-login-challenge",
+            "expire native login challenge counters and challenges",
+            &[
+                "native_login_challenge_counters",
+                "native_login_challenges",
+            ],
+            &[],
+            &[],
+        ),
+        (
             "cleanup.passkeys",
             "expire authentication challenges",
             &["passkey_ceremonies"],
@@ -450,6 +460,11 @@ mod flag_boundary {
                         command.env("PRODUCTS_ENTITLEMENTS_STORE_DELIVERY_ENABLED", "false");
                     }
                     "enabled" => {}
+                    // A JSON policy: only an absent one is off ("false" is
+                    // malformed, so enabled and refusing).
+                    "PORTAL_NATIVE_LOGIN_CHALLENGE" => {
+                        command.env_remove("PORTAL_NATIVE_LOGIN_CHALLENGE");
+                    }
                     disabled => {
                         command.env(disabled, "false");
                     }
@@ -473,6 +488,8 @@ mod flag_boundary {
             // Restore notice and Store delivery are mutually exclusive at startup.
             ("PORTAL_GAME_RESTORE_NOTICE_ENABLED", "false"),
             ("PORTAL_OAUTH_CONFIG", r#"{"enabled":true,"clients":[{"client_id":"boundary","redirect_uris":["http://127.0.0.1/callback"]}]}"#),
+            ("PORTAL_NATIVE_LOGIN_CHALLENGE", r#"{"enabled":true}"#),
+            ("PORTAL_NATIVE_LOGIN_CHALLENGE_KEYS", "k1=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk"),
             ("PORTAL_ADMIN_CONTROL_AGENTS_JSON", r#"[{"cn":"oteryn-admin-agent/boundary","identity":{"san":"flag-boundary-agent"},"allowed_nodes":["019ad000-0000-7000-8000-000000000001"],"allowed_worlds":[]}]"#),
             ("OTERYN_ADMIN_ANALYTICS_AUTHORITY", "flag-boundary-analytics"),
             ("OTERYN_ADMIN_ANALYTICS_PRIVACY", "flag-boundary"),
@@ -1931,6 +1948,12 @@ mod flag_boundary {
         RoutePrerequisites {
             flags: &["OTERYN_STORE_CODES_ENABLED"],
             paths: &["/{lang}/admin/store/codes"],
+            registration_removed: true,
+            disabled_status: None,
+        },
+        RoutePrerequisites {
+            flags: &["PORTAL_NATIVE_LOGIN_CHALLENGE"],
+            paths: &["/oauth/challenge"],
             registration_removed: true,
             disabled_status: None,
         },

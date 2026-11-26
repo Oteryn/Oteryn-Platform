@@ -1,10 +1,16 @@
 //! Root OAuth endpoints and opaque, account-bound PKCE grants.
+pub mod challenge;
+#[cfg(test)]
+mod challenge_tests;
 #[cfg(test)]
 mod oauth_fixture_tests;
 mod oauth_http;
 #[cfg(test)]
 mod oauth_tests;
-pub use oauth_http::{Browser, BrowserProof, MfaSession, browser_routes, token_routes};
+pub use oauth_http::{
+    Browser, BrowserProof, MfaSession, browser_routes, browser_routes_with, token_routes,
+    token_routes_with,
+};
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
@@ -132,6 +138,16 @@ pub struct TokenRequest {
     pub code_verifier: String,
     pub refresh_token: String,
     pub scope: String,
+    /// OTERYN_NATIVE_LOGIN_CHALLENGE_V1 retry fields. Accepted only on the
+    /// HTTP token route while the challenge flag is on; elsewhere their
+    /// presence is refused exactly as an unknown field was before.
+    pub challenge_id: Option<String>,
+    pub challenge_token: Option<String>,
+}
+impl TokenRequest {
+    fn has_challenge_fields(&self) -> bool {
+        self.challenge_id.is_some() || self.challenge_token.is_some()
+    }
 }
 #[derive(Serialize)]
 pub struct Tokens {
@@ -366,24 +382,53 @@ async fn exchange_code(
     config: &Config,
     input: &TokenRequest,
 ) -> Result<Tokens, Error> {
-    if !opaque(&input.code)
-        || !verifier(&input.code_verifier)
-        || !input.refresh_token.is_empty()
-        || !input.scope.is_empty()
-        || !config.redirect(&input.client_id, &input.redirect_uri, registered_redirect)
-    {
+    if input.has_challenge_fields() || !code_shape(config, input) {
         return Err(Error::InvalidRequest);
     }
     let mut tx = pool.begin().await?;
+    let code = pending_code(&mut tx, config, input).await?;
+    // A code bound to a native login challenge is redeemable only with its proof.
+    let challenged: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM native_login_challenges WHERE code_hash=$1)",
+    )
+    .bind(hash(&input.code))
+    .fetch_one(&mut *tx)
+    .await?;
+    if challenged {
+        return Err(Error::InvalidGrant);
+    }
+    redeem_code(tx, input, code).await
+}
+/// A fully validated, locked and still unused authorization code.
+pub(crate) struct PendingCode {
+    pub(crate) account: Uuid,
+    pub(crate) stamp: Vec<u8>,
+    pub(crate) scope: &'static str,
+}
+/// The request-only checks of the authorization-code grant, before any I/O.
+fn code_shape(config: &Config, input: &TokenRequest) -> bool {
+    opaque(&input.code)
+        && verifier(&input.code_verifier)
+        && input.refresh_token.is_empty()
+        && input.scope.is_empty()
+        && config.redirect(&input.client_id, &input.redirect_uri, registered_redirect)
+}
+/// Every database check of the authorization-code grant, with the account and
+/// then the code row locked; nothing is written. Call after [`code_shape`].
+async fn pending_code(
+    tx: &mut Transaction<'_, Postgres>,
+    config: &Config,
+    input: &TokenRequest,
+) -> Result<PendingCode, Error> {
     let account: Uuid =
         sqlx::query_scalar("SELECT account_id FROM oauth_authorization_codes WHERE code_hash=$1")
             .bind(hash(&input.code))
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?
             .ok_or(Error::InvalidGrant)?;
-    let current = stamp(&mut tx, account).await?;
+    let current = stamp(tx, account).await?;
     let row = sqlx::query("SELECT *, expires_at>clock_timestamp() AND used_at IS NULL AND revoked_at IS NULL AS valid FROM oauth_authorization_codes WHERE code_hash=$1 FOR UPDATE")
-        .bind(hash(&input.code)).fetch_one(&mut *tx).await?;
+        .bind(hash(&input.code)).fetch_one(&mut **tx).await?;
     let bound_redirect: String = row.get("redirect_uri");
     if bound_redirect != input.redirect_uri
         && !config.redirect(&input.client_id, &input.redirect_uri, str::eq)
@@ -404,6 +449,23 @@ async fn exchange_code(
         return Err(Error::InvalidGrant);
     }
     let scope = known_scope(&row.get::<String, _>("scope")).ok_or(Error::InvalidGrant)?;
+    Ok(PendingCode {
+        account,
+        stamp: current,
+        scope,
+    })
+}
+/// Consumes the validated code, issues the token family and commits.
+async fn redeem_code(
+    mut tx: Transaction<'_, Postgres>,
+    input: &TokenRequest,
+    code: PendingCode,
+) -> Result<Tokens, Error> {
+    let PendingCode {
+        account,
+        stamp: current,
+        scope,
+    } = code;
     sqlx::query(
         "UPDATE oauth_authorization_codes SET used_at=now(),updated_at=now() WHERE code_hash=$1",
     )
@@ -424,7 +486,8 @@ async fn exchange_code(
     Ok(tokens)
 }
 async fn refresh(pool: &PgPool, input: &TokenRequest) -> Result<Tokens, Error> {
-    if !opaque(&input.refresh_token)
+    if input.has_challenge_fields()
+        || !opaque(&input.refresh_token)
         || !input.code.is_empty()
         || !input.code_verifier.is_empty()
         || !input.redirect_uri.is_empty()

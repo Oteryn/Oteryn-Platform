@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }} · Oteryn</title><link rel="stylesheet" href="/static/css/tokens.css"><link rel="stylesheet" href="/static/css/components.css"></head>
+<body class="op-theme"><a class="op-skip" href="#main">{{ skip }}</a><header class="op-card"><a href="/{{ lang }}/">Oteryn</a></header><main class="op-card op-stack" id="main" tabindex="-1">
+<h1>{{ title }}</h1>
+<p>{{ intro }}</p>
+{% if let Some(error) = error %}<p role="alert">{{ error }}</p>{% endif %}
+<p><span id="challenge-code-label">{{ code_label }}</span>: <strong aria-describedby="challenge-alternative">{{ code }}</strong></p>
+<p id="challenge-alternative">{{ alternative_label }}: {{ alternative }}</p>
+<form class="op-stack" method="post" action="/oauth/challenge">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="client_id" value="{{ attempt.client_id }}">
+<input type="hidden" name="challenge_id" value="{{ attempt.challenge_id }}">
+<input type="hidden" name="redirect_uri" value="{{ attempt.redirect_uri }}">
+<input type="hidden" name="state" value="{{ attempt.state }}">
+<label for="challenge-answer">{{ answer_label }}</label>
+<input id="challenge-answer" name="answer" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="16" required>
+<button class="op-button" type="submit">{{ submit }}</button>
+</form>
+</main></body></html>

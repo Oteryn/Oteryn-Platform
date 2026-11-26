@@ -100,20 +100,24 @@ pub async fn authenticate_authorized(
 /// Session key of the post-login return target. The OAuth authorize adapter stores
 /// the signed-out authorize request there; the coin checkout stores its own path.
 pub const RETURN_KEY: &str = "oauth_return";
-/// The authorize route, the only OAuth target a login returns to.
-const AUTHORIZE: &str = "/oauth/authorize?";
+/// The OAuth pages a login returns to: the authorize route and the native
+/// login challenge page (`OTERYN_NATIVE_LOGIN_CHALLENGE_V1`).
+const RETURNS: [&str; 2] = ["/oauth/authorize?", "/oauth/challenge?"];
 
 /// Whether a stored return target is a same-origin relative path to the native
-/// OAuth authorize route: exactly `/oauth/authorize?` and a non-empty query of
+/// OAuth authorize route or challenge page: exactly `/oauth/authorize?` or
+/// `/oauth/challenge?` and a non-empty query of
 /// printable ASCII, without a fragment, backslash or anything that could make a
 /// browser leave the origin. Everything else is refused (no open redirect).
 pub fn authorize_return(target: &str) -> bool {
     target.len() <= 8192
-        && target.strip_prefix(AUTHORIZE).is_some_and(|query| {
-            !query.is_empty()
-                && query
-                    .bytes()
-                    .all(|b| b.is_ascii_graphic() && b != b'#' && b != b'\\')
+        && RETURNS.iter().any(|route| {
+            target.strip_prefix(route).is_some_and(|query| {
+                !query.is_empty()
+                    && query
+                        .bytes()
+                        .all(|b| b.is_ascii_graphic() && b != b'#' && b != b'\\')
+            })
         })
 }
 
