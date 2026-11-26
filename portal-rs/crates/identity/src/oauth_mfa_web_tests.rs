@@ -251,3 +251,189 @@ impl Database {
         Ok(())
     }
 }
+
+const CHALLENGE_CHILD: &str = "PORTAL_NATIVE_CHALLENGE_WEB_CHILD";
+const RETURN: &str = "http://127.0.0.1:50123/callback";
+const RETURN_STATE: &str = "Zm9yLXRoZS1uYXRpdmUtbG9naW4tY2hhbGxlbmdlLXRlc3Q";
+
+/// OTERYN_NATIVE_LOGIN_CHALLENGE_V1 through the full `oteryn_web::router`: a
+/// source-triggered challenge stays completable under the shared limiter, and
+/// a failing outer audit does not replace the committed 403.
+#[test]
+fn postgres_web_native_challenge_completes_through_the_router() -> Result {
+    if std::env::var_os(CHALLENGE_CHILD).is_some() {
+        return Ok(());
+    }
+    if std::env::var_os("PORTAL_TEST_DATABASE_URL").is_none() {
+        eprintln!(
+            "SKIPPED native challenge web PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset"
+        );
+        return Ok(());
+    }
+    let config = serde_json::json!({"enabled": true, "clients": [{"client_id": "native-test", "redirect_uris": [REDIRECT]}]});
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "oauth_mfa_web_tests::challenge_router_flow",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHALLENGE_CHILD, "1")
+        .env("PORTAL_OAUTH_CONFIG", config.to_string())
+        .env("PORTAL_NATIVE_LOGIN_CHALLENGE", r#"{"enabled":true}"#)
+        .env(
+            "PORTAL_NATIVE_LOGIN_CHALLENGE_KEYS",
+            "k1=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+        )
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("SKIPPED"), "{stderr}");
+    Ok(())
+}
+
+/// Runs only inside the child process started above.
+#[tokio::test]
+async fn challenge_router_flow() -> Result {
+    if std::env::var_os(CHALLENGE_CHILD).is_none() {
+        return Ok(());
+    }
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(60), challenge_flow(&db)).await??;
+    db.close().await
+}
+
+fn query_value(location: &str, key: &str) -> Result<String> {
+    let query = location.split_once('?').ok_or("query")?.1;
+    let pairs: Vec<(String, String)> = serde_urlencoded::from_str(query)?;
+    Ok(pairs
+        .into_iter()
+        .find(|(k, _)| k == key)
+        .ok_or("missing query value")?
+        .1)
+}
+
+fn token_post(body: String) -> Result<Request<Body>> {
+    Ok(Request::post("/oauth/token")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body))?)
+}
+
+async fn challenge_flow(db: &Database) -> Result {
+    let id: AccountId = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('native@example.test',$1,'active','en',now()) RETURNING id")
+        .bind(crate::password::hash(PASSWORD)?).fetch_one(&db.pool).await?;
+    let cookie = db.session(id, None).await?;
+    let app = oteryn_web::router(
+        oteryn_web::AppState {
+            db: db.pool.clone(),
+        },
+        "static",
+    )
+    .layer(axum::Extension(axum::extract::ConnectInfo(
+        std::net::SocketAddr::from(([127, 0, 0, 1], 4321)),
+    )));
+    assert_eq!(
+        app.clone().oneshot(show(&cookie)?).await?.status(),
+        StatusCode::OK
+    );
+    let response = app.clone().oneshot(approve(&cookie)?).await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    let code = query_value(
+        response
+            .headers()
+            .get(header::LOCATION)
+            .ok_or("location")?
+            .to_str()?,
+        "code",
+    )?;
+    let exchange = serde_urlencoded::to_string([
+        ("grant_type", "authorization_code"),
+        ("client_id", "native-test"),
+        ("redirect_uri", REDIRECT),
+        (
+            "code_verifier",
+            "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+        ),
+        ("code", code.as_str()),
+    ])?;
+    // Nineteen refused token requests from the same source, then the real one:
+    // the twentieth attempt in the minute is challenged, not throttled.
+    for _ in 0..19 {
+        let r = app
+            .clone()
+            .oneshot(token_post(exchange.replace("native-test", "unknown"))?)
+            .await?;
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+    }
+    // The outer refusal audit fails from here on; the committed 403 still wins.
+    sqlx::query("CREATE FUNCTION refuse_http_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event='oauth_http_refused' THEN RAISE EXCEPTION 'audit unavailable'; END IF; RETURN NEW; END $$")
+        .execute(&db.pool).await?;
+    sqlx::query("CREATE TRIGGER refuse_http_audit BEFORE INSERT ON oauth_security_events FOR EACH ROW EXECUTE FUNCTION refuse_http_audit()")
+        .execute(&db.pool).await?;
+    let r = app.clone().oneshot(token_post(exchange.clone())?).await?;
+    assert_eq!(r.status(), StatusCode::FORBIDDEN);
+    let body: serde_json::Value = serde_json::from_slice(&to_bytes(r.into_body(), 4096).await?)?;
+    assert_eq!(body["error"], "oteryn_challenge_required");
+    let challenge = body["challenge_id"]
+        .as_str()
+        .ok_or("challenge_id")?
+        .to_owned();
+    sqlx::query("DROP TRIGGER refuse_http_audit ON oauth_security_events")
+        .execute(&db.pool)
+        .await?;
+    // The browser check and the retry pass the shared limiter.
+    let query = serde_urlencoded::to_string([
+        ("client_id", "native-test"),
+        ("challenge_id", challenge.as_str()),
+        ("redirect_uri", RETURN),
+        ("state", RETURN_STATE),
+    ])?;
+    let r = app
+        .clone()
+        .oneshot(
+            Request::get(format!("/oauth/challenge?{query}"))
+                .header(header::COOKIE, &cookie)
+                .header(header::ACCEPT_LANGUAGE, "en")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(r.status(), StatusCode::OK);
+    let html = String::from_utf8(to_bytes(r.into_body(), 65536).await?.to_vec())?;
+    let answer: String = html
+        .split("aria-describedby=\"challenge-alternative\">")
+        .nth(1)
+        .and_then(|v| v.split("</strong>").next())
+        .ok_or("code")?
+        .chars()
+        .filter(char::is_ascii_digit)
+        .collect();
+    let r = app
+        .clone()
+        .oneshot(
+            Request::post("/oauth/challenge")
+                .header(header::COOKIE, &cookie)
+                .header(header::ACCEPT_LANGUAGE, "en")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .body(Body::from(format!("{query}&_csrf={CSRF}&answer={answer}")))?,
+        )
+        .await?;
+    assert_eq!(r.status(), StatusCode::FOUND);
+    let proof = query_value(
+        r.headers().get(header::LOCATION).ok_or("back")?.to_str()?,
+        "code",
+    )?;
+    let retry = format!(
+        "{exchange}&{}",
+        serde_urlencoded::to_string([
+            ("challenge_id", challenge.as_str()),
+            ("challenge_token", proof.as_str()),
+        ])?
+    );
+    let r = app.clone().oneshot(token_post(retry)?).await?;
+    assert_eq!(r.status(), StatusCode::OK);
+    Ok(())
+}

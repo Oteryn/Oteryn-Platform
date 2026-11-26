@@ -566,6 +566,11 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
     assert_eq!(codes.name(), "store-code-redeem");
     assert_eq!(codes.limit(), 5);
     assert_eq!(codes.window_seconds(), 60);
+    // OTERYN_NATIVE_LOGIN_CHALLENGE_V1: a hard cap above the challenge threshold.
+    let challenge = NamedPolicy::OAuthChallengeSource;
+    assert_eq!(challenge.name(), "oauth-challenge-source");
+    assert_eq!(challenge.limit(), 40);
+    assert_eq!(challenge.window_seconds(), 60);
     for (policy, name, limit, period) in [
         (
             NamedPolicy::IdentityDataExport,
@@ -597,7 +602,7 @@ fn named_policies_match_the_existing_portal_limits() -> TestResult {
         assert_eq!(policy.window_seconds(), period);
         found += 1;
     }
-    assert_eq!(found + 1, NamedPolicy::ALL.len());
+    assert_eq!(found + 2, NamedPolicy::ALL.len());
     Ok(())
 }
 

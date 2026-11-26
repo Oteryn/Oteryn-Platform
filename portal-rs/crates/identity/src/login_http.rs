@@ -174,13 +174,14 @@ async fn submit(
     let account = login::authenticate_authorized(&pool, input)
         .await
         .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    // OTERYN_NATIVE_LOGIN_CHALLENGE_V1: every attempt counts for the source, a
+    // refusal also for the identity; a no-op while the flag is off.
+    oteryn_gameauth::oauth::challenge::record_sign_in(&pool, &email, source, account.is_none())
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
     if let Some(proof) = account {
         establish(&pool, language, &session, proof).await
     } else {
-        // OTERYN_NATIVE_LOGIN_CHALLENGE_V1 identity counter; a no-op while off.
-        oteryn_gameauth::oauth::challenge::record_sign_in_failure(&pool, &email, source)
-            .await
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         refuse(language, &session).await
     }
 }

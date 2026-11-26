@@ -194,6 +194,16 @@ mod flag_boundary {
             &[],
         ),
         (
+            "cleanup.native-login-challenge",
+            "expire native login challenge counters and challenges",
+            &[
+                "native_login_challenge_counters",
+                "native_login_challenges",
+            ],
+            &[],
+            &[],
+        ),
+        (
             "cleanup.passkeys",
             "expire authentication challenges",
             &["passkey_ceremonies"],

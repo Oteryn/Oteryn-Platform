@@ -327,7 +327,23 @@ async fn token(
     if !state.config.enabled {
         return response(Error::Disabled);
     }
+    let source = || {
+        peer.and_then(|Extension(axum::extract::ConnectInfo(peer))| {
+            oteryn_internal_api::proxy::TrustedProxies::configured()
+                .ok()?
+                .client_ip(peer, &headers)
+                .ok()
+        })
+    };
     let Ok(Form(input)) = form else {
+        // A malformed request still counts for its source.
+        if let (true, Some(source)) = (state.challenge.usable(), source())
+            && challenge::charge_source(&state.pool, &state.challenge, source)
+                .await
+                .is_err()
+        {
+            return refused(&state, None, Error::Unavailable).await;
+        }
         return refused(&state, None, Error::InvalidRequest).await;
     };
     if !state.challenge.enabled || input.grant_type != "authorization_code" {
@@ -340,13 +356,7 @@ async fn token(
             Err(e) => refused(&state, None, e).await,
         };
     }
-    let source = peer.and_then(|Extension(axum::extract::ConnectInfo(peer))| {
-        oteryn_internal_api::proxy::TrustedProxies::configured()
-            .ok()?
-            .client_ip(peer, &headers)
-            .ok()
-    });
-    let (Some(source), true) = (source, state.challenge.usable()) else {
+    let (Some(source), true) = (source(), state.challenge.usable()) else {
         return refused(&state, None, Error::Unavailable).await;
     };
     match challenge::exchange(&state.pool, &state.config, &state.challenge, &input, source).await {
@@ -509,6 +519,7 @@ fn challenge_off(state: &HttpState) -> bool {
 async fn show_challenge(
     State(state): State<HttpState>,
     Extension(browser): Extension<Browser>,
+    proof: Option<Extension<BrowserProof>>,
     query: Result<Query<Attempt>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     if challenge_off(&state) {
@@ -526,7 +537,10 @@ async fn show_challenge(
     let Some(account) = browser.account else {
         return sign_in(&browser.language);
     };
-    match challenge::show(&state.pool, &state.challenge, account, id, &attempt).await {
+    let Some(Extension(proof)) = proof else {
+        return refused(&state, Some(account), Error::InvalidRequest).await;
+    };
+    match challenge::show(&state.pool, &state.challenge, account, &proof, id, &attempt).await {
         Ok(prompt) => match challenge_page(&browser, attempt, &prompt.code, false) {
             Ok(page) => page,
             Err(e) => refused(&state, Some(account), e).await,
@@ -537,6 +551,7 @@ async fn show_challenge(
 async fn complete_challenge(
     State(state): State<HttpState>,
     Extension(browser): Extension<Browser>,
+    proof: Option<Extension<BrowserProof>>,
     form: Result<Form<Vec<(String, String)>>, axum::extract::rejection::FormRejection>,
 ) -> Response {
     if challenge_off(&state) {
@@ -568,11 +583,15 @@ async fn complete_challenge(
     let Some(id) = attempt.valid(&state.config) else {
         return refused(&state, Some(account), Error::InvalidRequest).await;
     };
+    let Some(Extension(proof)) = proof else {
+        return refused(&state, Some(account), Error::InvalidRequest).await;
+    };
     let answer: String = answer.chars().filter(|c| !c.is_whitespace()).collect();
     match challenge::complete(
         &state.pool,
         &state.challenge,
         account,
+        &proof,
         id,
         &attempt,
         &answer,

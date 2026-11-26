@@ -25,7 +25,8 @@ replicas (PostgreSQL) and must not enable account enumeration.
 ## Platform implementation (portal-rs)
 
 - Flag: `PORTAL_NATIVE_LOGIN_CHALLENGE` (JSON, absent means off; malformed
-  JSON or an enabled policy without keys refuses the token route with 503).
+  or non-UTF-8 JSON, or an enabled policy without keys, refuses the
+  authorization-code exchange with 503; the refresh grant is unchanged).
   Members and defaults: `enabled` false, `identity_failures` 5,
   `identity_window_seconds` 600, `source_attempts` 20,
   `source_window_seconds` 60, `retention_seconds` 86400,
@@ -35,13 +36,38 @@ replicas (PostgreSQL) and must not enable account enumeration.
   repository; the first signs, the others still verify (rotation).
 - Code: `portal-rs/crates/gameauth/src/oauth/challenge.rs` (policy, counters,
   binding, proofs), `oauth/oauth_http.rs` (`/oauth/token` 403 envelope,
-  `/oauth/challenge` page), `templates/oauth/challenge.html`; failed password
-  sign-ins are recorded from `crates/identity/src/login_http.rs`.
+  `/oauth/challenge` page), `templates/oauth/challenge.html`. Password
+  sign-ins are recorded by both web sign-in adapters,
+  `crates/identity/src/login_http.rs` and `crates/identity/src/mfa_http.rs`:
+  every attempt counts for the source, a refused one also for the identity
+  (whether or not the email has an account). Second-factor refusals are not
+  counted. Every `/oauth/token` request on the challenge path counts for its
+  source before any other check, malformed ones included.
+- Counting: ten sub-buckets per window; every sub-bucket that overlaps the
+  window counts, so a window over-counts by at most one sub-bucket and never
+  drops a hit inside it. Retention runs beside every counter write and in the
+  worker job `cleanup.native-login-challenge`, which stays registered with the
+  flag off; a challenge is never removed while its authorization code is
+  unexpired.
+- Outer limit: with the flag on, `/oauth/token` and `/oauth/challenge` share
+  the `oauth-challenge-source` budget (40 per minute per source) instead of
+  `identity-login-source` (20), so a source-triggered challenge stays
+  completable.
+- Browser check: the page locks account, browser session, code and challenge
+  in the token route's order, revalidates the session and the code (unused,
+  unrevoked, unexpired, current credentials, current policy) and shows the
+  same code on every view until a wrong answer replaces it. Return URIs need
+  an explicit nonzero port. Challenge expiry is a whole second, so the signed
+  `exp` is the exact redemption end.
 - Schema: `portal-rs/migrations/20261125230000_native_login_challenge.sql`.
 - Source address: the existing `TRUSTED_PROXIES` resolver
   (`oteryn_internal_api::proxy`), which walks `X-Forwarded-For` from trusted
-  peers. `CF-Connecting-IP` is not read; whether to add it is an open owner
-  question.
+  peers. `CF-Connecting-IP` is not read. The portal's only trusted peer is
+  Caddy, which forwards one resolved `X-Forwarded-For` and passes client
+  headers through, and `/oauth/token` is served DNS-only without Cloudflare;
+  honouring `CF-Connecting-IP` from that peer would let any client choose its
+  source. Reading it safely needs an edge change outside this repository
+  (blocked, open owner question).
 - Challenge content: a six-digit code shown on the page and spelled out in
   words as the text alternative; the browser must be signed in as the bound
   account. No third-party resource or script is loaded.

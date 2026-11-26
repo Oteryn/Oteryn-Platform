@@ -3,7 +3,8 @@
 
 -- Sub-window counters shared by every replica. Keys are SHA-256 digests of a
 -- normalized email or a client address, never the value itself; rows are
--- pruned after the configured retention (default 24 hours).
+-- pruned after the configured retention (default 24 hours) by the worker's
+-- cleanup.native-login-challenge job and beside every counter write.
 CREATE TABLE native_login_challenge_counters (
     kind text NOT NULL CHECK (kind IN ('identity_failure', 'source_attempt')),
     key_hash bytea NOT NULL CHECK (octet_length(key_hash) = 32),
@@ -27,7 +28,8 @@ CREATE TABLE native_login_challenges (
     policy_version integer NOT NULL CHECK (policy_version > 0),
     reason text NOT NULL CHECK (reason IN ('identity', 'source')),
     expires_at timestamptz NOT NULL,
-    answer_hash bytea CHECK (answer_hash IS NULL OR octet_length(answer_hash) = 32),
+    -- The six digits the page shows; a digest of six digits hides nothing.
+    answer text CHECK (answer IS NULL OR answer ~ '^[0-9]{6}$'),
     answer_attempts integer NOT NULL DEFAULT 0 CHECK (answer_attempts >= 0),
     return_uri text,
     return_state_hash bytea CHECK (return_state_hash IS NULL OR octet_length(return_state_hash) = 32),
