@@ -23,7 +23,7 @@ oteryn-ui.workspace = true
 oteryn-db.workspace = true
 sqlx = { version = "0.9.0", default-features = false, features = ["postgres", "uuid", "time", "derive"] }
 uuid = { version = "1", features = ["v7", "serde"] }
-argon2 = "0.5"
+argon2 = "0.6"
 getrandom = "0.4.3"
 sha2 = "0.10"
 serde = { version = "1", features = ["derive"] }
