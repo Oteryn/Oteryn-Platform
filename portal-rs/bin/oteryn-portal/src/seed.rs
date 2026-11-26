@@ -283,6 +283,11 @@ async fn account(pool: &PgPool, args: &Args<'_>) -> Result<Value, SeedError> {
             .await?;
     let id: Uuid = if let Some(row) = existing {
         let id: Uuid = row.try_get("id")?;
+        if id == commerce::SEED_ACTOR {
+            return Err(SeedError::Conflict(
+                "email belongs to the commerce seed actor id".into(),
+            ));
+        }
         if requested.is_some_and(|wanted| wanted != id) {
             return Err(SeedError::Conflict(
                 "email belongs to another accountId".into(),

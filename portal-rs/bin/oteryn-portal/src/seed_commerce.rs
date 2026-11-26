@@ -111,14 +111,15 @@ pub(super) async fn store_catalog(
     }))
 }
 
-/// Reads a regular file only: a FIFO or device is refused before `open`, which
-/// would block on it, and the opened handle is checked again.
+/// Reads a regular file only. On Unix the open is non-blocking, so a FIFO
+/// swapped in after the path check cannot stall it, and the opened descriptor
+/// itself must be a regular file before anything is read.
 fn read_catalog(path: &std::path::Path) -> Result<Vec<u8>, SeedError> {
     let unreadable = || bad("file is not a readable catalogue file");
     if !std::fs::metadata(path).is_ok_and(|meta| meta.is_file()) {
         return Err(unreadable());
     }
-    let file = std::fs::File::open(path).map_err(|_| unreadable())?;
+    let file = open_nonblocking(path).map_err(|_| unreadable())?;
     if !file.metadata().is_ok_and(|meta| meta.is_file()) {
         return Err(unreadable());
     }
@@ -130,6 +131,18 @@ fn read_catalog(path: &std::path::Path) -> Result<Vec<u8>, SeedError> {
         return Err(bad("file exceeds 16 MiB"));
     }
     Ok(raw)
+}
+
+#[cfg(unix)]
+pub(super) fn open_nonblocking(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    Ok(rustix::fs::open(path, flags, Mode::empty())?.into())
+}
+
+#[cfg(not(unix))]
+pub(super) fn open_nonblocking(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(path)
 }
 
 fn catalog_error(error: catalog::Error) -> SeedError {

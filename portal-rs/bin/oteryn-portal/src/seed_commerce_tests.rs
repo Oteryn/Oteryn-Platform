@@ -80,6 +80,27 @@ async fn store_catalog_imports_and_activates_once_under_the_seed_actor() -> Test
             .fetch_one(&db.pool)
             .await?;
     assert_eq!(active.as_deref(), Some(GAME_RUNTIME_REVISION));
+    // The rerun of the runtime catalogue added no second activation or audit row.
+    let activations: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM store_catalog_activations WHERE catalog_revision=$1",
+    )
+    .bind(GAME_RUNTIME_REVISION)
+    .fetch_one(&db.pool)
+    .await?;
+    assert_eq!(activations, 1);
+    let audit: Vec<(String, Uuid)> =
+        sqlx::query_as("SELECT action, actor FROM audit_log WHERE target=$1 ORDER BY action")
+            .bind(GAME_RUNTIME_REVISION)
+            .fetch_all(&db.pool)
+            .await?;
+    assert_eq!(
+        audit,
+        vec![
+            ("store.catalog.activated".to_owned(), SEED_ACTOR),
+            ("store.catalog.imported".to_owned(), SEED_ACTOR),
+        ]
+    );
+    assert_eq!(db.count("SELECT count(*) FROM audit_log").await?, 4);
     db.close().await
 }
 
@@ -215,12 +236,25 @@ async fn coin_credit_refuses_bad_input_and_changes_nothing() -> TestResult {
         json!({"accountId": "019a0000-0000-7000-8000-00000000a0ff", "amount": 25,
                "operationId": OPERATION}),
         json!({"email": "nobody@example.invalid", "amount": 25, "operationId": OPERATION}),
-        json!({"email": format!("{}@example.invalid", "a".repeat(250)), "amount": 25,
-               "operationId": OPERATION}),
-        json!({"email": " player1@example.invalid", "amount": 25, "operationId": OPERATION}),
         json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION, "kind": "x"}),
     ] {
         assert!(is_bad(db.seed("coin-credit", input).await));
+    }
+    // The e-mail bound runs before the lookup, not only as a lookup miss.
+    for email in [
+        format!("{}@example.invalid", "a".repeat(250)),
+        " player1@example.invalid".to_owned(),
+    ] {
+        assert_eq!(
+            db.seed(
+                "coin-credit",
+                json!({"email": email, "amount": 25, "operationId": OPERATION}),
+            )
+            .await,
+            Err(SeedError::BadInput(
+                "email must be 1..=254 characters, trimmed".into()
+            ))
+        );
     }
     assert_eq!(db.count("SELECT count(*) FROM wallet_operations").await?, 0);
     assert_eq!(db.count("SELECT count(*) FROM audit_log").await?, 0);
@@ -330,16 +364,32 @@ async fn commerce_seeds_refuse_without_testing_authority() -> TestResult {
     Ok(())
 }
 
+// rustix has no `mkfifoat` on Apple targets.
+#[cfg(all(unix, not(target_vendor = "apple")))]
 #[test]
 fn store_catalog_refuses_a_fifo_without_blocking() -> TestResult {
     let scratch = tempfile::tempdir()?;
     let fifo = scratch.path().join("catalogue.fifo");
-    assert!(
-        std::process::Command::new("mkfifo")
-            .arg(&fifo)
-            .status()?
-            .success()
-    );
+    rustix::fs::mkfifoat(
+        rustix::fs::CWD,
+        &fifo,
+        rustix::fs::Mode::from_raw_mode(0o600),
+    )?;
+    // A FIFO swapped in after the path check: the open itself returns at once
+    // and the descriptor is not a regular file.
+    let (opened, done) = std::sync::mpsc::channel();
+    let path = fifo.clone();
+    std::thread::spawn(move || {
+        let _ = opened.send(
+            crate::seed::commerce::open_nonblocking(&path)
+                .and_then(|file| file.metadata())
+                .map(|meta| meta.is_file()),
+        );
+    });
+    let is_file = done
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("opening a FIFO still blocked after 10 s")?;
+    assert!(!is_file);
     let input = json!({"file": fifo.to_string_lossy()});
     let (send, receive) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
@@ -380,11 +430,35 @@ async fn coin_credit_reports_an_eligibility_read_failure_as_unavailable() -> Tes
             json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION}),
         )
         .await;
-    assert!(
-        matches!(result, Err(SeedError::Unavailable(_))),
-        "{result:?}"
+    assert_eq!(result, Err(SeedError::Unavailable("account eligibility")));
+    assert_eq!(db.count("SELECT count(*) FROM wallet_operations").await?, 0);
+    db.close().await
+}
+
+#[tokio::test]
+async fn coin_credit_refuses_an_ineligible_account() -> TestResult {
+    let Some(db) = Database::new().await? else {
+        return Ok(());
+    };
+    player(&db).await?;
+    sqlx::query("UPDATE accounts SET email_verified_at=NULL WHERE id=$1")
+        .bind(Uuid::parse_str(PLAYER)?)
+        .execute(&db.pool)
+        .await?;
+    let result = db
+        .seed(
+            "coin-credit",
+            json!({"accountId": PLAYER, "amount": 25, "operationId": OPERATION}),
+        )
+        .await;
+    assert_eq!(
+        result,
+        Err(SeedError::BadInput(
+            "account is not eligible for value".into()
+        ))
     );
     assert_eq!(db.count("SELECT count(*) FROM wallet_operations").await?, 0);
+    assert_eq!(db.count("SELECT count(*) FROM audit_log").await?, 0);
     db.close().await
 }
 
@@ -404,10 +478,23 @@ async fn the_seed_actor_is_never_an_account() -> TestResult {
     assert_eq!(db.count("SELECT count(*) FROM accounts").await?, 0);
     // An account row that already holds the actor id stops every commerce seed.
     player(&db).await?;
-    sqlx::query("INSERT INTO accounts (id, email, email_verified_at, password_hash, status, locale, native_security_generation) VALUES ($1, 'actor@example.invalid', now(), 'x', 'active', 'en', 1)")
+    let hash = oteryn_identity::password::hash(PASSWORD)?;
+    sqlx::query("INSERT INTO accounts (id, email, email_verified_at, password_hash, status, locale, native_security_generation) VALUES ($1, 'actor@example.invalid', now(), $2, 'active', 'en', 1)")
         .bind(SEED_ACTOR)
+        .bind(hash)
         .execute(&db.pool)
         .await?;
+    // Resolving that row by e-mail, with its own password, is refused too.
+    assert_eq!(
+        db.seed(
+            "account",
+            json!({"email": "actor@example.invalid", "password": PASSWORD}),
+        )
+        .await,
+        Err(SeedError::Conflict(
+            "email belongs to the commerce seed actor id".into()
+        ))
+    );
     let file = price_lists().join("price-list.valid.json");
     for (entity, input) in [
         ("store-catalog", json!({"file": file.to_string_lossy()})),
