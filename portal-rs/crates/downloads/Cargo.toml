@@ -28,7 +28,7 @@ time = "0.3"
 
 [dev-dependencies]
 ed25519-dalek = "2"
-canonical_json = "0.5"
+canonical_json = "0.7"
 oteryn-db = { path = "../db", features = ["test-support"] }
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread"] }
 tower = { version = "0.5", features = ["util"] }
