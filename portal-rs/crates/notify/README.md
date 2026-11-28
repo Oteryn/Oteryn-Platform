@@ -1,8 +1,8 @@
 # Notifications core
 
 T36 implements notification storage and typed Polish/English email templates. It uses
-UUID account identifiers without an accounts foreign key. No HTTP routes or pages
-are supplied by this core task.
+UUID account identifiers without an accounts foreign key. The account lifecycle and
+player API routers provide the HTTP integration described below.
 
 `Notifications::enqueue` and preference/unsubscribe mutations use the caller's
 transaction. Optional email defaults to disabled; portal delivery defaults to enabled.
@@ -26,12 +26,27 @@ SMTP acceptance; stable Message-ID is not a guarantee of recipient deduplication
 Delivered rows suppress subsequent ordinary retries. Provider errors are reduced to
 a generic worker error to avoid retaining credentials or recipient details in jobs.
 
-`Unsubscribe` requires an application-managed random key of at least 32 bytes and an
-HTTPS endpoint URL. Keep that key stable for the 30-day link lifetime. The HTTP adapter
-must pass decoded tokens to `Notifications::unsubscribe` only on a one-click POST;
-GET must never mutate preferences. Repeated valid unsubscribe requests are idempotent.
-The future authenticated HTTP adapter must establish account ownership before calling
-list, read/unread or preference APIs; these Rust APIs accept trusted account IDs.
+The account lifecycle router always mounts `GET /{lang}/account/notifications`
+and `POST /{lang}/account/notifications`, even without unsubscribe configuration.
+GET displays the signed-in account's preferences. POST saves preferences and
+requires a signed-in browser session and CSRF validation.
+
+The router mounts unsubscribe routes only when `Unsubscribe::configured` accepts
+`OTERYN_NOTIFY_UNSUBSCRIBE_KEY` and `OTERYN_NOTIFY_UNSUBSCRIBE_URL`. Use an
+application-managed random key of at least 32 bytes and an HTTPS endpoint URL.
+Keep the key stable for the 30-day link lifetime. `GET /{lang}/unsubscribe` shows
+a confirmation page for a valid link. The browser form submits with CSRF protection
+to `POST /{lang}/unsubscribe/confirm`. Mail clients use `POST /{lang}/unsubscribe`
+for one-click unsubscribe. Both POST routes use the signed token to disable optional email
+for its category.
+Repeated valid unsubscribe requests are idempotent.
+
+`Notifications::list` and `Notifications::list_for` are inbox list APIs for
+trusted account IDs. The configured player API enables `GET /api/v1/feed` when
+it has a registered OAuth client. It calls `Notifications::list_for` for the
+active, verified account identified by a valid `account:read` bearer token and
+returns each item's read state. `Notifications::mark_read` sets an item to read or
+unread for the trusted account and awaits HTTP integration.
 
 Verification: PostgreSQL tests create isolated schemas, migrate them and drop them.
 They read `PORTAL_TEST_DATABASE_URL`, and print a skip notice if it is absent. They
