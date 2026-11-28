@@ -218,6 +218,134 @@ async fn redirects_are_not_followed_and_error_size_is_bounded() {
         Code::Unavailable
     );
 }
+
+#[tokio::test]
+async fn readiness_requires_a_bounded_body() {
+    for (size, ready) in [(4096, true), (4097, false)] {
+        let upstream =
+            serve(Router::new().route("/health", get(move || async move { "x".repeat(size) })))
+                .await;
+        assert_eq!(client(&upstream.url).ready().await, ready, "{size} bytes");
+    }
+}
+
+#[tokio::test]
+async fn readiness_refuses_an_oversized_redirect_body() {
+    let upstream = serve(
+        Router::new()
+            .route(
+                "/health",
+                get(|| async {
+                    (
+                        StatusCode::FOUND,
+                        [("location", "/ready")],
+                        "x".repeat(4097),
+                    )
+                }),
+            )
+            .route("/ready", get(|| async { StatusCode::OK })),
+    )
+    .await;
+    assert!(!client(&upstream.url).ready().await);
+}
+
+#[tokio::test]
+async fn readiness_follows_valid_same_origin_redirects_without_authorization() {
+    let upstream = serve(
+        Router::new()
+            .route(
+                "/prefix/health",
+                get(|| async { (StatusCode::FOUND, [("location", "status")]) }),
+            )
+            .route(
+                "/prefix/status",
+                get(|headers: axum::http::HeaderMap| async move {
+                    assert!(!headers.contains_key("authorization"));
+                    StatusCode::OK
+                }),
+            ),
+    )
+    .await;
+    assert!(client(&format!("{}/prefix", upstream.url)).ready().await);
+}
+
+#[tokio::test]
+async fn readiness_refuses_cross_origin_redirects_before_sending() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let other = serve(Router::new().fallback(move || async move {
+        observed.fetch_add(1, Ordering::SeqCst);
+        StatusCode::OK
+    }))
+    .await;
+    let location = format!("{}/health", other.url);
+    let upstream = serve(Router::new().route(
+        "/health",
+        get(move || async move { (StatusCode::FOUND, [("location", location)]) }),
+    ))
+    .await;
+    let ready = client(&upstream.url).ready().await;
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(!ready);
+}
+
+#[tokio::test]
+async fn readiness_refuses_invalid_same_origin_redirects_before_sending() {
+    for suffix in ["?query=1", "#fragment", "@userinfo"] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        let upstream = serve(
+            Router::new()
+                .route(
+                    "/health",
+                    get(move |headers: axum::http::HeaderMap| async move {
+                        let host = headers["host"].to_str().unwrap();
+                        let location = if suffix == "@userinfo" {
+                            format!("http://synthetic@{host}/status")
+                        } else {
+                            format!("/status{suffix}")
+                        };
+                        (StatusCode::FOUND, [("location", location)])
+                    }),
+                )
+                .route(
+                    "/status",
+                    get(move || async move {
+                        observed.fetch_add(1, Ordering::SeqCst);
+                        StatusCode::OK
+                    }),
+                ),
+        )
+        .await;
+        let ready = client(&upstream.url).ready().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "{suffix}");
+        assert!(!ready, "{suffix}");
+    }
+}
+
+#[tokio::test]
+async fn readiness_refuses_ambiguous_redirects() {
+    let upstream = serve(
+        Router::new()
+            .route(
+                "/health",
+                get(|| async {
+                    let mut headers = axum::http::HeaderMap::new();
+                    headers.append("location", axum::http::HeaderValue::from_static("/status"));
+                    headers.append(
+                        "location",
+                        axum::http::HeaderValue::from_static("/other-status"),
+                    );
+                    (StatusCode::FOUND, headers)
+                }),
+            )
+            .route("/status", get(|| async { StatusCode::OK }))
+            .route("/other-status", get(|| async { StatusCode::OK })),
+    )
+    .await;
+    assert!(!client(&upstream.url).ready().await);
+}
+
 #[tokio::test]
 async fn outer_router_preserves_gating_and_cache_headers() {
     let upstream = serve(Router::new().route("/health", get(|| async { "ok" }))).await;
@@ -336,6 +464,115 @@ fn config_is_default_off_and_refuses_bad_upstreams_flags_and_timeouts() {
     }
     assert!(oteryn_gateway::config::validate_url("http://[::1]:8080").is_ok());
     assert!(oteryn_gateway::config::validate_url("https://example.test/prefix").is_ok());
+}
+
+#[test]
+fn protocol3_requires_both_environment_and_flag() {
+    for (environment, allowed) in [
+        (Some("testing"), true),
+        (Some("preprod"), true),
+        (Some("production"), false),
+        (Some("unknown"), false),
+        (None, false),
+    ] {
+        for flag in [None, Some("false"), Some("true")] {
+            let config = Config::from_lookup(|key| {
+                match key {
+                    "OTERYN_PLATFORM_BASE_URL" => Some("http://127.0.0.1:8080"),
+                    "OTERYN_PLATFORM_SERVICE_TOKEN_FILE" => Some("/tmp/synthetic-token"),
+                    "GATEWAY_NATIVE_LOGIN_ENABLED" => Some("true"),
+                    "GATEWAY_NATIVE_PROTOCOL3_ENABLED" => flag,
+                    "OTERYN_ENV" => environment,
+                    _ => None,
+                }
+                .map(str::to_owned)
+            })
+            .unwrap();
+            assert_eq!(
+                config.protocol3,
+                allowed && flag == Some("true"),
+                "{environment:?}, {flag:?}"
+            );
+            assert!(config.enabled);
+        }
+    }
+}
+
+#[tokio::test]
+async fn production_config_refuses_protocol3_and_preserves_protocol2() {
+    let login = request();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = calls.clone();
+    let refused = Code::AuthenticationRequired;
+    let refusal_body = serde_json::to_string(&refused.body(Some(&login.attempt_ref))).unwrap();
+    let upstream = serve(Router::new().route(
+        ISSUER_PATH,
+        any(move || async move {
+            observed.fetch_add(1, Ordering::SeqCst);
+            (StatusCode::UNAUTHORIZED, refusal_body)
+        }),
+    ))
+    .await;
+    let config = Config::from_lookup(|key| match key {
+        "OTERYN_PLATFORM_BASE_URL" => Some(upstream.url.clone()),
+        "OTERYN_PLATFORM_SERVICE_TOKEN_FILE" => Some("/tmp/synthetic-token".into()),
+        "GATEWAY_NATIVE_LOGIN_ENABLED" | "GATEWAY_NATIVE_PROTOCOL3_ENABLED" => Some("true".into()),
+        "OTERYN_ENV" => Some("production".into()),
+        _ => None,
+    })
+    .unwrap();
+    let app = oteryn_gateway::router_with(
+        client(&config.base_url),
+        oteryn_gateway::Options {
+            enabled: config.enabled,
+            protocol3: config.protocol3,
+            version: config.version,
+        },
+    );
+    for (body, code, expected_calls) in [
+        (
+            include_bytes!(
+                "../../../../docs/contracts/fixtures/native-gateway-protocol3-v1/login-request.json"
+            )
+            .to_vec(),
+            Code::UnsupportedVersion,
+            0,
+        ),
+        (wire::encode_request(&login).unwrap(), refused, 1),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::post("/v1/login")
+                    .header("content-type", "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), code.status());
+        let body = to_bytes(response.into_body(), 8192).await.unwrap();
+        assert_eq!(
+            serde_json::from_slice::<Value>(&body).unwrap()["error"]["code"],
+            code.name()
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), expected_calls);
+    }
+}
+
+#[test]
+fn readme_describes_the_client_fixture_suite_and_source_budget() {
+    let readme = include_str!("../README.md");
+    assert!(
+        readme.contains("tests/fixtures/game_client_native_login/SOURCE.md"),
+        "document the provenance of the checked-in client fixtures"
+    );
+    assert!(
+        readme.contains("30 requests per resolved source IP")
+            && readme.contains("A trusted peer may supply exactly one IP in `X-Forwarded-For`")
+            && !readme.contains("Forwarding headers never"),
+        "describe both the rate limit and how its source is resolved"
+    );
 }
 
 #[tokio::test]

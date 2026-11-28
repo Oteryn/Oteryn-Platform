@@ -14,6 +14,7 @@ Configuration:
 | `OTERYN_PLATFORM_ISSUER_CA_FILE` | Unset by default (public WebPKI roots); for HTTPS only, a readable PEM file of CA certificates used as the gateway issuer client's sole trust anchors |
 | `OTERYN_PLATFORM_SERVICE_TOKEN_FILE` | Required; externally supplied bearer token file, optional final newline |
 | `GATEWAY_NATIVE_LOGIN_ENABLED` | `false`; accepts only `true` or `false` |
+| `GATEWAY_NATIVE_PROTOCOL3_ENABLED` | `false`; accepts only `true` or `false`. Effective only when native login is enabled and `OTERYN_ENV` is `testing` or `preprod` |
 | `GATEWAY_TRUSTED_PROXIES` | Empty by default; comma-separated exact proxy IP addresses |
 | `GATEWAY_LISTEN_ADDR` | `0.0.0.0:8080` |
 | `GATEWAY_NATIVE_ADMISSION_TIMEOUT` | `5s`, positive and at most `8s` |
@@ -25,21 +26,22 @@ Admission uses a service bearer token, never mTLS. Requests are sent once, witho
 redirects or retries. A failure before sending is unavailable; an ambiguous sent
 request or invalid success requires reconciliation. Error bodies are validated
 against all eleven public status/code/class rows. Readiness probes upstream
-`/health`; process health stays independent.
+`/health` without credentials and requires a final HTTP 200. Each response body
+must be read successfully within 4096 bytes and the overall readiness timeout.
+A redirect must supply one destination on the configured scheme, host and port,
+with no user info, query or fragment. Process health stays independent.
 
 For a local TLS proxy in front of the loopback issuer, set
 `OTERYN_PLATFORM_BASE_URL=https://localhost:<proxy-port>` and point
 `OTERYN_PLATFORM_ISSUER_CA_FILE` at the proxy's signing CA in PEM format. The
 proxy certificate must have a SAN for the URL hostname (an IP SAN if the URL
 uses an IP). The proxy forwards the admission bearer and the issuer's
-`/health` and admission paths to the loopback issuer. With a private CA,
-readiness redirects also require HTTPS.
+`/health` and admission paths to the loopback issuer.
 
-The fixed windows match Go: 30 requests per connection-source IP per minute and
+The login fixed windows allow 30 requests per resolved source IP per minute and
 six per SHA-256 of `(attempt_ref, NUL, ticket)` over two minutes. Each table holds
-at most 100,000 keys and refuses new keys when full. Forwarding headers never
-supply the source IP. Account authorization and account-level controls remain
-upstream; the gateway has no authenticated account identity.
+at most 100,000 keys and refuses new keys when full. Account authorization and
+account-level controls run upstream.
 
 ## Verification
 
@@ -70,16 +72,17 @@ cd crates/gateway/tests/go_e2e
 GATEWAY_RUST_BINARY=/absolute/path/to/oteryn-portal go test -v -count=1 ./...
 ```
 
-`tests/game_client_native_login_fixtures.rs` is intentionally empty pending the
-coordinator's client fixtures. There are no database integration tests in this
-stateless role. No SQL or offline query metadata is added. Deployment, production
-activation and future protocol changes remain outside T52.
+`tests/game_client_native_login_fixtures.rs` exercises protocol 2 client vectors
+through the gateway, covering exact success bytes, identical retries, public
+errors and rejected variants. The checked-in vectors include their
+[provenance and constants](tests/fixtures/game_client_native_login/SOURCE.md).
+The stateless gateway suite uses a local HTTP issuer and needs no database.
 
 Public login and both recovery routes resolve rate-limit identity from the socket
 peer unless it is in `GATEWAY_TRUSTED_PROXIES` or the shared `TRUSTED_PROXIES`.
-A trusted peer may supply exactly one IP in `X-Forwarded-For`; a missing header
-or an address chain uses the peer budget, and a malformed header or invalid
-`TRUSTED_PROXIES` is refused with 503.
+A trusted peer may supply exactly one IP in `X-Forwarded-For`. For a trusted peer,
+a missing header or an address chain uses the peer budget. Malformed forwarding
+from a trusted peer or invalid shared `TRUSTED_PROXIES` is refused with 503.
 The Oracle Caddy route overwrites this header with its resolved `{client_ip}` and
 the gateway trusts only the edge container address. Direct callers cannot select
 their budget through forwarding headers. Uncertain issuer outcomes consume the

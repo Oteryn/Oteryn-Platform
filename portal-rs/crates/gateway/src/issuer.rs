@@ -176,32 +176,42 @@ impl IssuerClient {
     }
     pub async fn ready(&self) -> bool {
         tokio::time::timeout(self.ready_timeout, async {
-            let mut url = format!("{}/health", self.base_url);
+            let Ok(mut url) = url::Url::parse(&format!("{}/health", self.base_url)) else {
+                return false;
+            };
+            let origin = url.origin();
             for _ in 0..10 {
                 let mut written = false;
                 let Ok(response) = self
-                    .exchange("GET", &url, Vec::new(), false, &mut written)
+                    .exchange("GET", url.as_str(), Vec::new(), false, &mut written)
                     .await
                 else {
                     return false;
                 };
-                if matches!(response.status().as_u16(), 301 | 302 | 303 | 307 | 308) {
-                    let Some(location) = response
-                        .headers()
-                        .get("location")
-                        .and_then(|v| v.to_str().ok())
-                    else {
-                        return false;
-                    };
-                    let Ok(next) = url::Url::parse(&url).and_then(|u| u.join(location)) else {
-                        return false;
-                    };
-                    url = next.to_string();
-                    continue;
+                let (parts, body) = response.into_parts();
+                if read_body(body, 4096).await.is_err() {
+                    return false;
                 }
-                let ok = response.status() == 200;
-                let _ = read_body(response.into_body(), 4096).await;
-                return ok;
+                if parts.status == 200 {
+                    return true;
+                }
+                if !matches!(parts.status.as_u16(), 301 | 302 | 303 | 307 | 308) {
+                    return false;
+                }
+                let mut locations = parts.headers.get_all("location").iter();
+                let Some(location) = locations.next().and_then(|v| v.to_str().ok()) else {
+                    return false;
+                };
+                let Ok(next) = url.join(location) else {
+                    return false;
+                };
+                if locations.next().is_some()
+                    || next.origin() != origin
+                    || validate_issuer_url(next.as_str(), self.require_https).is_err()
+                {
+                    return false;
+                }
+                url = next;
             }
             false
         })
