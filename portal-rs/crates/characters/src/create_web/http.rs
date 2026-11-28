@@ -320,6 +320,7 @@ where
     let operation = canonical_uuid(&operation).map_err(|_| StatusCode::NOT_FOUND)?;
     Ok(match state.creation.status(account, operation).await {
         Ok(Outcome::Pending) => page::notice(&lang, StatusCode::OK, "pending"),
+        Ok(Outcome::Reconciling) => page::reconciling(&lang),
         Ok(Outcome::Created(character)) => {
             let roster = state.creation.current_roster(account).await;
             page::created(

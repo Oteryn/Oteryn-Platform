@@ -86,6 +86,7 @@ pub struct Submission {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Pending,
+    Reconciling,
     Created(Uuid),
     Rejected(&'static str),
 }
@@ -309,9 +310,10 @@ impl Creation {
         }
         self.eligible(account).await?;
         self.limit(account, "read").await?;
-        let receipt: Option<String> = sqlx::query_scalar(
-            "SELECT receipt_json FROM character_commands
-             WHERE id=$1 AND account_id=$2 AND command='CreateCharacter'",
+        let (receipt, current): (Option<String>, bool) = sqlx::query_as(
+            r#"SELECT receipt_json, starts_with(intent_json,'{"contract_version":2,')
+             FROM character_commands
+             WHERE id=$1 AND account_id=$2 AND command='CreateCharacter'"#,
         )
         .bind(operation)
         .bind(account)
@@ -319,7 +321,11 @@ impl Creation {
         .await?
         .ok_or(Error::NotFound)?;
         let Some(receipt) = receipt else {
-            return Ok(Outcome::Pending);
+            return Ok(if current {
+                Outcome::Pending
+            } else {
+                Outcome::Reconciling
+            });
         };
         let receipt: serde_json::Value =
             serde_json::from_str(&receipt).map_err(|_| Error::Unavailable)?;

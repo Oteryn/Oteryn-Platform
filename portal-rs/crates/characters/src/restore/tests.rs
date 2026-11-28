@@ -920,3 +920,211 @@ async fn fx_closure_at_restored_generation() {
     );
     cleanup(pool, admin, schema).await;
 }
+
+#[tokio::test]
+async fn db_retired_create_leaves_room_for_v2_and_still_reconciles() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    seed(&pool).await;
+    let retired = Uuid::parse_str(OP).unwrap();
+    let commands = Commands::new(
+        pool.clone(),
+        commands::Settings {
+            max_pending: 1,
+            ..command_settings()
+        },
+    );
+    struct Eligible;
+    impl AccountStateReader for Eligible {
+        async fn state(&self, _: Uuid) -> AccountState {
+            AccountState::Eligible
+        }
+    }
+    let intent = Intent::Create {
+        account_id: Uuid::now_v7(),
+        world_id: Uuid::now_v7(),
+        name: "Eldric".into(),
+        sex: commands::Sex::Male,
+        vocation: commands::Vocation::Knight,
+    };
+    let decision = Uuid::now_v7();
+    let current = commands
+        .enqueue(&Eligible, decision, "current-create", intent.clone())
+        .await
+        .unwrap();
+    assert_ne!(current.operation_id, retired);
+    assert_eq!(
+        commands
+            .enqueue(&Eligible, decision, "current-create", intent.clone())
+            .await
+            .unwrap(),
+        current
+    );
+    assert!(matches!(
+        commands
+            .enqueue(&Eligible, Uuid::now_v7(), "another-create", intent)
+            .await,
+        Err(commands::Error::BacklogFull)
+    ));
+
+    let app = app(pool.clone());
+    let first = receipt(3);
+    assert_eq!(
+        response(app.clone(), RECEIPT_PATH, &first, Some(2)).await.0,
+        StatusCode::OK
+    );
+    let event = wire::decode(NOTICE.as_bytes()).unwrap().id;
+    assert_eq!(
+        response(app.clone(), PATH, NOTICE, Some(1)).await,
+        (StatusCode::OK, wire::status(event, 1, 1))
+    );
+    let replacement = receipt(4);
+    assert_eq!(
+        response(app.clone(), RECEIPT_PATH, &replacement, Some(2))
+            .await
+            .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        response(app, PATH, NOTICE, Some(1)).await,
+        (StatusCode::OK, wire::status(event, 1, 0))
+    );
+    let history: Vec<String> = sqlx::query_scalar(
+        "SELECT receipt_json FROM character_restore_receipts WHERE operation_id=$1 ORDER BY id",
+    )
+    .bind(retired)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(history, [first, replacement]);
+    assert_eq!(
+        commands.status(retired).await.unwrap().intent_json,
+        include_str!("../commands/fixtures/create-intent.json")
+    );
+    cleanup(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn db_owner_sees_retired_create_awaiting_reconciliation() {
+    use crate::create_web::{BrowserContext, Settings as WebSettings, router as web_router};
+    use axum::Extension;
+
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, admin, schema)) = database().await else {
+        return;
+    };
+    seed(&pool).await;
+    sqlx::raw_sql(concat!(
+        include_str!("../../../../migrations/20261105155256_t03_accounts.sql"),
+        include_str!(
+            "../../../../migrations/20261105220209_accounts_native_security_generation.sql"
+        ),
+        include_str!("../../../../migrations/20261105220231_t22c_creation_policy.sql"),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let account: Uuid = sqlx::query_scalar("SELECT account_id FROM character_commands WHERE id=$1")
+        .bind(Uuid::parse_str(OP).unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let other = Uuid::now_v7();
+    for id in [account, other] {
+        sqlx::query("INSERT INTO accounts(id,email,password_hash,status,locale) VALUES ($1,$2,'test-only','active','en')")
+            .bind(id).bind(format!("{id}@example.invalid")).execute(&pool).await.unwrap();
+    }
+    let app = web_router::<_, _, _, ()>(
+        pool.clone(),
+        WebSettings {
+            enabled: true,
+            commands: command_settings(),
+        },
+        |account, _| async move {
+            Ok(BrowserContext {
+                account_id: Some(account),
+                ..Default::default()
+            })
+        },
+    );
+    for (lang, message) in [
+        ("en", "awaiting reconciliation"),
+        ("pl", "oczekuje na uzgodnienie"),
+    ] {
+        let request = || {
+            Request::get(format!("/{lang}/account/characters/requests/{OP}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let owner = app
+            .clone()
+            .layer(Extension(account))
+            .oneshot(request())
+            .await
+            .unwrap();
+        assert_eq!(owner.status(), StatusCode::OK);
+        let body = to_bytes(owner.into_body(), 65536).await.unwrap();
+        assert!(std::str::from_utf8(&body).unwrap().contains(message));
+        assert_eq!(
+            app.clone()
+                .layer(Extension(other))
+                .oneshot(request())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+    cleanup(pool, admin, schema).await;
+}
+
+#[tokio::test]
+async fn db_missing_intent_receipt_alarms_once_after_validation() {
+    let _database_guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some((pool, admin, schema)) = database_with_connections(true, 1).await else {
+        return;
+    };
+    let exchange = app(pool.clone());
+    let restore = Restore::new(pool.clone(), settings());
+    let raw = receipt(3);
+    for (body, peer, expected) in [
+        (raw.clone(), None, StatusCode::UNAUTHORIZED),
+        (raw.clone(), Some(1), StatusCode::UNAUTHORIZED),
+        (
+            raw.replace("oteryn-game-eu1", "other-game"),
+            Some(2),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            raw.replace("CHAR_CMD_OK", "INVALID"),
+            Some(2),
+            StatusCode::BAD_REQUEST,
+        ),
+        (format!("{raw}\n"), Some(2), StatusCode::BAD_REQUEST),
+    ] {
+        assert_eq!(
+            response(exchange.clone(), RECEIPT_PATH, &body, peer).await,
+            (expected, String::new())
+        );
+    }
+    assert!(restore.queue().await.unwrap().is_empty());
+
+    for _ in 0..2 {
+        assert_eq!(
+            response(exchange.clone(), RECEIPT_PATH, &raw, Some(2)).await,
+            (StatusCode::NOT_FOUND, String::new())
+        );
+    }
+    let queued = restore.queue().await.unwrap();
+    assert_eq!(queued.len(), 1);
+    assert_eq!(queued[0].operation_id, Some(Uuid::parse_str(OP).unwrap()));
+    assert_eq!(queued[0].event_id, None);
+    assert_eq!(queued[0].account_id, None);
+    assert_eq!(
+        queued[0].reason,
+        "character_authority.command_receipt_without_intent"
+    );
+    cleanup(pool, admin, schema).await;
+}

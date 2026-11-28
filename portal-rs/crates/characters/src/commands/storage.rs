@@ -77,10 +77,14 @@ impl Commands {
                 return Err(Error::Conflict);
             }
         }
-        let count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM character_commands WHERE state='PENDING'")
-                .fetch_one(&mut *conn)
-                .await?;
+        // A retired create stays pending for receipt reconciliation, but
+        // exchange no longer offers it to Game.
+        let count: i64 = sqlx::query_scalar(
+            r#"SELECT count(*) FROM character_commands WHERE state='PENDING'
+               AND (command<>'CreateCharacter' OR starts_with(intent_json,'{"contract_version":2,'))"#,
+        )
+        .fetch_one(&mut *conn)
+        .await?;
         if count >= i64::from(self.settings.max_pending) {
             return Err(Error::BacklogFull);
         }
@@ -240,7 +244,19 @@ impl Commands {
         sqlx::query("SELECT pg_advisory_xact_lock(22005160000)")
             .execute(&mut *tx)
             .await?;
-        let row=sqlx::query("SELECT command,binding_json,receipt_json FROM character_commands WHERE id=$1 FOR UPDATE").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::NotFound)?;
+        let row = sqlx::query(
+            "SELECT command,binding_json,receipt_json FROM character_commands WHERE id=$1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            if self.restore_lock {
+                crate::restore::Restore::alarm_missing_intent(&mut tx, id).await?;
+                tx.commit().await?;
+            }
+            return Err(Error::NotFound);
+        };
         // V2 service commands settle only through their own receipt path,
         // which also releases or settles the wallet reservation.
         if !matches!(

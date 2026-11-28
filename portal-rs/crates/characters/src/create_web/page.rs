@@ -199,6 +199,17 @@ pub(super) fn notice(lang: &str, status: StatusCode, key: &str) -> Response {
     render(page, status)
 }
 
+pub(super) fn reconciling(lang: &str) -> Response {
+    let mut page = page(lang, "");
+    page.message = if lang == "en" {
+        "This request uses a retired format and is awaiting reconciliation."
+    } else {
+        "To zgłoszenie korzysta z wycofanego formatu i oczekuje na uzgodnienie wyniku."
+    }
+    .into();
+    render(page, StatusCode::OK)
+}
+
 pub(super) fn created(
     lang: &str,
     character: Uuid,

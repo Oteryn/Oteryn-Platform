@@ -28,6 +28,21 @@ pub(super) async fn queue(pool: &PgPool) -> Result<Vec<QueueItem>, Error> {
         .fetch_all(pool).await?.into_iter().map(|r| Ok(QueueItem { id:r.try_get("id")?, event_id:r.try_get("restore_event_id")?, operation_id:r.try_get("operation_id")?, account_id:r.try_get("account_id")?, reason:r.try_get("reason")? })).collect()
 }
 impl Restore {
+    pub(crate) async fn alarm_missing_intent(
+        tx: &mut Transaction<'_, Postgres>,
+        operation: Uuid,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "INSERT INTO character_restore_queue (operation_id,reason)
+             VALUES ($1,'character_authority.command_receipt_without_intent')
+             ON CONFLICT DO NOTHING",
+        )
+        .bind(operation)
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
+    }
+
     pub(super) async fn record(&self, notice: wire::Notice, raw: &[u8]) -> Result<String, Error> {
         let raw = std::str::from_utf8(raw).map_err(|_| Error::BadInput)?;
         let mut tx = self.pool.begin().await?;
