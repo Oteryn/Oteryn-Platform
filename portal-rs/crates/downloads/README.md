@@ -55,14 +55,20 @@ Release ordering uses numeric sequences, never the display version. Rollback
 must select an already-known immutable release in a newer signed policy with
 `rollback_authorization: "explicit"`. Support floors and revocations cannot
 be silently reversed. Database triggers prohibit update/delete of publication
-history. Metadata verification and all checks finish before the active pointer
-changes in the same transaction.
+history. The pointer update checks expiry against the advancing PostgreSQL
+clock after history and authorization checks. If the bundle has expired, the
+transaction rolls back the candidate and keeps the previous head.
 
 ## GET surface
 
 - `/{pl|en}/download` lists packages from the current verified stable release
   by default. `?channel=beta` selects beta independently. The page stays
   available when there is no current release.
+- `/{pl|en}/download/<platform>` lists the verified packages for `windows`,
+  `macos` or `linux` in the selected channel, with their explicit architectures.
+  The legacy `/download/<platform>` alias redirects to the Polish page.
+  Platform pages require `OTERYN_DOWNLOADS_ENABLED=true` and return 404 when
+  the platform is unknown or has no verified packages in that channel.
 - `/{pl|en}/download/<channel>/<build>/<platform>/<architecture>` checks the
   active publication and redirects to the contracted, hash-addressed package
   URL. A stale or absent build returns 404.
@@ -101,8 +107,8 @@ The staff page manages signed publications. Production activation and launcher c
 Set `PORTAL_TEST_DATABASE_URL` to an isolated PostgreSQL 18.6 test database.
 Tests create and drop UUID-named schemas, apply embedded workspace migrations,
 and cover publication/GET byte identity, invalid signatures, expiry/tampering,
-replay/rollback, immutable history, account/RBAC denial, invalid input and
-concurrent publication. Eight database tests run, including operator publication
-and signed contract bundles; without the variable each prints an explicit skip
-notice. Test signing keys are generated in memory at runtime.
+replay/rollback, immutable history, account/RBAC denial, invalid input,
+concurrent publication, localized package selection and expiry at the head
+switch. Tests also cover operator publication and signed contract bundles.
+Test signing keys are generated in memory at runtime.
 No SQL query macros are added, so no new SQLx offline query data is required.

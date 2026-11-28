@@ -1,20 +1,23 @@
 use std::collections::BTreeMap;
 
+use askama::Template;
 use axum::{
-    Router,
-    extract::{Path, State},
+    Extension, Router,
+    extract::{Path, Query, State, rejection::QueryRejection},
     http::{StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::get,
 };
+use oteryn_ui::{Account, Chrome, Registry};
+use serde::Deserialize;
 use sqlx::PgPool;
 
-use crate::{Channel, Downloads, Error, FeatureFlags, browser};
+use crate::{Channel, Downloads, Error, FeatureFlags, browser, storage::Release};
 
 /// Static-like public GET surface. Staff uploads use a separate guarded router.
 /// Trust roots are unnecessary here: only previously verified database publications can be read.
 pub fn router(pool: PgPool, flags: FeatureFlags) -> Router {
-    Router::new()
+    let mut router = Router::new()
         .route("/{lang}/download", get(browser::download))
         .route("/{lang}/start", get(browser::start))
         .route(
@@ -23,8 +26,93 @@ pub fn router(pool: PgPool, flags: FeatureFlags) -> Router {
         )
         .route("/updates/{channel}/metadata/{filename}", get(metadata))
         .route("/updates/{channel}/policy-v1.json", get(policy))
-        .route("/updates/{channel}/targets/{*target}", get(target))
-        .with_state(Downloads::new(pool, flags, BTreeMap::new()))
+        .route("/updates/{channel}/targets/{*target}", get(target));
+    if flags.downloads {
+        // Static paths take precedence over the site's localized channel routes.
+        for lang in ["pl", "en"] {
+            for platform in ["windows", "macos", "linux"] {
+                router = router.route(
+                    &format!("/{lang}/download/{platform}"),
+                    get(move |downloads, chrome, selection| {
+                        platform_download(downloads, chrome, selection, lang, platform)
+                    }),
+                );
+            }
+        }
+    }
+    router.with_state(Downloads::new(pool, flags, BTreeMap::new()))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PlatformSelection {
+    channel: Option<Channel>,
+}
+
+#[derive(Template)]
+#[template(path = "downloads/index.html")]
+struct PlatformPage {
+    chrome: Chrome,
+    channel: Channel,
+    release: Option<Release>,
+}
+
+async fn platform_download(
+    State(downloads): State<Downloads>,
+    chrome: Option<Extension<Chrome>>,
+    selection: Result<Query<PlatformSelection>, QueryRejection>,
+    lang: &'static str,
+    platform: &'static str,
+) -> Response {
+    let mut chrome = chrome.map_or_else(
+        || {
+            Registry::default().chrome(
+                lang,
+                &format!("/{lang}/download/{platform}"),
+                Account::Anonymous,
+            )
+        },
+        |Extension(chrome)| chrome,
+    );
+    let reply = |response: Response| {
+        (
+            [
+                (header::CACHE_CONTROL, "no-store"),
+                (header::CONTENT_LANGUAGE, lang),
+            ],
+            response,
+        )
+            .into_response()
+    };
+    let Ok(Query(selection)) = selection else {
+        return reply(oteryn_ui::error(&chrome, StatusCode::BAD_REQUEST));
+    };
+    let channel = selection.channel.unwrap_or(Channel::Stable);
+    if channel == Channel::Beta {
+        chrome.alternate_url.push_str("?channel=beta");
+    }
+    let mut release = match downloads.active_release(channel).await {
+        Ok(release) => release,
+        Err(Error::NotFound | Error::Disabled) => {
+            return reply(oteryn_ui::error(&chrome, StatusCode::NOT_FOUND));
+        }
+        Err(_) => return reply(oteryn_ui::error(&chrome, StatusCode::SERVICE_UNAVAILABLE)),
+    };
+    release
+        .packages
+        .retain(|package| package.platform == platform);
+    if release.packages.is_empty() {
+        return reply(oteryn_ui::error(&chrome, StatusCode::NOT_FOUND));
+    }
+    let page = PlatformPage {
+        chrome,
+        channel,
+        release: Some(release),
+    };
+    reply(match page.render() {
+        Ok(html) => Html(html).into_response(),
+        Err(_) => oteryn_ui::error(&page.chrome, StatusCode::INTERNAL_SERVER_ERROR),
+    })
 }
 
 async fn metadata(

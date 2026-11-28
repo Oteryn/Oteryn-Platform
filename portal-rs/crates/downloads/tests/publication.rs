@@ -760,3 +760,153 @@ async fn db_browser_download_uses_the_current_signed_package() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     db.close().await;
 }
+
+#[tokio::test]
+async fn db_platform_alias_lists_only_verified_targets_in_each_locale() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let signer = SignerFixture::new();
+    let downloads = Downloads::new(db.pool.clone(), ON, signer.roots());
+    let mut policy = signer.policy(1, "rel-a", 1);
+    for (platform, architecture) in [("windows", "arm64"), ("linux", "x86_64")] {
+        policy.artifacts.push(oteryn_downloads::Artifact {
+            platform: platform.into(),
+            architecture: architecture.into(),
+            target_path: format!(
+                "channels/stable/releases/rel-a/{platform}/{architecture}/client.zip"
+            ),
+        });
+    }
+    downloads
+        .publish(&ALLOW, Uuid::now_v7(), signer.upload(policy))
+        .await
+        .unwrap();
+
+    // The site already redirects /download/{slug} to /pl/download/{slug}.
+    // Its localized channel route must still yield to the platform destination.
+    let app = router(db.pool.clone(), ON).merge(
+        axum::Router::new()
+            .route(
+                "/pl/download/{channel}",
+                axum::routing::get(|| async { StatusCode::NOT_FOUND }),
+            )
+            .route(
+                "/en/download/{channel}",
+                axum::routing::get(|| async { StatusCode::NOT_FOUND }),
+            ),
+    );
+    let get = |uri: &str| {
+        app.clone()
+            .oneshot(Request::get(uri).body(Body::empty()).unwrap())
+    };
+    let mut pages = Vec::new();
+    for (lang, label) in [("pl", "Zweryfikowane wydanie"), ("en", "Verified release")] {
+        let response = get(&format!("/{lang}/download/windows")).await.unwrap();
+        let (parts, body) = response.into_parts();
+        let body = to_bytes(body, 100_000).await.unwrap();
+        pages.push((lang, label, parts, body));
+    }
+    let mut refusals = Vec::new();
+    for uri in [
+        "/en/download/unknown",
+        "/en/download/macos",
+        "/en/download/windows?channel=beta",
+        "/fr/download/windows",
+        "/en/download/stable/rel-a/windows/x86",
+    ] {
+        refusals.push((uri, get(uri).await.unwrap().status()));
+    }
+    let disabled = router(db.pool.clone(), FeatureFlags::default())
+        .oneshot(
+            Request::get("/en/download/windows")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    db.close().await;
+
+    for (lang, label, parts, body) in pages {
+        assert_eq!(parts.status, StatusCode::OK, "{lang}");
+        assert_eq!(parts.headers["content-language"], lang);
+        assert_eq!(parts.headers["cache-control"], "no-store");
+        let html = String::from_utf8_lossy(&body);
+        assert!(html.contains(label));
+        assert!(html.contains("href=\"?channel=beta\""));
+        for architecture in ["x86_64", "arm64"] {
+            assert!(html.contains(&format!(
+                "/{lang}/download/stable/rel-a/windows/{architecture}"
+            )));
+        }
+        assert!(!html.contains("/linux/"));
+        assert!(!html.contains("/windows/x86\""));
+        assert!(html.contains(&hex::encode(Sha256::digest(b"package"))));
+    }
+    for (uri, status) in refusals {
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+    }
+    assert_eq!(disabled.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn db_bundle_expiring_during_publication_leaves_the_previous_head_intact() {
+    let _guard = oteryn_db::test_support::global_lock_guard().await.unwrap();
+    let Some(db) = Database::open().await else {
+        return;
+    };
+    let signer = SignerFixture::new();
+    let downloads = Downloads::new(db.pool.clone(), ON, signer.roots());
+    let actor = Uuid::now_v7();
+    let original = signer.upload(signer.policy(1, "rel-a", 1));
+    let head = downloads
+        .publish(&ALLOW, actor, original.clone())
+        .await
+        .unwrap();
+
+    // Advance past the signed deadline at insertion, after history and final
+    // authorization. Require a live bundle on entry so this tests the switch.
+    sqlx::raw_sql(
+        "CREATE FUNCTION expire_candidate() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.expires_at <= clock_timestamp() THEN
+                RAISE EXCEPTION 'candidate expired before insertion';
+            END IF;
+            PERFORM pg_sleep_until(NEW.expires_at);
+            RETURN NEW;
+        END;
+        $$;
+        CREATE TRIGGER expire_candidate BEFORE INSERT ON client_releases
+        FOR EACH ROW WHEN (NEW.policy_revision = 2)
+        EXECUTE FUNCTION expire_candidate();",
+    )
+    .execute(&db.pool)
+    .await
+    .unwrap();
+    // Keep the deadline inside the shared three-second mutation budget.
+    let expires: String = sqlx::query_scalar(
+        r#"SELECT to_char(clock_timestamp() AT TIME ZONE 'UTC' + interval '2500 milliseconds',
+                          'YYYY-MM-DD"T"HH24:MI:SS"Z"')"#,
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    let candidate = signer.upload_expiring(signer.policy(2, "rel-b", 2), &expires);
+    let result = downloads.publish(&ALLOW, actor, candidate).await;
+    let current: Uuid = sqlx::query_scalar("SELECT active_publication_id FROM client_channels")
+        .fetch_one(&db.pool)
+        .await
+        .unwrap();
+    let history: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM client_releases")
+        .fetch_all(&db.pool)
+        .await
+        .unwrap();
+    let policy = downloads.policy(Channel::Stable, None).await;
+    db.close().await;
+
+    assert!(matches!(result, Err(Error::Verification)), "{result:?}");
+    assert_eq!(current, head);
+    assert_eq!(history, [head]);
+    assert_eq!(policy.unwrap(), original.policy);
+}

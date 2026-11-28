@@ -197,8 +197,19 @@ impl Downloads {
             .bind(Json(&verified.versions)).bind(Json(&verified.artifacts))
             .bind(verified.expires_at).bind(actor).bind(previous)
             .execute(&mut *tx).await?;
-        sqlx::query("UPDATE client_channels SET active_publication_id = $1, updated_at = now() WHERE id = $2")
-            .bind(id).bind(channel_id).execute(&mut *tx).await?;
+        // Transaction time is fixed before the history and authorization checks.
+        let switched = sqlx::query(
+            "UPDATE client_channels SET active_publication_id = $1, updated_at = now()
+             WHERE id = $2 AND $3 > clock_timestamp()",
+        )
+        .bind(id)
+        .bind(channel_id)
+        .bind(verified.expires_at)
+        .execute(&mut *tx)
+        .await?;
+        if switched.rows_affected() == 0 {
+            return Err(Error::Verification);
+        }
         tx.commit().await?;
         Ok(id)
     }
