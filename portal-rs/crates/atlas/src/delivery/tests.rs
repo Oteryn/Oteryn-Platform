@@ -504,6 +504,186 @@ async fn postgres_http_delivery_map_link_reaches_viewer() {
     );
 }
 #[tokio::test]
+async fn postgres_delivery_overlay_uses_ranked_sources_and_matching_tiles() {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use sha2::{Digest, Sha256};
+    use tower::ServiceExt;
+
+    let Some((pool, schema)) = database().await else {
+        return;
+    };
+    let directory = tempfile::tempdir().unwrap();
+    let commit = "a".repeat(40);
+    let world = oteryn_world::WorldOptions { enabled: true };
+    let store = WorldStore::new(pool.clone(), world);
+    let version = store.active_version_id().await.unwrap().unwrap();
+    let add = |kind, key, data| {
+        sqlx::query("INSERT INTO world_entities VALUES ($1,$2,$3,$4,true)")
+            .bind(version)
+            .bind(kind)
+            .bind(key)
+            .bind(data)
+    };
+    for (kind, key, data) in [
+        (
+            "Creature",
+            "creature:weaker",
+            json!({"loot":"loot:rat","level":10}),
+        ),
+        ("Creature", "creature:unrelated", json!({"level":1})),
+        (
+            "Spawn.Source",
+            "spawn:lower",
+            json!({"city":"Town","points":[
+                {"cell":{"x":30,"y":40,"floor":8},"creature":"creature:weaker","respawn_ms":60000},
+                {"cell":{"x":50,"y":60,"floor":8},"creature":"creature:unrelated","respawn_ms":60000}
+            ]}),
+        ),
+    ] {
+        add(kind, key, data).execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO world_visibility(kind,key,allowed) VALUES ($1,$2,true)")
+            .bind(kind)
+            .bind(key)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let write_manifest = |floor: u8, world_version: &str| {
+        let path = directory.path().join(&commit).join(floor.to_string());
+        let tile = path.join("0/0/0.webp");
+        std::fs::create_dir_all(path.join("0/0")).unwrap();
+        image::RgbaImage::from_pixel(256, 256, image::Rgba([12, 30, 20, 255]))
+            .save(&tile)
+            .unwrap();
+        let manifest = crate::tiles::Manifest {
+            format_version: 1,
+            world_version: world_version.into(),
+            floor,
+            tile_size: 256,
+            bounds: crate::tiles::Bounds {
+                min_x: 0,
+                min_y: 0,
+                max_x: 256,
+                max_y: 256,
+            },
+            levels: vec![crate::tiles::Level {
+                z: 0,
+                width: 256,
+                height: 256,
+                columns: 1,
+                rows: 1,
+            }],
+            tiles: vec![crate::tiles::Tile {
+                path: "0/0/0.webp".into(),
+                sha256: format!("{:x}", Sha256::digest(std::fs::read(tile).unwrap())),
+            }],
+        };
+        std::fs::write(
+            path.join("manifest.json"),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+    };
+    for floor in [7u8, 8] {
+        write_manifest(floor, &commit);
+    }
+
+    let app = http::with_static(
+        pool.clone(),
+        Options { enabled: true },
+        world,
+        "static".into(),
+        Some(directory.path().into()),
+    )
+    .merge(crate::web::router(crate::web::Viewer {
+        enabled: true,
+        directory: directory.path().into(),
+        world: store.clone(),
+    }));
+    let get_delivery = |query| {
+        let app = app.clone();
+        async move {
+            let response = app
+                .oneshot(
+                    Request::get(format!("/en/atlas/delivery?{query}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            String::from_utf8(
+                to_bytes(response.into_body(), 1_000_000)
+                    .await
+                    .unwrap()
+                    .to_vec(),
+            )
+            .unwrap()
+        }
+    };
+    let body = get_delivery("item=item%3Aore").await;
+    let filtered = get_delivery("item=item%3Aore&floor=8").await;
+    let unselected = get_delivery("").await;
+    let mut tiles = Vec::new();
+    for floor in [7, 8] {
+        let url = format!("/atlas/tiles/{commit}/{floor}/0/0/0.webp");
+        let tile = app
+            .clone()
+            .oneshot(Request::get(&url).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        tiles.push((url, tile.status()));
+    }
+
+    write_manifest(8, &"b".repeat(40));
+    let mismatched = get_delivery("item=item%3Aore").await;
+    write_manifest(8, &commit);
+
+    let selected = load(&store)
+        .await
+        .unwrap()
+        .discover(Options { enabled: true }, &filters())
+        .unwrap();
+    let next = Uuid::now_v7();
+    sqlx::query("INSERT INTO world_versions(id,source_commit,status) VALUES ($1,$2,'ready')")
+        .bind(next)
+        .bind(&commit)
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE world_active_version SET version_id=$1")
+        .bind(next)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let stale = overlay::render(&store, directory.path(), &selected, "Map", "Floor").await;
+    cleanup(pool, schema).await;
+
+    assert_eq!(body.matches("class=\"delivery-map\"").count(), 2);
+    assert!(body.contains("<circle cx=\"10\" cy=\"20\""));
+    assert!(body.contains("<circle cx=\"30\" cy=\"40\""));
+    assert!(!body.contains("<circle cx=\"50\" cy=\"60\""));
+    assert!(body.find(">creature:rat</a>").unwrap() < body.find(">creature:weaker</a>").unwrap());
+    for (url, status) in tiles {
+        assert!(body.contains(&url));
+        assert_eq!(status, 200);
+    }
+    assert_eq!(filtered.matches("class=\"delivery-map\"").count(), 1);
+    assert!(filtered.contains("<circle cx=\"30\" cy=\"40\""));
+    assert!(!filtered.contains("<circle cx=\"10\" cy=\"20\""));
+    assert!(!unselected.contains("class=\"delivery-map\""));
+    assert!(!mismatched.contains("class=\"delivery-map\""));
+    assert!(mismatched.contains("The item source map is unavailable."));
+    assert!(stale.is_none());
+    assert!(mismatched.contains(">creature:rat</a>"));
+    assert!(mismatched.contains(">creature:weaker</a>"));
+}
+
+#[tokio::test]
 async fn postgres_denied_loot_and_currency_are_excluded() {
     let Some((pool, schema)) = database().await else {
         return;

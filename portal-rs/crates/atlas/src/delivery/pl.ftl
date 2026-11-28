@@ -29,3 +29,5 @@ subtype = Podtyp przedmiotu
 version-missing = Ta wersja świata jest niedostępna.
 sprite = Grafika przedmiotu
 reward = Nagroda
+source-map = Mapa źródeł przedmiotu
+source-map-unavailable = Mapa źródeł przedmiotu jest niedostępna.

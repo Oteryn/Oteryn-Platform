@@ -37,8 +37,15 @@ entity templates when those pages arrive. Creature entry links restrict the item
 selector to visible loot relations. Outgoing links use the plan's wiki and atlas
 routes. No wiki implementation is replaced or duplicated here.
 
+With `OTERYN_ATLAS_ENABLED=true` and `OTERYN_ATLAS_DIRECTORY` configured,
+selecting an item renders a floor overview for each available tile map with
+eligible sources. The delivery map uses the viewer’s tile route and its
+coarsest tiles. It checks the manifest’s source commit and rechecks the active
+world version before rendering. The ranked list and its coordinate links
+are also available when a map cannot be shown.
+
 Tests use `PORTAL_TEST_DATABASE_URL`, with a printed skip notice when unset.
-The three PostgreSQL tests create isolated schemas and exercise the HTTP success
+The PostgreSQL tests create isolated schemas and exercise the HTTP success
 path in both languages, hidden-source refusal, bad item input and disabled world
 reads. An optional `PORTAL_DELIVERY_PREVIEW_DIR` exports the HTTP-rendered HTML
 and stylesheet for browser inspection using synthetic test data.

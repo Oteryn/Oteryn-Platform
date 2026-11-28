@@ -2,6 +2,7 @@
 //! No writes or live game calls. T84/T14b integrate through links and public views.
 pub mod estimate;
 mod http;
+mod overlay;
 mod shops;
 mod sprite;
 #[cfg(test)]

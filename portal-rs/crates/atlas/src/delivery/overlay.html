@@ -1,0 +1,15 @@
+<section aria-labelledby="delivery-map-title">
+  <h2 id="delivery-map-title">{{ title }}</h2>
+  {% for floor in floors %}
+  <figure>
+    <figcaption id="delivery-floor-{{ floor.number }}">{{ floor_label }} {{ floor.number }}</figcaption>
+    <svg class="delivery-map" role="img" aria-labelledby="delivery-map-title delivery-floor-{{ floor.number }}"
+         width="{{ floor.width }}" height="{{ floor.height }}" viewBox="0 0 {{ floor.width }} {{ floor.height }}">
+      <image href="{{ floor.tile }}" width="256" height="256" />
+      {% for (x, y) in floor.markers %}
+      <circle cx="{{ x }}" cy="{{ y }}" r="3" fill="#ffdc78" stroke="#111820" />
+      {% endfor %}
+    </svg>
+  </figure>
+  {% endfor %}
+</section>

@@ -29,3 +29,5 @@ subtype = Item subtype
 version-missing = This world version is unavailable.
 sprite = Item sprite
 reward = Reward
+source-map = Item source map
+source-map-unavailable = The item source map is unavailable.

@@ -9,11 +9,13 @@ use axum::{
 use fluent_bundle::{FluentResource, concurrent::FluentBundle};
 use oteryn_world::{WorldOptions, WorldStore};
 use sqlx::PgPool;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 struct Service {
     store: WorldStore,
-    static_dir: std::path::PathBuf,
+    static_dir: PathBuf,
+    atlas_directory: Option<PathBuf>,
     options: Options,
     computation: std::sync::Arc<tokio::sync::Semaphore>,
 }
@@ -28,16 +30,20 @@ pub fn configured_router(pool: PgPool) -> Router {
             enabled: flags.world,
         },
         std::env::var_os("OTERYN_STATIC_DIR").map_or_else(|| "static".into(), Into::into),
+        std::env::var_os("OTERYN_ATLAS_DIRECTORY")
+            .filter(|directory| flags.viewer && !directory.is_empty())
+            .map(PathBuf::from),
     )
 }
 pub fn router(pool: PgPool, options: Options, world: WorldOptions) -> Router {
-    with_static(pool, options, world, "static".into())
+    with_static(pool, options, world, "static".into(), None)
 }
-fn with_static(
+pub(super) fn with_static(
     pool: PgPool,
     options: Options,
     world: WorldOptions,
-    static_dir: std::path::PathBuf,
+    static_dir: PathBuf,
+    atlas_directory: Option<PathBuf>,
 ) -> Router {
     let mut app = Router::new().route("/{lang}/atlas/delivery", get(page));
     if options.enabled {
@@ -46,6 +52,7 @@ fn with_static(
     app.with_state(Service {
         store: WorldStore::new(pool, world),
         static_dir,
+        atlas_directory,
         options,
         computation: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
     })
@@ -53,7 +60,7 @@ fn with_static(
 async fn css() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
-        "body{font:1rem/1.6 system-ui;background:#101820;color:#f4f6f8;margin:0}img{max-width:100%;height:auto}main{max-width:65rem;margin:auto;padding:1rem;overflow-wrap:anywhere}a{color:#80d4ff}label{display:block}input,select,button{font:inherit;max-width:100%;box-sizing:border-box;padding:.6rem;margin:.25rem 0;min-height:44px}nav{display:flex;gap:1rem;flex-wrap:wrap}article{border:1px solid #91a0b0;padding:1rem;margin:1rem 0}a:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #ffd66b;outline-offset:3px}",
+        "body{font:1rem/1.6 system-ui;background:#101820;color:#f4f6f8;margin:0}img{max-width:100%;height:auto}main{max-width:65rem;margin:auto;padding:1rem;overflow-wrap:anywhere}a{color:#80d4ff}label{display:block}input,select,button{font:inherit;max-width:100%;box-sizing:border-box;padding:.6rem;margin:.25rem 0;min-height:44px}nav{display:flex;gap:1rem;flex-wrap:wrap}article{border:1px solid #91a0b0;padding:1rem;margin:1rem 0}.delivery-map{display:block;width:100%;max-width:32rem;height:auto;background:#111820}a:focus-visible,input:focus-visible,select:focus-visible,button:focus-visible{outline:3px solid #ffd66b;outline-offset:3px}",
     )
 }
 fn escape(s: &str) -> String {
@@ -80,11 +87,16 @@ impl Messages {
         bundle.add_resource(resource).ok()?;
         Some(Self(bundle))
     }
-    fn text(&self, key: &str) -> String {
+    fn message(&self, key: &str) -> String {
         let Some(pattern) = self.0.get_message(key).and_then(|m| m.value()) else {
             return String::new();
         };
-        escape(&self.0.format_pattern(pattern, None, &mut Vec::new()))
+        self.0
+            .format_pattern(pattern, None, &mut Vec::new())
+            .into_owned()
+    }
+    fn text(&self, key: &str) -> String {
+        escape(&self.message(key))
     }
 }
 async fn page(
@@ -288,13 +300,13 @@ async fn page(
             filters.tab.as_deref() == Some("creatures") || filters.creature.is_some();
         let options = service.options;
         let calculation = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
-            snapshot.discover(options, &filters)
+            let data = snapshot.discover(options, &filters);
+            (permit, data)
         })
         .await;
-        let data = match calculation {
-            Ok(Ok(d)) => d,
-            Ok(Err(_)) | Err(_) => {
+        let (_permit, data) = match calculation {
+            Ok((permit, Ok(data))) => (permit, data),
+            Ok((_, Err(_))) | Err(_) => {
                 body += &t.text("unavailable");
                 return finish(StatusCode::NOT_FOUND, body);
             }
@@ -308,6 +320,22 @@ async fn page(
             );
         } else {
             body += &format!("<p>{}: {}</p>", t.text("sprite"), t.text("unavailable"));
+        }
+        if let Some(directory) = &service.atlas_directory
+            && data.sources.iter().any(|source| !source.spawns.is_empty())
+        {
+            match overlay::render(
+                &service.store,
+                directory,
+                &data,
+                &t.message("source-map"),
+                &t.message("floor"),
+            )
+            .await
+            {
+                Some(map) => body += &map,
+                None => body += &format!("<p>{}</p>", t.text("source-map-unavailable")),
+            }
         }
         if !creature_only {
             body += &format!("<section><h2>{}</h2>", t.text("shops"));
@@ -402,6 +430,7 @@ mod computation_tests {
             options: Options { enabled: true },
             computation: computation.clone(),
             static_dir: "static".into(),
+            atlas_directory: None,
         };
         let app = Router::new()
             .route("/{lang}/atlas/delivery", get(page))
