@@ -13,6 +13,28 @@ pub struct DigestMutation {
     pub change: Change,
     pub reason_sha256: [u8; 32],
 }
+/// Proof that this process runs with `OTERYN_ENV=testing`, which the testing-only
+/// Premium seed requires: only [`TestingSeed::from_env`] makes one in a deployed
+/// build, so the seed fails closed in every other environment.
+#[cfg(any(test, feature = "testing-seed"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TestingSeed(());
+#[cfg(any(test, feature = "testing-seed"))]
+impl TestingSeed {
+    /// `Some` only when the process environment has `OTERYN_ENV=testing`.
+    pub fn from_env() -> Option<Self> {
+        Self::from_environment(std::env::var("OTERYN_ENV").ok().as_deref())
+    }
+    pub(crate) fn from_environment(environment: Option<&str>) -> Option<Self> {
+        (environment == Some("testing")).then_some(Self(()))
+    }
+    /// Test builds only: tests cannot set `OTERYN_ENV` in their own process.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn assume_testing() -> Self {
+        Self(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Ledger {
     pool: PgPool,
@@ -223,6 +245,87 @@ impl Ledger {
                 reason: format!("store-purchase:{purchase}"),
             },
         )
+        .await
+    }
+
+    /// Testing-only seed (`oteryn-portal seed loyalty`); `_testing` proves
+    /// `OTERYN_ENV=testing` ([`TestingSeed`]). Record `days` of Premium time already consumed,
+    /// as one expired GRANT ending now, so the loyalty stream counts them at
+    /// once. Only an account without Premium history takes it; a rerun with the
+    /// same actor, days and reason returns the recorded entitlement, anything
+    /// else is a conflict. A later real grant restarts the same entitlement.
+    #[cfg(any(test, feature = "testing-seed"))]
+    pub async fn grant_consumed_for_testing(
+        &self,
+        _testing: TestingSeed,
+        actor: Uuid,
+        account: Uuid,
+        days: u16,
+        reason: &str,
+    ) -> Result<Entitlement, Error> {
+        if !self.enabled {
+            return Err(Error::Disabled);
+        }
+        let reason = reason.trim();
+        if !(10..=500).contains(&reason.chars().count())
+            || actor.get_version_num() != 7
+            || actor.get_variant() != uuid::Variant::RFC4122
+            || !(1..=366).contains(&days)
+        {
+            return Err(Error::Invalid);
+        }
+        let hash = Sha256::digest(reason.as_bytes()).to_vec();
+        oteryn_db::transaction::run_transaction(&self.pool, async |tx| {
+            let tx = tx.connection().await?;
+            self.lock(&mut *tx, account).await?;
+            let rows = sqlx::query(
+                "SELECT * FROM premium_ledger WHERE account_id=$1 ORDER BY lifecycle_revision LIMIT 2",
+            )
+            .bind(account)
+            .fetch_all(&mut *tx)
+            .await?;
+            if let Some(row) = rows.first() {
+                if rows.len() != 1
+                    || row.try_get::<Uuid, _>("actor_id")? != actor
+                    || row.try_get::<String, _>("event_type")? != "GRANT"
+                    || row.try_get::<Option<i32>, _>("duration_days")? != Some(i32::from(days))
+                    || row.try_get::<Vec<u8>, _>("reason_sha256")? != hash
+                {
+                    return Err(Error::Conflict);
+                }
+                return recorded(row);
+            }
+            let now: OffsetDateTime = sqlx::query_scalar("SELECT clock_timestamp()")
+                .fetch_one(&mut *tx)
+                .await?;
+            let until = now.unix_timestamp();
+            let last: Option<OffsetDateTime> =
+                sqlx::query_scalar("SELECT last_issued_at FROM premium_authority WHERE account_id=$1")
+                    .bind(account)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if last.is_some_and(|last| last.unix_timestamp() > until) {
+                return Err(Error::Unavailable);
+            }
+            let delta = i64::from(days) * 86400;
+            let next = Entitlement {
+                id: Uuid::now_v7(),
+                revoked: false,
+                revision: 1,
+                from: until.checked_sub(delta).ok_or(Error::Unavailable)?,
+                until,
+            };
+            next.validate()?;
+            let request = Uuid::now_v7();
+            sqlx::query("INSERT INTO premium_ledger(request_id, account_id, actor_id, event_type, duration_days, reason_sha256, entitlement_id, lifecycle_revision, delta_seconds, effective_from, effective_until) VALUES ($1,$2,$3,'GRANT',$4,$5,$6,1,$7,$8,$9)")
+                .bind(request).bind(account).bind(actor).bind(i32::from(days)).bind(&hash)
+                .bind(next.id).bind(delta).bind(timestamp(next.from)?).bind(timestamp(next.until)?)
+                .execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO premium_audit(request_id,actor_id,account_id,event_name) VALUES ($1,$2,$3,'products.premium_granted')")
+                .bind(request).bind(actor).bind(account)
+                .execute(&mut *tx).await?;
+            Ok(next)
+        })
         .await
     }
 

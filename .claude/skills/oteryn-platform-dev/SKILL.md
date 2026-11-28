@@ -117,6 +117,10 @@ contract's state on the Game side is plan §6; check it before a task.
   reconciliation; a timeout is neither success nor failure (plan §6).
 - A feature without Game data shows "unavailable" with the last update
   time, never invented values.
+- Platform is subsystem S9 of the programme. A change to the Game wire
+  (`/internal/v1`, a contract or its fixtures) goes, with its consumer map,
+  through the coordinator to the Game S2 owner (the Server session) for
+  review before code.
 - Game-side work is a separate task (G-1, G-2, ...) sent by the coordinator;
   name it in the PR's *Compatibility, rollout, and rollback* section.
 

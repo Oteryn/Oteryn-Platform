@@ -743,3 +743,137 @@ async fn authenticated_challenge_routes_redirect_home() -> Result<(), Box<dyn st
     db.close().await?;
     Ok(())
 }
+
+/// OTERYN_NATIVE_LOGIN_CHALLENGE_V1: the MFA sign-in adapter, which serves the
+/// public login routes when MFA is configured, feeds the same counters as the
+/// password adapter. The policy is read from the environment, so the flow runs
+/// in a child process that carries it.
+#[test]
+fn postgres_mfa_login_feeds_the_native_challenge_counters() -> Result<(), Box<dyn std::error::Error>>
+{
+    const CHILD: &str = "PORTAL_MFA_NATIVE_CHALLENGE_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        return Ok(());
+    }
+    if std::env::var_os("PORTAL_TEST_DATABASE_URL").is_none() {
+        eprintln!(
+            "SKIPPED MFA native challenge PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset"
+        );
+        return Ok(());
+    }
+    let output = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "mfa_http::tests::mfa_login_native_challenge_child",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .env(CHILD, "1")
+        .env("PORTAL_NATIVE_LOGIN_CHALLENGE", r#"{"enabled":true}"#)
+        .env(
+            "PORTAL_NATIVE_LOGIN_CHALLENGE_KEYS",
+            "k1=CQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQkJCQk",
+        )
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(stdout.contains("1 passed"), "{stdout}\n{stderr}");
+    assert!(!stderr.contains("SKIPPED"), "{stderr}");
+    Ok(())
+}
+#[tokio::test]
+async fn mfa_login_native_challenge_child() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::var_os("PORTAL_MFA_NATIVE_CHALLENGE_CHILD").is_none() {
+        return Ok(());
+    }
+    let db = database::Database::open()
+        .await?
+        .ok_or("PostgreSQL required")?;
+    let mfa = Mfa::new(db.pool.clone(), [7; 32]);
+    let id:uuid::Uuid=sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES('counted@example.test',$1,'active','en',now()) RETURNING id").bind(oteryn_identity::password::hash("test password")?).fetch_one(&db.pool).await?;
+    let enrollment = mfa.enroll(id, "test password").await?.ok_or("enrollment")?;
+    let secret = totp_rs::Secret::Encoded(enrollment.secret).to_bytes()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    let code = totp_rs::TOTP::new(totp_rs::Algorithm::SHA1, 6, 1, 30, secret)?.generate(now);
+    mfa.confirm(id, "test password", &code)
+        .await?
+        .ok_or("confirm")?;
+    let mut layer = SessionLayer::new(db.pool.clone());
+    layer.csrf.trusted_origins = vec!["https://portal.example.test".into()];
+    let app = compose(Router::new(), db.pool.clone(), mfa.clone(), layer);
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/en/login")
+                .body(axum::body::Body::empty())?,
+        )
+        .await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookie = response
+        .headers()
+        .get(header::SET_COOKIE)
+        .ok_or("cookie")?
+        .to_str()?
+        .split(';')
+        .next()
+        .ok_or("cookie")?
+        .to_owned();
+    let body = String::from_utf8(
+        axum::body::to_bytes(response.into_body(), 32768)
+            .await?
+            .to_vec(),
+    )?;
+    let csrf = body
+        .split("name=\"_csrf\" value=\"")
+        .nth(1)
+        .and_then(|v| v.split('"').next())
+        .ok_or("csrf")?
+        .to_owned();
+    let login = |password: &str| -> Result<_, Box<dyn std::error::Error>> {
+        Ok(axum::http::Request::builder()
+            .method("POST")
+            .uri("/en/login")
+            .header(header::COOKIE, &cookie)
+            .header(header::ORIGIN, "https://portal.example.test")
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .extension(ConnectInfo("127.0.0.1:1234".parse::<SocketAddr>()?))
+            .body(axum::body::Body::from(format!(
+                "_csrf={csrf}&email=counted%40example.test&password={password}"
+            )))?)
+    };
+    let counts = || {
+        sqlx::query_as::<_, (String, i64)>(
+            "SELECT kind, sum(hits)::bigint FROM native_login_challenge_counters GROUP BY kind ORDER BY kind",
+        )
+        .fetch_all(&db.pool)
+    };
+    let refused = app.clone().oneshot(login("wrong+password")?).await?;
+    assert_eq!(refused.status(), StatusCode::FOUND);
+    assert_eq!(
+        counts().await?,
+        vec![
+            ("identity_failure".to_owned(), 1),
+            ("source_attempt".to_owned(), 1)
+        ]
+    );
+    // The right password (second factor pending) is an attempt, not a failure.
+    let accepted = app.clone().oneshot(login("test+password")?).await?;
+    assert!(
+        accepted.headers()["location"]
+            .to_str()?
+            .contains("/mfa/challenge")
+    );
+    assert_eq!(
+        counts().await?,
+        vec![
+            ("identity_failure".to_owned(), 1),
+            ("source_attempt".to_owned(), 2)
+        ]
+    );
+    db.close().await?;
+    Ok(())
+}

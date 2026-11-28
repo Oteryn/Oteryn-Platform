@@ -48,6 +48,7 @@ const option = name => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 
 const seedPlanFile = option('--seed-plan') || process.env.PORTAL_E2E_SEED_PLAN;
 const exitAfterReady = argv.includes('--exit-after-ready');
 const outbox = argv.includes('--outbox');
+const gameCommerce = argv.includes('--game-commerce');
 
 const testEnv = {};
 for (const line of fs.readFileSync(path.join(here, 'test.env'), 'utf8').split('\n')) {
@@ -75,7 +76,6 @@ if (outbox) {
     PANEL_PREMIUM_PAYMENTS: 'true',
     PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED: 'true',
     PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS: '["ITEM","PREMIUM_TIME"]',
-    PLATFORM_BUILD_REVISION: '0000000000000000000000000000000000000001',
     OTERYN_CHARACTER_SERVICES_EXCHANGE_ENABLED: 'true',
     OTERYN_CHARACTER_SERVICES_PROJECTION_ENABLED: 'true',
     OTERYN_CHARACTER_SERVICES_COMMAND_AUTHORITY: testEnv.PORTAL_CHARACTER_COMMAND_SOURCE_AUTHORITY,
@@ -83,6 +83,23 @@ if (outbox) {
     OTERYN_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS: '0',
     PORTAL_CHARACTER_SERVICES_CLOCK_UNCERTAINTY_SECONDS: '0',
     PORTAL_CHARACTER_SERVICES_FRESHNESS_SECONDS: '30',
+  });
+}
+// Game node-boot commerce rows (Store purchase, coin transfer quote, loyalty):
+// the Game-facing purchase and coin routes, testing only. Data comes from the
+// `store-catalog`, `coin-credit` and `loyalty` seed entities. The profile
+// refuses before any database is created unless the run is `testing`.
+if (gameCommerce) {
+  if (testEnv.OTERYN_ENV !== 'testing') {
+    log('--game-commerce runs only with OTERYN_ENV=testing');
+    process.exit(2);
+  }
+  Object.assign(testEnv, {
+    PRODUCTS_ENTITLEMENTS_STORE_PURCHASE_ENABLED: 'true',
+    PRODUCTS_ENTITLEMENTS_STORE_ENABLED_UNIT_KINDS: '["ITEM","PREMIUM_TIME"]',
+    OTERYN_PREMIUM_ENABLED: 'true',
+    PORTAL_COIN_TRANSFERS_ENABLED: 'true',
+    PORTAL_COIN_MARKET_ENABLED: 'true',
   });
 }
 const port = name => {

@@ -38,7 +38,7 @@ All from `portal-rs/`; the toolchain is pinned in `rust-toolchain.toml`
    embedded set), and a real `migrate` against a scratch PostgreSQL 18.6
    (*PostgreSQL tests* below).
 6. Contract or fixture touched: `cargo test --locked -p oteryn-internal-api --test contracts`,
-   and the crate that reads that fixture (`rg -l 'docs/contracts/fixtures' portal-rs/crates`).
+   and the crate that reads that fixture (`rg -l 'docs/contracts/fixtures' crates`).
 7. `git diff --check` and a read of the full diff.
 
 The test runner is `cargo test`; no nextest profile exists in this

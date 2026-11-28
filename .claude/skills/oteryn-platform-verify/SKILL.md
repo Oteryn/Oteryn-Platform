@@ -22,7 +22,9 @@ Before stating any result:
 | claim | needs | not enough |
 |---|---|---|
 | tests pass | `cargo test --locked` output with 0 failed, on this tree | an earlier run, a run on another head |
-| PostgreSQL path works | the test run with `PORTAL_TEST_DATABASE_URL` set and no `SKIPPED` line for it | a green `Portal RS CI` (it has no database) |
+| PostgreSQL path works | the test run with `PORTAL_TEST_DATABASE_URL` set, the test names listed and no `SKIPPED` line for them (they reached their assertions) | a green fast PR lane (no database; only the `heavy-tests` PostgreSQL shards count, with test names); a 0-test or filtered-out run |
+| a value change is complete | an `rg` sweep of the literal, version or count across tests, fixtures, contracts and docs, all updated | the tests that happened to fail |
+| still green after a `main` merge | a rebuild and the full tests of each changed crate on the merged head | the run from before the merge |
 | migrations apply | `oteryn-portal migrate` on a scratch PostgreSQL 18.6 plus `-p oteryn-db --test migrations` | the files compile |
 | Game contract kept | the contract test comparing bytes with `docs/contracts/fixtures/` | the struct looks the same |
 | the bug is fixed | the loop that was red on the bug, now green | code changed, "looks right" |

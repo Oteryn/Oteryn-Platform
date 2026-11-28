@@ -109,6 +109,7 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 | `PORTAL_HIRELINGS_ENABLED` | `G:/{lang}/panel/hirelings` | — | Read-only hireling panel |
 | `PORTAL_HOUSES_INGEST_ENABLED`, `PORTAL_HOUSES_SERVING_ENABLED` | `G:/{prefix}/houses` `G:/{prefix}/houses/{name}` `P503@internal:/internal/v2/game-public/house` `P503@internal:/internal/v2/game-public/watermark` | — | public_houses_v2, public_houses_v2_watermark, public_projection_state |
 | `PORTAL_NATIVE_ADMISSIONS_ENABLED`, `PORTAL_NATIVE_ADMISSION_GRANTS_ENABLED`, `PORTAL_NATIVE_PROTOCOL3_ENABLED`, `PORTAL_NATIVE_RECOVERY_ENABLED` | `P503@admission:/internal/v1/game-auth/native-admissions` `P503@admission:/internal/v1/game-auth/native-recoveries` `P503@admission:/internal/v1/game-auth/native-recoveries/revoke` | — | game_login_tickets, native_admission_budgets, native_admissions, native_play_generations, native_recoveries, native_recovery_handles |
+| `PORTAL_NATIVE_LOGIN_CHALLENGE` | `GP:/oauth/challenge` | cleanup.native-login-challenge stays on. JSON policy: only an absent value is off; malformed JSON is on and refusing. Also needs `PORTAL_OAUTH_CONFIG`. | native_login_challenge_counters, native_login_challenges, oauth_security_events, oauth_authorization_codes, oauth_token_families, oauth_tokens |
 | `PORTAL_OAUTH_CONFIG` | `GP:/oauth/authorize` `P:/oauth/token` | — | oauth_authorization_codes, oauth_security_events, oauth_token_families, oauth_tokens, web_sessions |
 | `PORTAL_ONLINE_ENABLED`, `PORTAL_WORLDS_ENABLED` | `G:/{prefix}/online` `G:/{prefix}/worlds` `G:/api/v1/worlds` | — | Read-only world and online views |
 | `PORTAL_PARTY_ENABLED` | `GP:/{lang}/party` `P:/{lang}/party/{id}/report` `P:/{lang}/party/{id}/remove` `G:/admin/{lang}/party` `P:/admin/{lang}/party/{id}/moderate` | — | pd_party_posts, pd_party_reports |
@@ -133,7 +134,7 @@ Browser and API 503 entries cover explicitly unavailable feature surfaces.
 The prerequisite sweep keeps the other gates on while disabling each gate
 independently for MFA and login, the admin panel and its feature surfaces,
 character creation, Atlas viewer and delivery surfaces, Game login history,
-and test checkout. It also checks that pausing termination intake keeps the
+the native login challenge page, and test checkout. It also checks that pausing termination intake keeps the
 Game proof listener available. While intake is paused, the deletion page
 remains available to authenticated holders of a pending request. They can
 cancel with a valid session, CSRF token, recent sudo proof and password.
@@ -148,6 +149,7 @@ The world-backed Atlas reads return 503 when world data is off.
 | `cleanup.support-tickets` | Delete up to 1,000 resolved or closed tickets that reached 180 days. | Delete those tickets and their messages by cascade. |
 | `stats.world-sample-retention` | Roll up expired raw world samples after 90 days. | Insert or update the matching UTC daily totals in `stats_world_daily` and delete the raw inputs from `stats_world_samples` in the same transaction. |
 | `stats.death-retention` | Delete copied death details after 30 days. | Delete only expired death events in `stats_character_events`. |
+| `cleanup.native-login-challenge` | Expire native login challenge rows written while `PORTAL_NATIVE_LOGIN_CHALLENGE` was on, up to 1,000 rows of each table per run, on the configured windows and retention when their numbers are in range and on the defaults otherwise. | Delete counter buckets in `native_login_challenge_counters` that no window or the retention still reaches, and challenges in `native_login_challenges` past retention whose authorization code has expired. |
 
 ## Referral deployment and activity coverage
 

@@ -507,7 +507,9 @@ async fn login(
     {
         return Ok(r);
     }
+    let email = input.email.clone();
     if let Some(challenge) = context.mfa.begin_login(&input).await.map_err(unavailable)? {
+        native_sign_in(&context, &limiter, peer, &headers, &email, false).await?;
         // The logout rotation drops the session; the challenge session keeps
         // a valid post-login target so `establish` can return to it.
         let target = crate::login_http::pending_return(&session)
@@ -552,6 +554,7 @@ async fn login(
         .await
         .map_err(unavailable)?
     {
+        native_sign_in(&context, &limiter, peer, &headers, &email, false).await?;
         let account = authorization.account;
         session
             .set(GRANT, &String::new())
@@ -572,7 +575,30 @@ async fn login(
         return home_or_return(language, &session).await;
     }
     crate::login_http::record_failure(&context.mfa.pool()).await;
+    native_sign_in(&context, &limiter, peer, &headers, &email, true).await?;
     refusal(language, &session, "/login").await
+}
+/// OTERYN_NATIVE_LOGIN_CHALLENGE_V1 counters, as the password adapter feeds
+/// them: every password check counts for the source, a refused one also for
+/// the identity. A no-op while the flag is off.
+async fn native_sign_in(
+    context: &Context,
+    limiter: &RateLimiter,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: &HeaderMap,
+    email: &str,
+    failed: bool,
+) -> Result<(), StatusCode> {
+    let Some(Extension(ConnectInfo(peer))) = peer else {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    };
+    let source = limiter
+        .trusted_proxies
+        .client_ip(peer, headers)
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    oteryn_gameauth::oauth::challenge::record_sign_in(&context.mfa.pool(), email, source, failed)
+        .await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)
 }
 #[derive(Default, Deserialize)]
 #[serde(default)]

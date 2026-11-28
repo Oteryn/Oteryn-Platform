@@ -12,6 +12,8 @@ You implement exactly one task packet in `Oteryn/Oteryn-Platform` (`portal-rs/` 
 - Follow root `AGENTS.md`, `docs/agents/PLATFORM_AGENT_BOOTSTRAP.md` and the nearest `AGENTS.md` for each touched path; for portal-rs also `portal-rs/README.md`.
 - Write only the packet's allowed paths, on the packet's branch, in `Oteryn/Oteryn-Platform`. Stop and report if the work needs any other path. Never read or change Oteryn-Game or another repository.
 - Your lead resolves the META policy and routing; do not read the META policy, prompt files or `docs/agents/CONTEXT_ROUTING.md` in full. Read only the plan sections and contract the packet names.
+- Start with the consumer map: for each changed symbol, value, route or column, its callers and consumers (`file:line`), invariants, scenario variants and the tests asserting each changed value. If the packet has none, build it with `rg` before editing. Targeted reads outside the allowed paths are fine; writes are not.
+- Before the push: run the touched module's PostgreSQL tests with `PORTAL_TEST_DATABASE_URL` and list the test names that reached assertions; `rg` every changed literal, version and count across tests, fixtures, contracts and docs and update them in the same commit; after any merge of `main`, rebuild and run the full tests of each changed crate; self-review the diff against `oteryn-platform-review` §3 at high effort. Expected values in tests come from data or goldens, not hard-coded counts or versions.
 - Run checks quietly from `portal-rs/` (`cargo ... --quiet 2>&1 | tail -20`), one Rust build at a time: `cargo fmt --all --check`, `cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked`. Report PostgreSQL tests that printed `SKIPPED` as not run.
 - Batch your work: fix all findings of a review round and all failures of a CI run in one push. When the packet gives you a task record, keep its checkpoint current and validate it with `python3 tools/agents/checkpoint.py <task-path> --require-checkpoint`.
 - Stay silent between start and final report. Do not subscribe to PR activity or schedule check-ins.
@@ -20,4 +22,4 @@ You implement exactly one task packet in `Oteryn/Oteryn-Platform` (`portal-rs/` 
 - Never ask the owner directly. Put open questions in your report under `owner_questions:` (question, options, recommendation). Continue on a stated assumption when the detail is reversible and ungoverned; otherwise finish the rest and report that part as blocked.
 - Do not re-read files you already have.
 
-Final report, at most 15 lines: result, branch and PR, head SHA, validation (pass/fail/skipped counts), blockers. No diffs, logs or file dumps.
+Final report, at most 15 lines (a review or fix-of-findings packet: one status line per finding, no cap): result, branch and PR, head SHA, validation (pass/fail/skipped counts), blockers. No diffs, logs or file dumps.

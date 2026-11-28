@@ -35,7 +35,7 @@ signal is the `Portal RS CI` push run on `main`. Before a portal-rs PR merges
 right after another one, build the merged tree locally
 (`git merge-tree --write-tree origin/main HEAD`, then the checks in
 `local-checks.md` on the merge) when both touch shared files or migrations.
-PostgreSQL tests never run in CI (`local-checks.md`, *PostgreSQL tests*).
+PostgreSQL tests never run in the fast PR lane; the `heavy-tests` label runs them (`local-checks.md`, *PostgreSQL tests*).
 
 ## Merge conditions
 

@@ -24,8 +24,11 @@ so rounds are comparable:
   (`crates/<module>` and the crates it calls), its tables and migrations
   (`portal-rs/migrations/`), its routes in the `crates/web` router, its
   workers and its `/internal/v1` routes.
-- **Stop bar and frozen lens list:** the bar of section 5 and the lenses
-  every round runs (`batch-review.md` §1). Neither changes during the loop.
+- **Stop bar and models:** the bar of section 5 and the model and effort
+  of every run: each cut gets `gpt-6.2-sol` at `high` plus `gpt-6.2-astra`
+  at `high` (an area review is always a risk-class read; the PR table of
+  `batch-review.md` §1 does not apply to it). Neither changes during the
+  loop.
 - **Rules (invariants):** the behaviour the code must have, taken from
   written sources only: root `AGENTS.md` (*Security and data invariants*),
   `docs/architecture/OTERYN_PORTAL_RUST_PLAN.md`, `docs/contracts/` and its
@@ -55,8 +58,8 @@ SKILL.md §3 as the checklist).
 | Boundary | contract (browser and server, Platform and Game) | the Platform code, the contract in `docs/contracts/` and its fixtures; Game code is not read | each field and outcome where the code and the contract disagree |
 
 A writer, step or field missing from a returned table means "not reviewed",
-not clean. Chunk runs (`batch-review.md` §1, about 400-500 lines of one
-crate) cover only the files no cut reached, and the files a cut flagged.
+not clean. Chunk runs (about 400-500 lines of one crate, sized for this loop; not
+the PR area split of `batch-review.md` §1) cover only the files no cut reached, and the files a cut flagged.
 
 ## 3. Findings ledger and synthesis
 
@@ -86,7 +89,7 @@ crate) cover only the files no cut reached, and the files a cut flagged.
 ## 5. Stop
 
 - **Done:** two consecutive rounds on the same head of `main`, with the
-  frozen lens list, each with zero new confirmed P0, P1 and P2 on
+  frozen models, each with zero new confirmed P0, P1 and P2 on
   v1-reachable code, and every run of both finished. The second round uses
   a different cut (by flow instead of by state, or refute and completeness
   briefs).
@@ -108,5 +111,5 @@ Every game- or money-touching feature sits behind a flag, off by default
 - **Inside an off-flag feature** only P0 and P1 count toward the stop bar;
   P2 and P3 go to the feature's backlog.
 - **Before a flag is switched on** (default changed, or enabled in any
-  environment), the feature gets one full round, every lens and every cut
-  that applies, with zero findings over the v1 stop bar.
+  environment), the feature gets one full round, every cut that applies
+  (sol and astra at `high`), with zero findings over the v1 stop bar.

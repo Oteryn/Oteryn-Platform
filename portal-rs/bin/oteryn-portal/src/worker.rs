@@ -40,6 +40,20 @@ impl Cleanup for TicketBudgetCleanup {
         Box::pin(async move { self.0.prune().await.map(|_| ()).map_err(|e| e.to_string()) })
     }
 }
+/// OTERYN_NATIVE_LOGIN_CHALLENGE_V1 counters and challenges past retention.
+#[derive(Debug)]
+struct NativeChallengeCleanup(oteryn_gameauth::oauth::challenge::Retention);
+impl Cleanup for NativeChallengeCleanup {
+    fn clean(&self) -> HandlerFuture<'_> {
+        Box::pin(async move {
+            self.0
+                .prune()
+                .await
+                .map(|_| ())
+                .map_err(|e| format!("native login challenge retention failed: {e:?}"))
+        })
+    }
+}
 /// Deletes obsolete verification history in bounded batches, retaining the
 /// entire resend-rate window even when a token was consumed immediately.
 #[derive(Debug)]
@@ -445,6 +459,13 @@ pub(crate) async fn configured(pool: PgPool) -> Result<Registry, Box<dyn std::er
         60,
         Arc::new(TicketBudgetCleanup(
             oteryn_gameauth::tickets::BudgetRetention { pool: pool.clone() },
+        )),
+    )?;
+    registry.cleanup(
+        "cleanup.native-login-challenge",
+        60,
+        Arc::new(NativeChallengeCleanup(
+            oteryn_gameauth::oauth::challenge::Retention { pool: pool.clone() },
         )),
     )?;
     registry.cleanup(

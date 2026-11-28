@@ -414,6 +414,53 @@ async fn postgres_login_returns_to_stored_authorize_target_once() -> TestResult 
     Ok(())
 }
 
+/// The native login challenge page (OTERYN_NATIVE_LOGIN_CHALLENGE_V1) is a
+/// return target too: a real login, with its session rotation, returns to
+/// the exact path and query the signed-out page stored
+/// (`oauth_mfa_web_tests` stores it through the full router).
+#[tokio::test]
+async fn postgres_login_returns_to_the_stored_challenge_page() -> TestResult {
+    let Some(database) = database::Database::open().await? else {
+        return Ok(());
+    };
+    let pool = database.pool.clone();
+    let email = format!("challenge-{}@example.test", uuid::Uuid::now_v7());
+    let hash = oteryn_identity::password::hash("test password")?;
+    let id: uuid::Uuid = sqlx::query_scalar("INSERT INTO accounts(email,password_hash,status,locale,email_verified_at) VALUES($1,$2,'active','en',now()) RETURNING id").bind(&email).bind(hash).fetch_one(&pool).await?;
+    let app = router(pool.clone(), true, SessionLayer::new(pool.clone()));
+    let target = "/oauth/challenge?client_id=native-test&challenge_id=019ad000-0000-7000-8000-000000000001&redirect_uri=http%3A%2F%2F127.0.0.1%3A50123%2Fcallback&state=Zm9yLXRoZS1uYXRpdmUtbG9naW4tY2hhbGxlbmdlLXRlc3Q";
+    let response = app
+        .clone()
+        .oneshot(request("GET", "/en/login", "", "")?)
+        .await?;
+    let guest = cookie(&response)?;
+    let token = csrf(&body(response).await?)?.to_owned();
+    sqlx::query("UPDATE web_sessions SET data=data||jsonb_build_object('oauth_return',$1::text) WHERE account_id IS NULL")
+        .bind(target)
+        .execute(&pool)
+        .await?;
+    let response = app
+        .clone()
+        .oneshot(request(
+            "POST",
+            "/en/login",
+            &guest,
+            &format!("_csrf={token}&email={email}&password=test+password"),
+        )?)
+        .await?;
+    assert_eq!(response.status(), StatusCode::FOUND);
+    assert_eq!(response.headers()[header::LOCATION], target);
+    assert_ne!(cookie(&response)?, guest, "the session rotates");
+    let left: Option<String> =
+        sqlx::query_scalar("SELECT data->>'oauth_return' FROM web_sessions WHERE account_id=$1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(left, None);
+    database.close().await?;
+    Ok(())
+}
+
 #[tokio::test]
 async fn audit02_paused_password_completion_refuses_reset_even_after_anonymous_get() -> TestResult {
     let Some(db) = database::Database::open().await? else {

@@ -43,6 +43,27 @@ fn authorize_return_accepts_only_the_local_authorize_route() {
         assert!(!authorize_return(bad), "{bad:?}");
     }
 }
+/// OTERYN_NATIVE_LOGIN_CHALLENGE_V1: a sign-in started on the challenge page
+/// returns to that page, under the same rules as the authorize route.
+#[test]
+fn authorize_return_also_accepts_the_native_login_challenge_page() {
+    assert!(authorize_return(
+        "/oauth/challenge?client_id=c&challenge_id=i&redirect_uri=http%3A%2F%2F127.0.0.1%3A5%2Fcb&state=s"
+    ));
+    let long = format!("/oauth/challenge?q={}", "a".repeat(8192));
+    for bad in [
+        "/oauth/challenge",
+        "/oauth/challenge?",
+        "/oauth/challengeX?a=1",
+        "//evil.example/oauth/challenge?a=1",
+        "/oauth/challenge?a=1#frag",
+        "/oauth/challenge?a=1\\evil",
+        "/oauth/challenge?a=1 b",
+        long.as_str(),
+    ] {
+        assert!(!authorize_return(bad), "{bad:?}");
+    }
+}
 #[tokio::test]
 async fn postgres_login_rehash_refusals_and_bad_input() -> Result<(), Box<dyn std::error::Error>> {
     let Some(database) = database::Database::open().await? else {
