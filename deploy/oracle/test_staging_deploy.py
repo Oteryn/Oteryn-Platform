@@ -1,10 +1,12 @@
 """Exercise the staging host boundary without building a portal or touching Oracle."""
+import hashlib
 import fcntl
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
+from contextlib import nullcontext
 import subprocess
 import tempfile
 import unittest
@@ -36,6 +38,8 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual(staging.parse(['deploy', SHA, 'specs/foo.spec.mjs',
                                         '--pg-tests', 'oteryn-db,oteryn-web']),
                          ('deploy', SHA, 'specs/foo.spec.mjs', ['oteryn-db', 'oteryn-web']))
+        self.assertEqual(staging.parse(['deploy', SHA])[2], staging.DEPLOY_ONLY)
+        self.assertEqual(staging.parse(['deploy', SHA, ''])[2], '')
         self.assertEqual(staging.parse(['status'])[0], 'status')
         self.assertEqual(staging.parse(['logs'])[0], 'logs')
         with patch.object(staging, 'production_idle') as idle, patch('sys.stderr', new=io.StringIO()):
@@ -48,18 +52,21 @@ class StagingDeploy(unittest.TestCase):
             idle.assert_not_called()
             self.assertEqual(list(self.root.iterdir()), [])
 
-    def test_source_must_be_current_allowed_head_across_pages(self):
+    def test_source_must_be_current_allowed_codex_or_staging_head(self):
         staging = self.staging
-        page = [{'name': 'feature/ref', 'commit': {'sha': SHA}}] * 100
-        with patch.object(staging, 'branches', side_effect=[
-            page, [{'name': 'staging/portal', 'commit': {'sha': SHA}}]
-        ]) as branches:
+        listing = f'{"b" * 40}\trefs/heads/codex/other\n{SHA}\trefs/heads/staging/portal\n'
+        with patch.object(staging, 'run', return_value=listing) as run:
             staging.qualify(SHA)
-            self.assertEqual(branches.call_args_list, [call(1), call(2)])
+        command = run.call_args.args[0]
+        self.assertEqual(command[-5:], ['ls-remote', '--heads', staging.REPO,
+                                        'refs/heads/codex/*', 'refs/heads/staging/*'])
         for name in ('main', 'feature/codex/portal', 'codex-old/portal'):
-            with patch.object(staging, 'branches', return_value=[{'name': name, 'commit': {'sha': SHA}}]):
+            with patch.object(staging, 'run', return_value=f'{SHA}\trefs/heads/{name}\n'):
                 with self.assertRaisesRegex(ValueError, 'current head'):
                     staging.qualify(SHA)
+        with patch.object(staging, 'run', return_value=f'{SHA}\tHEAD\n'):
+            with self.assertRaisesRegex(ValueError, 'unexpected'):
+                staging.qualify(SHA)
 
     def test_source_checks_identity_and_dirty_state(self):
         staging = self.staging
@@ -152,8 +159,26 @@ class StagingDeploy(unittest.TestCase):
         detach.assert_called_once()
         move.assert_called_once_with(self.root)
         self.assertEqual([item.args[1] for item in redirect.call_args_list], [0, 1, 2])
-        deploy.assert_called_once_with(self.root / 'run' / SHA, SHA, 'spec', ['oteryn-db'])
+        deploy.assert_called_once_with(self.root / 'run' / SHA, SHA, 'spec', ['oteryn-db'],
+                                       deploy.call_args.args[-1])
+        self.assertEqual(Path(deploy.call_args.args[-1].name), self.root / 'deployment.lock')
         self.assertEqual(exit_process.call_args_list[0], call(0))
+
+    def test_another_branch_can_deploy_during_qualification(self):
+        staging = self.staging
+        (self.root / 'run').mkdir()
+        (self.root / 'run' / 'qualifying').write_text(SHA)
+        other = 'b' * 40
+        with staging.qualification_lock(), patch.object(staging, 'production_idle'), \
+                patch.object(staging.os, 'fork', return_value=123), \
+                patch('sys.stdout', new=io.StringIO()):
+            self.assertEqual(staging.launch(other, staging.DEPLOY_ONLY, []), 0)
+            self.assertEqual(staging.pointer('latest'), other)
+            with self.assertRaisesRegex(ValueError, 'revision is already being qualified'):
+                staging.launch(SHA, staging.DEPLOY_ONLY, [])
+            with self.assertRaisesRegex(ValueError, 'qualification holds the lock'):
+                staging.launch(other, '', [])
+        self.assertIsNone(staging.active_qualification())
 
     def test_compose_is_scoped_and_confined(self):
         staging = self.staging
@@ -172,7 +197,7 @@ class StagingDeploy(unittest.TestCase):
         self.assertEqual([(name, port['host_ip'], str(port['published']))
                           for name, service in services.items() for port in service.get('ports', [])],
                          [('ingress', '127.0.0.1', '18080')])
-        core = ('portal', 'worker', 'postgres', 'mail', 'ingress')
+        core = ('portal', 'portal-public', 'worker', 'postgres', 'mail', 'ingress')
         for name, service in services.items():
             with self.subTest(service=name):
                 self.assertTrue(service['read_only'])
@@ -184,14 +209,44 @@ class StagingDeploy(unittest.TestCase):
                 self.assertGreater(int(service['mem_limit']), 0)
                 for volume in service.get('volumes', []):
                     self.assertEqual(volume['type'], 'volume')
-                if name != 'ingress':
+                if name not in ('ingress', 'browser', 'browser-postgres', 'pg-tests'):
                     self.assertEqual(set(service['networks']), {'net'})
+        self.assertTrue(config['networks']['browser']['internal'])
+        self.assertEqual(config['networks']['browser']['driver_opts'],
+                         {'com.docker.network.bridge.gateway_mode_ipv4': 'isolated'})
+        self.assertEqual(set(services['browser-postgres']['networks']), {'browser'})
         for job in ('browser', 'pg-tests'):
-            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in (*core, job)), 2)
-            self.assertLess(sum(int(services[name]['mem_limit']) for name in (*core, job)), 5 * 1024**3)
+            self.assertEqual(services[job]['network_mode'], 'service:browser-postgres')
+            self.assertNotIn('networks', services[job])
+        self.assertEqual(services['browser-postgres']['image'], services['postgres']['image'])
+        self.assertIn('listen_addresses=127.0.0.1', services['browser-postgres']['command'])
+        self.assertEqual(len(services['browser-postgres']['volumes']), 1)
+        database_volume, = services['browser-postgres']['volumes']
+        self.assertEqual(database_volume['target'], '/var/lib/postgresql')
+        self.assertNotIn('source', database_volume)
+        self.assertNotIn('volumes', services['browser'])
+        self.assertEqual(services['browser']['environment']['TMPDIR'], '/run/portal-e2e')
+        self.assertIn('/run/portal-e2e:size=256m,uid=10001,gid=10001,mode=0700,exec,nosuid,nodev',
+                      services['browser']['tmpfs'])
+        for job in ('browser', 'pg-tests'):
+            names = (*core, job, 'browser-postgres')
+            self.assertAlmostEqual(sum(float(services[name]['cpus']) for name in names), 2.4)
+            self.assertLess(sum(int(services[name]['mem_limit']) for name in names), 6 * 1024**3)
         self.assertIn('postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42',
                       services['postgres']['image'])
         self.assertEqual(services['mail']['environment']['MP_SMTP_REQUIRE_STARTTLS'], 'true')
+        # The ingress exposes only a GET view of the catcher's API, never its UI.
+        ingress = services['ingress']['command'][0]
+        self.assertIn("const MAIL = '/__mailpit/api/v1/';", ingress)
+        self.assertIn("request.method !== 'GET'", ingress)
+        self.assertIn("hostname: 'mail', port: 8025, method: 'GET'", ingress)
+        # portal-public trusts only ingress, which replaces any client-sent
+        # X-Forwarded-For with Cloudflare's client address.
+        self.assertEqual(services['portal-public']['environment']['TRUSTED_PROXIES'],
+                         services['ingress']['networks']['net']['ipv4_address'])
+        self.assertNotIn('TRUSTED_PROXIES', services['portal'].get('environment', {}))
+        self.assertIn("delete headers['x-forwarded-for'];", ingress)
+        self.assertIn("headers['cf-connecting-ip']", ingress)
         with patch.object(staging, 'run') as command:
             staging.compose(directory, 'ps')
         self.assertEqual(command.call_args.args[0][:4], ['docker', 'compose', '-p', 'oteryn-staging'])
@@ -200,7 +255,9 @@ class StagingDeploy(unittest.TestCase):
         staging = self.staging
         _, _, _, first = staging.configure(self.root, SHA)
         _, _, _, second = staging.configure(self.root, SHA)
-        self.assertFalse(set(first) & set(second))
+        accounts = staging.test_accounts()
+        persisted = {value for entry in accounts.values() for value in entry.values()}
+        self.assertEqual(set(first) & set(second), persisted)
         for path in self.root.glob('*.env'):
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
         portal = (self.root / 'portal.env').read_text()
@@ -213,19 +270,140 @@ class StagingDeploy(unittest.TestCase):
         self.assertIn('/' + staging.TEST_DB + '\n', (self.root / 'pg-tests.env').read_text())
         self.assertNotIn('/' + staging.PORTAL_DB, (self.root / 'pg-tests.env').read_text())
 
+    def test_credentials_are_created_once_and_reused(self):
+        staging = self.staging
+        first = staging.test_accounts()
+        path = self.root / 'test-accounts.json'
+        original = path.stat()
+        self.assertEqual(original.st_mode & 0o777, 0o600)
+        self.assertEqual(original.st_uid, os.geteuid())
+        self.assertEqual(original.st_gid, 0 if os.geteuid() == 0 else os.getegid())
+        with patch.object(staging.secrets, 'token_urlsafe', side_effect=AssertionError):
+            self.assertEqual(staging.test_accounts(), first)
+        self.assertEqual(path.stat().st_ino, original.st_ino)
+        self.assertEqual(set(first), {*staging.PLAYERS, *staging.STAFF})
+        self.assertEqual({email for email, entry in first.items() if 'totpSecret' in entry},
+                         staging.TOTP_ACCOUNTS)
+        self.assertEqual(len({entry['password'] for entry in first.values()}), len(first))
+        path.chmod(0o644)
+        with self.assertRaises(staging.Refusal):
+            staging.test_accounts()
+
+    def test_credentials_refuse_a_symlink(self):
+        staging = self.staging
+        staging.test_accounts()
+        path = self.root / 'test-accounts.json'
+        target = path.with_name('alternate.json')
+        path.rename(target)
+        path.symlink_to(target)
+        with self.assertRaises(OSError):
+            staging.test_accounts()
+        self.assertTrue(path.is_symlink())
+
+    def test_public_origin_defaults_to_loopback_and_rejects_bad_values(self):
+        staging = self.staging
+        staging.configure(self.root, SHA)
+        public = (self.root / 'public.env').read_text()
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n', public)
+        self.assertIn('OTERYN_WEBAUTHN_RP_ID=localhost\n', public)
+        # portal-public reads portal.env then public.env, so both portals get them.
+        for flag in staging.PUBLIC_FLAGS:
+            self.assertIn(flag + '=true\n', (self.root / 'portal.env').read_text())
+        self.assertFalse(set(staging.PUBLIC_FLAGS) & set(staging.OFF))
+        self.assertFalse(set(staging.ADMIN_FLAGS) & set(staging.OFF))
+        (self.root / 'public-origin').write_text('https://staging.example.com\n')
+        staging.configure(self.root, SHA)
+        public = (self.root / 'public.env').read_text()
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
+        self.assertIn('OTERYN_WEBAUTHN_RP_ID=staging.example.com\n', public)
+        self.assertIn('OTERYN_NOTIFY_UNSUBSCRIBE_URL=https://staging.example.com/en/unsubscribe\n', public)
+        # No admin-origin: the staff panel stays off, never on the player host.
+        self.assertIn('OTERYN_ADMIN_HOST=\n', public)
+        for flag in staging.ADMIN_FLAGS:
+            self.assertIn(flag + '=false\n', public)
+        (self.root / 'admin-origin').write_text('https://staging-admin.example.com\n')
+        staging.configure(self.root, SHA)
+        public = (self.root / 'public.env').read_text()
+        self.assertIn('OTERYN_ADMIN_HOST=staging-admin.example.com\n', public)
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=https://staging.example.com\n', public)
+        portal = (self.root / 'portal.env').read_text()
+        for flag in staging.ADMIN_FLAGS:
+            self.assertIn(flag + '=true\n', public)
+            # The in-stack E2E portal serves staff only on its loopback origin.
+            self.assertIn(flag + '=true\n', portal)
+        self.assertIn('OTERYN_ADMIN_HOST=localhost:18443\n', portal)
+        for bad in ('https://staging.example.com', 'http://staging-admin.example.com'):
+            with self.subTest(admin=bad):
+                (self.root / 'admin-origin').write_text(bad)
+                with self.assertRaises(staging.Refusal):
+                    staging.configure(self.root, SHA)
+        (self.root / 'admin-origin').unlink()
+        self.assertIn('OTERYN_PUBLIC_ORIGIN=' + staging.ORIGIN + '\n',
+                      (self.root / 'portal.env').read_text())
+        for bad in ('http://staging.example.com', 'https://staging.example.com/x',
+                    'https://user@evil.example', 'https://staging.example.com\nX=1', 'https://localhost'):
+            with self.subTest(bad=bad):
+                (self.root / 'public-origin').write_text(bad)
+                with self.assertRaises(staging.Refusal):
+                    staging.configure(self.root, SHA)
+
     def test_stack_replaces_only_exact_volumes_and_migrates_seeds_serves(self):
         staging = self.staging
         directory = self.root / 'run'
         directory.mkdir()
-        with patch.object(staging, 'run', return_value=subprocess.CompletedProcess([], 0)) as command, \
+        accounts = staging.test_accounts()
+        fake_id = '019a0000-0000-7000-8000-000000000001'
+
+        def run(args, **kwargs):
+            if args[-3:] == ['seed', 'account', '-']:
+                return json.dumps({'accountId': fake_id})
+            return subprocess.CompletedProcess([], 0)
+
+        with patch.object(staging, 'run', side_effect=run) as command, \
                 patch.object(staging, 'install_tls'), patch.object(staging, 'wait_ready') as ready:
-            staging.replace_stack(directory, SHA, 'smtp', 'password')
+            staging.replace_stack(directory, SHA, 'smtp', accounts, b'sample SQL')
         commands = [entry.args[0] for entry in command.call_args_list]
         compose = [item[10:] for item in commands if item[:2] == ['docker', 'compose']]
         self.assertEqual(compose[0][0], 'down')
         self.assertEqual([item[-1] for item in compose[2:4]], ['migrate', 'install-legal-pages'])
         self.assertEqual(compose[4][5:7], ['seed', 'account'])
-        self.assertEqual(compose[-1], ['up', '-d', 'portal', 'worker', 'ingress'])
+        seeds = [json.loads(entry.kwargs['data']) for entry in command.call_args_list
+                 if entry.args[0][-3:] == ['seed', 'account', '-']]
+        self.assertEqual([seed['email'] for seed in seeds], [*staging.PLAYERS, *staging.STAFF])
+        for seed in seeds:
+            email = seed['email']
+            self.assertEqual(seed['password'], accounts[email]['password'])
+            self.assertEqual(seed.get('role'), staging.STAFF.get(email))
+            self.assertEqual(seed['verified'], email != 'player-new@staging.invalid')
+        mfa = [json.loads(entry.kwargs['data']) for entry in command.call_args_list
+               if entry.args[0][-3:] == ['seed', 'account-mfa', '-']]
+        self.assertCountEqual(mfa, [{'accountId': fake_id, **accounts[email]}
+                                    for email in staging.TOTP_ACCOUNTS])
+        self.assertFalse(any(value in arg for item in commands for arg in item
+                             for entry in accounts.values() for value in entry.values()))
+        self.assertEqual(set(staging.STAFF.values()), set(staging.STAFF_ROLES))
+        grant = [entry for entry in command.call_args_list if entry.args[0][10:13] == ['exec', '-T', 'postgres']]
+        self.assertEqual(grant[-1].kwargs['data'], b'sample SQL')
+        # Registration is enabled and every range prefix is cached as complete
+        # before the public portal starts, because the stack has no egress.
+        policy = [entry for entry in grant if entry.kwargs['data'] == staging.REGISTRATION_POLICY]
+        self.assertEqual(len(policy), 1)
+        # psql accepts -1 only with -c/-f, so the SQL carries its own transaction.
+        self.assertNotIn('-1', policy[0].args[0])
+        self.assertIsInstance(staging.REGISTRATION_POLICY, bytes)
+        sql = staging.REGISTRATION_POLICY.decode()
+        self.assertTrue(sql.startswith('BEGIN;\n'))
+        self.assertTrue(sql.endswith('COMMIT;\n'))
+        self.assertIn('SET enabled = true', sql)
+        self.assertIn('generate_series(0, 1048575)', sql)
+        for sample in staging.BREACHED_SAMPLES:
+            digest = hashlib.sha1(sample.encode()).hexdigest().upper()
+            self.assertIn(f"ARRAY['{digest[5:]}']", sql)
+            self.assertIn(f"WHERE prefix = '{digest[:5]}'", sql)
+        self.assertLess(command.call_args_list.index(policy[0]),
+                        [i for i, entry in enumerate(command.call_args_list)
+                         if entry.args[0][10:12] == ['up', '-d'] and 'portal-public' in entry.args[0]][0])
+        self.assertEqual(compose[-1], ['up', '-d', 'portal', 'portal-public', 'worker', 'ingress', 'sample-feed'])
         removals = [item for item in commands if item[:3] == ['docker', 'volume', 'rm']]
         self.assertEqual([item[-1] for item in removals], [
             'oteryn-staging_data', 'oteryn-staging_trust', 'oteryn-staging_mail_tls',
@@ -235,7 +413,7 @@ class StagingDeploy(unittest.TestCase):
         ready.assert_called_once()
         self.assert_isolated(commands)
 
-    def assert_isolated(self, commands):
+    def assert_isolated(self, commands, project='oteryn-staging'):
         denied = ('/opt/oteryn-portal', '/opt/oteryn-oracle', 'oteryn-oracle_private',
                   'oteryn-portal', 'platform.env', 'platform-migrate.env', 'prune')
         for args in commands:
@@ -245,7 +423,7 @@ class StagingDeploy(unittest.TestCase):
                 for forbidden in denied:
                     self.assertNotIn(forbidden, str(arg))
             if args[:2] == ['docker', 'compose']:
-                self.assertEqual(args[2:4], ['-p', 'oteryn-staging'])
+                self.assertEqual(args[2:4], ['-p', project])
 
     def test_readiness_deadline_and_recovery(self):
         staging = self.staging
@@ -258,21 +436,62 @@ class StagingDeploy(unittest.TestCase):
                 patch.object(staging.time, 'sleep'), self.assertRaisesRegex(ValueError, 'deadline'):
             staging.wait_ready(1)
 
+    def test_playwright_keeps_no_failure_artifacts_in_the_bounded_tmp(self):
+        for option in ("trace: 'off'", "screenshot: 'off'", "video: 'off'"):
+            self.assertIn(option, self.staging.BROWSER)
+
+    def test_e2e_uses_ci_launcher_and_a_separate_database(self):
+        staging = self.staging
+        staging.configure(self.root, SHA)
+        browser = (self.root / 'browser.env').read_text()
+        portal = (self.root / 'portal.env').read_text()
+        source = (self.root / 'browser-postgres.env').read_text()
+        password = next(line.split('=', 1)[1] for line in source.splitlines()
+                        if line.startswith('POSTGRES_PASSWORD='))
+        self.assertIn(f'PORTAL_E2E_ADMIN_DATABASE_URL=postgres://portal:{password}@127.0.0.1:5432/postgres\n',
+                      browser)
+        self.assertNotIn(password, portal)
+        self.assertNotIn('OTERYN_MFA_KEY', browser)
+        self.assertIn("['local.mjs']", staging.BROWSER)
+        self.assertIn('await seedPasswordRanges()', staging.BROWSER)
+        self.assertIn('await client.query(process.argv[2])', staging.BROWSER)
+        self.assertIn('PORTAL_E2E_AUTH_DIRECTORY: authDirectory', staging.BROWSER)
+        self.assertIn("portalGet('/admin', {cookie:", staging.BROWSER)
+        self.assertIn('clearInterval(heartbeat)', staging.BROWSER)
+        self.assertIn("'run.mjs', envFile, 'test'", staging.BROWSER)
+        self.assertNotIn('testIgnore', staging.BROWSER)
+
+    def test_playwright_runs_one_project_within_the_cap(self):
+        self.assertIn("'--project=pl-1440'", self.staging.BROWSER)
+
     def test_playwright_filters_literal_path_and_reports_assertions(self):
         staging = self.staging
         failed = {'status': 'unexpected', 'projectName': 'en-390',
                   'results': [{'error': {'message': 'Expected redaction\nsecond line'}}]}
         report = {'stats': {'expected': 3, 'unexpected': 1, 'flaky': 0, 'skipped': 2},
-                  'suites': [{'suites': [{'specs': [{'title': 'can register', 'tests': [failed]}]}]}],
+                  'suites': [{'suites': [{'specs': [
+                      {'title': 'can register', 'file': 'specs/a.spec.mjs', 'tests': [failed]},
+                      {'title': 'later', 'file': 'specs/a.spec.mjs',
+                       'tests': [{'status': 'skipped', 'projectName': 'en-390', 'results': []}] * 2}]}]}],
                   'errors': []}
         result = subprocess.CompletedProcess([], 1, stdout=json.dumps(report).encode())
-        with patch.object(staging, 'run', return_value=result) as command:
+        with patch.object(staging, 'run', return_value=result) as command, \
+                staging.qualification_database(self.root):
             ok, summary = staging.playwright(self.root, 'specs/a.spec.mjs', ['redaction'])
         self.assertFalse(ok)
         self.assertEqual(summary, ['Playwright passed 3, failed 1, skipped 2',
-                                   'can register [en-390] — Expected [redacted]'])
-        self.assertEqual(command.call_args.args[0][-2:], ['--', r'specs/a\.spec\.mjs'])
-        self.assert_isolated([command.call_args.args[0]])
+                                   'specs/a.spec.mjs: can register [en-390] — Expected [redacted]',
+                                   'skipped 2 in specs/a.spec.mjs'])
+        cleanup = ['rm', '--stop', '--force', '--volumes', 'browser-postgres']
+        self.assertEqual(command.call_args_list[0].args[0][-5:], cleanup)
+        self.assertEqual(command.call_args_list[1].args[0][-6:],
+                         ['up', '-d', '--wait', '--wait-timeout', '90', 'browser-postgres'])
+        self.assertEqual(command.call_args_list[2].args[0][-3:],
+                         ['--', r'specs/a\.spec\.mjs', staging.REGISTRATION_POLICY.decode()])
+        self.assertEqual(command.call_args_list[2].kwargs['timeout'], 7200)
+        self.assertEqual(command.call_args_list[3].args[0][-5:], cleanup)
+        self.assert_isolated([item.args[0] for item in command.call_args_list],
+                             'oteryn-staging-qualification')
         report.update(suites=[], stats={'expected': 1, 'unexpected': 0, 'flaky': 0, 'skipped': 0})
         self.assertTrue(staging.playwright_summary(
             subprocess.CompletedProcess([], 0, stdout=json.dumps(report).encode()), [])[0])
@@ -298,22 +517,27 @@ class StagingDeploy(unittest.TestCase):
         commands = [entry.args[0] for entry in command.call_args_list]
         create_role = command.call_args_list[0].kwargs['data']
         self.assertIn(b'LOGIN CREATEDB', create_role)
-        self.assertIn(b'REVOKE CONNECT ON DATABASE portal_e2e_staging FROM PUBLIC', create_role)
+        self.assertNotIn(b'portal_e2e_staging', create_role)
+        self.assertTrue(all('browser-postgres' in item for item in commands if 'exec' in item))
         self.assertEqual([item[-1] for item in commands if 'dropdb' in item], [staging.TEST_DB] * 2)
         self.assertEqual([item[-3:] for item in commands if 'pg-tests' in item],
                          [['--locked', '-p', 'oteryn-db'], ['--locked', '-p', 'oteryn-web']])
         self.assertNotIn('private', repr(commands))
-        self.assert_isolated(commands)
+        self.assert_isolated(commands, 'oteryn-staging-qualification')
 
     def test_timeout_removes_only_the_named_test_container(self):
         staging = self.staging
         timeout = subprocess.TimeoutExpired(['docker'], 3600)
-        with patch.object(staging, 'run', side_effect=[timeout, None]) as command:
+        with patch.object(staging, 'run', side_effect=[None, None, timeout, None, None]) as command, \
+                staging.qualification_database(self.root):
             self.assertEqual(staging.playwright(self.root, '', []),
                              (False, ['Playwright timed out']))
-        self.assertEqual(command.call_args.args[0],
-                         ['docker', 'container', 'rm', '--force', 'oteryn-staging_browser_job'])
-        self.assert_isolated([item.args[0] for item in command.call_args_list])
+        self.assertEqual(command.call_args_list[3].args[0],
+                         ['docker', 'container', 'rm', '--force', 'oteryn-staging-qualification_browser_job'])
+        self.assertEqual(command.call_args_list[4].args[0][-5:],
+                         ['rm', '--stop', '--force', '--volumes', 'browser-postgres'])
+        self.assert_isolated([item.args[0] for item in command.call_args_list],
+                             'oteryn-staging-qualification')
 
     def test_deploy_rechecks_boundaries_before_replacement_and_saves_both_results(self):
         staging = self.staging
@@ -323,21 +547,75 @@ class StagingDeploy(unittest.TestCase):
         checkout = self.root / 'src' / SHA
         with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
                             build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT,
-                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods:
+                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods, \
+                patch.object(staging, 'git', return_value='sample SQL'):
             sequence = Mock()
             for name, method in methods.items():
                 sequence.attach_mock(method, name)
             methods['source'].return_value = checkout
-            methods['playwright'].return_value = (False, ['Playwright failed'])
+
+            def run_browser(*args):
+                with staging.deploy_lock():
+                    self.assertEqual(staging.active_qualification(), SHA)
+                return False, ['Playwright failed']
+
+            methods['playwright'].side_effect = run_browser
             methods['pg_tests'].return_value = (True, ['PG oteryn-db PASS'])
-            self.assertFalse(staging.deploy(directory, SHA, 'spec', ['oteryn-db']))
+            with staging.qualification_lock(), staging.deploy_lock() as lock, \
+                    patch.object(staging, 'qualification_database', side_effect=lambda _: nullcontext()) as db:
+                self.assertFalse(staging.deploy(directory, SHA, 'spec', ['oteryn-db'], lock))
+                self.assertIsNone(staging.active_qualification())
+            self.assertEqual(db.call_args_list, [call(directory), call(directory)])
         self.assertEqual([item[0] for item in sequence.mock_calls], [
             'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
-            'build', 'build', 'build', 'qualify', 'production_idle', 'replace_stack',
-            'playwright', 'pg_tests',
+            'build', 'qualify', 'production_idle', 'replace_stack', 'build_context',
+            'build', 'playwright', 'build', 'pg_tests',
         ])
         self.assertEqual((directory / 'summary.txt').read_text(), 'Playwright failed\nPG oteryn-db PASS\n')
         self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'failed')
+
+    def test_deploy_only_skips_test_suites(self):
+        staging = self.staging
+        parent = self.root / 'run'
+        directory = parent / SHA
+        directory.mkdir(parents=True)
+        checkout = self.root / 'src' / SHA
+        with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
+                            build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT,
+                            replace_stack=DEFAULT, playwright=DEFAULT, pg_tests=DEFAULT) as methods, \
+                patch.object(staging, 'git', return_value='sample SQL') as git:
+            sequence = Mock()
+            for name, method in methods.items():
+                sequence.attach_mock(method, name)
+            methods['source'].return_value = checkout
+            with staging.deploy_lock() as lock:
+                self.assertTrue(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, ['oteryn-db'], lock))
+            methods['build_context'].assert_called_once_with(checkout, browser=False)
+            methods['build'].assert_called_once_with(checkout, SHA, 'runtime')
+            git.assert_called_once_with(checkout, 'show', f'{SHA}:{staging.SAMPLE_SQL}')
+            self.assertEqual(methods['replace_stack'].call_args.args[-1], b'sample SQL')
+        self.assertEqual([item[0] for item in sequence.mock_calls], [
+            'qualify', 'source', 'build_context', 'require_capacity', 'production_idle',
+            'build', 'qualify', 'production_idle', 'replace_stack',
+        ])
+        self.assertEqual((directory / 'summary.txt').read_text(), 'Deployed without test runs\n')
+        self.assertEqual(json.loads((directory / 'status.json').read_text())['phase'], 'passed')
+
+    def test_deploy_summary_redacts_all_test_credentials(self):
+        staging = self.staging
+        directory = self.root / 'run' / SHA
+        directory.mkdir(parents=True)
+        credentials = [value for entry in staging.test_accounts().values() for value in entry.values()]
+        with patch.multiple(staging, qualify=DEFAULT, production_idle=DEFAULT, source=DEFAULT,
+                            build_context=DEFAULT, require_capacity=DEFAULT, build=DEFAULT), \
+                patch.object(staging, 'git', return_value='sample SQL'), \
+                patch.object(staging, 'replace_stack',
+                             side_effect=staging.Refusal(' '.join(credentials))), \
+                staging.deploy_lock() as lock:
+            self.assertFalse(staging.deploy(directory, SHA, staging.DEPLOY_ONLY, [], lock))
+        summary = (directory / 'summary.txt').read_text()
+        self.assertFalse(any(value in summary for value in credentials))
+        self.assertTrue(summary.startswith('[redacted] [redacted]'))
 
     def test_owner_install_documents_the_direct_host_cli(self):
         staging_section = (HERE / 'README.md').read_text().split('## Staging\n', 1)[1]
@@ -359,6 +637,10 @@ class StagingDeploy(unittest.TestCase):
             status.touch()
             os.utime(status, (index + 1, index + 1))
         (self.root / 'run' / 'current').write_text(heads[1])
+        (self.root / 'run' / 'qualifying').write_text(heads[0])
+        with staging.qualification_lock(), patch.object(staging, 'run') as command:
+            staging.retain(heads[-1])
+            command.assert_not_called()
         with patch.object(staging, 'run', return_value=subprocess.CompletedProcess([], 0)) as command, \
                 patch.object(staging, 'verify_image') as verify:
             staging.retain(heads[-1])

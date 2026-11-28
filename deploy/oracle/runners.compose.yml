@@ -18,6 +18,12 @@ services:
   game:
     <<: *runner
     volumes: [game:/home/runner]
+  # Separate runner group (staging-runners) for branch-triggered staging
+  # deploys. It holds only the staging key; branch code never reaches the
+  # production runners or their keys.
+  staging:
+    <<: *runner
+    volumes: [staging:/home/runner]
 volumes:
   platform:
     external: true
@@ -25,3 +31,6 @@ volumes:
   game:
     external: true
     name: oteryn-oracle-runners_game
+  staging:
+    external: true
+    name: oteryn-oracle-runners_staging

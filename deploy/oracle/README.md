@@ -554,13 +554,15 @@ install -m 0644 deploy/oracle/staging.Dockerfile deploy/oracle/staging.compose.y
 
 The host needs Python 3.11+, Git, OpenSSL, Docker Engine 28+ with BuildKit and
 Compose v2, at least four CPUs and 10 GiB RAM. The largest running staging
-workload, including the stack and one test container, is capped at two CPUs
-and under 5 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
+workload, including the stack and browser qualification, is capped at 2.4 CPUs
+and under 6 GiB RAM. Cargo builds use two jobs and staging-specific cache IDs.
 The CLI refuses a held production deployment lock or a pending production
 deployment when it starts, before building, and before replacing staging.
 Each check releases its shared read lock immediately.
 
 ```sh
+python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha>
+python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> ''
 python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs
 python3 /opt/oteryn-staging/staging-deploy.py deploy <full-sha> specs/legal-pages.spec.mjs --pg-tests oteryn-db,oteryn-web
 python3 /opt/oteryn-staging/staging-deploy.py status
@@ -575,13 +577,109 @@ first deploy. The detailed state is under `/opt/oteryn-staging/run/<sha>/`.
 Keep the generated environment files and captured mail private.
 
 Each replacement recreates PostgreSQL, migrates it, installs the testing legal
-pages and seeds a disposable account through the portal CLI. The staging portal
-is reachable on `127.0.0.1:18080` on the host, including `/readyz`. The browser
-container connects through its own loopback HTTPS origin and trusts the generated
-staging CA. Mail goes to the stack's authenticated STARTTLS catcher. Game,
-store and payment features are disabled. With no spec argument Playwright
-discovers the full suite, which includes specs that require the local harness's
-Game or commerce fixtures and can fail under this staging profile.
+pages, seeds test accounts through the portal CLI and loads the sample data
+from the deployed SHA. This uses the updated host deploy script, Compose file
+and staging Dockerfile together. Candidate branches need the staging seed CLI,
+the sample SQL and the atlas files. The staging portal is reachable on
+`127.0.0.1:18080` on the host, including `/readyz`. Port 18080 is served by
+`portal-public`, a second `serve` on the
+same database whose origin comes from `/opt/oteryn-staging/public-origin`
+(one `https://<hostname>` line; without the file it is the loopback origin).
+Put the tunnel hostname there when staging is published behind Cloudflare
+Access, so CSRF, passkeys and mail links match the address people use. The
+staff panel runs only on its own
+host, named in `/opt/oteryn-staging/admin-origin` (one `https://<hostname>`
+line, different from `public-origin`, routed by the same tunnel to port 18080).
+Cookies are host-only, so staff sign in there separately from the player
+portal; without the file the staff panel stays off. Passkeys are bound to the
+public host, so staff use TOTP on the staff host. Mail goes to the stack's authenticated
+STARTTLS catcher. No Game server or payment provider is connected.
+
+### Staging test accounts
+
+Use `<name>@staging.invalid` on the player portal or, for staff, on the
+configured staff host (`staging-admin.oteryn.com`). The deploy creates
+`/opt/oteryn-staging/test-accounts.json` once as `root:root` with mode `0600`.
+It contains the passwords and, where applicable, the Base32 TOTP secrets
+(SHA-1, six digits, 30 seconds). The next deploy reuses the file and restores
+the original login setup in the fresh database.
+
+| Account | What it tests |
+| --- | --- |
+| `player-basic` | Verified password login, two characters and a party post |
+| `player-mfa` | Verified player with TOTP and a boss party post |
+| `player-premium` | Active 30-day premium grant, without a purchase |
+| `player-guild-leader` | Two characters, including Galen Ashbrook, leader of Lantern Watch |
+| `player-new` | Account with unverified email |
+| `player-restricted` | Active restriction, including blocked party creation |
+| `founder`, `staff-platform-admin` | Platform administrator with TOTP |
+| `staff-security-admin` | Account roles and audit access with TOTP |
+| `staff-content-editor` | Content editing and publishing with TOTP |
+| `staff-moderator` | Moderation with TOTP |
+| `staff-support` | Tickets and reports with TOTP |
+| `staff-operations` | Portal settings and game catalogue administration with TOTP |
+| `staff-game-admin` | Game administration role with TOTP |
+| `staff-game-analyst` | Game analytics role with TOTP |
+| `staff-game-dba` | Game database operations role with TOTP |
+| `staff-game-master-senior` | Senior game master role with TOTP |
+| `staff-game-operator` | Game operations role with TOTP |
+| `staff-game-release` | Game release role with TOTP |
+| `staff-game-security` | Game security role with TOTP |
+| `staff-game-support` | Game support role with TOTP |
+| `staff-game-viewer` | Read-only game staff role with TOTP |
+
+Sample data covers Ashen Coast, Silverfen and Cinderpeak, with 50 named
+characters, highscores, growth and daily statistics, guilds, deaths, houses,
+party listings, wiki entries, daily boosts, an atlas tile and league standings.
+Collection shows two sample cards to signed-in, verified players. To try the
+compare form, paste the character IDs
+`019a0000-0000-7002-8000-000000000001,019a0000-0000-7002-8000-000000000002`.
+The sample feed refreshes short-lived read-model watermarks while staging is up.
+World registry status remains unknown without a Game server.
+
+Default deploys build the serving image and finish once staging is ready. An
+explicit qualification releases the deployment lock after readiness and uses
+its own lock and Compose project so another branch can reach staging while
+tests run. The qualification summary stays in the run directory for its SHA.
+
+Browser qualification runs the deployed revision's portal binary in a disposable
+CI fixture stack via `portal-rs/e2e/local.mjs` and `run.mjs`. The browser and its
+temporary PostgreSQL cluster share an isolated network namespace and never
+connect to the tunnel-facing deployment. The synthetic Game producers and
+payment fixture run there with throwaway keys. The launcher owns the flags,
+legal pages, test CA, mail sink and seed data. The browser database also gets
+the staging password-range fixture for password changes and recovery on the
+offline network. A read of the sandbox admin page once a minute keeps the
+shared staff fixture active during the full project. The character creation
+harness runs generated scripts from the browser's private executable tmpfs.
+A default deploy builds
+and starts the runtime without a test job. On the host CLI an explicit empty spec
+argument requests the full `pl-1440` project, and a spec path requests that file.
+The separate Portal RS E2E workflow covers all four projects. The staging
+report retains counts, test names and failure types.
+
+### Staging from GitHub Actions
+
+`oracle-staging.yml` deploys every push to a `staging/**` branch (and, by
+dispatch, any eligible `codex/*` or `staging/*` head) and waits for the
+deployment result. A dispatch that supplies a spec also waits for that spec. It runs only on the third runner service in
+`runners.compose.yml`, `oteryn-oracle-staging`, registered in its own org
+runner group `staging-runners` with labels `oteryn-staging` and
+`oteryn-oracle-staging`. That runner volume holds one key,
+`/home/runner/.ssh/oracle-staging`, and no production key; branch code never
+runs on the production runners. Root's `authorized_keys` binds the key with
+`restrict,command="/usr/bin/python3 /opt/oteryn-staging/staging-ssh.py"`.
+The adapter accepts only `status`, `logs` and
+`deploy <sha> [specs/<file>.spec.mjs] [--pg-tests a,b]`, passes an argument
+list to the installed staging CLI, and refuses a deploy while another SHA is
+still pending. Install it next to the CLI:
+
+```sh
+install -m 0755 deploy/oracle/staging-ssh.py /opt/oteryn-staging/
+```
+
+The workflow waits for any pending deploy, queues its own SHA, polls `status`
+until that SHA leaves the pending state, prints `logs` and fails with the run.
 
 Optional PostgreSQL tests run one crate at a time in the staging builder image,
 each with a fresh database and a role that cannot connect to the portal database.
