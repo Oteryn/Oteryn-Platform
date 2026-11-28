@@ -297,7 +297,7 @@ struct Listing {
     filters: Filters,
     rows: Vec<Row>,
     guides: Vec<domain::Translation>,
-    version: String,
+    version: Option<String>,
     next: i64,
     title: String,
     route: String,
@@ -416,18 +416,18 @@ async fn listing(
         collect(state, &filters, lang).await
     };
     let (version, rows) = match result {
-        Ok(v) => v,
+        Ok((version, rows)) => (Some(version), rows),
+        Err(StatusCode::SERVICE_UNAVAILABLE) if filters.kind.is_empty() => (None, Vec::new()),
         Err(s) => return error(s, lang),
     };
     let number = filters.page.unwrap_or(1);
-    let mut rows = if empty_search { vec![] } else { rows };
     let start = (number as usize - 1) * PAGE_SIZE;
     let next = if rows.len() > start + PAGE_SIZE {
         number + 1
     } else {
         0
     };
-    rows = rows.into_iter().skip(start).take(PAGE_SIZE).collect();
+    let rows = rows.into_iter().skip(start).take(PAGE_SIZE).collect();
     let guides = if search || filters.kind.is_empty() {
         match PublicRepository::new(state.pool.clone())
             .search(lang, &filters.q, number, !search)
@@ -439,6 +439,9 @@ async fn listing(
     } else {
         vec![]
     };
+    if version.is_none() && guides.is_empty() {
+        return error(StatusCode::SERVICE_UNAVAILABLE, lang);
+    }
     let more_guides = if guides.len() == 12 && number < 1000 {
         match PublicRepository::new(state.pool.clone())
             .search(lang, &filters.q, number + 1, !search)

@@ -2,7 +2,10 @@
 {% block content %}
 <h1>{{ title }}</h1>
 <nav aria-label="{{ self.t("types") }}"><ul>{% for kind in crate::entities::KINDS %}<li><a class="op-button op-button--secondary" href="/{{ lang }}/wiki/{{ kind }}">{{ self.t(kind) }}</a></li>{% endfor %}</ul></nav>
-<p>{{ self.t("version") }}: {{ version }}</p>
+{% match version %}
+{% when Some with (version) %}<p>{{ self.t("version") }}: {{ version }}</p>
+{% when None %}<p>{{ self.t("unavailable") }}</p>
+{% endmatch %}
 <form class="op-stack" method="get">
 <div class="op-field"><label for="q">{{ self.t("query") }}</label><input class="op-input" id="q" name="q" maxlength="80" value="{{ filters.q }}"></div>
 {% if per_type %}<input type="hidden" name="kind" value="{{ filters.kind }}">{% else %}<div class="op-field"><label for="kind">{{ self.t("types") }}</label><select class="op-input" id="kind" name="kind"><option value="">{{ self.t("all") }}</option>{% for kind in crate::entities::KINDS %}<option value="{{ kind }}"{% if self.selected(kind) %} selected{% endif %}>{{ self.t(kind) }}</option>{% endfor %}</select></div>{% endif %}

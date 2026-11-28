@@ -204,6 +204,99 @@ async fn postgres_entity_editorial_publication_and_locales() {
     db.close().await;
 }
 #[tokio::test]
+async fn postgres_editorial_results_survive_cold_and_refused_catalogue_reads() {
+    use oteryn_world::catalog::CatalogStore;
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    let Some(mut db) = Database::open().await else {
+        return;
+    };
+    db.entity(
+        "items",
+        "legacy",
+        json!({"name":"Harbor legacy item"}),
+        true,
+        true,
+    )
+    .await;
+    let actor = Uuid::now_v7();
+    sqlx::query("INSERT INTO account_roles(account_id,role_id) SELECT $1,id FROM roles WHERE key='platform_admin'")
+        .bind(actor)
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    let context = CheckContext {
+        account: actor,
+        require_staff_mfa: true,
+        mfa_verified: true,
+        session_proof: None,
+    };
+    let repo = crate::repository::Repository::new(db.pool.clone(), Active);
+    for state in ["published", "draft", "withdrawn"] {
+        let translations = ["en", "pl"].map(|locale| domain::Translation {
+            locale: locale.into(),
+            title: format!("Harbor {state} guide"),
+            slug: format!("harbor-{state}"),
+            summary: "Harbor directions".into(),
+            markdown: "Follow the coast to the harbor.".into(),
+        });
+        let id = repo.create(context, &translations, None, "").await.unwrap();
+        if state != "draft" {
+            repo.transition(context, id, 1, domain::Action::Submit)
+                .await
+                .unwrap();
+            repo.transition(context, id, 2, domain::Action::Publish)
+                .await
+                .unwrap();
+        }
+        if state == "withdrawn" {
+            repo.transition(context, id, 3, domain::Action::Unpublish)
+                .await
+                .unwrap();
+        }
+    }
+
+    for (ready, lang) in [(false, "pl"), (true, "en")] {
+        db.catalog = Some(
+            CatalogStore::new(db.pool.clone(), None)
+                .with_readiness(Arc::new(AtomicBool::new(ready))),
+        );
+        for path in ["wiki", "wiki/search?q=Harbor"] {
+            let (status, body) = db.get(&format!("/{lang}/{path}"), true).await;
+            assert_eq!(status, StatusCode::OK, "{path}, catalogue ready = {ready}");
+            assert!(body.contains(&format!("/{lang}/wiki/articles/harbor-published")));
+            assert!(body.contains(&t(lang, "unavailable")));
+            assert!(!body.contains(&t(lang, "version")));
+            for hidden in ["harbor-draft", "harbor-withdrawn", "Harbor legacy item"] {
+                assert!(!body.contains(hidden), "exposed {hidden}");
+            }
+        }
+        for path in [
+            "wiki/items",
+            "wiki/items/legacy",
+            "wiki/search?kind=items&q=Harbor",
+        ] {
+            let (status, body) = db.get(&format!("/{lang}/{path}"), true).await;
+            assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{path}");
+            assert!(!body.contains("harbor-published"));
+        }
+    }
+
+    sqlx::query("DELETE FROM web_rate_limits WHERE limiter_name='wiki-search'")
+        .execute(&db.pool)
+        .await
+        .unwrap();
+    for _ in 0..30 {
+        assert_eq!(db.get("/en/wiki", true).await.0, StatusCode::OK);
+    }
+    assert_eq!(
+        db.get("/en/wiki/search?q=Harbor", true).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    db.close().await;
+}
+
+#[tokio::test]
 async fn postgres_refuses_hidden_inactive_missing_and_disabled() {
     let Some(db) = Database::open().await else {
         return;
