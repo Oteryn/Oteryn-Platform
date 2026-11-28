@@ -1,4 +1,5 @@
 //! Gateway configuration is independent of portal and database configuration.
+use oteryn_core::Environment;
 use std::{fmt, net::IpAddr, path::PathBuf, time::Duration};
 
 const SERVICE_TOKEN_FILE: &str = "OTERYN_PLATFORM_SERVICE_TOKEN_FILE";
@@ -11,7 +12,7 @@ pub struct Config {
     pub token_file: PathBuf,
     pub issuer_ca_file: Option<PathBuf>,
     pub enabled: bool,
-    /// `GATEWAY_NATIVE_PROTOCOL3_ENABLED` (contract §19.1), default off.
+    /// `GATEWAY_NATIVE_PROTOCOL3_ENABLED` (contract §19.1), default off and limited to testing/preprod.
     pub protocol3: bool,
     pub timeout: Duration,
     pub ready_timeout: Duration,
@@ -57,7 +58,12 @@ impl Config {
         };
         let protocol3 = match value("GATEWAY_NATIVE_PROTOCOL3_ENABLED", "false").as_str() {
             "false" => false,
-            "true" => true,
+            "true" => get("OTERYN_ENV").is_some_and(|environment| {
+                matches!(
+                    Environment::parse(&environment),
+                    Ok(Environment::Testing | Environment::Preprod)
+                )
+            }),
             _ => return Err("invalid GATEWAY_NATIVE_PROTOCOL3_ENABLED".into()),
         };
         let listen = value("GATEWAY_LISTEN_ADDR", "0.0.0.0:8080");

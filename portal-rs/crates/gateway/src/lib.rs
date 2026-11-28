@@ -292,7 +292,6 @@ fn no_store(response: &mut Response) {
 async fn recovery_front(
     s: &StateData,
     req: Request,
-    malformed_media_type: bool,
     echo_of: fn(&[u8]) -> Option<String>,
 ) -> Result<(String, Vec<u8>), Box<Response>> {
     if !s.enabled {
@@ -302,6 +301,7 @@ async fn recovery_front(
         return Err(Box::new(StatusCode::SERVICE_UNAVAILABLE.into_response()));
     };
     let query = req.uri().query().is_some_and(|q| !q.is_empty());
+    let malformed_media_type = !json_content_type(req.headers());
     let body = tokio::time::timeout(BODY_DEADLINE, to_bytes(req.into_body(), 16 * 1024))
         .await
         .map_err(|_| request_timeout())?
@@ -323,9 +323,7 @@ async fn recovery_front(
     Ok((source, body))
 }
 async fn recover_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let malformed_media_type = !json_content_type(req.headers());
-    let mut response = match recovery_front(&s, req, malformed_media_type, wire::attempt_echo).await
-    {
+    let mut response = match recovery_front(&s, req, wire::attempt_echo).await {
         Ok((source, body)) => recovery(&s, &source, &body).await,
         Err(refused) => *refused,
     };
@@ -391,7 +389,7 @@ fn recover_limit(r: Refusal) -> RecoverRefusal {
     }
 }
 async fn revoke_route(State(s): State<Arc<StateData>>, req: Request) -> Response {
-    let mut response = match recovery_front(&s, req, false, |_| None).await {
+    let mut response = match recovery_front(&s, req, |_| None).await {
         Ok((source, body)) => revocation(&s, &source, &body).await,
         Err(refused) => *refused,
     };

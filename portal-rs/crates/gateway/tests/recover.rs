@@ -10,7 +10,7 @@ use axum::{
     response::{IntoResponse, Response},
     routing::any,
 };
-use oteryn_gateway::{Options, issuer::IssuerClient, recover, router_with};
+use oteryn_gateway::{Options, config::Config, issuer::IssuerClient, recover, router_with};
 use std::{
     net::SocketAddr,
     sync::{
@@ -45,6 +45,7 @@ const AUTHENTICATION: &str = fixture!("recover-authentication-required.json");
 const REVOKE_REQUEST: &str = fixture!("recover-revoke-request.json");
 const REVOKE_SUCCESS: &str = fixture!("recover-revoke-success.json");
 const REVOKE_MALFORMED: &str = fixture!("recover-revoke-malformed.json");
+const REVOKE_PROTOCOL3_OFF: &str = "{\"protocol_version\":2,\"error\":{\"code\":\"NATIVE_LOGIN_UNSUPPORTED_VERSION\",\"public_class\":\"CLIENT_UPDATE_REQUIRED\"},\"attempt_ref\":null}";
 /// Every relayed §19.8 refusal and its status.
 const REFUSALS: [(u16, &str); 11] = [
     (409, fixture!("recover-attempt-conflict.json")),
@@ -188,21 +189,20 @@ struct Answer {
     retry_after: Option<String>,
 }
 async fn post_from(app: Router, path: &str, body: &str, source: [u8; 4]) -> Answer {
-    post_typed(app, path, body, source, "application/json").await
+    post_typed(app, path, body, source, &["application/json"]).await
 }
 async fn post_typed(
     app: Router,
     path: &str,
     body: &str,
     source: [u8; 4],
-    media_type: &str,
+    media_types: &[&str],
 ) -> Answer {
-    let mut request = Request::builder()
-        .method("POST")
-        .uri(path)
-        .header("content-type", media_type)
-        .body(Body::from(body.to_owned()))
-        .unwrap();
+    let mut builder = Request::builder().method("POST").uri(path);
+    for media_type in media_types {
+        builder = builder.header("content-type", *media_type);
+    }
+    let mut request = builder.body(Body::from(body.to_owned())).unwrap();
     request
         .extensions_mut()
         .insert(ConnectInfo(SocketAddr::from((source, 40000))));
@@ -231,6 +231,91 @@ async fn post(app: Router, path: &str, body: &str) -> (StatusCode, String) {
 }
 fn line(body: &str) -> String {
     format!("{body}\n")
+}
+
+fn gateway_config(url: &str, environment: Option<&str>, protocol3: Option<&str>) -> Config {
+    Config::from_lookup(|key| match key {
+        "OTERYN_PLATFORM_BASE_URL" => Some(url.to_owned()),
+        "OTERYN_PLATFORM_SERVICE_TOKEN_FILE" => Some("unused-by-test-client".into()),
+        "OTERYN_ENV" => environment.map(str::to_owned),
+        "GATEWAY_NATIVE_LOGIN_ENABLED" => Some("true".into()),
+        "GATEWAY_NATIVE_PROTOCOL3_ENABLED" => protocol3.map(str::to_owned),
+        _ => None,
+    })
+    .unwrap()
+}
+
+#[test]
+fn protocol3_requires_an_eligible_environment_and_explicit_opt_in() {
+    for (environment, eligible) in [
+        (Some("testing"), true),
+        (Some("preprod"), true),
+        (Some("production"), false),
+        (Some("local"), false),
+        (Some("preproduction"), false),
+        (Some(""), false),
+        (None, false),
+    ] {
+        for flag in [None, Some("false"), Some("true")] {
+            let config = gateway_config("http://127.0.0.1:1", environment, flag);
+            assert_eq!(
+                config.protocol3,
+                eligible && flag == Some("true"),
+                "OTERYN_ENV={environment:?}, protocol 3 flag={flag:?}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn production_protocol3_opt_in_refuses_all_three_routes_before_issuer() {
+    let unsupported = fixture!("login-unsupported-version.json");
+    for (path, issuer_path, request, success, expected) in [
+        (
+            "/v1/login",
+            oteryn_gateway::issuer::ISSUER_PATH,
+            fixture!("login-request.json"),
+            fixture!("login-success.json"),
+            unsupported,
+        ),
+        (
+            "/v1/recover",
+            recover::RECOVER_PATH,
+            REQUEST,
+            SUCCESS,
+            unsupported,
+        ),
+        (
+            "/v1/recover/revoke",
+            recover::REVOKE_PATH,
+            REVOKE_REQUEST,
+            REVOKE_SUCCESS,
+            REVOKE_PROTOCOL3_OFF,
+        ),
+    ] {
+        let upstream = serve(Reply {
+            path: issuer_path,
+            expected: Some(request),
+            status: 200,
+            body: success.to_owned(),
+            retry_after: None,
+            hang: false,
+            calls: Arc::default(),
+        })
+        .await;
+        let config = gateway_config(&upstream.url, Some("production"), Some("true"));
+        let app = router_with(
+            client(&config.base_url),
+            options(config.enabled, config.protocol3),
+        );
+        let (status, body) = post(app, path, request).await;
+        assert_eq!(
+            (status, upstream.calls.load(Ordering::SeqCst)),
+            (StatusCode::BAD_REQUEST, 0),
+            "{path}"
+        );
+        assert_eq!(body, line(expected), "{path}");
+    }
 }
 
 #[tokio::test]
@@ -263,12 +348,7 @@ async fn recover_switches_keep_the_route_default_off() {
     );
     assert_eq!(
         post(app, "/v1/recover/revoke", REVOKE_REQUEST).await,
-        (
-            StatusCode::BAD_REQUEST,
-            line(
-                "{\"protocol_version\":2,\"error\":{\"code\":\"NATIVE_LOGIN_UNSUPPORTED_VERSION\",\"public_class\":\"CLIENT_UPDATE_REQUIRED\"},\"attempt_ref\":null}"
-            )
-        )
+        (StatusCode::BAD_REQUEST, line(REVOKE_PROTOCOL3_OFF))
     );
     assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
 }
@@ -634,10 +714,38 @@ async fn recovery_refuses_plain_text_before_forwarding() {
         "/v1/recover",
         REQUEST,
         [192, 0, 2, 1],
-        "text/plain",
+        &["text/plain"],
     )
     .await;
     assert_eq!(answer.status, StatusCode::BAD_REQUEST);
     assert_eq!(answer.body, line(MALFORMED));
     assert_eq!(upstream.calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn revoke_requires_one_json_media_type_after_version_check() {
+    let upstream = revoke_issuer(200, REVOKE_SUCCESS).await;
+    for (protocol3, expected) in [(false, REVOKE_PROTOCOL3_OFF), (true, REVOKE_MALFORMED)] {
+        let app = router_with(client(&upstream.url), options(true, protocol3));
+        for media_types in [
+            &[][..],
+            &["application/json", "application/json"],
+            &["text/plain"],
+        ] {
+            let answer = post_typed(
+                app.clone(),
+                "/v1/recover/revoke",
+                REVOKE_REQUEST,
+                [192, 0, 2, 1],
+                media_types,
+            )
+            .await;
+            assert_eq!(
+                (answer.status, upstream.calls.load(Ordering::SeqCst)),
+                (StatusCode::BAD_REQUEST, 0),
+                "protocol3={protocol3}, content-type={media_types:?}"
+            );
+            assert_eq!(answer.body, line(expected));
+        }
+    }
 }
