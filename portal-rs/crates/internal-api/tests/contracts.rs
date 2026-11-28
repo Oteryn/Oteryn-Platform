@@ -2,8 +2,8 @@ use axum::{
     Router,
     body::{Body, to_bytes},
     extract::Extension,
-    http::{Request, StatusCode},
-    routing::post,
+    http::{Request, StatusCode, header},
+    routing::{MethodRouter, post},
 };
 use oteryn_internal_api::{
     canonical::{self, Shape, Value},
@@ -11,7 +11,14 @@ use oteryn_internal_api::{
     guard::{self, Binding, Identity, IdentityMap, JsonRule, RoutePolicy, VerifiedClient},
 };
 use sha2::{Digest, Sha256};
-use std::{error::Error, path::Path, sync::Arc};
+use std::{
+    error::Error,
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 use tower::ServiceExt;
 
 static HEAD: Shape = Shape::Object(&[
@@ -43,16 +50,20 @@ fn policy() -> RoutePolicy {
     }
 }
 fn app(policy: RoutePolicy, map: IdentityMap) -> Router {
-    guard::protect(
-        Router::new().route(
-            "/internal/v1/test",
-            post(
-                |Extension(value): Extension<Value>, bytes: axum::body::Bytes| async move {
-                    assert!(matches!(value, Value::Object(_)));
-                    bytes
-                },
-            ),
+    app_with_handler(
+        policy,
+        map,
+        post(
+            |Extension(value): Extension<Value>, bytes: axum::body::Bytes| async move {
+                assert!(matches!(value, Value::Object(_)));
+                bytes
+            },
         ),
+    )
+}
+fn app_with_handler(policy: RoutePolicy, map: IdentityMap, handler: MethodRouter) -> Router {
+    guard::protect(
+        Router::new().route("/internal/v1/test", handler),
         Arc::new(map),
         policy,
     )
@@ -253,6 +264,49 @@ async fn refuses_bad_transport_and_noncanonical_json() -> Result<(), Box<dyn Err
         .await?;
     }
     Ok(())
+}
+async fn assert_repeated_header_refused(
+    name: header::HeaderName,
+    value: header::HeaderValue,
+) -> Result<(), Box<dyn Error>> {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let handler_calls = Arc::clone(&calls);
+    let app = app_with_handler(
+        policy(),
+        bindings()?,
+        post(move || async move {
+            handler_calls.fetch_add(1, Ordering::Relaxed);
+            StatusCode::NO_CONTENT
+        }),
+    );
+    let mut control = request(BODY, Some(san("store.test.invalid")?))?;
+    control.headers_mut().insert(name.clone(), value.clone());
+    let mut repeated = request(BODY, Some(san("store.test.invalid")?))?;
+    *repeated.headers_mut() = control.headers().clone();
+    repeated.headers_mut().append(name.clone(), value);
+
+    let response = app.clone().oneshot(control).await?;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_failure(app, repeated, StatusCode::BAD_REQUEST).await?;
+    assert_eq!(
+        calls.load(Ordering::Relaxed),
+        1,
+        "handler ran for repeated {name}"
+    );
+    Ok(())
+}
+#[tokio::test]
+async fn refuses_repeated_content_type() -> Result<(), Box<dyn Error>> {
+    assert_repeated_header_refused(header::CONTENT_TYPE, "application/json".parse()?).await
+}
+#[tokio::test]
+async fn refuses_repeated_content_encoding() -> Result<(), Box<dyn Error>> {
+    assert_repeated_header_refused(header::CONTENT_ENCODING, "identity".parse()?).await
+}
+#[tokio::test]
+async fn refuses_repeated_content_length() -> Result<(), Box<dyn Error>> {
+    assert_repeated_header_refused(header::CONTENT_LENGTH, BODY.len().to_string().parse()?).await
 }
 #[tokio::test]
 async fn noncanonical_permitted_only_by_explicit_policy() -> Result<(), Box<dyn Error>> {
