@@ -25,6 +25,7 @@ pub enum Category {
     Support,
     Forum,
     Operational,
+    JournalReminder,
 }
 impl Category {
     pub fn as_str(self) -> &'static str {
@@ -34,6 +35,7 @@ impl Category {
             Self::Support => "support",
             Self::Forum => "forum",
             Self::Operational => "operational",
+            Self::JournalReminder => "journal_reminder",
         }
     }
     fn parse(s: &str) -> Result<Self> {
@@ -43,8 +45,13 @@ impl Category {
             "support" => Ok(Self::Support),
             "forum" => Ok(Self::Forum),
             "operational" => Ok(Self::Operational),
+            "journal_reminder" => Ok(Self::JournalReminder),
             _ => Err(invalid()),
         }
+    }
+
+    fn email_only(self) -> bool {
+        matches!(self, Self::Operational | Self::JournalReminder)
     }
 }
 #[derive(Debug, Clone, Copy)]
@@ -63,6 +70,12 @@ pub trait AccountState: std::fmt::Debug + Send + Sync {
         self.active_verified(account)
     }
     fn active_verified(&self, account: Uuid) -> NotifyFuture<'_, Option<Account>>;
+    /// Check the feature flags and current authority for this account and intent
+    /// on every delivery attempt. The default keeps reminder delivery disabled.
+    /// Return false for missing or stale evidence, and an error for a retriable failure.
+    fn journal_reminder_eligible(&self, _account: Uuid, _intent: Uuid) -> NotifyFuture<'_, bool> {
+        Box::pin(async { Ok(false) })
+    }
     /// Pool-backed adapters must override this to use the caller's transaction.
     /// The default is for adapters whose state is already available in memory.
     fn active_verified_in<'a>(
@@ -87,6 +100,7 @@ pub enum EmailTemplate {
     News { title: String, body: String },
     Newsletter { title: String, body: String },
     Support { body: String },
+    JournalReminder { intent: Uuid },
 }
 #[derive(Debug, Clone)]
 pub struct Rendered {
@@ -118,6 +132,7 @@ impl EmailTemplate {
             Self::PasswordChanged => "password-changed",
             Self::News { .. } | Self::Newsletter { .. } => "news",
             Self::Support { .. } => "support",
+            Self::JournalReminder { .. } => "journal-reminder",
         }
     }
     pub fn category(&self) -> Category {
@@ -125,6 +140,7 @@ impl EmailTemplate {
             Self::NewDevice { .. } | Self::PasswordChanged => Category::Security,
             Self::News { .. } | Self::Newsletter { .. } => Category::News,
             Self::Support { .. } => Category::Support,
+            Self::JournalReminder { .. } => Category::JournalReminder,
         }
     }
     pub fn render(&self, locale: Locale) -> Result<Rendered> {
@@ -144,6 +160,16 @@ impl EmailTemplate {
                 (title.clone(), body.clone())
             }
             Self::Support { body } => (tr("support")?, body.clone()),
+            Self::JournalReminder { .. } => match locale {
+                Locale::Pl => (
+                    "Przypomnienie z dziennika Oteryn".into(),
+                    "Zaloguj się do portalu Oteryn, aby sprawdzić przypomnienie.".into(),
+                ),
+                Locale::En => (
+                    "Oteryn journal reminder".into(),
+                    "Sign in to the Oteryn portal to view your reminder.".into(),
+                ),
+            },
         };
         if subject.trim().is_empty()
             || subject.len() > 200
@@ -349,7 +375,7 @@ impl Notifications {
             .await?
             .ok_or_else(invalid)
     }
-    /// Missing optional preferences mean email off and portal on.
+    /// Missing optional preferences mean email off. Portal is on for categories that support it.
     pub async fn preference(&self, account: Uuid, category: Category) -> Result<(bool, bool)> {
         self.account(account).await?;
         if category == Category::Security {
@@ -357,7 +383,7 @@ impl Notifications {
         }
         let value = outbox::query_as("SELECT email_enabled,portal_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2")
             .bind(account).bind(category.as_str()).fetch_optional(&self.pool).await?;
-        Ok(value.unwrap_or((false, category != Category::Operational)))
+        Ok(value.unwrap_or((false, !category.email_only())))
     }
     pub async fn preferences(
         &self,
@@ -371,7 +397,7 @@ impl Notifications {
         if category == Category::Security && (!email || !portal) {
             return Err(invalid());
         }
-        if category == Category::Operational && portal {
+        if category.email_only() && portal {
             return Err(invalid());
         }
         outbox::query("INSERT INTO account_notification_prefs(account_id,category,email_enabled,portal_enabled) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,category) DO UPDATE SET email_enabled=$3,portal_enabled=$4,updated_at=clock_timestamp() WHERE (account_notification_prefs.email_enabled,account_notification_prefs.portal_enabled) IS DISTINCT FROM ($3,$4)")
@@ -379,12 +405,19 @@ impl Notifications {
         Ok(())
     }
     /// Caller owns commit/rollback. Retry with the returned ID, never a second enqueue.
+    /// Journal reminders carry an opaque intent ID. They deduplicate by account and
+    /// intent, returning None on replay, and keep journal details in the signed-in portal.
     pub async fn enqueue(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         account: Uuid,
         template: &EmailTemplate,
     ) -> Result<Option<Uuid>> {
+        let reminder = match template {
+            EmailTemplate::JournalReminder { intent } if intent.is_nil() => return Err(invalid()),
+            EmailTemplate::JournalReminder { intent } => Some(*intent),
+            _ => None,
+        };
         let state = self.account_in(tx, account).await?;
         let _: lettre::message::Mailbox = state.email.parse()?;
         let category = template.category();
@@ -392,10 +425,11 @@ impl Notifications {
         let (email, portal) = if category == Category::Security {
             (true, true)
         } else {
-            pref.unwrap_or((false, true))
+            pref.unwrap_or((false, !category.email_only()))
         };
-        let newsletter = matches!(template, EmailTemplate::Newsletter { .. });
-        if newsletter && !email {
+        let email_only =
+            category.email_only() || matches!(template, EmailTemplate::Newsletter { .. });
+        if email_only && !email {
             return Ok(None);
         }
         let now = OffsetDateTime::now_utc();
@@ -408,7 +442,7 @@ impl Notifications {
             None
         };
         let rendered = template.render_for_delivery(state.locale, unsubscribe.as_deref())?;
-        if portal && !newsletter {
+        if portal && !email_only {
             outbox::query(
                 "INSERT INTO notifications(account_id,category,subject,body) VALUES($1,$2,$3,$4)",
             )
@@ -422,7 +456,27 @@ impl Notifications {
         if !email {
             return Ok(None);
         }
-        let id: Uuid = outbox::query_scalar("INSERT INTO email_outbox(account_id,category,recipient,subject,text_body,html_body,unsubscribe_url,template_kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id").bind(account).bind(category.as_str()).bind(state.email).bind(rendered.subject).bind(rendered.text).bind(rendered.html).bind(unsubscribe).bind(template.kind()).fetch_one(&mut **tx).await?;
+        let id: Option<Uuid> = outbox::query_scalar(
+            "INSERT INTO email_outbox
+                 (account_id,category,recipient,subject,text_body,html_body,unsubscribe_url,template_kind,journal_reminder_intent)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+             ON CONFLICT (account_id,journal_reminder_intent) WHERE journal_reminder_intent IS NOT NULL DO NOTHING
+             RETURNING id",
+        )
+        .bind(account)
+        .bind(category.as_str())
+        .bind(state.email)
+        .bind(rendered.subject)
+        .bind(rendered.text)
+        .bind(rendered.html)
+        .bind(unsubscribe)
+        .bind(template.kind())
+        .bind(reminder)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some(id) = id else {
+            return Ok(None);
+        };
         outbox::enqueue(
             tx,
             EMAIL_JOB,
@@ -439,14 +493,15 @@ impl Notifications {
         let (account, category) = self
             .unsubscribe
             .verify(token, OffsetDateTime::now_utc().unix_timestamp())?;
-        if category == Category::Operational {
+        if category.email_only() {
             // The signed link can withdraw existing consent even when sign-in is
             // disabled. Creating a new preference requires an active account.
             outbox::query(
                 "UPDATE account_notification_prefs SET email_enabled=false,updated_at=clock_timestamp()
-                 WHERE account_id=$1 AND category='operational' AND email_enabled",
+                 WHERE account_id=$1 AND category=$2 AND email_enabled",
             )
             .bind(account)
+            .bind(category.as_str())
             .execute(&mut **tx)
             .await?;
         } else {
@@ -502,15 +557,45 @@ impl Notifications {
         self.account(account).await?;
         Ok(outbox::query("UPDATE notifications SET read_at=CASE WHEN $3 THEN now() ELSE NULL END,updated_at=now() WHERE id=$1 AND account_id=$2").bind(id).bind(account).bind(read).execute(&self.pool).await?.rows_affected()==1)
     }
+    async fn suppress_reminder(&self, id: Uuid) -> Result<()> {
+        outbox::query(
+            "UPDATE email_outbox SET journal_reminder_suppressed_at=now(),updated_at=now()
+             WHERE id=$1 AND journal_reminder_suppressed_at IS NULL AND delivered_at IS NULL",
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Called by a lease-renewing worker. SMTP is at least once after a process crash.
     pub async fn deliver(&self, job: &outbox::Job, sender: &dyn EmailSender) -> Result<()> {
         if job.kind != EMAIL_JOB {
             return Err(invalid());
         }
         let id = Uuid::parse_str(&serde_json::from_str::<String>(&job.payload)?)?;
-        let row: (Uuid,String,String,String,String,String,Option<String>,Option<OffsetDateTime>) = outbox::query_as("SELECT account_id,category,recipient,subject,text_body,html_body,unsubscribe_url,delivered_at FROM email_outbox WHERE id=$1").bind(id).fetch_one(&self.pool).await?;
-        let (account, category, recipient, subject, text, html, unsubscribe, delivered) = row;
-        if delivered.is_some() {
+        type EmailRow = (
+            Uuid,
+            String,
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            bool,
+            Option<Uuid>,
+        );
+        let (account, category, recipient, subject, text, html, unsubscribe, finished, reminder): EmailRow =
+            outbox::query_as(
+                "SELECT account_id,category,recipient,subject,text_body,html_body,unsubscribe_url,
+                        delivered_at IS NOT NULL OR journal_reminder_suppressed_at IS NOT NULL,
+                        journal_reminder_intent
+                 FROM email_outbox WHERE id=$1",
+            )
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        if finished {
             return Ok(());
         }
         let category = Category::parse(&category)?;
@@ -528,6 +613,14 @@ impl Notifications {
         if category == Category::Operational {
             return crate::operational::deliver(&self.pool, job.id, account, &email, sender).await;
         }
+        if let Some(intent) = reminder
+            && !self
+                .accounts
+                .journal_reminder_eligible(account, intent)
+                .await?
+        {
+            return self.suppress_reminder(id).await;
+        }
         let state = self
             .accounts
             .recipient(account, category)
@@ -539,6 +632,9 @@ impl Notifications {
         if category != Category::Security {
             let enabled: Option<bool> = outbox::query_scalar("SELECT email_enabled FROM account_notification_prefs WHERE account_id=$1 AND category=$2").bind(account).bind(category.as_str()).fetch_optional(&self.pool).await?;
             if enabled != Some(true) {
+                if reminder.is_some() {
+                    return self.suppress_reminder(id).await;
+                }
                 return Ok(());
             }
         }
@@ -667,5 +763,222 @@ mod tests {
         email.recipient = "invalid address".into();
         assert!(smtp_message("sender@example.invalid", &email).is_err());
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod reminder_tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct ReminderAccounts(Option<(Uuid, Uuid)>);
+
+    impl AccountState for ReminderAccounts {
+        fn active_verified(&self, _: Uuid) -> NotifyFuture<'_, Option<Account>> {
+            Box::pin(async {
+                Ok(Some(Account {
+                    email: "reader@example.invalid".into(),
+                    locale: Locale::En,
+                }))
+            })
+        }
+
+        fn journal_reminder_eligible(&self, account: Uuid, intent: Uuid) -> NotifyFuture<'_, bool> {
+            Box::pin(async move { Ok(self.0 == Some((account, intent))) })
+        }
+    }
+
+    async fn enqueue(service: &Notifications, account: Uuid, intent: Uuid) -> Result<Option<Uuid>> {
+        let mut tx = service.pool.begin().await?;
+        let id = service
+            .enqueue(&mut tx, account, &EmailTemplate::JournalReminder { intent })
+            .await?;
+        tx.commit().await?;
+        Ok(id)
+    }
+
+    async fn exercise(pool: PgPool) -> Result<()> {
+        let (account, eligible, stale, opted_out) = (
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+        );
+        let service = Notifications {
+            pool,
+            accounts: Arc::new(ReminderAccounts(Some((account, eligible)))),
+            unsubscribe: Unsubscribe::new(
+                vec![42; 32],
+                "https://portal.example.invalid/unsubscribe".into(),
+            )?,
+        };
+
+        let mut tx = service.pool.begin().await?;
+        for category in [Category::News, Category::Support] {
+            service
+                .preferences(&mut tx, account, category, true, false)
+                .await?;
+        }
+        tx.commit().await?;
+        assert_eq!(
+            service
+                .preference(account, Category::JournalReminder)
+                .await?,
+            (false, false)
+        );
+        assert!(enqueue(&service, account, eligible).await?.is_none());
+        assert_eq!(outbox::counts(&service.pool).await?.pending, 0);
+
+        let mut tx = service.pool.begin().await?;
+        assert!(
+            service
+                .preferences(&mut tx, account, Category::JournalReminder, true, true)
+                .await
+                .is_err()
+        );
+        service
+            .preferences(&mut tx, account, Category::JournalReminder, true, false)
+            .await?;
+        for category in [Category::News, Category::Support] {
+            service
+                .preferences(&mut tx, account, category, false, false)
+                .await?;
+        }
+        assert!(
+            service
+                .enqueue(
+                    &mut tx,
+                    account,
+                    &EmailTemplate::JournalReminder {
+                        intent: Uuid::nil()
+                    }
+                )
+                .await
+                .is_err()
+        );
+        tx.commit().await?;
+
+        let mut tx = service.pool.begin().await?;
+        assert!(
+            service
+                .enqueue(
+                    &mut tx,
+                    account,
+                    &EmailTemplate::JournalReminder { intent: eligible }
+                )
+                .await?
+                .is_some()
+        );
+        tx.rollback().await?;
+        assert_eq!(outbox::counts(&service.pool).await?.pending, 0);
+
+        let (first, second) = tokio::join!(
+            enqueue(&service, account, eligible),
+            enqueue(&service, account, eligible)
+        );
+        let mail = match (first?, second?) {
+            (Some(id), None) | (None, Some(id)) => id,
+            _ => return Err("exactly one concurrent enqueue must insert".into()),
+        };
+        assert_eq!(outbox::counts(&service.pool).await?.pending, 1);
+        assert!(service.list(account, false, 10).await?.is_empty());
+
+        let capture = CaptureSender::default();
+        let mut jobs = outbox::claim(&service.pool, 1, 60).await?;
+        let job = jobs.pop().ok_or("missing reminder job")?;
+        service.deliver(&job, &capture).await?;
+        service.deliver(&job, &capture).await?;
+        outbox::finish(&service.pool, &job, None, false).await?;
+        {
+            let emails = capture.emails.lock().map_err(|_| invalid())?;
+            assert_eq!(emails.len(), 1);
+            assert_eq!(emails[0].id, mail);
+            assert_eq!(emails[0].recipient, "reader@example.invalid");
+            assert!(emails[0].text.contains("Sign in"));
+            assert!(!emails[0].text.contains(&eligible.to_string()));
+            assert!(!emails[0].html.contains(&eligible.to_string()));
+        }
+        assert!(enqueue(&service, account, eligible).await?.is_none());
+
+        assert!(enqueue(&service, account, stale).await?.is_some());
+        let mut jobs = outbox::claim(&service.pool, 1, 60).await?;
+        let stale_job = jobs.pop().ok_or("missing stale reminder job")?;
+        service.deliver(&stale_job, &capture).await?;
+        let recovered_authority = Notifications {
+            pool: service.pool.clone(),
+            accounts: Arc::new(ReminderAccounts(Some((account, stale)))),
+            unsubscribe: service.unsubscribe.clone(),
+        };
+        recovered_authority.deliver(&stale_job, &capture).await?;
+        outbox::finish(&service.pool, &stale_job, None, false).await?;
+
+        assert!(enqueue(&service, account, opted_out).await?.is_some());
+        let token = service
+            .unsubscribe
+            .token(account, Category::JournalReminder, i64::MAX)?;
+        let mut tx = service.pool.begin().await?;
+        service.unsubscribe(&mut tx, &token).await?;
+        tx.commit().await?;
+        assert_eq!(
+            service
+                .preference(account, Category::JournalReminder)
+                .await?,
+            (false, false)
+        );
+        let delivery = Notifications {
+            accounts: Arc::new(ReminderAccounts(Some((account, opted_out)))),
+            ..service
+        };
+        let mut jobs = outbox::claim(&delivery.pool, 1, 60).await?;
+        let opted_out_job = jobs.pop().ok_or("missing opted-out reminder job")?;
+        delivery.deliver(&opted_out_job, &capture).await?;
+        let mut tx = delivery.pool.begin().await?;
+        delivery
+            .preferences(&mut tx, account, Category::JournalReminder, true, false)
+            .await?;
+        tx.commit().await?;
+        delivery.deliver(&opted_out_job, &capture).await?;
+        outbox::finish(&delivery.pool, &opted_out_job, None, false).await?;
+        assert_eq!(capture.emails.lock().map_err(|_| invalid())?.len(), 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn reminder_consent_deduplication_and_delivery() -> Result<()> {
+        let Ok(url) = std::env::var("PORTAL_TEST_DATABASE_URL") else {
+            eprintln!("SKIPPED PostgreSQL test: PORTAL_TEST_DATABASE_URL is unset");
+            return Ok(());
+        };
+        let admin = outbox::PgPoolOptions::new().connect(&url).await?;
+        let schema = format!("notify_{}", Uuid::now_v7().simple());
+        outbox::query(outbox::AssertSqlSafe(format!("CREATE SCHEMA {schema}")))
+            .execute(&admin)
+            .await?;
+        let path = schema.clone();
+        let pool = outbox::PgPoolOptions::new()
+            .after_connect(move |connection, _| {
+                let path = path.clone();
+                Box::pin(async move {
+                    outbox::query("SELECT set_config('search_path',$1,false)")
+                        .bind(path)
+                        .execute(connection)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(&url)
+            .await?;
+        let result = async {
+            oteryn_db::migrate(&pool).await?;
+            exercise(pool.clone()).await
+        }
+        .await;
+        pool.close().await;
+        outbox::query(outbox::AssertSqlSafe(format!(
+            "DROP SCHEMA {schema} CASCADE"
+        )))
+        .execute(&admin)
+        .await?;
+        result
     }
 }
