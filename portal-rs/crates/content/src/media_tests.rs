@@ -477,21 +477,33 @@ async fn browser_lifecycle(pool: &PgPool) {
         .split('"')
         .next()
         .unwrap();
-    let make = |token: &str, alt: &str| {
-        let mut body = format!("--boundary\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{token}\r\n--boundary\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\n").into_bytes();
+    let upload_body = |form_token: Option<&str>, alt: &str| {
+        let mut body = Vec::new();
+        if let Some(token) = form_token {
+            body.extend_from_slice(format!("--boundary\r\nContent-Disposition: form-data; name=\"_csrf\"\r\n\r\n{token}\r\n").as_bytes());
+        }
+        body.extend_from_slice(format!("--boundary\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n--boundary\r\nContent-Disposition: form-data; name=\"image\"; filename=\"x.png\"\r\nContent-Type: image/png\r\n\r\n").as_bytes());
         body.extend(fixture(ImageFormat::Png, 640, 160));
         body.extend_from_slice(b"\r\n--boundary--\r\n");
-        Request::post("/admin/media")
+        body
+    };
+    let make_upload = |token: &str, alt: &str, use_header: bool| {
+        let mut request = Request::post("/admin/media")
             .header("host", "staff.test")
             .header("origin", "https://staff.test")
             .header("cookie", &cookie)
             .header(
                 header::CONTENT_TYPE,
                 "multipart/form-data; boundary=boundary",
-            )
-            .body(Body::from(body))
+            );
+        if use_header {
+            request = request.header("x-csrf-token", token);
+        }
+        request
+            .body(Body::from(upload_body((!use_header).then_some(token), alt)))
             .unwrap()
     };
+    let make = |token, alt| make_upload(token, alt, false);
     assert_eq!(
         app.clone()
             .oneshot(make("wrong", "Image"))
@@ -504,6 +516,16 @@ async fn browser_lifecycle(pool: &PgPool) {
         app.clone().oneshot(make(csrf, " ")).await.unwrap().status(),
         StatusCode::UNPROCESSABLE_ENTITY
     );
+    let header_upload = upload_body(None, "Incomplete header upload");
+    let form_upload = upload_body(Some(csrf), "Incomplete form upload");
+    assert_incomplete_upload_times_out(app.clone(), &cookie, Some(csrf), &header_upload).await;
+    assert_incomplete_upload_times_out(app.clone(), &cookie, None, &form_upload).await;
+    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM media")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(stored, 0);
+
     assert_eq!(
         app.clone()
             .oneshot(make(csrf, "Image"))
@@ -530,7 +552,23 @@ async fn browser_lifecycle(pool: &PgPool) {
     .await
     .unwrap();
     assert_eq!(audit_count, 1);
-    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,9)").bind(actor).execute(pool).await.unwrap();
+    assert_eq!(
+        app.clone()
+            .oneshot(make_upload(csrf, "Header image", true))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FOUND
+    );
+    let header_id: Uuid = sqlx::query_scalar("SELECT id FROM media WHERE alt_text='Header image'")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        read(pool, header_id, true, false).await.unwrap().status(),
+        StatusCode::OK
+    );
+    sqlx::query("INSERT INTO audit_log(actor,action,target,before,after,request_id) SELECT $1,'editorial_media.uploaded','test','null'::jsonb,'null'::jsonb,uuidv7() FROM generate_series(1,8)").bind(actor).execute(pool).await.unwrap();
     assert_eq!(
         app.clone()
             .oneshot(make(csrf, "Image"))
@@ -573,6 +611,39 @@ async fn browser_lifecycle(pool: &PgPool) {
         read(pool, id, false, false).await.err(),
         Some(StatusCode::NOT_FOUND)
     );
+}
+
+async fn assert_incomplete_upload_times_out(
+    app: Router,
+    cookie: &str,
+    csrf_header: Option<&str>,
+    body: &[u8],
+) {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, app).await });
+    let mut socket = tokio::net::TcpStream::connect(address).await.unwrap();
+    let csrf = csrf_header.map_or_else(String::new, |token| format!("X-CSRF-Token: {token}\r\n"));
+    // The final multipart boundary is present, but the advertised HTTP body is incomplete.
+    let request = format!(
+        "POST /admin/media HTTP/1.1\r\nHost: staff.test\r\nOrigin: https://staff.test\r\nCookie: {cookie}\r\n{csrf}Content-Type: multipart/form-data; boundary=boundary\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len() + 1
+    );
+    socket.write_all(request.as_bytes()).await.unwrap();
+    socket.write_all(body).await.unwrap();
+    let mut status = String::new();
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        BufReader::new(socket).read_line(&mut status),
+    )
+    .await;
+    server.abort();
+    let _ = server.await;
+    result
+        .expect("upload exceeded its three-second body deadline")
+        .unwrap();
+    assert_eq!(status.trim_end(), "HTTP/1.1 408 Request Timeout");
 }
 
 #[tokio::test]

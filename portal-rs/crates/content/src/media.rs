@@ -2,8 +2,10 @@
 //! X-CSRF-Token. Untrusted names and MIME headers never select stored paths.
 use axum::{
     Extension, Form, Router,
-    extract::{DefaultBodyLimit, Path, Query, State, rejection::FormRejection},
+    body::{Body, Bytes, to_bytes},
+    extract::{DefaultBodyLimit, Path, Query, Request, State, rejection::FormRejection},
     http::{Method, StatusCode, header},
+    middleware::Next,
     response::{Html, IntoResponse, Response},
     routing::get,
 };
@@ -18,9 +20,11 @@ use oteryn_web::ratelimit::{PublicGameData, RateLimit};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
-use std::io::Cursor;
+use std::{io::Cursor, time::Duration};
 use uuid::Uuid;
 pub const MAX_BYTES: usize = 8 * 1024 * 1024;
+const UPLOAD_BODY_LIMIT: usize = MAX_BYTES + 16384;
+const UPLOAD_BODY_TIMEOUT: Duration = Duration::from_secs(3);
 const REFERENCE_PREVIEW: i64 = 5;
 static DECODERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
 fn unavailable(_: impl std::fmt::Display) -> StatusCode {
@@ -123,7 +127,13 @@ pub fn process(name: &str, bytes: &[u8]) -> Result<ProcessedImage, StatusCode> {
 /// Routes must be wrapped in the staff guard before mounting.
 pub fn admin_router(pool: PgPool) -> Router {
     Router::new()
-        .route("/admin/media", get(index).post(upload))
+        .route(
+            "/admin/media",
+            get(index).merge(
+                axum::routing::post(upload)
+                    .route_layer(axum::middleware::from_fn(complete_upload_body)),
+            ),
+        )
         .route("/admin/media/{id}/content", get(content))
         .route("/admin/media/{id}/thumbnail", get(thumbnail))
         .route(
@@ -132,7 +142,7 @@ pub fn admin_router(pool: PgPool) -> Router {
         )
         .route("/admin/media/{id}/delete", axum::routing::post(delete))
         .with_state(pool)
-        .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
+        .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT))
 }
 pub fn configured_router(pool: PgPool) -> Result<Router, Box<dyn std::error::Error>> {
     configured_router_from(pool, &|key| std::env::var(key).ok())
@@ -149,17 +159,31 @@ fn configured_router_from(
             lookup,
         )?
         .layer(axum::middleware::from_fn(multipart_csrf))
-        .layer(DefaultBodyLimit::max(MAX_BYTES + 16384))
+        .layer(DefaultBodyLimit::max(UPLOAD_BODY_LIMIT))
         .layer(axum::middleware::from_fn(headers)),
         lookup,
     )
 }
+
+async fn read_upload_body(body: Body, read_error: StatusCode) -> Result<Bytes, StatusCode> {
+    tokio::time::timeout(UPLOAD_BODY_TIMEOUT, to_bytes(body, UPLOAD_BODY_LIMIT))
+        .await
+        .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
+        .map_err(|_| read_error)
+}
+
+async fn complete_upload_body(mut request: Request, next: Next) -> Result<Response, StatusCode> {
+    // The staff guard runs first. Read to HTTP EOF because Multipart can stop at
+    // the closing boundary while the rest of the request body is still pending.
+    let body = std::mem::replace(request.body_mut(), Body::empty());
+    let bytes = read_upload_body(body, StatusCode::UNPROCESSABLE_ENTITY).await?;
+    *request.body_mut() = Body::from(bytes);
+    Ok(next.run(request).await)
+}
+
 /// Adapt a native multipart form token to the shared synchronizer-token verifier.
 /// The shared guard still validates the origin, session and constant-time token.
-async fn multipart_csrf(
-    mut request: axum::extract::Request,
-    next: axum::middleware::Next,
-) -> Result<Response, StatusCode> {
+async fn multipart_csrf(mut request: Request, next: Next) -> Result<Response, StatusCode> {
     use axum::extract::FromRequest;
     if request.method() == axum::http::Method::POST
         && request.uri().path() == "/admin/media"
@@ -170,15 +194,9 @@ async fn multipart_csrf(
             .get(header::CONTENT_TYPE)
             .cloned()
             .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
-        let body = std::mem::replace(request.body_mut(), axum::body::Body::empty());
-        let bytes = tokio::time::timeout(
-            std::time::Duration::from_secs(3),
-            axum::body::to_bytes(body, MAX_BYTES + 16384),
-        )
-        .await
-        .map_err(|_| StatusCode::REQUEST_TIMEOUT)?
-        .map_err(|_| StatusCode::PAYLOAD_TOO_LARGE)?;
-        let mut copy = axum::http::Request::new(axum::body::Body::from(bytes.clone()));
+        let body = std::mem::replace(request.body_mut(), Body::empty());
+        let bytes = read_upload_body(body, StatusCode::PAYLOAD_TOO_LARGE).await?;
+        let mut copy = axum::http::Request::new(Body::from(bytes.clone()));
         copy.extensions_mut().extend(request.extensions().clone());
         copy.headers_mut()
             .insert(header::CONTENT_TYPE, content_type);
@@ -198,7 +216,7 @@ async fn multipart_csrf(
                 token.parse().map_err(|_| StatusCode::FORBIDDEN)?,
             );
         }
-        *request.body_mut() = axum::body::Body::from(bytes);
+        *request.body_mut() = Body::from(bytes);
     }
     Ok(next.run(request).await)
 }
